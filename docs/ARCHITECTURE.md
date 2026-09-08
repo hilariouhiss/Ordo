@@ -4,7 +4,7 @@
 | --- | --- |
 | 文档版本 | v1.0 |
 | 更新日期 | 2026-09-08 |
-| 状态 | 草案（待评审） |
+| 状态 | 已生效（M0 部分落地，随实现迭代） |
 | 关联文档 | [PRD.md](./PRD.md) |
 
 > 本文档描述 Ordo 的应用架构，是需求（PRD）到代码之间的桥梁。目录结构、模块边界、数据流与关键决策以本文为准；实现时若偏离，需同步更新本文。
@@ -146,18 +146,23 @@ models.rs / db.rs ← 类型定义 / 连接与迁移
 ### 3.2 命令设计
 
 - Tauri 命令统一放在 `commands.rs`（按领域分 `mod` 或分组函数，随规模再拆文件）。
-- 命名用 `<domain>:<action>` 前缀，前端 `invoke` 字符串与之一一对应，集中在 `common/ipc` 维护常量，避免散落魔法字符串。
+- 命名用 `<domain>:<action>` 前缀，前端 `invoke` 字符串与之一一对应，集中在 `src/common/ipc/commands.ts` 维护常量，避免散落魔法字符串。
 
   ```
   task:list, task:create, task:update, task:complete, task:softDelete, task:restore
-  project:list, project:create, project:update, project:archive
+  subtask:list, subtask:create, subtask:update, subtask:complete, subtask:delete, subtask:reorder
   tag:list, tag:create, tag:update, tag:delete
-  board:listColumns, board:moveTask, board:addColumn
+  project:list, project:create, project:update, project:archive, project:restore
+  board:listColumns, board:addColumn, board:updateColumn, board:deleteColumn, board:moveTask
+  search:query
+  comment:list, comment:create, comment:update, comment:delete
+  time:list, time:create, time:update, time:delete, time:start, time:stop
   stats:trend, stats:projectProgress, stats:timeDistribution
   settings:get, settings:set
+  backup:export, backup:import
   ```
 
-- 每个命令返回 `Result<T, AppError>`，`AppError` 实现 `Serialize` 以跨 IPC 传递可读错误。
+- 每个命令返回 `Result<T, AppError>`；`AppError` 需实现 `Serialize`（随 F-07 落地）以跨 IPC 传递可读错误。
 
 ### 3.3 状态与事务
 
