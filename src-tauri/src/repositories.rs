@@ -438,6 +438,26 @@ pub mod task_tags {
             tag_from_row,
         )
     }
+
+    /// Every (task_id, tag_id) link involving live tags; the read path behind
+    /// `task:list`'s embedded `tagIds`.
+    pub fn list_all(conn: &Connection) -> Result<Vec<(Uuid, Uuid)>, AppError> {
+        let mut stmt = conn.prepare(
+            "SELECT tt.task_id, tt.tag_id FROM task_tags tt \
+             JOIN tags t ON t.id = tt.tag_id \
+             WHERE t.deleted_at IS NULL \
+             ORDER BY tt.task_id, t.name COLLATE NOCASE",
+        )?;
+        let links = stmt
+            .query_and_then([], |row| {
+                Ok((
+                    parse_uuid(row.get("task_id")?)?,
+                    parse_uuid(row.get("tag_id")?)?,
+                ))
+            })?
+            .collect::<Result<Vec<(Uuid, Uuid)>, AppError>>()?;
+        Ok(links)
+    }
 }
 
 #[cfg(test)]

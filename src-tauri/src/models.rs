@@ -162,6 +162,19 @@ pub struct Setting {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A task plus its tag associations — the response shape of `task:list`.
+///
+/// There is no dedicated command for reading task↔tag links; the task list
+/// carries them so the frontend store can filter by tag in one round trip.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskWithTags {
+    #[serde(flatten)]
+    pub task: Task,
+    #[serde(default)]
+    pub tag_ids: Vec<Uuid>,
+}
+
 /// Input payloads for write commands.
 ///
 /// Nullable columns in update payloads use [`Patch`]: a missing field leaves
@@ -285,6 +298,36 @@ mod tests {
         assert!(new_task.tag_ids.is_empty());
         assert!(new_task.subtask_titles.is_empty());
         assert_eq!(new_task.priority, None);
+    }
+
+    #[test]
+    fn task_with_tags_flattens_task_fields() {
+        let task = Task {
+            id: Uuid::nil(),
+            project_id: None,
+            title: "写周报".into(),
+            note: None,
+            priority: Priority::None,
+            column_id: None,
+            due_at: None,
+            completed_at: None,
+            repeat_rule: None,
+            sort_order: "n".into(),
+            created_at: ts(),
+            updated_at: ts(),
+            deleted_at: None,
+        };
+        let value = serde_json::to_value(TaskWithTags {
+            task: task.clone(),
+            tag_ids: vec![Uuid::nil()],
+        })
+        .unwrap();
+
+        // Task fields sit at the top level next to `tagIds`.
+        assert_eq!(value["id"], json!(task.id.to_string()));
+        assert_eq!(value["title"], json!("写周报"));
+        assert_eq!(value["tagIds"], json!([Uuid::nil().to_string()]));
+        assert!(value.get("task").is_none(), "inner task is flattened away");
     }
 
     #[test]

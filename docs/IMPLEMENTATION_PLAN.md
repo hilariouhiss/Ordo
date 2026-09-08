@@ -58,6 +58,7 @@ backup:export|import
 **数据约定**
 
 - UUID v4 主键、ISO-8601 UTC 时间戳、`deleted_at` 软删除、`sort_order`/`position` 字典序排序键。
+- `task:list` 返回的任务对象内嵌 `tagIds`（任务-标签关联的唯一读取路径；关联写入随 `task:create`/`task:update` 的 `tagIds` 字段）。
 - 排序键由后端 `sort.rs` 的 `between(a, b)` 统一生成（fractional indexing；键耗尽时局部重排），前端只传目标位置的前驱/后继键。
 - 截止时间存 UTC；「今天/即将到来」的本地日期边界由前端用 date-fns 按用户时区计算，后端提醒按 UTC 扫描。
 
@@ -96,7 +97,7 @@ F-04、F-07、F-08 与其余任务无依赖，可并行。
 | --- | --- | --- | --- | --- | --- |
 | T-01 | 任务/标签/子任务仓储 | `src-tauri/src/repositories.rs`：task/tag/subtask 的 CRUD + 软删除过滤 + sort_order 排序 + task_tag 关联 | 单测（in-memory）覆盖 CRUD 与软删除 | F-05/06 | ✅ |
 | T-02 | 任务/标签服务与命令 | `services.rs`：业务规则（complete 写 completed_at、事务创建任务+标签+子任务）；`commands.rs`：`task:*`、`tag:*`、`subtask:*`；`lib.rs` 注册 invoke_handler | `cargo test` 通过；`task:complete` 后 completed_at 落库且 today 查询不含该任务 | T-01 | ✅ |
-| T-03 | 任务前端数据层 | `src/features/tasks/`：`types.ts`、`api.ts`、`store.ts`（createStore 全量数据）、`hooks.ts`（createTask/completeTask/updateTask/softDelete/restore…） | 乐观更新+reconcile+失败回滚符合 §3 数据流；Vitest 覆盖 store/hooks | F-04、T-02 | ⬜ |
+| T-03 | 任务前端数据层 | `src/features/tasks/`：`types.ts`、`api.ts`、`store.ts`（createStore 全量数据）、`hooks.ts`（createTask/completeTask/updateTask/softDelete/restore…） | 乐观更新+reconcile+失败回滚符合 §3 数据流；Vitest 覆盖 store/hooks | F-04、T-02 | ✅ |
 | T-04 | 任务编辑器 | `TaskEditorDialog.tsx`：标题（必填）、备注、优先级、标签、截止时间；Zod 校验；新建/编辑复用 | 新建任务 <1s 落库并可见；校验错误有明确提示 | T-03、F-03 | ⬜ |
 | T-05 | 四个任务视图 | `features/tasks/components/views/`：Inbox/Today/Upcoming/Completed；优先级/标签/截止日期筛选排序；VirtualList 长列表 | 完成任务立即从「今天」消失并进入「已完成」；万级任务滚动不掉帧 | T-03/04 | ⬜ |
 | T-06 | 子任务 UI | 任务详情内子任务列表：增删改、勾选完成、手动排序（排序键） | 父任务显示子任务完成进度；排序持久化 | T-03/05 | ⬜ |

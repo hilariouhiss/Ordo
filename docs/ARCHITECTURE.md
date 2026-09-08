@@ -202,7 +202,7 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 | 实体 | 关键字段 |
 | --- | --- |
 | **Project** | name, description, color, icon, due_at, status(active/archived), sort_order(字典序键) |
-| **Task** | project_id(可空→收件箱), title, note, priority, column_id, due_at, completed_at, repeat_rule, sort_order(字典序键，按所属列表/看板列内排序) |
+| **Task** | project_id(可空→收件箱), title, note, priority, column_id, due_at, completed_at, repeat_rule, tagIds(关联标签，随 task:list 返回), sort_order(字典序键，按所属列表/看板列内排序) |
 | **Subtask** | task_id, title, done, sort_order(字典序键) |
 | **Tag / TaskTag** | name, color / task_id, tag_id |
 | **Comment** | task_id, body |

@@ -1,0 +1,103 @@
+/**
+ * Task-domain types mirroring the Rust models (`src-tauri/src/models.rs`).
+ *
+ * The wire format is serde camelCase; timestamps are ISO-8601 UTC strings.
+ * Update payloads follow the backend `Patch` semantics: a missing field
+ * leaves the stored value unchanged, an explicit `null` clears a nullable
+ * column.
+ */
+
+export type Priority = "high" | "medium" | "low" | "none";
+
+export type RepeatFreq = "daily" | "weekly" | "monthly";
+
+export interface RepeatRule {
+  freq: RepeatFreq;
+  /** Recur every `interval` periods; always >= 1. */
+  interval: number;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  color: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/**
+ * A task as returned by `task:list` — the row fields plus `tagIds`, the
+ * task's associations to live tags (there is no separate link-read command).
+ */
+export interface Task {
+  id: string;
+  projectId: string | null;
+  title: string;
+  note: string | null;
+  priority: Priority;
+  columnId: string | null;
+  dueAt: string | null;
+  completedAt: string | null;
+  repeatRule: RepeatRule | null;
+  tagIds: string[];
+  sortOrder: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface Subtask {
+  id: string;
+  taskId: string;
+  title: string;
+  done: boolean;
+  sortOrder: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+// --- Write payloads ----------------------------------------------------------
+
+export interface NewTask {
+  title: string;
+  note?: string | null;
+  priority?: Priority;
+  projectId?: string | null;
+  columnId?: string | null;
+  dueAt?: string | null;
+  tagIds?: string[];
+  subtaskTitles?: string[];
+}
+
+export interface UpdateTask {
+  title?: string;
+  note?: string | null;
+  priority?: Priority;
+  projectId?: string | null;
+  columnId?: string | null;
+  dueAt?: string | null;
+  /** `null` un-completes the task; missing leaves `completedAt` unchanged. */
+  completedAt?: string | null;
+  tagIds?: string[];
+}
+
+export interface NewTag {
+  name: string;
+  color?: string | null;
+}
+
+export interface UpdateTag {
+  name?: string;
+  color?: string | null;
+}
+
+export interface NewSubtask {
+  title: string;
+}
+
+export interface UpdateSubtask {
+  title?: string;
+  done?: boolean;
+}

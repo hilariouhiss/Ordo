@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    NewSubtask, NewTag, NewTask, Subtask, Tag, Task, UpdateSubtask, UpdateTag, UpdateTask,
+    NewSubtask, NewTag, NewTask, Subtask, Tag, Task, TaskWithTags, UpdateSubtask, UpdateTag,
+    UpdateTask,
 };
 use crate::services;
 
@@ -37,7 +38,7 @@ pub fn greet(name: &str) -> String {
 // --- task:* ----------------------------------------------------------------
 
 #[tauri::command(rename = "task:list")]
-pub fn task_list(db: State<'_, Db>) -> Result<Vec<Task>, AppError> {
+pub fn task_list(db: State<'_, Db>) -> Result<Vec<TaskWithTags>, AppError> {
     with_conn(&db, services::list_tasks)
 }
 

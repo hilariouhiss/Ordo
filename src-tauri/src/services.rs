@@ -13,7 +13,7 @@
 //! whole sibling list is rekeyed with evenly spaced keys — a local rebalance
 //! that keeps keys short forever.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use rusqlite::Connection;
@@ -21,8 +21,8 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    NewSubtask, NewTag, NewTask, Patch, Priority, Subtask, Tag, Task, UpdateSubtask, UpdateTag,
-    UpdateTask,
+    NewSubtask, NewTag, NewTask, Patch, Priority, Subtask, Tag, Task, TaskWithTags, UpdateSubtask,
+    UpdateTag, UpdateTask,
 };
 use crate::repositories::{subtasks, tags, task_tags, tasks};
 use crate::sort;
@@ -86,8 +86,22 @@ fn append_key(siblings: &[(Uuid, String)]) -> Result<(String, Vec<(Uuid, String)
 // Tasks
 // ---------------------------------------------------------------------------
 
-pub fn list_tasks(conn: &Connection) -> Result<Vec<Task>, AppError> {
-    tasks::list(conn)
+/// Lists tasks with their tag associations embedded; view derivation (inbox/
+/// today/upcoming/completed, local-timezone boundaries) happens on the
+/// frontend.
+pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskWithTags>, AppError> {
+    let tasks = tasks::list(conn)?;
+    let mut links: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for (task_id, tag_id) in task_tags::list_all(conn)? {
+        links.entry(task_id).or_default().push(tag_id);
+    }
+    Ok(tasks
+        .into_iter()
+        .map(|task| {
+            let tag_ids = links.remove(&task.id).unwrap_or_default();
+            TaskWithTags { task, tag_ids }
+        })
+        .collect())
 }
 
 /// Creates a task (plus tag links and initial subtasks) in one transaction;
@@ -556,6 +570,12 @@ mod tests {
         let titles: Vec<&str> = subtasks.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, vec!["回归测试", "发布公告"]);
         assert!(subtasks[0].sort_order < subtasks[1].sort_order);
+
+        // `task:list` carries each task's tag associations.
+        let listed = list_tasks(&conn).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].task.title, "上线检查");
+        assert_eq!(listed[0].tag_ids, vec![tag.id]);
     }
 
     #[test]
