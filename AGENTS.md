@@ -24,6 +24,14 @@
 - `pnpm tauri build` — full release build/bundle.
 - Rust (inside `src-tauri/`): `cargo check`, `cargo test`, `cargo build`.
 
+## Documentation
+
+Product and design documents live in `docs/`. Read them before working on the relevant area:
+
+- **`docs/PRD.md`** — product requirements: feature scope, priorities, milestones, and non-functional targets (performance, size, UX). Read before implementing any feature or changing behavior.
+
+**Rule: keep docs in sync with code.** Every change to behavior, scope, data model, or a non-functional target must update the corresponding document in `docs/` (currently `docs/PRD.md`) in the same commit. If a change introduces a new area that lacks a doc, add one.
+
 ## Backend architecture & conventions
 
 - **Layer rules:** Tauri commands (`commands.rs`) are thin wrappers over services (`services.rs`); services hold business logic and orchestrate repositories (`repositories.rs`); repositories are the *only* layer that writes SQL. Models (`models.rs`) define serde-serializable types. `db.rs` owns connection + migration setup.
