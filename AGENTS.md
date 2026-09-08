@@ -45,7 +45,7 @@ Product and design documents live in `docs/`. Read them before working on the re
 ## Important gotchas
 
 - **This is NOT React.** Files use `.tsx` and `jsxImportSource` is `solid-js`. Use Solid idioms: `createSignal`, `render` from `solid-js/web`, `class` (not `className`), and no `useState`/`useEffect`.
-- Tauri commands are defined in `src-tauri/src/commands.rs` with `#[tauri::command]`, registered in `lib.rs`'s `.invoke_handler(...)`, and called from the frontend via `invoke` from `@tauri-apps/api/core`.
+- Tauri commands are defined in `src-tauri/src/commands.rs` with `#[tauri::command]`, registered in `lib.rs`'s `.invoke_handler(...)`, and called from the frontend via `invoke` from `@tauri-apps/api/core`. Register each under its canonical `<domain>:<action>` name with `#[tauri::command(rename = "task:list")]` (Rust fn stays a valid identifier like `task_list`); argument keys are camelCase on the JS side (Tauri 2 default).
 - **Tailwind v4 is CSS-first** — there is no `tailwind.config.js` or PostCSS config. Configure the theme via the `@theme` block in `src/index.css`; the plugin is registered in `vite.config.ts` as `tailwindcss()`.
 - **rusqlite is pinned to `0.39`** because `refinery 0.9.2` requires `rusqlite <= 0.39`. Do not bump `rusqlite` past 0.39 unless you also upgrade `refinery` to a version that supports it (otherwise `cargo` fails on a `libsqlite3-sys` version conflict).
 - New Tauri plugins or capabilities must be added to `src-tauri/capabilities/default.json` (currently `core:default` and `opener:default`); otherwise the frontend cannot call them.

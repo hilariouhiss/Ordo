@@ -95,7 +95,7 @@ F-04、F-07、F-08 与其余任务无依赖，可并行。
 | ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | T-01 | 任务/标签/子任务仓储 | `src-tauri/src/repositories.rs`：task/tag/subtask 的 CRUD + 软删除过滤 + sort_order 排序 + task_tag 关联 | 单测（in-memory）覆盖 CRUD 与软删除 | F-05/06 | ✅ |
-| T-02 | 任务/标签服务与命令 | `services.rs`：业务规则（complete 写 completed_at、事务创建任务+标签+子任务）；`commands.rs`：`task:*`、`tag:*`、`subtask:*`；`lib.rs` 注册 invoke_handler | `cargo test` 通过；`task:complete` 后 completed_at 落库且 today 查询不含该任务 | T-01 | ⬜ |
+| T-02 | 任务/标签服务与命令 | `services.rs`：业务规则（complete 写 completed_at、事务创建任务+标签+子任务）；`commands.rs`：`task:*`、`tag:*`、`subtask:*`；`lib.rs` 注册 invoke_handler | `cargo test` 通过；`task:complete` 后 completed_at 落库且 today 查询不含该任务 | T-01 | ✅ |
 | T-03 | 任务前端数据层 | `src/features/tasks/`：`types.ts`、`api.ts`、`store.ts`（createStore 全量数据）、`hooks.ts`（createTask/completeTask/updateTask/softDelete/restore…） | 乐观更新+reconcile+失败回滚符合 §3 数据流；Vitest 覆盖 store/hooks | F-04、T-02 | ⬜ |
 | T-04 | 任务编辑器 | `TaskEditorDialog.tsx`：标题（必填）、备注、优先级、标签、截止时间；Zod 校验；新建/编辑复用 | 新建任务 <1s 落库并可见；校验错误有明确提示 | T-03、F-03 | ⬜ |
 | T-05 | 四个任务视图 | `features/tasks/components/views/`：Inbox/Today/Upcoming/Completed；优先级/标签/截止日期筛选排序；VirtualList 长列表 | 完成任务立即从「今天」消失并进入「已完成」；万级任务滚动不掉帧 | T-03/04 | ⬜ |

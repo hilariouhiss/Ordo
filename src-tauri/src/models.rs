@@ -162,6 +162,94 @@ pub struct Setting {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Input payloads for write commands.
+///
+/// Nullable columns in update payloads use [`Patch`]: a missing field leaves
+/// the stored value unchanged, an explicit `null` clears the column, and a
+/// value replaces it. (`Option<Option<T>>` alone cannot express this — serde
+/// collapses a missing field and an explicit `null` to the same `None`.)
+
+/// Update-patch semantics for one nullable column.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Patch<T> {
+    /// Field absent from the payload: leave the stored value unchanged.
+    #[default]
+    Unchanged,
+    /// Field present (possibly `null`): set the column to the given value.
+    Set(Option<T>),
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Patch::Set(Option::<T>::deserialize(deserializer)?))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTask {
+    pub title: String,
+    pub note: Option<String>,
+    pub priority: Option<Priority>,
+    pub project_id: Option<Uuid>,
+    pub column_id: Option<Uuid>,
+    pub due_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub tag_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub subtask_titles: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTask {
+    pub title: Option<String>,
+    #[serde(default)]
+    pub note: Patch<String>,
+    pub priority: Option<Priority>,
+    #[serde(default)]
+    pub project_id: Patch<Uuid>,
+    #[serde(default)]
+    pub column_id: Patch<Uuid>,
+    #[serde(default)]
+    pub due_at: Patch<DateTime<Utc>>,
+    #[serde(default)]
+    pub completed_at: Patch<DateTime<Utc>>,
+    /// Replace the task's tag set; missing leaves the set unchanged.
+    pub tag_ids: Option<Vec<Uuid>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTag {
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTag {
+    pub name: Option<String>,
+    #[serde(default)]
+    pub color: Patch<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSubtask {
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSubtask {
+    pub title: Option<String>,
+    pub done: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +266,25 @@ mod tests {
         let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
         keys.sort();
         keys
+    }
+
+    #[test]
+    fn update_payloads_distinguish_missing_and_null() {
+        let missing: UpdateTask = serde_json::from_value(json!({ "title": "新标题" })).unwrap();
+        assert_eq!(missing.title.as_deref(), Some("新标题"));
+        assert_eq!(missing.note, Patch::Unchanged);
+        assert_eq!(missing.tag_ids, None);
+
+        let explicit_null: UpdateTask =
+            serde_json::from_value(json!({ "note": null, "tagIds": [] })).unwrap();
+        assert_eq!(explicit_null.note, Patch::Set(None));
+        assert_eq!(explicit_null.tag_ids, Some(Vec::new()));
+        assert_eq!(explicit_null.due_at, Patch::Unchanged);
+
+        let new_task: NewTask = serde_json::from_value(json!({ "title": "任务" })).unwrap();
+        assert!(new_task.tag_ids.is_empty());
+        assert!(new_task.subtask_titles.is_empty());
+        assert_eq!(new_task.priority, None);
     }
 
     #[test]

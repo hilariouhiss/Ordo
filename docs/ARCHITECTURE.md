@@ -146,7 +146,7 @@ models.rs / db.rs / sort.rs ← 类型定义 / 连接与迁移 / 排序键工具
 ### 3.2 命令设计
 
 - Tauri 命令统一放在 `commands.rs`（按领域分 `mod` 或分组函数，随规模再拆文件）。
-- 命名用 `<domain>:<action>` 前缀，前端 `invoke` 字符串与之一一对应，集中在 `src/common/ipc/commands.ts` 维护常量，避免散落魔法字符串。
+- 命名用 `<domain>:<action>` 前缀，前端 `invoke` 字符串与之一一对应，集中在 `src/common/ipc/commands.ts` 维护常量，避免散落魔法字符串。Rust 侧用 `#[tauri::command(rename = "task:list")]` 注册为该名称（Rust 函数名保持合法标识符如 `task_list`）；命令参数键为 camelCase（Tauri 2 默认）。
 
   ```
   task:list, task:create, task:update, task:complete, task:softDelete, task:restore

@@ -228,6 +228,21 @@ pub mod tasks {
         )?;
         Ok(affected == 1)
     }
+
+    /// Targeted `sort_order` write used by service-level rebalances.
+    pub fn set_sort_order(
+        conn: &Connection,
+        id: Uuid,
+        sort_order: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE tasks SET sort_order = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL",
+            params![sort_order, at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
 }
 
 /// Tag CRUD (`tags` table). `name` is `UNIQUE COLLATE NOCASE`.
@@ -368,6 +383,21 @@ pub mod subtasks {
             "UPDATE subtasks SET deleted_at = ?1, updated_at = ?1 \
              WHERE id = ?2 AND deleted_at IS NULL",
             params![at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// Targeted `sort_order` write used by service-level rebalances.
+    pub fn set_sort_order(
+        conn: &Connection,
+        id: Uuid,
+        sort_order: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE subtasks SET sort_order = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL",
+            params![sort_order, at, id.to_string()],
         )?;
         Ok(affected == 1)
     }
