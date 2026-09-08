@@ -90,7 +90,11 @@ export default function AppShell() {
           </Show>
         </div>
 
-        <nav aria-label="任务视图" class="flex flex-col gap-1 px-2 py-3">
+        <nav aria-label="搜索" class="flex flex-col gap-1 px-2 pt-3">
+          <NavItem to="/search" icon={<Search size={18} />} label="搜索" collapsed={collapsed()} />
+        </nav>
+
+        <nav aria-label="任务视图" class="flex flex-col gap-1 px-2 pb-3 pt-2">
           <Show when={!collapsed()}>
             <p class="px-3 pb-1.5 text-xs font-medium text-subtle-foreground">任务</p>
           </Show>
@@ -129,7 +133,10 @@ export default function AppShell() {
 
         <nav aria-label="其他" class="flex flex-col gap-1 border-t border-border px-2 py-3">
           <NavItem to="/stats" icon={<BarChart3 size={18} />} label="统计" collapsed={collapsed()} />
-          <NavItem to="/search" icon={<Search size={18} />} label="搜索" collapsed={collapsed()} />
+          <ThemeToggle
+            class="w-full gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            showLabel={!collapsed()}
+          />
           <NavItem
             to="/settings"
             icon={<Settings size={18} />}
@@ -158,9 +165,8 @@ export default function AppShell() {
       </aside>
 
       <div class="flex min-w-0 flex-1 flex-col">
-        <header class="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
+        <header class="flex h-14 shrink-0 items-center border-b border-border px-6">
           <h1 class="text-lg font-semibold">{titleFor(location().pathname)}</h1>
-          <ThemeToggle />
         </header>
         <main class="min-h-0 flex-1 overflow-y-auto">
           <Outlet />
