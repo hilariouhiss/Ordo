@@ -86,7 +86,7 @@ backup:export|import
 | F-05 | Schema 迁移 V2 | `src-tauri/migrations/V2__schema.sql`：projects、board_columns、tasks、subtasks、tags、task_tags、comments、time_entries、settings 建表 + 外键 + 索引；FTS5 表 `task_search`/`comment_search`（external-content）+ 同步触发器 | 迁移可在空库执行；`cargo test` 迁移用例通过；软删除/外键语义正确 | — | ✅ |
 | F-06 | 后端模型与枚举 | `src-tauri/src/models.rs`：Project/Task/Subtask/Tag/Comment/TimeEntry/BoardColumn/Setting + Priority（high/medium/low/none）、RepeatRule、ProjectStatus 枚举，serde 全序列化 | 与 V2 Schema 一一对应；serde 字段名与前端类型对齐 | F-05 | ✅ |
 | F-07 | 错误类型扩展 | `src-tauri/src/error.rs`：新增 `Validation(String)`、`NotFound(String)`；实现 `Serialize` | IPC 可传递可读错误；`From` 转换完备 | — | ✅ |
-| F-08 | 排序键工具 | `src-tauri/src/sort.rs`：`first()`、`between(a,b)`、耗尽时局部重排函数；单元测试 | 任意两键间可生成中间键；相邻耗尽时正确重排；测试覆盖边界 | — | ⬜ |
+| F-08 | 排序键工具 | `src-tauri/src/sort.rs`：`first()`、`between(a,b)`、耗尽时局部重排函数；单元测试 | 任意两键间可生成中间键；相邻耗尽时正确重排；测试覆盖边界 | — | ✅ |
 
 F-04、F-07、F-08 与其余任务无依赖，可并行。
 

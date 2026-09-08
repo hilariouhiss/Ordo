@@ -4,6 +4,7 @@ mod error;
 pub mod models;
 mod repositories;
 mod services;
+pub mod sort;
 
 use std::path::PathBuf;
 
