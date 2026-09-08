@@ -78,7 +78,7 @@ backup:export|import
 | ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 |
 | --- | --- | --- | --- | --- |
 | F-01 | 设计 Token 与主题 | `src/index.css`（@theme 颜色/间距/圆角/字号/阴影 Token；深/浅色 CSS 变量）；`src/common/stores/ui.ts`（主题状态） | 深浅主题可切换且跟随系统；组件只引用 Token 不写死色值 | — |
-| F-02 | 路由与 AppShell | `src/app/router.tsx`（`/today`、`/upcoming`、`/inbox`、`/completed`、`/projects/:projectId`、`/stats`、`/settings`、`/search`，`/` 重定向 `/today`）；`src/app/AppShell.tsx`（侧边栏+顶栏+内容区）；路由懒加载 | 全部路由可达、未知路由有回退、`pnpm typecheck` 通过 | F-01 |
+| F-02 | 路由与 AppShell | `src/router.tsx`（`/today`、`/upcoming`、`/inbox`、`/completed`、`/projects/:projectId`、`/stats`、`/settings`、`/search`，`/` 重定向 `/today`，未知路径 404）；`src/app/AppShell.tsx`（侧边栏+顶栏+内容区）；路由懒加载 | 全部路由可达、未知路由有回退、`pnpm typecheck` 通过 | F-01 |
 | F-03 | 通用组件库 | `src/common/components/`：Button/Input/Textarea/Select/Dialog/DropdownMenu/Tabs/Tooltip/Popover/Checkbox/Badge/VirtualList（自研轻量虚拟滚动） | 组件基于 Kobalte；动效仅 transform/opacity 且适配 `prefers-reduced-motion` | F-01 |
 | F-04 | IPC 封装与错误归一化 | `src/common/ipc/`：`invoke.ts`（类型化封装）、`commands.ts`（命令常量）、`errors.ts`（AppError→`{code,message}`） | 所有 IPC 走统一封装；错误结构一致 | — |
 | F-05 | Schema 迁移 V2 | `src-tauri/migrations/V2__schema.sql`：projects、board_columns、tasks、subtasks、tags、task_tags、comments、time_entries、settings 建表 + 外键 + 索引；FTS5 表 `task_search`/`comment_search`（external-content）+ 同步触发器 | 迁移可在空库执行；`cargo test` 迁移用例通过；软删除/外键语义正确 | — |

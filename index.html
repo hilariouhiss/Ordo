@@ -1,11 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
     <link rel="icon" type="image/svg+xml" href="/src/assets/logo.svg" />
-    <title>Tauri + Solid + Typescript App</title>
+    <title>Ordo</title>
+    <script>
+      // Apply the persisted/system theme before the bundle loads to avoid a
+      // light-mode flash. Must stay in sync with `src/common/stores/ui.ts`.
+      (function () {
+        try {
+          var stored = localStorage.getItem("ordo.theme");
+          var dark;
+          if (stored === "dark") dark = true;
+          else if (stored === "light") dark = false;
+          else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (dark) document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (e) {
+          /* no-op: the store re-applies the theme once JS loads */
+        }
+      })();
+    </script>
   </head>
 
   <body>

@@ -48,11 +48,11 @@ Ordo 是 **local-first、单用户** 的桌面应用，采用三层架构：
 
 ```
 src/
+├── index.tsx                     # 渲染入口：RouterProvider
+├── router.tsx                    # 路由定义（代码式，TanStack Router）
+├── index.css                     # Tailwind 入口 + @theme 设计 Token
 ├── app/                          # 应用装配层
-│   ├── index.tsx                 # 渲染入口：RouterProvider
-│   ├── router.tsx                # 路由定义
-│   ├── AppShell.tsx              # 布局壳：侧边栏 + 主区 + 顶栏
-│   └── index.css                 # Tailwind 入口 + @theme 设计 Token
+│   └── AppShell.tsx              # 布局壳：侧边栏 + 顶栏 + 内容区
 ├── features/                     # 业务领域（按功能划分）
 │   ├── tasks/                    # 任务
 │   │   ├── components/           # TaskItem / TaskList / 编辑器 / 看板卡
@@ -107,8 +107,8 @@ src/
 
 ### 2.4 路由
 
-- 基于 **TanStack Router**（代码式路由，`app/router.tsx` 定义）。
-- 顶层布局：`AppShell`（侧边栏导航 + 内容区），子路由挂载各视图：
+- 基于 **TanStack Router**（代码式路由，`src/router.tsx` 定义，入口 `src/index.tsx`）。
+- 顶层布局：根路由的 `component` 为 `AppShell`（侧边栏导航 + 顶栏 + 内容区），子路由经懒加载挂载各视图：
   - `/today` 今天、`/upcoming` 即将到来、`/inbox` 收件箱、`/completed` 已完成
   - `/projects/:projectId` 项目详情（列表/看板/进度切换）
   - `/stats` 统计、`/settings` 设置、`/search` 搜索
