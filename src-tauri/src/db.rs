@@ -75,7 +75,10 @@ mod tests {
             "task_search",
             "comment_search",
         ] {
-            assert!(names.iter().any(|name| name == expected), "missing {expected}");
+            assert!(
+                names.iter().any(|name| name == expected),
+                "missing {expected}"
+            );
         }
     }
 
@@ -87,7 +90,10 @@ mod tests {
              VALUES ('task-1', 'No project', 'missing-project', 'none', 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
             [],
         );
-        assert!(result.is_err(), "insert with missing project_id should fail");
+        assert!(
+            result.is_err(),
+            "insert with missing project_id should fail"
+        );
     }
 
     #[test]
@@ -116,8 +122,11 @@ mod tests {
         assert_eq!(matches("quarterly"), 1);
         assert_eq!(matches("old"), 1);
 
-        conn.execute("UPDATE tasks SET note = 'new budget review' WHERE id = 'task-1'", [])
-            .unwrap();
+        conn.execute(
+            "UPDATE tasks SET note = 'new budget review' WHERE id = 'task-1'",
+            [],
+        )
+        .unwrap();
         assert_eq!(matches("old"), 0);
         assert_eq!(matches("budget"), 1);
 
