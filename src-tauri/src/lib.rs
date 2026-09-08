@@ -2,7 +2,7 @@ mod commands;
 mod db;
 mod error;
 pub mod models;
-mod repositories;
+pub mod repositories;
 mod services;
 pub mod sort;
 

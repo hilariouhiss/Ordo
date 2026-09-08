@@ -24,14 +24,23 @@ pub fn init(path: &Path) -> Result<Db, AppError> {
     Ok(Mutex::new(conn))
 }
 
+/// In-memory SQLite connection with all migrations applied; shared by
+/// repository unit tests.
+#[cfg(test)]
+pub(crate) fn test_conn() -> Connection {
+    let mut conn = Connection::open_in_memory().expect("open in-memory db");
+    embedded::migrations::runner()
+        .run(&mut conn)
+        .expect("run migrations");
+    conn
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn migrated_connection() -> Connection {
-        let mut conn = Connection::open_in_memory().unwrap();
-        embedded::migrations::runner().run(&mut conn).unwrap();
-        conn
+        test_conn()
     }
 
     #[test]
