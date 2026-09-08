@@ -134,7 +134,7 @@ services.rs   ← 业务规则、编排、事务边界
    ↓
 repositories.rs ← 唯一写 SQL 的层，映射 rows → models
    ↓
-models.rs / db.rs ← 类型定义 / 连接与迁移
+models.rs / db.rs / sort.rs ← 类型定义 / 连接与迁移 / 排序键工具
 ```
 
 **依赖规则：**
@@ -162,7 +162,7 @@ models.rs / db.rs ← 类型定义 / 连接与迁移
   backup:export, backup:import
   ```
 
-- 每个命令返回 `Result<T, AppError>`；`AppError` 需实现 `Serialize`（随 F-07 落地）以跨 IPC 传递可读错误。
+- 每个命令返回 `Result<T, AppError>`；`AppError` 已实现 `Serialize`（F-07），跨 IPC 传递 `{ code, message }` 形态的可读错误。
 
 ### 3.3 状态与事务
 
@@ -172,7 +172,8 @@ models.rs / db.rs ← 类型定义 / 连接与迁移
 
 ### 3.4 错误处理
 
-- 统一 `AppError`（`error.rs`），当前含 `Database`、`Migration`、`Db` 变体，随功能扩展（如校验错误、NotFound）。
+- 统一 `AppError`（`error.rs`），含 `Database`、`Migration`、`Db`、`Validation`、`NotFound` 变体（F-07），序列化为 `{ code, message }`，code 为 snake_case 并与前端 `common/ipc/errors.ts` 的白名单保持一致。
+- 排序键相关错误（`sort::SortError`）经 `From` 转换并入 `Validation`。
 - 错误向上传播，`commands` 层不做吞错；前端 `common/ipc` 负责把错误归一化为 UI 提示。
 
 ---
@@ -184,7 +185,7 @@ models.rs / db.rs ← 类型定义 / 连接与迁移
 - 主键：TEXT UUID v4。
 - 时间戳：ISO-8601 UTC 字符串。
 - 软删除：`deleted_at`（可空），查询默认过滤 `deleted_at IS NULL`。
-- 排序：**字典序字符串键**（fractional indexing）。`sort_order` 是 TEXT 类型的排序键，按字典序（lexicographic）升序比较；在任意两个已有序键之间插入新项时，生成一个**介于两者之间的中间字符串**（如 `a` 与 `c` 之间取 `b`、`b` 与 `c` 之间取 `bm`），从而**无需重排已有行**即可完成插入。仅在中间字符串耗尽（两键相邻、无中间值可生成）时才对该范围内少量行重新分配键。拖拽重排即「把目标行的 `sort_order` 改写成目标间隙的中间键」。
+- 排序：**字典序字符串键**（fractional indexing）。`sort_order` 是 TEXT 类型的排序键，按字典序（lexicographic）升序比较；在任意两个已有序键之间插入新项时，生成一个**介于两者之间的中间字符串**（如 `a` 与 `c` 之间取 `b`、`b` 与 `c` 之间取 `bm`），从而**无需重排已有行**即可完成插入。仅在中间字符串耗尽（两键相邻、无中间值可生成）时才对该范围内少量行重新分配键。拖拽重排即「把目标行的 `sort_order` 改写成目标间隙的中间键」。工具已落地于 `src-tauri/src/sort.rs`（F-08）：键为 `'a'..'z'` 字符串，提供 `first`/`before`/`after`/`between`/`spread`；耗尽或连续尾部追加导致键过长时，用 `spread` 对兄弟列表整体重排。
 
 ### 4.2 核心实体
 

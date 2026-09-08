@@ -2,7 +2,7 @@
 
 ## What this is
 
-`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The full stack is wired up and compiles; M0 infrastructure F-01–F-05 is implemented (design tokens/theme, routed app shell, component library, typed IPC layer, and the V2 SQLite schema with FTS5), but business logic is not implemented yet. The only custom command is a demo `greet` that echoes a name back from Rust.
+`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The full stack is wired up and compiles; all M0 infrastructure F-01–F-08 is implemented (design tokens/theme, routed app shell, component library, typed IPC layer, the V2 SQLite schema with FTS5, domain models/enums, IPC error serialization, and lexicographic sort-key utilities), but business logic is not implemented yet. The only custom command is a demo `greet` that echoes a name back from Rust.
 
 ## Stack / layout
 
