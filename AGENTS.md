@@ -29,8 +29,9 @@
 Product and design documents live in `docs/`. Read them before working on the relevant area:
 
 - **`docs/PRD.md`** — product requirements: feature scope, priorities, milestones, and non-functional targets (performance, size, UX). Read before implementing any feature or changing behavior.
+- **`docs/ARCHITECTURE.md`** — application architecture: directory structure, module boundaries, layered data flow, database model, and key design decisions. Read before changing structure, module boundaries, or data model.
 
-**Rule: keep docs in sync with code.** Every change to behavior, scope, data model, or a non-functional target must update the corresponding document in `docs/` (currently `docs/PRD.md`) in the same commit. If a change introduces a new area that lacks a doc, add one.
+**Rule: keep docs in sync with code.** Every change to behavior, scope, data model, or a non-functional target must update the corresponding document in `docs/` in the same commit. Structure/module-boundary changes update `ARCHITECTURE.md`; feature/scope changes update `PRD.md`. If a change introduces a new area that lacks a doc, add one.
 
 ## Backend architecture & conventions
 
