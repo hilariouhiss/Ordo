@@ -1,7 +1,7 @@
 mod commands;
 mod db;
 mod error;
-mod models;
+pub mod models;
 mod repositories;
 mod services;
 
