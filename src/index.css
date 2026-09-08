@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/*
+ * Project design tokens (Tailwind v4 CSS-first theme).
+ * Extend via the `@theme` directive, e.g.:
+ *
+ *   @theme {
+ *     --color-brand: #5b8def;
+ *   }
+ */

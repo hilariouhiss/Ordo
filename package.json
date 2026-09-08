@@ -8,19 +8,29 @@
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "license": "MIT",
   "dependencies": {
+    "@kobalte/core": "^0.13.14",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/solid-router": "^1.170.31",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "date-fns": "^4.4.0",
     "lucide-solid": "^1.42.0",
-    "solid-js": "^1.9.3"
+    "solid-js": "^1.9.3",
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
-    "vite-plugin-solid": "^2.11.12"
+    "vite-plugin-solid": "^2.11.12",
+    "vitest": "^5.0.0"
   }
 }
