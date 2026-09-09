@@ -1,10 +1,30 @@
-import PlaceholderView from "../../../../app/PlaceholderView";
+import { Show, createMemo } from "solid-js";
+import { tasksState } from "../../store";
+import { viewInbox } from "../../view-filters";
+import { SORT_OPTIONS, TaskListView } from "../TaskListView";
+import { LoadErrorPane, LoadingPane } from "./ViewState";
+import { useViewData } from "./useViewData";
 
 export function InboxView() {
+  const { failed, retry } = useViewData();
+  const tasks = createMemo(() => viewInbox(tasksState.tasks));
+
   return (
-    <PlaceholderView
-      title="收件箱"
-      description="未归属任何项目的任务会显示在这里。任务管理将在后续里程碑中实现。"
-    />
+    <Show
+      when={tasksState.loaded}
+      fallback={
+        <Show when={!failed()} fallback={<LoadErrorPane onRetry={() => void retry()} />}>
+          <LoadingPane />
+        </Show>
+      }
+    >
+      <TaskListView
+        tasks={tasks}
+        emptyTitle="收件箱是空的"
+        emptyDescription="未归属任何项目的任务会收集在这里，点击右上角「新建任务」开始。"
+        defaultSort="manual"
+        sortOptions={[SORT_OPTIONS.manual, SORT_OPTIONS.priority, SORT_OPTIONS.due]}
+      />
+    </Show>
   );
 }
