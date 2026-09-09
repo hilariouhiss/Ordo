@@ -192,11 +192,23 @@ describe("TodayView", () => {
     expect(screen.getByText("10000 个任务")).toBeTruthy();
   });
 
-  it("opens the editor prefilled when a row title is clicked", async () => {
+  it("opens the task detail (with subtask loading) when a row title is clicked", async () => {
     store.setAll([task("t1", { title: "旧标题", dueAt: iso(0, 23) })], []);
 
     render(() => <TodayView />);
     fireEvent.click(screen.getByText("旧标题"));
+
+    expect(await screen.findByText("任务详情与子任务")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await waitFor(() => expect(api.listSubtasks).toHaveBeenCalledWith("t1"));
+  });
+
+  it("opens the editor prefilled from the row menu", async () => {
+    store.setAll([task("t1", { title: "旧标题", dueAt: iso(0, 23) })], []);
+
+    render(() => <TodayView />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "任务操作：旧标题" }));
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "编辑" }));
 
     expect(await screen.findByText("编辑任务")).toBeTruthy();
     expect((screen.getByLabelText("标题") as HTMLInputElement).value).toBe("旧标题");

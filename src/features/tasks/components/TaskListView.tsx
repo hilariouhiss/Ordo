@@ -5,6 +5,7 @@ import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
 import { tasksState } from "../store";
 import type { Priority, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
+import { TaskDetailDialog } from "./TaskDetailDialog";
 import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskItemRow } from "./TaskItemRow";
 
@@ -50,6 +51,8 @@ export function TaskListView(props: TaskListViewProps) {
   const [sortMode, setSortMode] = createSignal<SortMode>(props.defaultSort);
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingTask, setEditingTask] = createSignal<Task | null>(null);
+  const [detailOpen, setDetailOpen] = createSignal(false);
+  const [detailTask, setDetailTask] = createSignal<Task | null>(null);
   // Captured once so day boundaries don't flap between rows mid-render.
   const [now] = createSignal(new Date());
 
@@ -76,6 +79,15 @@ export function TaskListView(props: TaskListViewProps) {
   const openEdit = (task: Task) => {
     setEditingTask(task);
     setEditorOpen(true);
+  };
+  const openDetail = (task: Task) => {
+    setDetailTask(task);
+    setDetailOpen(true);
+  };
+  /** The detail's 编辑 button: swap the detail dialog for the editor. */
+  const openEditFromDetail = (task: Task) => {
+    setDetailOpen(false);
+    openEdit(task);
   };
   const toggleComplete = (task: Task) => {
     void (task.completedAt ? uncompleteTask(task.id) : completeTask(task.id));
@@ -203,6 +215,7 @@ export function TaskListView(props: TaskListViewProps) {
               task={task}
               now={now()}
               onToggleComplete={toggleComplete}
+              onOpenDetail={openDetail}
               onEdit={openEdit}
               onDelete={removeTask}
             />
@@ -215,6 +228,17 @@ export function TaskListView(props: TaskListViewProps) {
         onOpenChange={setEditorOpen}
         task={editingTask() ?? undefined}
       />
+
+      <Show when={detailTask()}>
+        {(task) => (
+          <TaskDetailDialog
+            open={detailOpen()}
+            onOpenChange={setDetailOpen}
+            task={task()}
+            onEdit={openEditFromDetail}
+          />
+        )}
+      </Show>
     </div>
   );
 }

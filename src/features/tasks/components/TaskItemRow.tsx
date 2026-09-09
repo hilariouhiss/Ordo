@@ -5,7 +5,7 @@ import { getTag } from "../store";
 import type { Priority, Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 
-const PRIORITY_BADGES: Record<Priority, { label: string; class: string } | null> = {
+export const PRIORITY_BADGES: Record<Priority, { label: string; class: string } | null> = {
   high: { label: "高", class: "bg-priority-high/10 text-priority-high" },
   medium: { label: "中", class: "bg-priority-medium/10 text-priority-medium" },
   low: { label: "低", class: "bg-priority-low/10 text-priority-low" },
@@ -17,6 +17,8 @@ export interface TaskItemRowProps {
   /** Current clock, passed in so day boundaries stay stable per view render. */
   now: Date;
   onToggleComplete: (task: Task) => void;
+  /** Clicking the title opens the task detail (subtasks live there). */
+  onOpenDetail: (task: Task) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
 }
@@ -47,7 +49,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
         type="button"
         class="min-w-0 flex-1 truncate text-left text-sm text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
         title={props.task.title}
-        onClick={() => props.onEdit(props.task)}
+        onClick={() => props.onOpenDetail(props.task)}
       >
         <span classList={{ "text-subtle-foreground line-through": completed() }}>
           {props.task.title}
