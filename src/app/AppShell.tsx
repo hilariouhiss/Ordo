@@ -1,20 +1,32 @@
-import { Show, type JSX } from "solid-js";
+import { For, Show, createSignal, onMount, type JSX } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { Link, Outlet, useLocation } from "@tanstack/solid-router";
 import {
   BarChart3,
   CalendarClock,
   CheckCircle2,
-  FolderKanban,
+  ChevronDown,
   Inbox,
   ListTodo,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
+  RotateCcw,
   Search,
   Settings,
   Sun,
 } from "lucide-solid";
 import { ThemeToggle } from "../common/components/ThemeToggle";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
+import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
+import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
+import { getProjectIcon } from "../features/projects/icons";
+import {
+  activeProjects,
+  archivedProjects,
+  projectsState,
+} from "../features/projects/store";
+import type { Project } from "../features/projects/types";
 
 type NavPath =
   | "/inbox"
@@ -72,6 +84,31 @@ function NavItem(props: {
 export default function AppShell() {
   const location = useLocation();
   const collapsed = () => sidebarCollapsed();
+  const [editorOpen, setEditorOpen] = createSignal(false);
+  const [editingProject, setEditingProject] = createSignal<Project | null>(null);
+  const [archivedOpen, setArchivedOpen] = createSignal(false);
+
+  // The sidebar always shows projects, so the root shell owns the one-shot
+  // initial load (retried by navigation remounts until it succeeds).
+  onMount(() => {
+    if (!projectsState.loaded) void loadProjects();
+  });
+
+  const openCreateProject = () => {
+    setEditingProject(null);
+    setEditorOpen(true);
+  };
+
+  const projectLinkClass = () =>
+    "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors";
+  const projectIcon = (project: Project) => (
+    <span
+      class="shrink-0"
+      style={project.color ? { color: project.color } : undefined}
+    >
+      <Dynamic component={getProjectIcon(project.icon)} size={16} />
+    </span>
+  );
 
   return (
     <div class="flex h-screen overflow-hidden bg-background text-foreground">
@@ -115,19 +152,95 @@ export default function AppShell() {
         </nav>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-          <Show when={!collapsed()}>
-            <div class="mb-1.5 flex items-center justify-between px-3">
-              <p class="text-xs font-medium text-subtle-foreground">项目</p>
-              <FolderKanban size={14} class="text-subtle-foreground" aria-hidden="true" />
-            </div>
-          </Show>
           <Show
             when={!collapsed()}
+            fallback={<div class="mx-auto mb-2 w-8 border-t border-border" aria-hidden="true" />}
+          >
+            <div class="mb-1.5 flex items-center justify-between px-3">
+              <p class="text-xs font-medium text-subtle-foreground">项目</p>
+              <button
+                type="button"
+                aria-label="新建项目"
+                class="flex size-5 items-center justify-center rounded text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                onClick={openCreateProject}
+              >
+                <Plus size={14} aria-hidden="true" />
+              </button>
+            </div>
+          </Show>
+
+          <nav aria-label="项目列表" class="flex flex-col gap-1">
+            <For each={activeProjects()}>
+              {(project) => (
+                <Link
+                  to="/projects/$projectId"
+                  params={{ projectId: project.id }}
+                  class={projectLinkClass()}
+                  activeProps={{ class: `${projectLinkClass()} bg-primary/10 font-medium text-primary` }}
+                  inactiveProps={{
+                    class: `${projectLinkClass()} text-muted-foreground hover:bg-surface-hover hover:text-foreground`,
+                  }}
+                  title={project.name}
+                >
+                  {projectIcon(project)}
+                  <Show when={!collapsed()}>
+                    <span class="min-w-0 truncate">{project.name}</span>
+                  </Show>
+                </Link>
+              )}
+            </For>
+          </nav>
+
+          <Show
+            when={!collapsed() && archivedProjects().length > 0}
             fallback={
-              <div class="mx-auto mb-2 w-8 border-t border-border" aria-hidden="true" />
+              <Show when={!collapsed() && activeProjects().length === 0}>
+                <p class="px-3 py-1 text-sm text-subtle-foreground">暂无项目</p>
+              </Show>
             }
           >
-            <p class="px-3 py-1 text-sm text-subtle-foreground">暂无项目</p>
+            <button
+              type="button"
+              class="mt-2 flex w-full items-center gap-1.5 rounded px-3 py-1 text-xs text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              aria-expanded={archivedOpen()}
+              onClick={() => setArchivedOpen(!archivedOpen())}
+            >
+              <ChevronDown
+                size={12}
+                aria-hidden="true"
+                class="transition-transform motion-reduce:transition-none"
+                classList={{ "-rotate-90": !archivedOpen() }}
+              />
+              已归档 ({archivedProjects().length})
+            </button>
+            <Show when={archivedOpen()}>
+              <nav aria-label="已归档项目" class="mt-1 flex flex-col gap-1">
+                <For each={archivedProjects()}>
+                  {(project) => (
+                    <div class="group flex items-center gap-1 pr-1.5">
+                      <Link
+                        to="/projects/$projectId"
+                        params={{ projectId: project.id }}
+                        class="flex min-w-0 flex-1 items-center gap-3 rounded-md px-3 py-2 text-sm text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-muted-foreground"
+                        title={project.name}
+                      >
+                        {projectIcon(project)}
+                        <span class="min-w-0 truncate">{project.name}</span>
+                      </Link>
+                      <button
+                        type="button"
+                        aria-label={`恢复项目 ${project.name}`}
+                        title="恢复项目"
+                        class="flex size-6 shrink-0 items-center justify-center rounded text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                        onClick={() => void restoreProject(project.id)}
+                      >
+                        <RotateCcw size={13} aria-hidden="true" />
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </nav>
+            </Show>
           </Show>
         </div>
 
@@ -172,6 +285,12 @@ export default function AppShell() {
           <Outlet />
         </main>
       </div>
+
+      <ProjectEditorDialog
+        open={editorOpen()}
+        onOpenChange={setEditorOpen}
+        project={editingProject() ?? undefined}
+      />
     </div>
   );
 }

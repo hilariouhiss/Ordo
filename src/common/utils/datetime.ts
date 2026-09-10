@@ -22,3 +22,23 @@ export function localInputValueToIso(local: string): string | null {
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
 }
+
+/** UTC ISO timestamp → `date` input value ("yyyy-MM-dd", local); `""` when unset/invalid. */
+export function isoToLocalDateValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return format(date, "yyyy-MM-dd");
+}
+
+/**
+ * `date` input value → UTC ISO timestamp, interpreted as the end of that
+ * local day (a project due "9月15日" stays doable through the 15th);
+ * `null` when empty/invalid.
+ */
+export function localDateValueToIso(local: string): string | null {
+  if (!local) return null;
+  const date = new Date(`${local}T23:59:59`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
