@@ -34,6 +34,16 @@ pub fn run() {
             commands::subtask_complete,
             commands::subtask_delete,
             commands::subtask_reorder,
+            commands::project_list,
+            commands::project_create,
+            commands::project_update,
+            commands::project_archive,
+            commands::project_restore,
+            commands::board_list_columns,
+            commands::board_add_column,
+            commands::board_update_column,
+            commands::board_delete_column,
+            commands::board_move_task,
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;

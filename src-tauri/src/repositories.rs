@@ -294,6 +294,22 @@ pub mod tasks {
         )?;
         Ok(affected == 1)
     }
+
+    /// Clears `column_id` on every task still pointing at the column (used
+    /// when a board column is deleted; soft delete doesn't fire the FK's ON
+    /// DELETE SET NULL). Covers soft-deleted tasks too, so a restored task
+    /// never re-enters a column that no longer exists.
+    pub fn clear_column(
+        conn: &Connection,
+        column_id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<usize, AppError> {
+        let affected = conn.execute(
+            "UPDATE tasks SET column_id = NULL, updated_at = ?1 WHERE column_id = ?2",
+            params![at, column_id.to_string()],
+        )?;
+        Ok(affected)
+    }
 }
 
 /// Tag CRUD (`tags` table). `name` is `UNIQUE COLLATE NOCASE`.
@@ -597,6 +613,21 @@ pub mod projects {
             "UPDATE projects SET status = ?1, updated_at = ?2 \
              WHERE id = ?3 AND deleted_at IS NULL AND status != ?1",
             params![project_status_as_text(status), at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// Targeted `sort_order` write used by service-level rebalances.
+    pub fn set_sort_order(
+        conn: &Connection,
+        id: Uuid,
+        sort_order: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE projects SET sort_order = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL",
+            params![sort_order, at, id.to_string()],
         )?;
         Ok(affected == 1)
     }

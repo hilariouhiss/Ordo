@@ -110,7 +110,7 @@ M1 出口：任务 CRUD + 子任务 + 优先级 + 标签 + 截止日期 + 四个
 | ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | P-01 | 项目/看板列仓储 | `repositories.rs`：project/board_column CRUD、软删除（归档）、position 排序 | 单测覆盖归档恢复与列 CRUD | F-05/06 | ✅ |
-| P-02 | 项目/看板服务与命令 | `services.rs`：新建项目事务内初始化默认三列（待办/进行中/已完成，`is_done` 标记完成列）；`moveTask` 事务：改 column_id + 按 `is_done` 联动 completed_at + 写排序键；`commands.rs`：`project:*`、`board:*` | `cargo test` 通过；任务移入/移出完成列时 completed_at 正确设置/清除 | P-01 | ⬜ |
+| P-02 | 项目/看板服务与命令 | `services.rs`：新建项目事务内初始化默认三列（待办/进行中/已完成，`is_done` 标记完成列）；`moveTask` 事务：改 column_id + 按 `is_done` 联动 completed_at + 写排序键；`commands.rs`：`project:*`、`board:*` | `cargo test` 通过；任务移入/移出完成列时 completed_at 正确设置/清除 | P-01 | ✅ |
 | P-03 | 项目前端数据层 | `src/features/projects/`：types/api/store/hooks；项目 CRUD UI（名称/描述/颜色/图标/截止日期/归档恢复） | 乐观更新与 reconcile 符合规范；归档项目从导航消失、可恢复 | P-02、F-04 | ⬜ |
 | P-04 | 项目列表视图 | 项目详情列表视图：手动/优先级/截止日期/标签排序切换、完成率、任务快速完成 | 列表完成率实时随任务完成更新 | P-03 | ⬜ |
 | P-05 | 看板视图与拖拽 | `src/features/board/`：列组件、任务卡、原生 Drag API（拖拽中仅 transform）；列内排序 + 跨列移动 + 自定义列（增删改名、is_done 切换） | 拖拽 60fps；松手后列与顺序即时持久化；移入/移出完成列联动完成状态 | P-03/04、F-08 | ⬜ |

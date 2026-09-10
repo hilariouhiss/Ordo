@@ -21,10 +21,11 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    NewSubtask, NewTag, NewTask, Patch, Priority, Subtask, Tag, Task, TaskWithTags, UpdateSubtask,
-    UpdateTag, UpdateTask,
+    BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Patch, Priority, Project,
+    ProjectStatus, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateProject,
+    UpdateSubtask, UpdateTag, UpdateTask,
 };
-use crate::repositories::{subtasks, tags, task_tags, tasks};
+use crate::repositories::{board_columns, projects, subtasks, tags, task_tags, tasks};
 use crate::sort;
 
 /// Sort keys longer than this trigger a sibling-list rebalance; keys normally
@@ -80,6 +81,86 @@ fn append_key(siblings: &[(Uuid, String)]) -> Result<(String, Vec<(Uuid, String)
         .map(|((id, _), key)| (*id, key))
         .collect();
     Ok((new_key, rebalanced))
+}
+
+/// An insertion slot resolved from `prev`/`next` against a sibling list.
+enum Slot {
+    /// A fresh key that fits between the resolved neighbours.
+    Key(String),
+    /// No key fits (`SortError::Exhausted`): rekey every sibling with evenly
+    /// spaced keys, placing the moved item at this index.
+    Rebalance(usize),
+}
+
+/// Resolves the insertion slot between the neighbour sort keys `prev`/`next`
+/// (either side optional at the list ends) within the ordered `siblings`,
+/// which must already exclude the moved item.
+///
+/// One-sided specs are resolved against the current list so the derived
+/// neighbour pair is always tight — a bare `after(prev)` mid-list could
+/// collide with the actual next item's key.
+fn resolve_slot(
+    siblings: &[(Uuid, String)],
+    prev: Option<String>,
+    next: Option<String>,
+) -> Result<Slot, AppError> {
+    if prev.is_none() && next.is_none() {
+        return Err(AppError::Validation("需要提供前驱或后继排序键".into()));
+    }
+    let position_of = |key: &str| siblings.iter().position(|(_, k)| k == key);
+    let require_sibling = |key: &str| -> Result<usize, AppError> {
+        position_of(key)
+            .ok_or_else(|| AppError::Validation(format!("排序键 {key:?} 不属于目标列表")))
+    };
+
+    // Resolve into a tight (prev_key, next_key) pair around the target slot.
+    let prev_key = match &prev {
+        Some(p) => {
+            require_sibling(p)?;
+            Some(p.clone())
+        }
+        None => match &next {
+            Some(n) => require_sibling(n)?
+                .checked_sub(1)
+                .map(|i| siblings[i].1.clone()),
+            None => None,
+        },
+    };
+    let next_key = match &next {
+        Some(n) => {
+            require_sibling(n)?;
+            Some(n.clone())
+        }
+        None => match &prev {
+            Some(p) => require_sibling(p)?
+                .checked_add(1)
+                .and_then(|i| siblings.get(i))
+                .map(|(_, k)| k.clone()),
+            None => None,
+        },
+    };
+
+    let attempt = match (&prev_key, &next_key) {
+        (Some(p), Some(n)) => sort::between(p, n),
+        (Some(p), None) => sort::after(p),
+        (None, Some(n)) => sort::before(n),
+        (None, None) => unreachable!("at least one of prev/next is given"),
+    };
+
+    match attempt {
+        Ok(key) => Ok(Slot::Key(key)),
+        Err(sort::SortError::Exhausted) => {
+            let target = match &prev_key {
+                Some(p) => require_sibling(p).expect("validated above") + 1,
+                None => match &next_key {
+                    Some(n) => require_sibling(n).expect("validated above"),
+                    None => siblings.len(),
+                },
+            };
+            Ok(Slot::Rebalance(target))
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -380,11 +461,8 @@ pub fn delete_subtask(conn: &Connection, id: Uuid) -> Result<(), AppError> {
 
 /// Moves a subtask between its neighbours: `prev`/`next` are the sort keys of
 /// the items surrounding the target slot (either may be omitted at the list
-/// ends). One-sided specs are resolved against the current list so the
-/// derived neighbour pair is always tight — a bare `after(prev)` mid-list
-/// could collide with the actual next item's key. Returns the task's full
-/// subtask list in its new authoritative order, because other rows' keys
-/// change whenever a rebalance kicks in.
+/// ends). Returns the task's full subtask list in its new authoritative
+/// order, because other rows' keys change whenever a rebalance kicks in.
 pub fn reorder_subtask(
     conn: &Connection,
     id: Uuid,
@@ -392,87 +470,294 @@ pub fn reorder_subtask(
     next: Option<String>,
 ) -> Result<Vec<Subtask>, AppError> {
     let moved = subtasks::get(conn, id)?.ok_or_else(|| not_found("子任务", id))?;
-    if prev.is_none() && next.is_none() {
-        return Err(AppError::Validation("需要提供前驱或后继排序键".into()));
-    }
 
     let now = Utc::now();
     let tx = conn.unchecked_transaction()?;
-    let siblings: Vec<Subtask> = subtasks::list_by_task(&tx, moved.task_id)?
+    let siblings: Vec<(Uuid, String)> = subtasks::list_by_task(&tx, moved.task_id)?
         .into_iter()
         .filter(|s| s.id != id)
+        .map(|s| (s.id, s.sort_order))
         .collect();
-    let position_of = |key: &str| siblings.iter().position(|s| s.sort_order == key);
 
-    let require_sibling = |key: &str| -> Result<usize, AppError> {
-        position_of(key)
-            .ok_or_else(|| AppError::Validation(format!("排序键 {key:?} 不属于该任务的子任务")))
-    };
-
-    // Resolve into a tight (prev_key, next_key) pair around the target slot.
-    let prev_key = match &prev {
-        Some(p) => {
-            require_sibling(p)?;
-            Some(p.clone())
-        }
-        None => match &next {
-            Some(n) => require_sibling(n)?
-                .checked_sub(1)
-                .map(|i| siblings[i].sort_order.clone()),
-            None => None,
-        },
-    };
-    let next_key = match &next {
-        Some(n) => {
-            require_sibling(n)?;
-            Some(n.clone())
-        }
-        None => match &prev {
-            Some(p) => require_sibling(p)?
-                .checked_add(1)
-                .and_then(|i| siblings.get(i))
-                .map(|s| s.sort_order.clone()),
-            None => None,
-        },
-    };
-
-    let attempt = match (&prev_key, &next_key) {
-        (Some(p), Some(n)) => sort::between(p, n),
-        (Some(p), None) => sort::after(p),
-        (None, Some(n)) => sort::before(n),
-        (None, None) => unreachable!("at least one of prev/next is given"),
-    };
-
-    match attempt {
-        Ok(key) => {
+    match resolve_slot(&siblings, prev, next)? {
+        Slot::Key(key) => {
             if !subtasks::set_sort_order(&tx, id, &key, now)? {
                 return Err(not_found("子任务", id));
             }
         }
-        Err(sort::SortError::Exhausted) => {
-            // No key fits between the neighbours: rekey the task's whole
-            // subtask list with evenly spaced keys, keeping the moved item at
-            // its target position.
-            let target = match &prev_key {
-                Some(p) => require_sibling(p).expect("validated above") + 1,
-                None => match &next_key {
-                    Some(n) => require_sibling(n).expect("validated above"),
-                    None => siblings.len(),
-                },
-            };
+        Slot::Rebalance(target) => {
             let mut ordered = siblings;
-            ordered.insert(target.min(ordered.len()), moved.clone());
+            ordered.insert(target.min(ordered.len()), (id, moved.sort_order.clone()));
             let fresh = sort::spread(ordered.len());
-            for (subtask, key) in ordered.iter().zip(fresh) {
-                if !subtasks::set_sort_order(&tx, subtask.id, &key, now)? {
-                    return Err(not_found("子任务", subtask.id));
+            for ((sibling_id, _), key) in ordered.iter().zip(fresh) {
+                if !subtasks::set_sort_order(&tx, *sibling_id, &key, now)? {
+                    return Err(not_found("子任务", *sibling_id));
                 }
             }
         }
-        Err(e) => return Err(e.into()),
     }
     tx.commit()?;
     subtasks::list_by_task(conn, moved.task_id)
+}
+
+// ---------------------------------------------------------------------------
+// Projects & board
+// ---------------------------------------------------------------------------
+
+pub fn list_projects(conn: &Connection) -> Result<Vec<Project>, AppError> {
+    projects::list(conn)
+}
+
+/// Creates a project plus its default kanban columns (待办/进行中/已完成,
+/// the last one flagged `is_done`) in one transaction, appending after the
+/// last existing project.
+pub fn create_project(conn: &Connection, input: NewProject) -> Result<Project, AppError> {
+    let name = validated_name(&input.name)?;
+    let now = Utc::now();
+    let siblings: Vec<(Uuid, String)> = projects::list(conn)?
+        .into_iter()
+        .map(|p| (p.id, p.sort_order))
+        .collect();
+    let (sort_order, rebalanced) = append_key(&siblings)?;
+
+    let tx = conn.unchecked_transaction()?;
+    for (id, key) in &rebalanced {
+        if !projects::set_sort_order(&tx, *id, key, now)? {
+            return Err(not_found("项目", *id));
+        }
+    }
+
+    let project = Project {
+        id: Uuid::new_v4(),
+        name,
+        description: input.description,
+        color: input.color,
+        icon: input.icon,
+        due_at: input.due_at,
+        status: ProjectStatus::Active,
+        sort_order,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    projects::insert(&tx, &project)?;
+
+    // Three columns is never enough to exhaust the key space; build the
+    // position chain with plain first()/after() calls.
+    let mut position = sort::first();
+    for (column_name, is_done) in [("待办", false), ("进行中", false), ("已完成", true)] {
+        board_columns::insert(
+            &tx,
+            &BoardColumn {
+                id: Uuid::new_v4(),
+                project_id: project.id,
+                name: column_name.into(),
+                position: position.clone(),
+                is_done,
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+            },
+        )?;
+        position = sort::after(&position)?;
+    }
+
+    tx.commit()?;
+    Ok(project)
+}
+
+/// Applies a partial patch (missing = unchanged, `Patch::Set` = replace).
+pub fn update_project(
+    conn: &Connection,
+    id: Uuid,
+    patch: UpdateProject,
+) -> Result<Project, AppError> {
+    let mut project = projects::get(conn, id)?.ok_or_else(|| not_found("项目", id))?;
+    if let Some(name) = &patch.name {
+        project.name = validated_name(name)?;
+    }
+    if let Patch::Set(description) = patch.description {
+        project.description = description;
+    }
+    if let Patch::Set(color) = patch.color {
+        project.color = color;
+    }
+    if let Patch::Set(icon) = patch.icon {
+        project.icon = icon;
+    }
+    if let Patch::Set(due_at) = patch.due_at {
+        project.due_at = due_at;
+    }
+    project.updated_at = Utc::now();
+    if !projects::update(conn, &project)? {
+        return Err(not_found("项目", id));
+    }
+    Ok(project)
+}
+
+/// Archives (or restores) a project; repeating the current state is a no-op
+/// returning the unchanged row.
+pub fn set_project_status(
+    conn: &Connection,
+    id: Uuid,
+    status: ProjectStatus,
+) -> Result<Project, AppError> {
+    let project = projects::get(conn, id)?.ok_or_else(|| not_found("项目", id))?;
+    if project.status != status && !projects::set_status(conn, id, status, Utc::now())? {
+        return Err(not_found("项目", id));
+    }
+    projects::get(conn, id)?.ok_or_else(|| not_found("项目", id))
+}
+
+pub fn archive_project(conn: &Connection, id: Uuid) -> Result<Project, AppError> {
+    set_project_status(conn, id, ProjectStatus::Archived)
+}
+
+pub fn restore_project(conn: &Connection, id: Uuid) -> Result<Project, AppError> {
+    set_project_status(conn, id, ProjectStatus::Active)
+}
+
+pub fn list_board_columns(
+    conn: &Connection,
+    project_id: Uuid,
+) -> Result<Vec<BoardColumn>, AppError> {
+    board_columns::list_by_project(conn, project_id)
+}
+
+/// Appends a new active column at the end of the project's board.
+pub fn add_board_column(conn: &Connection, input: NewBoardColumn) -> Result<BoardColumn, AppError> {
+    if projects::get(conn, input.project_id)?.is_none() {
+        return Err(not_found("项目", input.project_id));
+    }
+    let name = validated_name(&input.name)?;
+    let now = Utc::now();
+    let siblings: Vec<(Uuid, String)> = board_columns::list_by_project(conn, input.project_id)?
+        .into_iter()
+        .map(|c| (c.id, c.position))
+        .collect();
+    let (position, rebalanced) = append_key(&siblings)?;
+
+    let tx = conn.unchecked_transaction()?;
+    for (id, key) in &rebalanced {
+        if !board_columns::set_position(&tx, *id, key, now)? {
+            return Err(not_found("看板列", *id));
+        }
+    }
+    let column = BoardColumn {
+        id: Uuid::new_v4(),
+        project_id: input.project_id,
+        name,
+        position,
+        is_done: false,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    board_columns::insert(&tx, &column)?;
+    tx.commit()?;
+    Ok(column)
+}
+
+/// Renames a column and/or toggles its done flag (`board:updateColumn`).
+pub fn update_board_column(
+    conn: &Connection,
+    id: Uuid,
+    patch: UpdateBoardColumn,
+) -> Result<BoardColumn, AppError> {
+    let mut column = board_columns::get(conn, id)?.ok_or_else(|| not_found("看板列", id))?;
+    if let Some(name) = &patch.name {
+        column.name = validated_name(name)?;
+    }
+    if let Some(is_done) = patch.is_done {
+        column.is_done = is_done;
+    }
+    column.updated_at = Utc::now();
+    if !board_columns::update(conn, &column)? {
+        return Err(not_found("看板列", id));
+    }
+    Ok(column)
+}
+
+/// Soft-deletes a column and detaches its tasks (their `column_id` clears,
+/// so they stay in the project's list view instead of vanishing with the
+/// board).
+pub fn delete_board_column(conn: &Connection, id: Uuid) -> Result<(), AppError> {
+    if board_columns::get(conn, id)?.is_none() {
+        return Err(not_found("看板列", id));
+    }
+    let now = Utc::now();
+    let tx = conn.unchecked_transaction()?;
+    tasks::clear_column(&tx, id, now)?;
+    if !board_columns::soft_delete(&tx, id, now)? {
+        return Err(not_found("看板列", id));
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// `board:moveTask` — moves a task into a column at a slot within one
+/// transaction: `column_id` (and `project_id`, taken from the column, so a
+/// task dropped on another project's board moves with it) is rewritten, the
+/// sort key is derived from the target neighbours, and `completed_at` syncs
+/// with the column's `is_done` flag — entering a done column stamps it,
+/// leaving one clears it, moving within keeps it as-is.
+pub fn move_task(
+    conn: &Connection,
+    task_id: Uuid,
+    column_id: Uuid,
+    prev: Option<String>,
+    next: Option<String>,
+) -> Result<Task, AppError> {
+    let mut moved = tasks::get(conn, task_id)?.ok_or_else(|| not_found("任务", task_id))?;
+    let column =
+        board_columns::get(conn, column_id)?.ok_or_else(|| not_found("看板列", column_id))?;
+
+    let now = Utc::now();
+    let tx = conn.unchecked_transaction()?;
+    let siblings: Vec<(Uuid, String)> = tasks::list(&tx)?
+        .into_iter()
+        .filter(|t| t.column_id == Some(column_id) && t.id != task_id)
+        .map(|t| (t.id, t.sort_order))
+        .collect();
+
+    moved.project_id = Some(column.project_id);
+    moved.column_id = Some(column_id);
+    match (column.is_done, moved.completed_at.is_some()) {
+        (true, false) => moved.completed_at = Some(now),
+        (false, true) => moved.completed_at = None,
+        _ => {}
+    }
+    moved.updated_at = now;
+
+    match resolve_slot(&siblings, prev, next)? {
+        Slot::Key(key) => {
+            moved.sort_order = key;
+            if !tasks::update(&tx, &moved)? {
+                return Err(not_found("任务", task_id));
+            }
+        }
+        Slot::Rebalance(target) => {
+            let mut ordered = siblings;
+            ordered.insert(
+                target.min(ordered.len()),
+                (task_id, moved.sort_order.clone()),
+            );
+            let fresh = sort::spread(ordered.len());
+            for ((sibling_id, _), key) in ordered.iter().zip(fresh) {
+                if *sibling_id == task_id {
+                    moved.sort_order = key;
+                    if !tasks::update(&tx, &moved)? {
+                        return Err(not_found("任务", task_id));
+                    }
+                } else if !tasks::set_sort_order(&tx, *sibling_id, &key, now)? {
+                    return Err(not_found("任务", *sibling_id));
+                }
+            }
+        }
+    }
+
+    tx.commit()?;
+    Ok(moved)
 }
 
 #[cfg(test)]
@@ -974,5 +1259,390 @@ mod tests {
             all.iter().map(|s| s.sort_order.clone()).collect::<Vec<_>>()
         );
         assert!(all[0].sort_order < appended.sort_order);
+    }
+
+    // --- projects & board ----------------------------------------------------
+
+    fn make_project(conn: &Connection, name: &str) -> Project {
+        create_project(
+            conn,
+            NewProject {
+                name: name.into(),
+                description: None,
+                color: None,
+                icon: None,
+                due_at: None,
+            },
+        )
+        .unwrap()
+    }
+
+    fn first_column(conn: &Connection, project_id: Uuid) -> BoardColumn {
+        list_board_columns(conn, project_id).unwrap().remove(0)
+    }
+
+    fn done_column(conn: &Connection, project_id: Uuid) -> BoardColumn {
+        list_board_columns(conn, project_id)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.is_done)
+            .expect("default columns include a done column")
+    }
+
+    fn make_column_task(conn: &Connection, column: &BoardColumn, title: &str) -> Task {
+        create_task(
+            conn,
+            NewTask {
+                title: title.into(),
+                note: None,
+                priority: None,
+                project_id: Some(column.project_id),
+                column_id: Some(column.id),
+                due_at: None,
+                tag_ids: Vec::new(),
+                subtask_titles: Vec::new(),
+            },
+        )
+        .unwrap()
+    }
+
+    /// Directly inserted task with a hand-picked sort key (for Exhausted
+    /// scenarios), bypassing the create path.
+    fn raw_column_task(conn: &Connection, column: &BoardColumn, title: &str, key: &str) -> Task {
+        let now = Utc::now();
+        let task = Task {
+            id: Uuid::new_v4(),
+            project_id: Some(column.project_id),
+            title: title.into(),
+            note: None,
+            priority: Priority::None,
+            column_id: Some(column.id),
+            due_at: None,
+            completed_at: None,
+            repeat_rule: None,
+            sort_order: key.into(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        tasks::insert(conn, &task).unwrap();
+        task
+    }
+
+    fn column_task_keys(conn: &Connection, column_id: Uuid) -> Vec<String> {
+        tasks::list(conn)
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.column_id == Some(column_id))
+            .map(|t| t.sort_order)
+            .collect()
+    }
+
+    #[test]
+    fn create_project_seeds_default_columns_and_appends() {
+        let conn = conn();
+        let first = make_project(&conn, "网站改版");
+        assert_eq!(first.status, ProjectStatus::Active);
+
+        let columns = list_board_columns(&conn, first.id).unwrap();
+        let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["待办", "进行中", "已完成"]);
+        assert_eq!(
+            columns.iter().map(|c| c.is_done).collect::<Vec<_>>(),
+            vec![false, false, true],
+            "the last default column is the done column"
+        );
+        assert!(columns.windows(2).all(|w| w[0].position < w[1].position));
+
+        let second = make_project(&conn, "增长实验");
+        assert!(first.sort_order < second.sort_order);
+        let listed = list_projects(&conn).unwrap();
+        assert_eq!(
+            listed.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![first.id, second.id]
+        );
+
+        let err = create_project(
+            &conn,
+            NewProject {
+                name: "   ".into(),
+                description: None,
+                color: None,
+                icon: None,
+                due_at: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "validation");
+    }
+
+    #[test]
+    fn project_update_patches_and_archive_restores() {
+        let conn = conn();
+        let project = make_project(&conn, "旧名");
+
+        let renamed = update_project(
+            &conn,
+            project.id,
+            UpdateProject {
+                name: Some("新名".into()),
+                description: Patch::Set(Some("说明".into())),
+                color: Patch::Set(None),
+                icon: Patch::Set(None),
+                due_at: Patch::Set(None),
+            },
+        )
+        .unwrap();
+        assert_eq!(renamed.name, "新名");
+        assert_eq!(renamed.description.as_deref(), Some("说明"));
+        assert_eq!(
+            update_project(
+                &conn,
+                project.id,
+                UpdateProject {
+                    name: Some("  ".into()),
+                    description: Patch::Unchanged,
+                    color: Patch::Unchanged,
+                    icon: Patch::Unchanged,
+                    due_at: Patch::Unchanged,
+                }
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
+
+        let archived = archive_project(&conn, project.id).unwrap();
+        assert_eq!(archived.status, ProjectStatus::Archived);
+        // Archiving twice is a no-op returning the unchanged row; archived
+        // projects still list (navigation filters by status).
+        assert_eq!(
+            archive_project(&conn, project.id).unwrap().status,
+            ProjectStatus::Archived
+        );
+        assert_eq!(list_projects(&conn).unwrap().len(), 1);
+
+        assert_eq!(
+            restore_project(&conn, project.id).unwrap().status,
+            ProjectStatus::Active
+        );
+        assert_eq!(
+            archive_project(&conn, Uuid::new_v4()).unwrap_err().code(),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn board_columns_add_update_and_delete_detaches_tasks() {
+        let conn = conn();
+        let project = make_project(&conn, "看板项目");
+        assert_eq!(list_board_columns(&conn, project.id).unwrap().len(), 3);
+
+        let extra = add_board_column(
+            &conn,
+            NewBoardColumn {
+                project_id: project.id,
+                name: "评审".into(),
+            },
+        )
+        .unwrap();
+        assert!(!extra.is_done);
+        let columns = list_board_columns(&conn, project.id).unwrap();
+        assert_eq!(columns.len(), 4);
+        assert_eq!(columns.last().unwrap().id, extra.id, "new column appends");
+        assert!(columns.windows(2).all(|w| w[0].position < w[1].position));
+
+        let err = add_board_column(
+            &conn,
+            NewBoardColumn {
+                project_id: Uuid::new_v4(),
+                name: "孤儿列".into(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+
+        let renamed = update_board_column(
+            &conn,
+            extra.id,
+            UpdateBoardColumn {
+                name: Some("验收".into()),
+                is_done: Some(true),
+            },
+        )
+        .unwrap();
+        assert_eq!(renamed.name, "验收");
+        assert!(renamed.is_done);
+        assert_eq!(
+            update_board_column(
+                &conn,
+                extra.id,
+                UpdateBoardColumn {
+                    name: Some("  ".into()),
+                    is_done: None,
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
+
+        // Deleting the column detaches its tasks instead of stranding them.
+        let task = make_column_task(&conn, &extra, "在列任务");
+        delete_board_column(&conn, extra.id).unwrap();
+        assert_eq!(
+            delete_board_column(&conn, extra.id).unwrap_err().code(),
+            "not_found"
+        );
+        assert_eq!(list_board_columns(&conn, project.id).unwrap().len(), 3);
+        let detached = tasks::get(&conn, task.id).unwrap().unwrap();
+        assert_eq!(detached.column_id, None);
+        assert_eq!(detached.project_id, Some(project.id));
+    }
+
+    #[test]
+    fn move_task_syncs_completed_at_with_the_done_column() {
+        let conn = conn();
+        let project = make_project(&conn, "联动项目");
+        let todo = first_column(&conn, project.id);
+        let done = done_column(&conn, project.id);
+        let task = make_column_task(&conn, &todo, "跨列任务");
+        assert_eq!(task.completed_at, None);
+
+        // Entering the done column stamps completed_at (the column's only
+        // resident provides the `prev` key; the task lands after it).
+        let done_neighbour = make_column_task(&conn, &done, "已完成邻居");
+        let moved = move_task(
+            &conn,
+            task.id,
+            done.id,
+            Some(done_neighbour.sort_order.clone()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(moved.column_id, Some(done.id));
+        assert_eq!(moved.project_id, Some(project.id));
+        let stamped = moved.completed_at.expect("stamped on entering done column");
+
+        // Moving within the done column keeps the original timestamp.
+        let again = move_task(
+            &conn,
+            task.id,
+            done.id,
+            Some(done_neighbour.sort_order.clone()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(again.completed_at, Some(stamped));
+
+        // Leaving the done column clears completed_at.
+        let anchor = make_column_task(&conn, &todo, "待办锚点");
+        let back = move_task(
+            &conn,
+            task.id,
+            todo.id,
+            None,
+            Some(anchor.sort_order.clone()),
+        )
+        .unwrap();
+        assert_eq!(back.completed_at, None);
+        assert_eq!(back.column_id, Some(todo.id));
+    }
+
+    #[test]
+    fn move_task_orders_within_the_target_column() {
+        let conn = conn();
+        let project = make_project(&conn, "排序项目");
+        let todo = first_column(&conn, project.id);
+        let a = make_column_task(&conn, &todo, "A");
+        let b = make_column_task(&conn, &todo, "B");
+        let c = make_column_task(&conn, &todo, "C");
+
+        // Move C between A and B (after A, before B).
+        let moved = move_task(
+            &conn,
+            c.id,
+            todo.id,
+            Some(a.sort_order.clone()),
+            Some(b.sort_order.clone()),
+        )
+        .unwrap();
+        assert!(moved.sort_order > a.sort_order && moved.sort_order < b.sort_order);
+
+        // Move C to the front of the column.
+        let moved = move_task(&conn, c.id, todo.id, None, Some(a.sort_order.clone())).unwrap();
+        assert!(moved.sort_order < a.sort_order);
+
+        let keys = column_task_keys(&conn, todo.id);
+        assert!(keys.windows(2).all(|w| w[0] < w[1]), "keys stay ordered");
+        assert_eq!(keys.len(), 3);
+    }
+
+    #[test]
+    fn move_task_rebalances_when_exhausted() {
+        let conn = conn();
+        let project = make_project(&conn, "重排项目");
+        let todo = first_column(&conn, project.id);
+        let a = raw_column_task(&conn, &todo, "A", "a");
+        let b = raw_column_task(&conn, &todo, "B", "aa");
+        let mover = make_column_task(&conn, &todo, "M");
+
+        // between("a", "aa") is exhausted -> the column is rekeyed with the
+        // mover at index 1: [A, M, B].
+        let moved = move_task(
+            &conn,
+            mover.id,
+            todo.id,
+            Some(a.sort_order.clone()),
+            Some(b.sort_order.clone()),
+        )
+        .unwrap();
+
+        let board = tasks::list(&conn).unwrap();
+        let titles: Vec<&str> = board.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, vec!["A", "M", "B"]);
+        let keys: Vec<&str> = board.iter().map(|t| t.sort_order.as_str()).collect();
+        assert!(keys.windows(2).all(|w| w[0] < w[1]));
+        assert!(
+            keys.iter().all(|k| k.len() <= 2),
+            "rebalance shrinks keys: {keys:?}"
+        );
+        assert_eq!(
+            board.iter().find(|t| t.id == mover.id).unwrap().sort_order,
+            moved.sort_order
+        );
+    }
+
+    #[test]
+    fn move_task_rejects_unknown_task_column_and_bad_keys() {
+        let conn = conn();
+        let project = make_project(&conn, "校验项目");
+        let todo = first_column(&conn, project.id);
+        let task = make_column_task(&conn, &todo, "普通任务");
+
+        assert_eq!(
+            move_task(&conn, Uuid::new_v4(), todo.id, None, Some("n".into()))
+                .unwrap_err()
+                .code(),
+            "not_found"
+        );
+        assert_eq!(
+            move_task(&conn, task.id, Uuid::new_v4(), None, Some("n".into()))
+                .unwrap_err()
+                .code(),
+            "not_found"
+        );
+        assert_eq!(
+            move_task(&conn, task.id, todo.id, None, None)
+                .unwrap_err()
+                .code(),
+            "validation"
+        );
+        assert_eq!(
+            move_task(&conn, task.id, todo.id, Some("zz".into()), None)
+                .unwrap_err()
+                .code(),
+            "validation"
+        );
     }
 }

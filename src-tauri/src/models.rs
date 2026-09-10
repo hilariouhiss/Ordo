@@ -263,6 +263,51 @@ pub struct UpdateSubtask {
     pub done: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewProject {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub due_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProject {
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Patch<String>,
+    #[serde(default)]
+    pub color: Patch<String>,
+    #[serde(default)]
+    pub icon: Patch<String>,
+    #[serde(default)]
+    pub due_at: Patch<DateTime<Utc>>,
+}
+
+/// `board:addColumn` — the new column always appends at the end and starts
+/// active (`is_done = false`); the done flag is a later `board:updateColumn`
+/// switch.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewBoardColumn {
+    pub project_id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateBoardColumn {
+    pub name: Option<String>,
+    pub is_done: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

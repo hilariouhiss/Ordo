@@ -13,8 +13,8 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    NewSubtask, NewTag, NewTask, Subtask, Tag, Task, TaskWithTags, UpdateSubtask, UpdateTag,
-    UpdateTask,
+    BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Project, Subtask, Tag,
+    Task, TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
 };
 use crate::services;
 
@@ -147,5 +147,87 @@ pub fn subtask_reorder(
 ) -> Result<Vec<Subtask>, AppError> {
     with_conn(&db, |conn| {
         services::reorder_subtask(conn, subtask_id, prev, next)
+    })
+}
+
+// --- project:* -------------------------------------------------------------
+
+#[tauri::command(rename = "project:list")]
+pub fn project_list(db: State<'_, Db>) -> Result<Vec<Project>, AppError> {
+    with_conn(&db, services::list_projects)
+}
+
+#[tauri::command(rename = "project:create")]
+pub fn project_create(db: State<'_, Db>, payload: NewProject) -> Result<Project, AppError> {
+    with_conn(&db, |conn| services::create_project(conn, payload))
+}
+
+#[tauri::command(rename = "project:update")]
+pub fn project_update(
+    db: State<'_, Db>,
+    project_id: Uuid,
+    payload: UpdateProject,
+) -> Result<Project, AppError> {
+    with_conn(&db, |conn| {
+        services::update_project(conn, project_id, payload)
+    })
+}
+
+#[tauri::command(rename = "project:archive")]
+pub fn project_archive(db: State<'_, Db>, project_id: Uuid) -> Result<Project, AppError> {
+    with_conn(&db, |conn| services::archive_project(conn, project_id))
+}
+
+#[tauri::command(rename = "project:restore")]
+pub fn project_restore(db: State<'_, Db>, project_id: Uuid) -> Result<Project, AppError> {
+    with_conn(&db, |conn| services::restore_project(conn, project_id))
+}
+
+// --- board:* ---------------------------------------------------------------
+
+#[tauri::command(rename = "board:listColumns")]
+pub fn board_list_columns(
+    db: State<'_, Db>,
+    project_id: Uuid,
+) -> Result<Vec<BoardColumn>, AppError> {
+    with_conn(&db, |conn| services::list_board_columns(conn, project_id))
+}
+
+#[tauri::command(rename = "board:addColumn")]
+pub fn board_add_column(
+    db: State<'_, Db>,
+    payload: NewBoardColumn,
+) -> Result<BoardColumn, AppError> {
+    with_conn(&db, |conn| services::add_board_column(conn, payload))
+}
+
+#[tauri::command(rename = "board:updateColumn")]
+pub fn board_update_column(
+    db: State<'_, Db>,
+    column_id: Uuid,
+    payload: UpdateBoardColumn,
+) -> Result<BoardColumn, AppError> {
+    with_conn(&db, |conn| {
+        services::update_board_column(conn, column_id, payload)
+    })
+}
+
+#[tauri::command(rename = "board:deleteColumn")]
+pub fn board_delete_column(db: State<'_, Db>, column_id: Uuid) -> Result<(), AppError> {
+    with_conn(&db, |conn| services::delete_board_column(conn, column_id))
+}
+
+/// `prev`/`next` are the target column's sort keys around the slot (either
+/// may be omitted at the ends).
+#[tauri::command(rename = "board:moveTask")]
+pub fn board_move_task(
+    db: State<'_, Db>,
+    task_id: Uuid,
+    column_id: Uuid,
+    prev: Option<String>,
+    next: Option<String>,
+) -> Result<Task, AppError> {
+    with_conn(&db, |conn| {
+        services::move_task(conn, task_id, column_id, prev, next)
     })
 }
