@@ -5,7 +5,7 @@
  */
 
 import { COMMANDS, invokeCommand } from "../../common/ipc";
-import type { BoardColumn, NewBoardColumn, NewProject, Project, UpdateBoardColumn, UpdateProject } from "./types";
+import type { NewProject, Project, UpdateProject } from "./types";
 
 // --- project:* ---------------------------------------------------------------
 
@@ -27,25 +27,4 @@ export function archiveProject(projectId: string): Promise<Project> {
 
 export function restoreProject(projectId: string): Promise<Project> {
   return invokeCommand(COMMANDS.project.restore, { projectId });
-}
-
-// --- board:* -----------------------------------------------------------------
-
-export function listBoardColumns(projectId: string): Promise<BoardColumn[]> {
-  return invokeCommand(COMMANDS.board.listColumns, { projectId });
-}
-
-export function addBoardColumn(payload: NewBoardColumn): Promise<BoardColumn> {
-  return invokeCommand(COMMANDS.board.addColumn, { payload });
-}
-
-export function updateBoardColumn(
-  columnId: string,
-  payload: UpdateBoardColumn,
-): Promise<BoardColumn> {
-  return invokeCommand(COMMANDS.board.updateColumn, { columnId, payload });
-}
-
-export function deleteBoardColumn(columnId: string): Promise<void> {
-  return invokeCommand(COMMANDS.board.deleteColumn, { columnId });
 }

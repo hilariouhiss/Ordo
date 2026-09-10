@@ -1,5 +1,5 @@
 /**
- * Domain types for the project feature, mirroring `Project`/`BoardColumn` in
+ * Domain types for the project feature, mirroring `Project` in
  * `src-tauri/src/models.rs` field-for-field (serde camelCase). Write payloads
  * follow the plan §3 patch semantics: a missing field leaves the stored value
  * unchanged, an explicit `null` clears it.
@@ -38,24 +38,3 @@ export interface UpdateProject {
   dueAt?: string | null;
 }
 
-/** A kanban column (`board_columns`); ordering uses the lexicographic `position`. */
-export interface BoardColumn {
-  id: string;
-  projectId: string;
-  name: string;
-  position: string;
-  isDone: boolean;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt: string | null;
-}
-
-export interface NewBoardColumn {
-  projectId: string;
-  name: string;
-}
-
-export interface UpdateBoardColumn {
-  name?: string;
-  isDone?: boolean;
-}

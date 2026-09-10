@@ -11,10 +11,6 @@ vi.mock("../api", () => ({
   updateProject: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
-  listBoardColumns: vi.fn(),
-  addBoardColumn: vi.fn(),
-  updateBoardColumn: vi.fn(),
-  deleteBoardColumn: vi.fn(),
 }));
 
 import * as api from "../api";

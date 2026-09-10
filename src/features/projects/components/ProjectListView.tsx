@@ -3,9 +3,10 @@ import { Dynamic } from "solid-js/web";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { Archive, Pencil, RotateCcw } from "lucide-solid";
-import { Button } from "../../../common/components";
+import { Button, Tabs } from "../../../common/components";
 import { tasksState } from "../../tasks/store";
 import { SORT_OPTIONS, TaskListView } from "../../tasks/components/TaskListView";
+import { BoardView } from "../../board/components/BoardView";
 import { archiveProject, restoreProject } from "../hooks";
 import { getProjectIcon } from "../icons";
 import { getProject } from "../store";
@@ -29,6 +30,7 @@ export function ProjectListView(props: { project: Project }) {
   const rate = () => (tasks().length === 0 ? 0 : Math.round((doneCount() / tasks().length) * 100));
 
   const [editorOpen, setEditorOpen] = createSignal(false);
+  const [view, setView] = createSignal<"list" | "board">("list");
 
   return (
     <div class="flex h-full min-h-0 flex-col">
@@ -119,21 +121,37 @@ export function ProjectListView(props: { project: Project }) {
         </div>
       </header>
 
-      <div class="min-h-0 flex-1">
-        <TaskListView
-          tasks={tasks}
-          emptyTitle="项目里还没有任务"
-          emptyDescription="点击右上角「新建任务」，为这个项目规划第一项工作。"
-          defaultSort="manual"
-          sortOptions={[
-            SORT_OPTIONS.manual,
-            SORT_OPTIONS.priority,
-            SORT_OPTIONS.due,
-            SORT_OPTIONS.tag,
-          ]}
-          defaultProjectId={project().id}
-        />
-      </div>
+      <Tabs.Root
+        value={view()}
+        onChange={(value) => setView(value as "list" | "board")}
+        class="min-h-0 flex-1"
+      >
+        <Tabs.List class="px-6">
+          <Tabs.Trigger value="list">列表</Tabs.Trigger>
+          <Tabs.Trigger value="board">看板</Tabs.Trigger>
+          <Tabs.Indicator />
+        </Tabs.List>
+        <Tabs.Content value="list" class="min-h-0 flex-1">
+          <div class="h-full min-h-0">
+            <TaskListView
+              tasks={tasks}
+              emptyTitle="项目里还没有任务"
+              emptyDescription="点击右上角「新建任务」，为这个项目规划第一项工作。"
+              defaultSort="manual"
+              sortOptions={[
+                SORT_OPTIONS.manual,
+                SORT_OPTIONS.priority,
+                SORT_OPTIONS.due,
+                SORT_OPTIONS.tag,
+              ]}
+              defaultProjectId={project().id}
+            />
+          </div>
+        </Tabs.Content>
+        <Tabs.Content value="board" class="min-h-0 flex-1">
+          <BoardView projectId={project().id} />
+        </Tabs.Content>
+      </Tabs.Root>
 
       <ProjectEditorDialog
         open={editorOpen()}
