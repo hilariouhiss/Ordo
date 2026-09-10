@@ -14,7 +14,9 @@ use rusqlite::{params, Connection, Row, ToSql};
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::models::{Priority, RepeatRule, Subtask, Tag, Task};
+use crate::models::{
+    BoardColumn, Priority, Project, ProjectStatus, RepeatRule, Subtask, Tag, Task,
+};
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
                             completed_at, repeat_rule, sort_order, created_at, updated_at, \
@@ -22,6 +24,10 @@ const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, du
 const TAG_COLUMNS: &str = "id, name, color, created_at, updated_at, deleted_at";
 const SUBTASK_COLUMNS: &str = "id, task_id, title, done, sort_order, created_at, updated_at, \
                                deleted_at";
+const PROJECT_COLUMNS: &str = "id, name, description, color, icon, due_at, status, sort_order, \
+                               created_at, updated_at, deleted_at";
+const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
+                                    updated_at, deleted_at";
 
 type RowMap<T> = fn(&Row<'_>) -> Result<T, AppError>;
 
@@ -71,6 +77,21 @@ fn priority_from_text(text: &str) -> Result<Priority, AppError> {
         "low" => Ok(Priority::Low),
         "none" => Ok(Priority::None),
         other => Err(AppError::Db(format!("invalid priority {other:?}"))),
+    }
+}
+
+fn project_status_as_text(status: ProjectStatus) -> &'static str {
+    match status {
+        ProjectStatus::Active => "active",
+        ProjectStatus::Archived => "archived",
+    }
+}
+
+fn project_status_from_text(text: &str) -> Result<ProjectStatus, AppError> {
+    match text {
+        "active" => Ok(ProjectStatus::Active),
+        "archived" => Ok(ProjectStatus::Archived),
+        other => Err(AppError::Db(format!("invalid project status {other:?}"))),
     }
 }
 
@@ -130,6 +151,36 @@ fn subtask_from_row(row: &Row<'_>) -> Result<Subtask, AppError> {
         title: row.get("title")?,
         done: row.get("done")?,
         sort_order: row.get("sort_order")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        deleted_at: row.get("deleted_at")?,
+    })
+}
+
+fn project_from_row(row: &Row<'_>) -> Result<Project, AppError> {
+    let status_text: String = row.get("status")?;
+    Ok(Project {
+        id: parse_uuid(row.get("id")?)?,
+        name: row.get("name")?,
+        description: row.get("description")?,
+        color: row.get("color")?,
+        icon: row.get("icon")?,
+        due_at: row.get("due_at")?,
+        status: project_status_from_text(&status_text)?,
+        sort_order: row.get("sort_order")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        deleted_at: row.get("deleted_at")?,
+    })
+}
+
+fn board_column_from_row(row: &Row<'_>) -> Result<BoardColumn, AppError> {
+    Ok(BoardColumn {
+        id: parse_uuid(row.get("id")?)?,
+        project_id: parse_uuid(row.get("project_id")?)?,
+        name: row.get("name")?,
+        position: row.get("position")?,
+        is_done: row.get("is_done")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         deleted_at: row.get("deleted_at")?,
@@ -460,6 +511,189 @@ pub mod task_tags {
     }
 }
 
+/// Project CRUD (`projects` table).
+///
+/// Archiving is a `status` flip, not a soft delete: `deleted_at` stays
+/// reserved for real deletion (unused by the v1 command surface), while
+/// `project:archive`/`project:restore` map onto [`projects::set_status`].
+pub mod projects {
+    use super::*;
+
+    pub fn insert(conn: &Connection, project: &Project) -> Result<(), AppError> {
+        conn.execute(
+            "INSERT INTO projects (id, name, description, color, icon, due_at, status, \
+             sort_order, created_at, updated_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                project.id.to_string(),
+                project.name,
+                project.description,
+                project.color,
+                project.icon,
+                project.due_at,
+                project_status_as_text(project.status),
+                project.sort_order,
+                project.created_at,
+                project.updated_at,
+                project.deleted_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get(conn: &Connection, id: Uuid) -> Result<Option<Project>, AppError> {
+        query_one(
+            conn,
+            &format!("SELECT {PROJECT_COLUMNS} FROM projects WHERE id = ?1 AND deleted_at IS NULL"),
+            params![id.to_string()],
+            project_from_row,
+        )
+    }
+
+    /// All non-deleted projects (archived ones included; navigation filters by
+    /// `status`), ordered like the task list.
+    pub fn list(conn: &Connection) -> Result<Vec<Project>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {PROJECT_COLUMNS} FROM projects WHERE deleted_at IS NULL \
+                 ORDER BY sort_order, created_at, id"
+            ),
+            &[],
+            project_from_row,
+        )
+    }
+
+    /// Full-row update; returns false when the project is missing or deleted.
+    pub fn update(conn: &Connection, project: &Project) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE projects SET name = ?1, description = ?2, color = ?3, icon = ?4, \
+             due_at = ?5, status = ?6, sort_order = ?7, updated_at = ?8 \
+             WHERE id = ?9 AND deleted_at IS NULL",
+            params![
+                project.name,
+                project.description,
+                project.color,
+                project.icon,
+                project.due_at,
+                project_status_as_text(project.status),
+                project.sort_order,
+                project.updated_at,
+                project.id.to_string(),
+            ],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// Archive/restore flip (`status`); returns false on missing/deleted
+    /// projects or when already in the requested state.
+    pub fn set_status(
+        conn: &Connection,
+        id: Uuid,
+        status: ProjectStatus,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE projects SET status = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL AND status != ?1",
+            params![project_status_as_text(status), at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+}
+
+/// Board column CRUD (`board_columns` table), always scoped to a project.
+pub mod board_columns {
+    use super::*;
+
+    pub fn insert(conn: &Connection, column: &BoardColumn) -> Result<(), AppError> {
+        conn.execute(
+            "INSERT INTO board_columns (id, project_id, name, position, is_done, created_at, \
+             updated_at, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                column.id.to_string(),
+                column.project_id.to_string(),
+                column.name,
+                column.position,
+                column.is_done,
+                column.created_at,
+                column.updated_at,
+                column.deleted_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get(conn: &Connection, id: Uuid) -> Result<Option<BoardColumn>, AppError> {
+        query_one(
+            conn,
+            &format!(
+                "SELECT {BOARD_COLUMN_COLUMNS} FROM board_columns \
+                 WHERE id = ?1 AND deleted_at IS NULL"
+            ),
+            params![id.to_string()],
+            board_column_from_row,
+        )
+    }
+
+    /// Non-deleted columns of one project, ordered by `position`.
+    pub fn list_by_project(
+        conn: &Connection,
+        project_id: Uuid,
+    ) -> Result<Vec<BoardColumn>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {BOARD_COLUMN_COLUMNS} FROM board_columns \
+                 WHERE project_id = ?1 AND deleted_at IS NULL \
+                 ORDER BY position, created_at, id"
+            ),
+            params![project_id.to_string()],
+            board_column_from_row,
+        )
+    }
+
+    /// Full-row update; returns false when the column is missing or deleted.
+    pub fn update(conn: &Connection, column: &BoardColumn) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE board_columns SET name = ?1, position = ?2, is_done = ?3, updated_at = ?4 \
+             WHERE id = ?5 AND deleted_at IS NULL",
+            params![
+                column.name,
+                column.position,
+                column.is_done,
+                column.updated_at,
+                column.id.to_string(),
+            ],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// Targeted `position` write used by service-level rebalances.
+    pub fn set_position(
+        conn: &Connection,
+        id: Uuid,
+        position: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE board_columns SET position = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL",
+            params![position, at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+
+    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE board_columns SET deleted_at = ?1, updated_at = ?1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +745,35 @@ mod tests {
             title: "收集数据".into(),
             done: false,
             sort_order: sort_order.into(),
+            created_at: ts(0),
+            updated_at: ts(0),
+            deleted_at: None,
+        }
+    }
+
+    fn sample_project(sort_order: &str) -> Project {
+        Project {
+            id: Uuid::new_v4(),
+            name: "网站改版".into(),
+            description: None,
+            color: None,
+            icon: None,
+            due_at: None,
+            status: ProjectStatus::Active,
+            sort_order: sort_order.into(),
+            created_at: ts(0),
+            updated_at: ts(0),
+            deleted_at: None,
+        }
+    }
+
+    fn sample_column(project_id: Uuid, position: &str, is_done: bool) -> BoardColumn {
+        BoardColumn {
+            id: Uuid::new_v4(),
+            project_id,
+            name: "待办".into(),
+            position: position.into(),
+            is_done,
             created_at: ts(0),
             updated_at: ts(0),
             deleted_at: None,
@@ -726,6 +989,135 @@ mod tests {
         assert_eq!(
             task_tags::list_tags_for_task(&conn, task.id).unwrap(),
             Vec::<Tag>::new()
+        );
+    }
+
+    #[test]
+    fn project_round_trips_and_orders_by_sort_order() {
+        let conn = conn();
+        let mid = sample_project("n");
+        let last = sample_project("t");
+        let first = sample_project("a");
+        for project in [&mid, &last, &first] {
+            projects::insert(&conn, project).unwrap();
+        }
+
+        assert_eq!(projects::get(&conn, first.id).unwrap().unwrap(), first);
+        assert_eq!(projects::get(&conn, Uuid::new_v4()).unwrap(), None);
+        assert_eq!(projects::list(&conn).unwrap(), vec![first, mid, last]);
+    }
+
+    #[test]
+    fn project_update_persists_every_field() {
+        let conn = conn();
+        let project = sample_project("n");
+        projects::insert(&conn, &project).unwrap();
+
+        let mut edited = project.clone();
+        edited.name = "App 重构".into();
+        edited.description = Some("迁移到新框架".into());
+        edited.color = Some("#3b82f6".into());
+        edited.icon = Some("rocket".into());
+        edited.due_at = Some(ts(30));
+        edited.status = ProjectStatus::Archived;
+        edited.sort_order = "p".into();
+        edited.updated_at = ts(5);
+        assert!(projects::update(&conn, &edited).unwrap());
+        assert_eq!(projects::get(&conn, project.id).unwrap().unwrap(), edited);
+    }
+
+    #[test]
+    fn project_update_returns_false_for_missing_project() {
+        let conn = conn();
+        assert!(!projects::update(&conn, &sample_project("n")).unwrap());
+    }
+
+    #[test]
+    fn project_archive_and_restore_flip_status() {
+        let conn = conn();
+        let project = sample_project("n");
+        projects::insert(&conn, &project).unwrap();
+
+        // Archiving stamps updated_at and switches the status, but the row
+        // stays listed (archived is a state, not a soft delete).
+        assert!(projects::set_status(&conn, project.id, ProjectStatus::Archived, ts(10)).unwrap());
+        let archived = projects::get(&conn, project.id).unwrap().unwrap();
+        assert_eq!(archived.status, ProjectStatus::Archived);
+        assert_eq!(archived.updated_at, ts(10));
+        assert_eq!(projects::list(&conn).unwrap().len(), 1);
+
+        // Archiving twice is a no-op, and unknown ids report false.
+        assert!(!projects::set_status(&conn, project.id, ProjectStatus::Archived, ts(11)).unwrap());
+        assert!(
+            !projects::set_status(&conn, Uuid::new_v4(), ProjectStatus::Archived, ts(11)).unwrap()
+        );
+
+        assert!(projects::set_status(&conn, project.id, ProjectStatus::Active, ts(20)).unwrap());
+        let restored = projects::get(&conn, project.id).unwrap().unwrap();
+        assert_eq!(restored.status, ProjectStatus::Active);
+        assert_eq!(restored.updated_at, ts(20));
+    }
+
+    #[test]
+    fn board_column_crud_is_scoped_ordered_and_soft_deletes() {
+        let conn = conn();
+        let project_a = sample_project("n");
+        let project_b = sample_project("t");
+        projects::insert(&conn, &project_a).unwrap();
+        projects::insert(&conn, &project_b).unwrap();
+
+        let mid = sample_column(project_a.id, "n", false);
+        let first = sample_column(project_a.id, "a", false);
+        let done = BoardColumn {
+            name: "已完成".into(),
+            is_done: true,
+            ..sample_column(project_a.id, "z", false)
+        };
+        let other_project = sample_column(project_b.id, "n", false);
+        for column in [&mid, &first, &done, &other_project] {
+            board_columns::insert(&conn, column).unwrap();
+        }
+
+        // Unknown projects are rejected by the foreign key.
+        assert!(board_columns::insert(&conn, &sample_column(Uuid::new_v4(), "n", false)).is_err());
+
+        assert_eq!(
+            board_columns::list_by_project(&conn, project_a.id).unwrap(),
+            vec![first.clone(), mid.clone(), done.clone()]
+        );
+        assert_eq!(
+            board_columns::list_by_project(&conn, project_b.id).unwrap(),
+            vec![other_project]
+        );
+        assert_eq!(board_columns::get(&conn, done.id).unwrap().unwrap(), done);
+
+        // Full-row update covers the rename/reposition/is_done toggle.
+        let mut edited = first.clone();
+        edited.name = "进行中".into();
+        edited.position = "m".into();
+        edited.is_done = false;
+        edited.updated_at = ts(2);
+        assert!(board_columns::update(&conn, &edited).unwrap());
+        assert_eq!(
+            board_columns::get(&conn, first.id).unwrap().unwrap(),
+            edited
+        );
+
+        // Targeted position write for service-level rebalances.
+        assert!(board_columns::set_position(&conn, mid.id, "q", ts(3)).unwrap());
+        assert_eq!(
+            board_columns::get(&conn, mid.id).unwrap().unwrap().position,
+            "q"
+        );
+        assert!(!board_columns::set_position(&conn, Uuid::new_v4(), "q", ts(3)).unwrap());
+
+        // Soft delete hides the column from its project's board.
+        assert!(board_columns::soft_delete(&conn, mid.id, ts(4)).unwrap());
+        assert!(!board_columns::soft_delete(&conn, mid.id, ts(5)).unwrap());
+        assert_eq!(board_columns::get(&conn, mid.id).unwrap(), None);
+        assert_eq!(
+            board_columns::list_by_project(&conn, project_a.id).unwrap(),
+            vec![edited, done]
         );
     }
 }
