@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
+import { Settings2 } from "lucide-solid";
 import { z } from "zod";
 import { Button, Dialog, Select, TextField } from "../../../common/components";
 import {
@@ -8,6 +9,7 @@ import {
 import { createTask, updateTask } from "../hooks";
 import { tasksState } from "../store";
 import type { Priority, Task } from "../types";
+import { TagManagerDialog } from "./TagManagerDialog";
 
 /**
  * Create/edit task dialog (T-04). One component covers both modes: pass
@@ -48,6 +50,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const [priority, setPriority] = createSignal<Priority>("none");
   const [dueLocal, setDueLocal] = createSignal("");
   const [tagIds, setTagIds] = createSignal<string[]>([]);
+  const [managerOpen, setManagerOpen] = createSignal(false);
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
 
@@ -62,6 +65,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         setPriority(task?.priority ?? "none");
         setDueLocal(isoToLocalInputValue(task?.dueAt ?? null));
         setTagIds(task ? [...task.tagIds] : []);
+        setManagerOpen(false);
         setErrors({});
         setSubmitting(false);
       },
@@ -175,7 +179,17 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
             </TextField.Root>
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium text-foreground">标签</span>
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-foreground">标签</span>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                  onClick={() => setManagerOpen(true)}
+                >
+                  <Settings2 size={13} aria-hidden="true" />
+                  管理标签
+                </button>
+              </div>
               <div class="flex flex-wrap gap-2">
                 <For each={tasksState.tags}>
                   {(tag) => (
@@ -217,6 +231,8 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               </Button>
             </div>
           </form>
+
+          <TagManagerDialog open={managerOpen()} onOpenChange={setManagerOpen} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

@@ -8,6 +8,7 @@ import { applyFilter, sortTasks, type SortMode } from "../view-filters";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskItemRow } from "./TaskItemRow";
+import { TagManagerDialog } from "./TagManagerDialog";
 
 /** Must match the row height in `TaskItemRow` (VirtualList v1 is fixed-height). */
 const ROW_HEIGHT = 56;
@@ -53,6 +54,7 @@ export function TaskListView(props: TaskListViewProps) {
   const [editingTask, setEditingTask] = createSignal<Task | null>(null);
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<Task | null>(null);
+  const [managerOpen, setManagerOpen] = createSignal(false);
   // Captured once so day boundaries don't flap between rows mid-render.
   const [now] = createSignal(new Date());
 
@@ -159,6 +161,16 @@ export function TaskListView(props: TaskListViewProps) {
           </DropdownMenu.Root>
         </Show>
 
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-8 px-2.5 text-xs text-muted-foreground"
+          onClick={() => setManagerOpen(true)}
+        >
+          <TagIcon size={14} aria-hidden="true" />
+          管理标签
+        </Button>
+
         <Select.Root
           options={props.sortOptions}
           optionValue={(option) => option.value}
@@ -228,6 +240,8 @@ export function TaskListView(props: TaskListViewProps) {
         onOpenChange={setEditorOpen}
         task={editingTask() ?? undefined}
       />
+
+      <TagManagerDialog open={managerOpen()} onOpenChange={setManagerOpen} />
 
       <Show when={detailTask()}>
         {(task) => (
