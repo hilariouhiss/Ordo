@@ -9,7 +9,7 @@ import {
   viewToday,
   viewUpcoming,
 } from "../view-filters";
-import type { Task } from "../types";
+import type { Tag, Task } from "../types";
 
 /** 2026-09-09 12:00 in the test machine's local timezone. */
 const NOW = new Date(2026, 8, 9, 12, 0);
@@ -185,6 +185,29 @@ describe("sortTasks", () => {
     ];
 
     expect(sortTasks(tasks, "recent").map((t) => t.id)).toEqual(["newer", "older"]);
+  });
+
+  it("tag order groups by the first tag name, untagged tasks last", () => {
+    const tags: Tag[] = [
+      { id: "t-work", name: "Work", color: null, createdAt: "", updatedAt: "", deletedAt: null },
+      { id: "t-life", name: "alice", color: null, createdAt: "", updatedAt: "", deletedAt: null },
+    ];
+    const tasks = [
+      task("untagged", { sortOrder: "a" }),
+      task("life", { tagIds: ["t-life"] }),
+      task("work", { tagIds: ["t-work"], sortOrder: "z" }),
+      task("untagged-2", { sortOrder: "b" }),
+      // Case-insensitive + ties fall back to manual order.
+      task("work-2", { tagIds: ["t-work"], sortOrder: "b" }),
+    ];
+
+    expect(sortTasks(tasks, "tag", tags).map((t) => t.id)).toEqual([
+      "life",
+      "work-2",
+      "work",
+      "untagged",
+      "untagged-2",
+    ]);
   });
 });
 

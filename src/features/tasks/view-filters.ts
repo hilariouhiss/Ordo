@@ -8,9 +8,9 @@
 
 import { addDays, endOfDay, format, isSameDay } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import type { Priority, Task } from "./types";
+import type { Priority, Tag, Task } from "./types";
 
-export type SortMode = "manual" | "priority" | "due" | "recent";
+export type SortMode = "manual" | "priority" | "due" | "recent" | "tag";
 
 export interface TaskFilter {
   /** Single priority to keep, or "all". */
@@ -86,7 +86,11 @@ function compareManual(a: Task, b: Task): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-export function sortTasks(tasks: readonly Task[], mode: SortMode): Task[] {
+export function sortTasks(
+  tasks: readonly Task[],
+  mode: SortMode,
+  tags: readonly Tag[] = [],
+): Task[] {
   const copy = [...tasks];
   switch (mode) {
     case "priority":
@@ -107,6 +111,23 @@ export function sortTasks(tasks: readonly Task[], mode: SortMode): Task[] {
           epoch(b.completedAt, 0) - epoch(a.completedAt, 0) || compareManual(a, b),
       );
       break;
+    case "tag": {
+      // Group by the task's first tag name (case-insensitive); untagged tasks
+      // sink to the end. Resolution needs the tag rows, so this mode is only
+      // meaningful where the store is reachable — callers pass `tags`.
+      const nameOf = new Map(tags.map((tag) => [tag.id, tag.name.toLowerCase()]));
+      const firstTagName = (task: Task): string | null =>
+        (task.tagIds.length > 0 && nameOf.get(task.tagIds[0])) || null;
+      copy.sort((a, b) => {
+        const aName = firstTagName(a);
+        const bName = firstTagName(b);
+        if (aName === null && bName === null) return compareManual(a, b);
+        if (aName === null) return 1;
+        if (bName === null) return -1;
+        return aName < bName ? -1 : aName > bName ? 1 : compareManual(a, b);
+      });
+      break;
+    }
     default:
       copy.sort(compareManual);
   }

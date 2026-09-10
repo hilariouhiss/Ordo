@@ -20,6 +20,7 @@ export const SORT_OPTIONS = {
   priority: { value: "priority", label: "按优先级" },
   due: { value: "due", label: "按截止日期" },
   recent: { value: "recent", label: "最近完成" },
+  tag: { value: "tag", label: "按标签" },
 } as const satisfies Record<SortMode, SortOption>;
 
 const PRIORITY_FILTER_OPTIONS: Array<{ value: Priority | "all"; label: string }> = [
@@ -39,6 +40,8 @@ export interface TaskListViewProps {
   sortOptions: SortOption[];
   /** Extra toolbar control, e.g. the Upcoming range select. */
   toolbarExtra?: JSX.Element;
+  /** New tasks created from this list join this project (project detail view). */
+  defaultProjectId?: string;
 }
 
 /**
@@ -62,6 +65,7 @@ export function TaskListView(props: TaskListViewProps) {
     sortTasks(
       applyFilter(props.tasks(), { priority: priorityFilter(), tagIds: tagFilter() }),
       sortMode(),
+      tasksState.tags,
     ),
   );
 
@@ -239,6 +243,7 @@ export function TaskListView(props: TaskListViewProps) {
         open={editorOpen()}
         onOpenChange={setEditorOpen}
         task={editingTask() ?? undefined}
+        defaultProjectId={props.defaultProjectId}
       />
 
       <TagManagerDialog open={managerOpen()} onOpenChange={setManagerOpen} />

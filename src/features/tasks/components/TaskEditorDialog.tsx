@@ -42,6 +42,8 @@ export interface TaskEditorDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Task to edit; omit to create a new one. */
   task?: Task;
+  /** Project assigned to newly created tasks (project detail view); */
+  defaultProjectId?: string;
 }
 
 export function TaskEditorDialog(props: TaskEditorDialogProps) {
@@ -103,6 +105,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         title: parsed.data.title,
         note: noteValue,
         priority: priority(),
+        projectId: props.task ? props.task.projectId : props.defaultProjectId ?? null,
         dueAt: localInputValueToIso(parsed.data.dueLocal),
         tagIds: [...tagIds()],
       };

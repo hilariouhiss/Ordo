@@ -92,6 +92,7 @@ describe("TaskEditorDialog", () => {
       title: "新任务",
       note: null,
       priority: "none",
+      projectId: null,
       dueAt: null,
       tagIds: [],
     });
@@ -203,6 +204,7 @@ describe("TaskEditorDialog", () => {
       title: "新标题",
       note: "备注内容",
       priority: "high",
+      projectId: null,
       dueAt: "2026-01-15T01:30:00.000Z",
       tagIds: ["t1"],
     });
