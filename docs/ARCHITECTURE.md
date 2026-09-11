@@ -222,7 +222,7 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 >
 > `search:query` 查询语义：全部查询词 ≥3 字符时走 FTS5——每个词以引号包裹为短语（使 FTS5 操作符字符按字面匹配）并用 AND 组合，bm25 排序，`snippet()` 返回 `<mark>` 高亮片段；任一词不足 3 字符（trigram 词元下限，常见于双字中文词）时整体回退 LIKE 扫描（`ESCAPE '\'` 转义通配符，按 updated_at 倒序）。任务命中在前、评论命中在后（两表 bm25 分值不可比）；评论命中携带父任务 id/标题供跳转定位。
 >
-> **提醒（R-01）**：V3 迁移增加去重标记表 `task_reminders(task_id, kind, sent_at)`（主键 `(task_id, kind)`，随任务硬删级联）。`scheduler.rs` 的后台线程每 30s 扫描一次：对未完成、未软删、有 `due_at` 的任务，在提前 1 小时 / 10 分钟 / 到期时刻各触发一次提醒；标记持久化，跨扫描与重启均不重复。停机补扫时逾期任务只补发到期提醒；截止超过 24 小时的陈年逾期不再提醒。提醒以 `reminder:triggered` 事件广播，前端 `features/tasks/reminders.ts` 订阅并经通知 store 弹应用内 toast（系统通知在 R-02 接入）。
+> **提醒（R-01/R-02）**：V3 迁移增加去重标记表 `task_reminders(task_id, kind, sent_at)`（主键 `(task_id, kind)`，随任务硬删级联）。`scheduler.rs` 的后台线程每 30s 扫描一次：对未完成、未软删、有 `due_at` 的任务，在提前 1 小时 / 10 分钟 / 到期时刻各触发一次提醒；标记持久化，跨扫描与重启均不重复。停机补扫时逾期任务只补发到期提醒；截止超过 24 小时的陈年逾期不再提醒。每次触发同时做两件事：以 `reminder:triggered` 事件广播给前端（应用内 toast），并通过 `tauri-plugin-notification` 直接发送系统通知（Rust 侧直发，不经 webview，后台/托盘可达；capability 为 `notification:default`）。点击定位：插件桌面端不暴露点击回调，点击系统通知由 OS 聚焦应用窗口；前端把窗口隐藏期间触发的提醒挂起为 pending，在下一次 window `focus` 时打开任务查看器定位该任务（`features/tasks/reminders.ts`）。
 
 ---
 

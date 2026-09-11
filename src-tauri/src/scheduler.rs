@@ -1,18 +1,21 @@
-//! Background reminder scheduler (R-01).
+//! Background reminder scheduler (R-01) and its system-notification delivery
+//! (R-02).
 //!
 //! A plain OS thread wakes on a fixed interval, locks the shared connection
-//! just long enough for one [`services::scan_reminders`] pass, and broadcasts
-//! every newly fired reminder to the frontend as a `reminder:triggered`
-//! event. Running outside the webview keeps reminders working while the
-//! window is hidden, minimized, or later closed to the tray (R-02 adds the
-//! system-notification delivery on top of these events).
+//! just long enough for one [`services::scan_reminders`] pass, and for every
+//! newly fired reminder broadcasts a `reminder:triggered` event to the
+//! frontend *and* shows a system notification via
+//! `tauri-plugin-notification`. Both run outside the webview, so reminders
+//! keep working while the window is hidden, minimized, or closed to the tray.
 
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{Local, Utc};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::db::Db;
+use crate::models::{Reminder, ReminderKind};
 use crate::services;
 
 /// Event name the frontend subscribes to; payload is a `Reminder`.
@@ -21,6 +24,33 @@ pub const REMINDER_EVENT: &str = "reminder:triggered";
 /// How often the scheduler scans for triggerable reminders. Reminders have
 /// 10-minute granularity, so half a minute keeps latency well below that.
 const SCAN_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Title/body of the system notification for one reminder. The body mirrors
+/// the in-app toast text (`features/tasks/reminders.ts`); the due time
+/// renders in the user's local timezone.
+fn notification_texts(reminder: &Reminder) -> (String, String) {
+    let time = reminder.due_at.with_timezone(&Local).format("%H:%M");
+    let body = match reminder.kind {
+        ReminderKind::Advance1h => {
+            format!("「{}」将于 1 小时后（{}）到期", reminder.task_title, time)
+        }
+        ReminderKind::Advance10m => {
+            format!("「{}」将于 10 分钟后（{}）到期", reminder.task_title, time)
+        }
+        ReminderKind::Due => format!("「{}」已到截止时间（{}）", reminder.task_title, time),
+    };
+    ("Ordo 任务提醒".to_string(), body)
+}
+
+/// Shows the OS-level notification; failures (e.g. no registered app id on
+/// an uninstalled dev build) are logged, never fatal — the frontend still
+/// receives the event.
+fn show_notification(app: &AppHandle, reminder: &Reminder) {
+    let (title, body) = notification_texts(reminder);
+    if let Err(error) = app.notification().builder().title(title).body(body).show() {
+        eprintln!("system notification failed: {error}");
+    }
+}
 
 /// Spawns the scheduler thread; call once from app setup.
 pub fn spawn(app: AppHandle, db: Db) {
@@ -38,10 +68,54 @@ pub fn spawn(app: AppHandle, db: Db) {
                         if let Err(error) = app.emit(REMINDER_EVENT, reminder) {
                             eprintln!("emit {REMINDER_EVENT} failed: {error}");
                         }
+                        show_notification(&app, reminder);
                     }
                 }
                 Err(error) => eprintln!("reminder scan failed: {error}"),
             }
         })
         .expect("spawn reminder scheduler thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use uuid::Uuid;
+
+    #[test]
+    fn notification_texts_phrase_every_kind_in_local_time() {
+        let due = Utc.with_ymd_and_hms(2026, 9, 11, 4, 30, 0).unwrap();
+        // Render the expectation through the same Local conversion so the
+        // assertion holds in any timezone.
+        let time = due.with_timezone(&Local).format("%H:%M").to_string();
+        let reminder = |kind| Reminder {
+            task_id: Uuid::new_v4(),
+            task_title: "提交周报".into(),
+            kind,
+            due_at: due,
+        };
+
+        let (title, _) = notification_texts(&reminder(ReminderKind::Due));
+        assert_eq!(title, "Ordo 任务提醒");
+
+        let cases = [
+            (
+                ReminderKind::Advance1h,
+                format!("「提交周报」将于 1 小时后（{time}）到期"),
+            ),
+            (
+                ReminderKind::Advance10m,
+                format!("「提交周报」将于 10 分钟后（{time}）到期"),
+            ),
+            (
+                ReminderKind::Due,
+                format!("「提交周报」已到截止时间（{time}）"),
+            ),
+        ];
+        for (kind, expected) in cases {
+            let (_, body) = notification_texts(&reminder(kind));
+            assert_eq!(body, expected);
+        }
+    }
 }
