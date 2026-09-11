@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Priority, Project, ProjectStatus, RepeatRule, Subtask, Tag, Task,
+    BoardColumn, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Subtask, Tag, Task,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -893,6 +893,67 @@ pub mod search {
     }
 }
 
+/// Reminder dedup markers (`task_reminders`) and the candidate scan that
+/// feeds the scheduler's reminder decisions.
+pub mod reminders {
+    use super::*;
+
+    fn kind_as_text(kind: ReminderKind) -> &'static str {
+        match kind {
+            ReminderKind::Advance1h => "advance_1h",
+            ReminderKind::Advance10m => "advance_10m",
+            ReminderKind::Due => "due",
+        }
+    }
+
+    /// Records that a reminder fired; returns false when a marker already
+    /// existed (the `(task_id, kind)` primary key dedups via INSERT OR
+    /// IGNORE).
+    pub fn mark_fired(
+        conn: &Connection,
+        task_id: Uuid,
+        kind: ReminderKind,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "INSERT OR IGNORE INTO task_reminders (task_id, kind, sent_at) VALUES (?1, ?2, ?3)",
+            params![task_id.to_string(), kind_as_text(kind), at],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// A live, incomplete, due-dated task within the scan window.
+    pub struct ReminderCandidate {
+        pub id: Uuid,
+        pub title: String,
+        pub due_at: DateTime<Utc>,
+    }
+
+    /// Tasks whose reminders may be triggerable: not soft-deleted, not
+    /// completed, `due_at` in `(cutoff, horizon]`, ordered by due time.
+    pub fn list_candidates(
+        conn: &Connection,
+        cutoff: DateTime<Utc>,
+        horizon: DateTime<Utc>,
+    ) -> Result<Vec<ReminderCandidate>, AppError> {
+        query_all(
+            conn,
+            "SELECT id, title, due_at FROM tasks \
+             WHERE deleted_at IS NULL AND completed_at IS NULL \
+               AND due_at IS NOT NULL AND due_at > ?1 AND due_at <= ?2 \
+             ORDER BY due_at, id",
+            params![cutoff, horizon],
+            |row| {
+                Ok(ReminderCandidate {
+                    id: parse_uuid(row.get("id")?)?,
+                    title: row.get("title")?,
+                    due_at: row.get("due_at")?,
+                })
+            },
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1415,5 +1476,38 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].task_id, percent.id);
         assert_eq!(hits[0].task_title, percent.title);
+    }
+
+    #[test]
+    fn reminder_markers_dedup_and_candidates_filter_the_window() {
+        let conn = conn();
+        let mut task = sample_task("a");
+        task.title = "到期任务".into();
+        task.due_at = Some(ts(60));
+        let mut done = sample_task("n");
+        done.due_at = Some(ts(30));
+        done.completed_at = Some(ts(10));
+        let mut gone = sample_task("t");
+        gone.due_at = Some(ts(30));
+        let mut undated = sample_task("z");
+        undated.due_at = None;
+        for entry in [&task, &done, &gone, &undated] {
+            tasks::insert(&conn, entry).unwrap();
+        }
+        tasks::soft_delete(&conn, gone.id, ts(5)).unwrap();
+
+        // Only the live, incomplete task inside the window is a candidate.
+        let candidates = reminders::list_candidates(&conn, ts(0), ts(120)).unwrap();
+        assert_eq!(
+            candidates.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![task.id]
+        );
+        assert_eq!(candidates[0].title, "到期任务");
+        assert_eq!(candidates[0].due_at, ts(60));
+
+        // Markers dedup on the (task, kind) primary key; kinds are independent.
+        assert!(reminders::mark_fired(&conn, task.id, ReminderKind::Advance1h, ts(61)).unwrap());
+        assert!(!reminders::mark_fired(&conn, task.id, ReminderKind::Advance1h, ts(62)).unwrap());
+        assert!(reminders::mark_fired(&conn, task.id, ReminderKind::Due, ts(63)).unwrap());
     }
 }

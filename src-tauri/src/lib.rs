@@ -3,6 +3,7 @@ mod db;
 mod error;
 pub mod models;
 pub mod repositories;
+pub(crate) mod scheduler;
 pub mod services;
 pub mod sort;
 
@@ -48,7 +49,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;
-            app.manage(db);
+            app.manage(db.clone());
+            scheduler::spawn(app.handle().clone(), db);
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -7,5 +7,6 @@ export { Popover } from "./popover";
 export { Select, type SelectRootProps } from "./select";
 export { Tabs } from "./tabs";
 export { TextField } from "./text-field";
+export { Toaster } from "./toaster";
 export { Tooltip } from "./tooltip";
 export { VirtualList, type VirtualListProps } from "./virtual-list";

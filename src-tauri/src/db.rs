@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
@@ -12,16 +12,17 @@ mod embedded {
 
 /// Shared handle to the SQLite connection, stored as Tauri managed state.
 ///
-/// `Connection` is `Send` but not `Sync`, so it is wrapped in a `Mutex` to make
-/// it safe to share across command handler threads.
-pub type Db = Mutex<Connection>;
+/// `Connection` is `Send` but not `Sync`, so it is wrapped in a `Mutex` to
+/// make it safe to share across threads; the `Arc` lets the reminder
+/// scheduler thread hold the same connection as the command handlers.
+pub type Db = Arc<Mutex<Connection>>;
 
 /// Opens the SQLite database at `path`, applies pending migrations, and returns
 /// a shared `Db` handle suitable for `app.manage(...)`.
 pub fn init(path: &Path) -> Result<Db, AppError> {
     let mut conn = Connection::open(path)?;
     embedded::migrations::runner().run(&mut conn)?;
-    Ok(Mutex::new(conn))
+    Ok(Arc::new(Mutex::new(conn)))
 }
 
 /// In-memory SQLite connection with all migrations applied; shared by
@@ -74,6 +75,7 @@ mod tests {
             "settings",
             "task_search",
             "comment_search",
+            "task_reminders",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),

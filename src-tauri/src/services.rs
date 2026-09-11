@@ -15,17 +15,19 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Patch, Priority, Project,
-    ProjectStatus, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn,
-    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    ProjectStatus, Reminder, ReminderKind, SearchHit, SearchHitKind, Subtask, Tag, Task,
+    TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
 };
-use crate::repositories::{board_columns, projects, search, subtasks, tags, task_tags, tasks};
+use crate::repositories::{
+    board_columns, projects, reminders, search, subtasks, tags, task_tags, tasks,
+};
 use crate::sort;
 
 /// Sort keys longer than this trigger a sibling-list rebalance; keys normally
@@ -908,11 +910,63 @@ fn window_snippet(text: &str, start: usize, end: usize) -> String {
     snippet
 }
 
+// ---------------------------------------------------------------------------
+// reminders (R-01, scanned by the background scheduler in `scheduler.rs`)
+// ---------------------------------------------------------------------------
+
+/// Reminders only consider tasks due within the last 24 hours; older overdue
+/// tasks are silent backlog and never fire.
+const REMINDER_CATCHUP_HOURS: i64 = 24;
+
+/// Every reminder kind with its lead time in minutes before `due_at`, in the
+/// order they fire.
+const REMINDER_KIND_LEADS: [(ReminderKind, i64); 3] = [
+    (ReminderKind::Advance1h, 60),
+    (ReminderKind::Advance10m, 10),
+    (ReminderKind::Due, 0),
+];
+
+/// One scheduler scan (runs on the fixed interval in `scheduler.rs`, inside
+/// one transaction): fires each (task, kind) reminder whose lead time has
+/// arrived and marks it so it never fires again — markers persist across
+/// scans and app restarts. Once a task is overdue only the due reminder
+/// fires; catching up a stale "in 1 hour" after downtime would be noise.
+/// Tasks due more than [`REMINDER_CATCHUP_HOURS`] ago are skipped entirely.
+pub fn scan_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Reminder>, AppError> {
+    let cutoff = now - chrono::Duration::hours(REMINDER_CATCHUP_HOURS);
+    let horizon = now + chrono::Duration::hours(1);
+    let candidates = reminders::list_candidates(conn, cutoff, horizon)?;
+
+    let tx = conn.unchecked_transaction()?;
+    let mut fired = Vec::new();
+    for candidate in candidates {
+        for (kind, lead_minutes) in REMINDER_KIND_LEADS {
+            if now < candidate.due_at - chrono::Duration::minutes(lead_minutes) {
+                continue; // lead time not reached yet
+            }
+            if lead_minutes > 0 && now >= candidate.due_at {
+                continue; // already overdue: only the due reminder applies
+            }
+            if reminders::mark_fired(&tx, candidate.id, kind, now)? {
+                fired.push(Reminder {
+                    task_id: candidate.id,
+                    task_title: candidate.title.clone(),
+                    kind,
+                    due_at: candidate.due_at,
+                });
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(fired)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db;
     use crate::models::{NewSubtask, NewTag, NewTask, UpdateTask};
+    use chrono::TimeZone;
     use rusqlite::params;
 
     fn conn() -> Connection {
@@ -1953,5 +2007,101 @@ mod tests {
         let like_elapsed = started.elapsed();
         assert_eq!(hits.len(), 1);
         assert!(like_elapsed.as_millis() < 100, "like took {like_elapsed:?}");
+    }
+
+    /// A task due at an explicit clock time (reminder scans pass `now` in).
+    fn make_due_task(conn: &Connection, title: &str, due: DateTime<Utc>) -> Task {
+        create_task(
+            conn,
+            NewTask {
+                title: title.into(),
+                note: None,
+                priority: None,
+                project_id: None,
+                column_id: None,
+                due_at: Some(due),
+                tag_ids: Vec::new(),
+                subtask_titles: Vec::new(),
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn scan_reminders_fires_each_kind_once_at_its_lead_time() {
+        let conn = conn();
+        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let due = base + chrono::Duration::hours(2);
+        make_due_task(&conn, "按时任务", due);
+
+        // Two hours out: nothing is triggerable yet.
+        assert!(scan_reminders(&conn, base).unwrap().is_empty());
+
+        // T-1h: only the 1-hour advance reminder.
+        let fired = scan_reminders(&conn, due - chrono::Duration::hours(1)).unwrap();
+        assert_eq!(fired.len(), 1);
+        assert_eq!(fired[0].kind, ReminderKind::Advance1h);
+        assert_eq!(fired[0].task_title, "按时任务");
+        assert_eq!(fired[0].due_at, due);
+
+        // T-5m: the 10-minute advance reminder (1h is already marked).
+        let fired = scan_reminders(&conn, due - chrono::Duration::minutes(5)).unwrap();
+        assert_eq!(
+            fired.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            vec![ReminderKind::Advance10m]
+        );
+
+        // T-0: the due reminder; advances never fire once overdue.
+        let fired = scan_reminders(&conn, due).unwrap();
+        assert_eq!(
+            fired.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            vec![ReminderKind::Due]
+        );
+
+        // Everything has fired: rescans are no-ops, even past the due time.
+        assert!(
+            scan_reminders(&conn, due + chrono::Duration::hours(1))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn scan_reminders_skips_completed_deleted_and_stale_backlog() {
+        let conn = conn();
+        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let due = base + chrono::Duration::minutes(30);
+
+        let done = make_due_task(&conn, "已完成任务", due);
+        complete_task(&conn, done.id).unwrap();
+        let gone = make_due_task(&conn, "已删除任务", due);
+        soft_delete_task(&conn, gone.id).unwrap();
+        make_due_task(&conn, "窗口内逾期", base - chrono::Duration::hours(2));
+        make_due_task(&conn, "陈年逾期", base - chrono::Duration::days(3));
+
+        let fired = scan_reminders(&conn, base).unwrap();
+        let titles: Vec<&str> = fired.iter().map(|r| r.task_title.as_str()).collect();
+        assert_eq!(titles, vec!["窗口内逾期"]);
+        assert!(fired.iter().all(|r| r.kind == ReminderKind::Due));
+
+        // The stale backlog stays unmarked but never fires later either.
+        assert!(
+            scan_reminders(&conn, base + chrono::Duration::hours(1))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn scan_reminders_catches_up_only_the_due_reminder_after_downtime() {
+        // The app was closed through the whole advance window: reopening
+        // fires just the due reminder, never a stale "in 1 hour" one.
+        let conn = conn();
+        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        make_due_task(&conn, "停机任务", base - chrono::Duration::minutes(5));
+
+        let fired = scan_reminders(&conn, base).unwrap();
+        assert_eq!(fired.len(), 1);
+        assert_eq!(fired[0].kind, ReminderKind::Due);
     }
 }

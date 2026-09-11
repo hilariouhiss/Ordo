@@ -51,6 +51,29 @@ pub struct RepeatRule {
     pub interval: u32,
 }
 
+/// Which reminder of a task fired (`task_reminders.kind`); the serde values
+/// match the column's CHECK constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ReminderKind {
+    #[serde(rename = "advance_1h")]
+    Advance1h,
+    #[serde(rename = "advance_10m")]
+    Advance10m,
+    #[serde(rename = "due")]
+    Due,
+}
+
+/// A reminder the scheduler has fired, broadcast to the frontend as a
+/// `reminder:triggered` event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reminder {
+    pub task_id: Uuid,
+    pub task_title: String,
+    pub kind: ReminderKind,
+    pub due_at: DateTime<Utc>,
+}
+
 /// A project row (`projects`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -684,6 +707,26 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<SearchHit>(value).unwrap(),
             hit
+        );
+    }
+
+    #[test]
+    fn reminder_payloads_serialize_as_camel_case() {
+        let value = serde_json::to_value(Reminder {
+            task_id: Uuid::nil(),
+            task_title: "周报".into(),
+            kind: ReminderKind::Advance10m,
+            due_at: ts(),
+        })
+        .unwrap();
+        assert_eq!(
+            sorted_keys(&value),
+            ["dueAt", "kind", "taskId", "taskTitle"].map(String::from).to_vec()
+        );
+        assert_eq!(value["kind"], json!("advance_10m"));
+        assert_eq!(
+            serde_json::from_value::<Reminder>(value).unwrap().kind,
+            ReminderKind::Advance10m
         );
     }
 

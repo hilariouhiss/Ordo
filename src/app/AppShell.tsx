@@ -17,6 +17,7 @@ import {
   Sun,
 } from "lucide-solid";
 import { ThemeToggle } from "../common/components/ThemeToggle";
+import { Toaster } from "../common/components";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import TaskViewer from "./TaskViewer";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
@@ -28,6 +29,7 @@ import {
   projectsState,
 } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
+import { subscribeToReminders } from "../features/tasks/reminders";
 
 type NavPath =
   | "/inbox"
@@ -90,9 +92,11 @@ export default function AppShell() {
   const [archivedOpen, setArchivedOpen] = createSignal(false);
 
   // The sidebar always shows projects, so the root shell owns the one-shot
-  // initial load (retried by navigation remounts until it succeeds).
+  // initial load (retried by navigation remounts until it succeeds) and the
+  // app-lifetime reminder event subscription.
   onMount(() => {
     if (!projectsState.loaded) void loadProjects();
+    void subscribeToReminders();
   });
 
   const openCreateProject = () => {
@@ -294,6 +298,8 @@ export default function AppShell() {
       />
 
       <TaskViewer />
+
+      <Toaster />
     </div>
   );
 }

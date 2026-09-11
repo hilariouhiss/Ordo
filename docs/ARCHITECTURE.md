@@ -129,18 +129,21 @@ src/
 ### 3.1 分层与依赖方向
 
 ```
-commands.rs   ← 薄 IPC 壳，参数校验 + 调用 service
+commands.rs     ← 薄 IPC 壳，参数校验 + 调用 service
    ↓
-services.rs   ← 业务规则、编排、事务边界
+services.rs     ← 业务规则、编排、事务边界
    ↓
 repositories.rs ← 唯一写 SQL 的层，映射 rows → models
    ↓
 models.rs / db.rs / sort.rs ← 类型定义 / 连接与迁移 / 排序键工具
+
+scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_reminders，
+                  把新触发的提醒以 `reminder:triggered` 事件广播给前端
 ```
 
 **依赖规则：**
 
-- 单向向下：`commands → services → repositories → (models, db)`。
+- 单向向下：`commands → services → repositories → (models, db)`；`scheduler → services`（不经 commands）。
 - 禁止跨层反向依赖；`models` 是被依赖的叶子层，不含任何 SQL 或业务逻辑。
 - `repositories` 用**纯函数**接受 `&Connection`（而非 trait），测试时用 in-memory SQLite + 真实迁移，比 mock 更可信。首版不引入 repository trait 抽象（YAGNI）。
 
@@ -167,7 +170,7 @@ models.rs / db.rs / sort.rs ← 类型定义 / 连接与迁移 / 排序键工具
 
 ### 3.3 状态与事务
 
-- SQLite 连接由 `db::Db = Mutex<Connection>` 作为 Tauri 托管状态共享（见 `db.rs`）。
+- SQLite 连接由 `db::Db = Arc<Mutex<Connection>>` 作为 Tauri 托管状态共享（见 `db.rs`）；`Mutex` 串行化写，`Arc` 让后台提醒线程与命令处理器共享同一连接。
 - 多步写操作（如创建任务 + 关联标签 + 写时间记录）在 `services` 层用事务包裹，保证原子性。
 - 时间戳与 UUID 统一在**后端生成**（`chrono` / `uuid`），前端不生成主键，保证一致性与权威性。
 
@@ -218,6 +221,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > 完整 DDL 见 `src-tauri/migrations/V2__schema.sql`：上述实体 + 索引（`tasks` 按 project/column/due_at/completed_at、`board_columns` 按 project+position、`subtasks`/`comments`/`time_entries` 按 task_id、`time_entries` 另按 started_at、`task_tags` 按 tag_id）+ FTS5 外部内容表 `task_search(title,note)` 与 `comment_search(body)`（trigram 分词，insert/update/delete 触发器同步）。软删除行仍留在 FTS 索引，查询需按 `deleted_at IS NULL` 过滤。后续 schema 变更新增迁移、不改旧迁移。
 >
 > `search:query` 查询语义：全部查询词 ≥3 字符时走 FTS5——每个词以引号包裹为短语（使 FTS5 操作符字符按字面匹配）并用 AND 组合，bm25 排序，`snippet()` 返回 `<mark>` 高亮片段；任一词不足 3 字符（trigram 词元下限，常见于双字中文词）时整体回退 LIKE 扫描（`ESCAPE '\'` 转义通配符，按 updated_at 倒序）。任务命中在前、评论命中在后（两表 bm25 分值不可比）；评论命中携带父任务 id/标题供跳转定位。
+>
+> **提醒（R-01）**：V3 迁移增加去重标记表 `task_reminders(task_id, kind, sent_at)`（主键 `(task_id, kind)`，随任务硬删级联）。`scheduler.rs` 的后台线程每 30s 扫描一次：对未完成、未软删、有 `due_at` 的任务，在提前 1 小时 / 10 分钟 / 到期时刻各触发一次提醒；标记持久化，跨扫描与重启均不重复。停机补扫时逾期任务只补发到期提醒；截止超过 24 小时的陈年逾期不再提醒。提醒以 `reminder:triggered` 事件广播，前端 `features/tasks/reminders.ts` 订阅并经通知 store 弹应用内 toast（系统通知在 R-02 接入）。
 
 ---
 
