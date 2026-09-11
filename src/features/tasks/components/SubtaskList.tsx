@@ -147,7 +147,8 @@ export function SubtaskList(props: SubtaskListProps) {
                   onInput={(event) => setEditValue(event.currentTarget.value)}
                   onBlur={() => commitEdit(subtask.id)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") commitEdit(subtask.id);
+                    // Enter during IME composition belongs to the IME, not to us.
+                    if (event.key === "Enter" && !event.isComposing) commitEdit(subtask.id);
                     if (event.key === "Escape") setEditingId(null);
                   }}
                 />
@@ -192,7 +193,8 @@ export function SubtaskList(props: SubtaskListProps) {
         value={newTitle()}
         onInput={(event) => setNewTitle(event.currentTarget.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") void add();
+          // Enter during IME composition belongs to the IME, not to us.
+          if (event.key === "Enter" && !event.isComposing) void add();
         }}
       />
     </section>

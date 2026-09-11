@@ -52,7 +52,8 @@ src/
 ├── router.tsx                    # 路由定义（代码式，TanStack Router）
 ├── index.css                     # Tailwind 入口 + @theme 设计 Token
 ├── app/                          # 应用装配层
-│   ├── AppShell.tsx              # 布局壳：侧边栏 + 顶栏 + 内容区
+│   ├── AppShell.tsx              # 布局壳：侧边栏 + 顶栏 + 内容区（仅主窗口）
+│   ├── QuickAddWindow.tsx        # quick-add 小窗的全部内容（仅该窗口渲染，见 D-02）
 │   └── TaskViewer.tsx            # 全局任务详情/编辑弹窗（搜索命中等入口的跳转落点）
 ├── features/                     # 业务领域（按功能划分）
 │   ├── tasks/                    # 任务
@@ -60,6 +61,8 @@ src/
 │   │   ├── store.ts              # 任务内存 Store（Solid createStore）
 │   │   ├── api.ts                # 类型化 IPC 调用
 │   │   ├── hooks.ts              # 领域 hooks（创建/完成/拖拽）
+│   │   ├── priority.ts           # 优先级标签的唯一出处（编辑器/快捷窗/标记共用）
+│   │   ├── quick-add-parse.ts    # 快捷输入语法解析（@项目 / !优先级 / 中文日期）
 │   │   └── types.ts              # 任务领域类型（与后端 serde 对齐）
 │   ├── projects/                 # 项目
 │   ├── board/                    # 看板（列 + 拖拽）
@@ -121,6 +124,7 @@ src/
 - 图标用 **Lucide**；日期用 **date-fns**；表单校验用 **Zod**。
 - **动效只允许** CSS `transform` / `opacity`，时长 150–300ms，遵循 `prefers-reduced-motion`。看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
 - 长列表用**虚拟滚动**，保证万级任务下 60fps。
+- **回车提交必须带 `!event.isComposing` 守卫**（`QuickAddWindow`、`SubtaskList`、`CommentList`、`TimeTracker`）。这是中文产品：输入法组词时按回车是「上屏」而不是「提交」，少了这个守卫会把半截标题写进库，或把正在编辑的内容提前提交。浏览器自带的表单隐式提交本身就不会在组词中触发，但各处都是显式 `onKeyDown` 处理回车，所以守卫得自己写。
 
 ---
 
@@ -238,7 +242,11 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 >
 > **数据备份（D-03）**：`backup:export` 把整库写成一个 JSON 文档（`{format:"ordo.backup", version:1, exportedAt, data:{projects, boardColumns, tags, tasks, subtasks, taskTags, comments, timeEntries, settings}}`，字段复用既有模型与 camelCase 约定），`backup:import` 读取同一文档并**整体替换**全部用户数据表：先删子表再删父表、先插父表再插子表（外键全程成立），整个过程在一个事务内，因此外来/更高版本/解析失败的文件不会改动任何数据（分别返回 validation）。与其他查询不同，`repositories::backup` 故意不过滤 `deleted_at`——备份是数据库的副本而非视图，软删除行随备份往返；`task_reminders` 不入备份（只用于提醒去重，会由迁移与调度器自然重建）。FTS 索引由既有触发器跟随导入的插入/删除同步，无需 rebuild（有测试断言恢复后可搜到）。`io` 是 AppError 的新错误码（文件读写失败），前端 `common/ipc/errors.ts` 白名单同步。文件由前端用 `tauri-plugin-dialog` 的保存/打开对话框选路径（capability `dialog:default`），Rust 只按给定路径读写，前端不接触字节；恢复前必须经确认弹窗，成功后重载 tasks/projects 两个 store，无需重启即可看到恢复后的数据。
 
-> **全局快捷键快速添加（D-02）**：`shortcut.rs` 用 `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`）：按下时 `tray::show_main` 把窗口显示并聚焦，再以 `quick-add:open` 事件通知前端，前端 `app/QuickAddDialog.tsx` 打开单输入框弹窗，回车写入收件箱后调 `getCurrentWindow().hide()` 把窗口收回（录入即隐，用户回到原来的工作）。注册在 Rust 侧而非 webview：窗口藏在托盘、最小化或从未聚焦时都能触发，且不经过 IPC——因此**不需要** `global-shortcut:*` capability（但前端要隐藏窗口，capabilities 里增加了 `core:window:allow-hide`，该名字由 tauri-build 在编译期校验，写错会构建失败）。`Shortcut` 的相等比较包含自增 id，所以 handler 必须与注册时**同一个实例**比较：`quick_add_shortcut()` 用 `OnceLock` 记忆化。快捷键被其他应用占用时只记日志、不影响启动。
+> **全局快捷键快速添加（D-02）**：`shortcut.rs` 用 `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`）：按下时不再唤起主窗口，而是显示 `quick-add`——一个 560×150、无边框、置顶、不进任务栏的独立窗口，内容是一行输入 + 一行控件（项目 / 优先级 / 截止日期）+ 一行预览（`WebviewUrl::App("index.html")`，与主窗口同一个页面；前端 `index.tsx` 按窗口 label 分流：`quick-add` 渲染 `app/QuickAddWindow.tsx`，其余走 RouterProvider，浏览器 dev server 读不到 label 时回落主应用）。窗口在 setup 阶段建好并长期隐藏，所以按下即出、没有 webview 冷启动；`shortcut.rs` 在 show + set_focus 之后向该窗口 `emit_to` 一个 `quick-add:open` 事件——`autofocus` 只在页面加载时生效，而这个页面是在窗口还隐藏时加载的，因此聚焦必须由事件驱动，该事件同时把输入行与三个控件复位（每次唤起都从干净状态开始）并重拉一次项目列表（快捷窗有自己的 store，主窗口里新建或归档的项目它看不到）。回车提交后调 `getCurrentWindow().hide()` 把窗口收回（录入即隐），Esc 同样只隐藏；点击别处则由 `lib.rs` 的 `on_window_event` 捕获 `Focused(false)` 隐藏（无边框窗口没有关闭按钮可点）。两个窗口各有自己的 store，所以快捷窗创建成功后 `emit("task:created")`，主窗口 `AppShell` 监听后 `loadAll()` 重新拉取，否则主窗口会一直显示旧列表。
+>
+> **快捷输入语法（D-02）**：`features/tasks/quick-add-parse.ts` 是纯函数，把一行文字解析成 `{title, projectId, priority, dueAt}`——`@项目`、`!高/!中/!低`、中文日期短语（今天/明天/后天、周X/下周X/星期X、N天后/N周后、M月D日、YYYY年M月D日，可带 上午/下午/晚上 + N点(半)），标记从标题里剥离后提交。两条贯穿始终的原则是**不猜**和**只删看得懂的**：歧义（`@W` 同时匹配 Work 与 Writing）、匹配不上（`@张三`）、不存在的日期（`2月31日`）一律原样留在标题里；项目名的匹配取「token 的最长项目名前缀」（`@Work明天` 不需要空格也能断开），这样中文标题里拉丁项目名可以直接接汉字。只给日期不给时刻时按当天 23:59:59 处理，复用项目截止日期那套 `localDateValueToIso` 约定。`9/30` 这类斜杠写法**故意不支持**——与「完成 3/4 的报表」冲突太大。附带代价是标题里用作普通词的日期也会被吃掉（「周日之前搞定」→「之前搞定」），唯一的防线是预览行：它实时显示按回车到底会存成什么。控件与标记冲突时**控件优先**（用户最后一次显式点击意图最明确），预览行显示的始终是最终结果。优先级标签只有 `features/tasks/priority.ts` 一处定义，编辑器下拉、快捷窗控件、`!高` 标记共用，避免两处标签漂移。注意 Kobalte 的 Select 会在挂载时用一个初始值调一次 `onChange`，所以三个控件的 onChange 都加了「与当前生效值相同就忽略」的判断，否则光打开窗口就会记下「收件箱」并把输入行里的 `@项目` 压掉。
+>
+> 注册在 Rust 侧而非 webview：窗口藏在托盘、最小化或从未聚焦时都能触发，且不经过 IPC——因此**不需要** `global-shortcut:*` capability（但快捷窗要隐藏自己、要调 `task:create`，capabilities 的 `windows` 必须同时列出 `main` 与 `quick-add`，并保留 `core:window:allow-hide`；这些名字由 tauri-build 在编译期校验，写错会构建失败）。`Shortcut` 的相等比较包含自增 id，所以 handler 必须与注册时**同一个实例**比较：`quick_add_shortcut()` 用 `OnceLock` 记忆化。快捷键被其他应用占用时只记日志、不影响启动。
 >
 > **开机自启（D-04）**：`tauri-plugin-autostart` 在 `lib.rs` 注册（`Builder::new().build()`，默认用 LaunchAgent 写 macOS 登录项；Windows 写 HKCU Run 注册表、Linux 写 XDG autostart），API 由**前端**经 `@tauri-apps/plugin-autostart` 绑定调用，因此需要 capability `autostart:default`（含 `allow-enable`/`allow-disable`/`allow-is-enabled`）。设置页「启动」面板的 `开机自启` 开关是 OS 登录项列表的**视图**而不是我们存的值：挂载时读 `isEnabled()`，写入后再回读一次，只有回读成功才更新开关——失败的写（如无权限）走统一错误通知并让开关停在原处，界面不会声称一个 OS 并未接受的状态。**默认关闭**由「代码里没有任何地方主动 enable」保证：登录项列表为空即 off，无需在 `settings` 表里再存一份开关状态（避免与 OS 真实状态分叉）。已知取舍：自启拉起的是正常可见的主窗口（未注册 `--hidden` 启动参数）；若日后要静默入托盘，再在 setup 阶段解析 argv 并隐藏窗口。
 

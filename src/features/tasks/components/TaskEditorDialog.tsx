@@ -7,6 +7,7 @@ import {
   localInputValueToIso,
 } from "../../../common/utils/datetime";
 import { createTask, updateTask } from "../hooks";
+import { PRIORITY_OPTIONS } from "../priority";
 import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
 import { getTag, tasksState } from "../store";
 import type { Priority, RepeatFreq, RepeatRule, Task } from "../types";
@@ -18,13 +19,6 @@ import { TagManagerDialog } from "./TagManagerDialog";
  * optimistic hooks; the dialog closes only on success — failures keep the
  * form open and surface a notification (handled by the hooks).
  */
-
-const PRIORITY_OPTIONS: Array<{ value: Priority; label: string }> = [
-  { value: "high", label: "高" },
-  { value: "medium", label: "中" },
-  { value: "low", label: "低" },
-  { value: "none", label: "无" },
-];
 
 const formSchema = z.object({
   title: z.string().trim().min(1, "标题不能为空"),

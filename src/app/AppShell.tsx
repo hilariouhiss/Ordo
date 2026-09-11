@@ -16,11 +16,12 @@ import {
   Settings,
   Sun,
 } from "lucide-solid";
+import { listen } from "@tauri-apps/api/event";
 import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster } from "../common/components";
+import { EVENTS } from "../common/ipc/events";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import TaskViewer from "./TaskViewer";
-import QuickAddDialog from "./QuickAddDialog";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
 import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
 import { getProjectIcon } from "../features/projects/icons";
@@ -31,6 +32,7 @@ import {
 } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
+import { loadAll } from "../features/tasks/hooks";
 
 type NavPath =
   | "/inbox"
@@ -98,6 +100,9 @@ export default function AppShell() {
   onMount(() => {
     if (!projectsState.loaded) void loadProjects();
     void subscribeToReminders();
+    // The quick-add window (D-02) is a separate webview with its own store, so
+    // a task filed there stays invisible here until the list is pulled again.
+    listen(EVENTS.taskCreated, () => void loadAll()).catch(() => {});
   });
 
   const openCreateProject = () => {
@@ -299,8 +304,6 @@ export default function AppShell() {
       />
 
       <TaskViewer />
-
-      <QuickAddDialog />
 
       <Toaster />
     </div>

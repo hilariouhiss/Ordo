@@ -141,7 +141,8 @@ export function TimeTracker(props: TimeTrackerProps) {
           value={minutes()}
           onInput={(event) => setMinutes(event.currentTarget.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") addManual();
+            // Enter during IME composition belongs to the IME, not to us.
+            if (event.key === "Enter" && !event.isComposing) addManual();
           }}
         />
         <Button size="sm" variant="secondary" onClick={addManual}>
@@ -191,7 +192,8 @@ export function TimeTracker(props: TimeTrackerProps) {
                   onInput={(event) => setEditMinutes(event.currentTarget.value)}
                   onBlur={() => commitEdit(entry.id)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") commitEdit(entry.id);
+                    // Enter during IME composition belongs to the IME, not to us.
+                    if (event.key === "Enter" && !event.isComposing) commitEdit(entry.id);
                     if (event.key === "Escape") setEditingId(null);
                   }}
                 />

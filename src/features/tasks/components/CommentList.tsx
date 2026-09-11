@@ -83,7 +83,10 @@ export function CommentList(props: CommentListProps) {
                   onInput={(event) => setEditValue(event.currentTarget.value)}
                   onBlur={() => commitEdit(comment.id)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) commitEdit(comment.id);
+                    // Enter during IME composition belongs to the IME, not to us.
+                    if (event.key === "Enter" && !event.isComposing && !event.shiftKey) {
+                      commitEdit(comment.id);
+                    }
                     if (event.key === "Escape") setEditingId(null);
                   }}
                 />
@@ -125,7 +128,8 @@ export function CommentList(props: CommentListProps) {
         value={newBody()}
         onInput={(event) => setNewBody(event.currentTarget.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") add();
+          // Enter during IME composition belongs to the IME, not to us.
+          if (event.key === "Enter" && !event.isComposing) add();
         }}
       />
     </section>

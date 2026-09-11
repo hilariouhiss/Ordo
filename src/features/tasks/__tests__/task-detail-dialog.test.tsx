@@ -197,6 +197,28 @@ describe("TaskDetailDialog", () => {
     );
   });
 
+  it("lets the IME take the Enter that commits a composition (subtasks)", async () => {
+    seedSubtasks([subtaskFixture("s1", TASK_ID, { title: "旧标题" })]);
+
+    renderDetail();
+
+    // Adding: Enter mid-composition must not file the half-typed title.
+    fireEvent.input(screen.getByLabelText("添加子任务"), { target: { value: "新子任务" } });
+    fireEvent.keyDown(screen.getByLabelText("添加子任务"), { key: "Enter", isComposing: true });
+    expect(api.createSubtask).not.toHaveBeenCalled();
+
+    // Committing an edit: same story, the title stays editable.
+    fireEvent.click(screen.getByText("旧标题"));
+    const editor = screen.getByDisplayValue("旧标题") as HTMLInputElement;
+    fireEvent.input(editor, { target: { value: "新标题" } });
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+    expect(api.updateSubtask).not.toHaveBeenCalled();
+
+    // The next Enter (composition finished) does go through.
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledWith("s1", { title: "新标题" }));
+  });
+
   it("checks a subtask and the progress follows optimistically", async () => {
     seedSubtasks([
       subtaskFixture("s1", TASK_ID, { done: true, sortOrder: "a" }),
@@ -367,6 +389,29 @@ describe("TaskDetailDialog", () => {
     );
     expect(await screen.findByText("修改后的内容")).toBeTruthy();
   });
+  it("lets the IME take the Enter that commits a composition (comments)", async () => {
+    store.setComments(TASK_ID, [commentFixture("c1", "原始内容")]);
+
+    renderDetail();
+    await screen.findByText("原始内容");
+
+    // Adding: Enter mid-composition must not post the half-typed comment.
+    fireEvent.input(screen.getByLabelText("添加评论"), { target: { value: "补充一点" } });
+    fireEvent.keyDown(screen.getByLabelText("添加评论"), { key: "Enter", isComposing: true });
+    expect(api.createComment).not.toHaveBeenCalled();
+
+    // Committing an edit: same story, the editor stays open.
+    fireEvent.click(screen.getByText("原始内容"));
+    const editor = screen.getByLabelText("编辑评论") as HTMLTextAreaElement;
+    fireEvent.input(editor, { target: { value: "修改后的内容" } });
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+    expect(api.updateComment).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.updateComment).toHaveBeenCalledWith("c1", { body: "修改后的内容" }),
+    );
+  });
 });
 
 describe("TaskDetailDialog time tracking", () => {
@@ -478,6 +523,32 @@ describe("TaskDetailDialog time tracking", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除时间记录 45 分钟" }));
     await waitFor(() => expect(api.deleteTimeEntry).toHaveBeenCalledWith("e1"));
     expect(screen.queryByText("45 分钟")).toBeNull();
+  });
+
+  it("lets the IME take the Enter that commits a composition (time entries)", async () => {
+    store.setTimeEntries(TASK_ID, [timeEntryFixture("e1", { duration: 1800 })]);
+    vi.mocked(api.updateTimeEntry).mockResolvedValue(
+      timeEntryFixture("e1", { duration: 2700 }),
+    );
+
+    renderDetail();
+
+    // Recording minutes: Enter mid-composition must not log a partial entry.
+    fireEvent.input(screen.getByLabelText("时长（分钟）"), { target: { value: "10" } });
+    fireEvent.keyDown(screen.getByLabelText("时长（分钟）"), { key: "Enter", isComposing: true });
+    expect(api.createTimeEntry).not.toHaveBeenCalled();
+
+    // Editing an entry's length: same story.
+    fireEvent.click(screen.getByRole("button", { name: "编辑时长 30 分钟" }));
+    const editor = screen.getByLabelText("修改时长（分钟）") as HTMLInputElement;
+    fireEvent.input(editor, { target: { value: "45" } });
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+    expect(api.updateTimeEntry).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.updateTimeEntry).toHaveBeenCalledWith("e1", { duration: 2700 }),
+    );
   });
 
   it("loads entries through time:list when opening without a cache", async () => {

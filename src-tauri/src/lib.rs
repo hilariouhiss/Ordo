@@ -75,6 +75,7 @@ pub fn run() {
             app.manage(db.clone());
             scheduler::spawn(app.handle().clone(), db);
             tray::init(app.handle())?;
+            shortcut::init(app.handle())?;
             shortcut::register(app.handle());
             Ok(())
         })
@@ -84,6 +85,13 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            // The quick-add window has no title bar to close it with, so
+            // losing focus is how clicking away dismisses it (D-02).
+            if window.label() == shortcut::QUICK_ADD_WINDOW {
+                if let tauri::WindowEvent::Focused(false) = event {
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())
