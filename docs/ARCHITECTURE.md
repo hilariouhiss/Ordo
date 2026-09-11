@@ -52,7 +52,8 @@ src/
 ├── router.tsx                    # 路由定义（代码式，TanStack Router）
 ├── index.css                     # Tailwind 入口 + @theme 设计 Token
 ├── app/                          # 应用装配层
-│   └── AppShell.tsx              # 布局壳：侧边栏 + 顶栏 + 内容区
+│   ├── AppShell.tsx              # 布局壳：侧边栏 + 顶栏 + 内容区
+│   └── TaskViewer.tsx            # 全局任务详情/编辑弹窗（搜索命中等入口的跳转落点）
 ├── features/                     # 业务领域（按功能划分）
 │   ├── tasks/                    # 任务
 │   │   ├── components/           # TaskItem / TaskList / 编辑器 / 看板卡
@@ -78,7 +79,7 @@ src/
 **边界规则：**
 
 - `features/*/api.ts` 是**唯一**能直接调用 `invoke` 的地方；组件与 store 只调用本 feature 的 `api.ts` 或 `hooks.ts`。
-- `features` 之间不互相 import 内部实现，共享逻辑下沉到 `common/`。
+- `features` 之间不互相 import 内部实现，共享逻辑下沉到 `common/`。跨视图的「跳转到任务」交互（如搜索命中）经由 `common/stores/taskViewer.ts` 记录聚焦 id，由 app 层的 `TaskViewer.tsx` 托管任务详情/编辑弹窗——app 装配层是唯一组合各 feature UI 的地方。
 - 组件不直接操作 store 的原始数据，通过 `hooks.ts` 暴露的语义化动作（`completeTask`、`moveTaskToColumn`）来变更，便于在动作里统一做乐观更新与同步。
 
 ### 2.2 状态管理

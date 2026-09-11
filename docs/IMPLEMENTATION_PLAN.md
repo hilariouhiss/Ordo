@@ -122,7 +122,7 @@ M2 出口：看板拖拽流畅、状态与顺序即时持久化、项目进度�
 | ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | S-01 | 全文搜索后端 | `search:query` 命令：FTS5 查询 `task_search`（title/note）+ `comment_search`（body），返回排序命中 + snippet | 标题/备注/评论均可命中；数千条数据毫秒级返回 | F-05 | ✅ |
-| S-02 | 搜索视图 | `src/features/search/`：`/search` 搜索框、结果列表、命中跳转 | 搜索交互流畅；点击结果可跳转任务 | S-01 | ⬜ |
+| S-02 | 搜索视图 | `src/features/search/`：`/search` 搜索框、结果列表、命中跳转 | 搜索交互流畅；点击结果可跳转任务 | S-01 | ✅ |
 | R-01 | 提醒调度服务 | 后台调度器：按固定间隔扫描 due_at 到期与提前提醒（10 分钟/1 小时），避免重复触发 | 到期/提前提醒在应用后台或托盘状态下仍触发 | T-02 | ⬜ |
 | R-02 | 系统通知接入 | 添加 `tauri-plugin-notification`；`capabilities/default.json` 增 `notification:default`；通知点击唤起主窗口并定位任务 | 后台状态通知可达；点击唤起正确 | R-01 | ⬜ |
 

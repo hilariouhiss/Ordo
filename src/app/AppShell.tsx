@@ -18,6 +18,7 @@ import {
 } from "lucide-solid";
 import { ThemeToggle } from "../common/components/ThemeToggle";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
+import TaskViewer from "./TaskViewer";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
 import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
 import { getProjectIcon } from "../features/projects/icons";
@@ -291,6 +292,8 @@ export default function AppShell() {
         onOpenChange={setEditorOpen}
         project={editingProject() ?? undefined}
       />
+
+      <TaskViewer />
     </div>
   );
 }
