@@ -6,6 +6,8 @@
 //! frontend `COMMANDS` constants in `src/common/ipc/commands.ts` match
 //! verbatim. Argument keys are camelCase on the JS side (Tauri's default).
 
+use std::path::Path;
+
 use rusqlite::Connection;
 use tauri::State;
 use uuid::Uuid;
@@ -13,7 +15,7 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
+    BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
     NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag, Task, TaskWithTags,
     TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
     UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
@@ -316,6 +318,18 @@ pub fn time_stop(db: State<'_, Db>, entry_id: Uuid) -> Result<TimeEntry, AppErro
 }
 
 // --- stats:* ---------------------------------------------------------------
+
+// --- backup:* --------------------------------------------------------------
+
+#[tauri::command(rename = "backup:export")]
+pub fn backup_export(db: State<'_, Db>, path: String) -> Result<BackupSummary, AppError> {
+    with_conn(&db, |conn| services::export_backup(conn, Path::new(&path)))
+}
+
+#[tauri::command(rename = "backup:import")]
+pub fn backup_import(db: State<'_, Db>, path: String) -> Result<BackupSummary, AppError> {
+    with_conn(&db, |conn| services::import_backup(conn, Path::new(&path)))
+}
 
 #[tauri::command(rename = "stats:trend")]
 pub fn stats_trend(db: State<'_, Db>, query: TrendQuery) -> Result<Vec<TrendPoint>, AppError> {

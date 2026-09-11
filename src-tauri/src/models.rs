@@ -191,6 +191,98 @@ pub struct Setting {
     pub updated_at: DateTime<Utc>,
 }
 
+// --- backups (`backup:*`) ----------------------------------------------------
+
+/// One task↔tag link (`task_tags`); the join table has no model of its own
+/// elsewhere, but a backup has to carry the associations.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTagLink {
+    pub task_id: Uuid,
+    pub tag_id: Uuid,
+}
+
+/// Every user-data table, exactly as a backup carries them.
+///
+/// Soft-deleted rows are included on purpose: a backup is a copy of the
+/// database, not a view of it. `task_reminders` stays out — those markers only
+/// dedup notifications and are rebuilt by the scheduler.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupData {
+    #[serde(default)]
+    pub projects: Vec<Project>,
+    #[serde(default)]
+    pub board_columns: Vec<BoardColumn>,
+    #[serde(default)]
+    pub tags: Vec<Tag>,
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub subtasks: Vec<Subtask>,
+    #[serde(default)]
+    pub task_tags: Vec<TaskTagLink>,
+    #[serde(default)]
+    pub comments: Vec<Comment>,
+    #[serde(default)]
+    pub time_entries: Vec<TimeEntry>,
+    #[serde(default)]
+    pub settings: Vec<Setting>,
+}
+
+/// Row counts of one backup, so the settings page can say what moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupCounts {
+    pub projects: usize,
+    pub board_columns: usize,
+    pub tasks: usize,
+    pub subtasks: usize,
+    pub tags: usize,
+    pub comments: usize,
+    pub time_entries: usize,
+    pub settings: usize,
+}
+
+impl BackupData {
+    /// Tallies of this payload, for the export/import confirmation.
+    pub fn counts(&self) -> BackupCounts {
+        BackupCounts {
+            projects: self.projects.len(),
+            board_columns: self.board_columns.len(),
+            tasks: self.tasks.len(),
+            subtasks: self.subtasks.len(),
+            tags: self.tags.len(),
+            comments: self.comments.len(),
+            time_entries: self.time_entries.len(),
+            settings: self.settings.len(),
+        }
+    }
+}
+
+/// A backup file: the whole database as one JSON document.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDocument {
+    /// Format marker (`ordo.backup`), so a foreign JSON file is refused
+    /// instead of half-imported.
+    pub format: String,
+    /// Generation of the format; an import refuses anything newer.
+    pub version: u32,
+    pub exported_at: DateTime<Utc>,
+    pub data: BackupData,
+}
+
+/// What an export wrote or an import restored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupSummary {
+    pub path: String,
+    /// Stamp of the document that was written or read.
+    pub exported_at: DateTime<Utc>,
+    pub counts: BackupCounts,
+}
+
 /// A task plus its tag associations — the response shape of `task:list`.
 ///
 /// There is no dedicated command for reading task↔tag links; the task list

@@ -1,0 +1,125 @@
+/** @vitest-environment jsdom */
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "../../../common/components/__tests__/setup";
+import { clearNotifications, notifications } from "../../../common/stores/notifications";
+import * as api from "../api";
+import { SettingsView } from "../components/SettingsView";
+import type { BackupSummary } from "../types";
+
+const saveMock = vi.fn();
+const openMock = vi.fn();
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: (...args: unknown[]) => saveMock(...args),
+  open: (...args: unknown[]) => openMock(...args),
+}));
+
+vi.mock("../api", () => ({
+  exportBackup: vi.fn(),
+  importBackup: vi.fn(),
+}));
+
+vi.mock("../../tasks/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
+vi.mock("../../projects/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
+
+function summary(overrides: Partial<BackupSummary> = {}): BackupSummary {
+  return {
+    path: "C:\\backups\\ordo-backup-20260911-120000.json",
+    exportedAt: "2026-09-11T12:00:00Z",
+    counts: {
+      projects: 2,
+      boardColumns: 6,
+      tasks: 12,
+      subtasks: 3,
+      tags: 4,
+      comments: 5,
+      timeEntries: 7,
+      settings: 1,
+    },
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  clearNotifications();
+});
+
+afterEach(cleanup);
+
+describe("SettingsView backup", () => {
+  it("exports to the path chosen in the save dialog", async () => {
+    saveMock.mockResolvedValue("C:\\backups\\chosen.json");
+    vi.mocked(api.exportBackup).mockResolvedValue(summary({ path: "C:\\backups\\chosen.json" }));
+
+    render(() => <SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
+
+    await waitFor(() =>
+      expect(api.exportBackup).toHaveBeenCalledWith("C:\\backups\\chosen.json"),
+    );
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultPath: expect.stringMatching(/^ordo-backup-.*\.json$/) }),
+    );
+    expect(await screen.findByText(/已导出 12 个任务/)).toBeTruthy();
+  });
+
+  it("does nothing when the save dialog is dismissed", async () => {
+    saveMock.mockResolvedValue(null);
+
+    render(() => <SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
+
+    await waitFor(() => expect(saveMock).toHaveBeenCalled());
+    expect(api.exportBackup).not.toHaveBeenCalled();
+  });
+
+  it("asks for confirmation before restoring, then reloads the stores", async () => {
+    openMock.mockResolvedValue("C:\\backups\\from-disk.json");
+    vi.mocked(api.importBackup).mockResolvedValue(summary());
+    const tasks = await import("../../tasks/hooks");
+    const projects = await import("../../projects/hooks");
+
+    render(() => <SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "从备份恢复" }));
+
+    // Nothing is touched until the user confirms: a restore replaces it all.
+    const confirm = await screen.findByRole("button", { name: "确认恢复" });
+    expect(api.importBackup).not.toHaveBeenCalled();
+
+    fireEvent.click(confirm);
+    await waitFor(() => expect(api.importBackup).toHaveBeenCalledWith("C:\\backups\\from-disk.json"));
+    await waitFor(() => expect(tasks.loadAll).toHaveBeenCalled());
+    await waitFor(() => expect(projects.loadAll).toHaveBeenCalled());
+    expect(notifications()[0]?.message).toContain("已从备份恢复 12 个任务");
+  });
+
+  it("surfaces a failed import and keeps the data as it was", async () => {
+    openMock.mockResolvedValue("C:\\backups\\broken.json");
+    vi.mocked(api.importBackup).mockRejectedValue({ code: "validation", message: "备份文件无法解析" });
+    const tasks = await import("../../tasks/hooks");
+
+    render(() => <SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "从备份恢复" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认恢复" }));
+
+    await waitFor(() => expect(api.importBackup).toHaveBeenCalled());
+    expect(notifications()[0]?.message).toBe("备份文件无法解析");
+    expect(tasks.loadAll).not.toHaveBeenCalled();
+  });
+
+  it("shows the backup path and the restore time after a restore", async () => {
+    openMock.mockResolvedValue("C:\\backups\\from-disk.json");
+    vi.mocked(api.importBackup).mockResolvedValue(
+      summary({ path: "C:\\backups\\from-disk.json" }),
+    );
+
+    render(() => <SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "从备份恢复" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认恢复" }));
+
+    expect(await screen.findByText(/from-disk\.json/)).toBeTruthy();
+    expect(screen.getByText(/2 个项目/)).toBeTruthy();
+  });
+});

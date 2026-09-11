@@ -18,6 +18,13 @@ describe("normalizeError", () => {
     });
   });
 
+  it("recognises the io code the backup commands return", () => {
+    expect(normalizeError({ code: "io", message: "拒绝访问" })).toEqual({
+      code: "io",
+      message: "拒绝访问",
+    });
+  });
+
   it("falls back to the generic message when the payload message is unusable", () => {
     expect(normalizeError({ code: "db", message: 42 })).toEqual({
       code: "db",

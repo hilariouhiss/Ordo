@@ -13,6 +13,9 @@ pub enum AppError {
     #[error("database setup error: {0}")]
     Db(String),
 
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
     #[error("validation error: {0}")]
     Validation(String),
 
@@ -30,6 +33,7 @@ impl AppError {
             AppError::Database(_) => "database",
             AppError::Migration(_) => "migration",
             AppError::Db(_) => "db",
+            AppError::Io(_) => "io",
             AppError::Validation(_) => "validation",
             AppError::NotFound(_) => "not_found",
         }

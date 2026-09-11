@@ -15,8 +15,8 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Subtask,
-    Tag, Task, TimeEntry,
+    BoardColumn, Comment, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Setting,
+    Subtask, Tag, Task, TimeEntry,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -30,6 +30,7 @@ const PROJECT_COLUMNS: &str = "id, name, description, color, icon, due_at, statu
 const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
                                     updated_at, deleted_at";
 const COMMENT_COLUMNS: &str = "id, task_id, body, created_at, updated_at, deleted_at";
+const SETTING_COLUMNS: &str = "key, value, updated_at";
 const TIME_ENTRY_COLUMNS: &str =
     "id, task_id, started_at, ended_at, duration, created_at, updated_at, deleted_at";
 
@@ -199,6 +200,14 @@ fn comment_from_row(row: &Row<'_>) -> Result<Comment, AppError> {
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         deleted_at: row.get("deleted_at")?,
+    })
+}
+
+fn setting_from_row(row: &Row<'_>) -> Result<Setting, AppError> {
+    Ok(Setting {
+        key: row.get("key")?,
+        value: row.get("value")?,
+        updated_at: row.get("updated_at")?,
     })
 }
 
@@ -1311,6 +1320,115 @@ pub mod stats {
                 "project tally does not seek idx_tasks_project: {progress}"
             );
         }
+    }
+}
+
+/// Whole-database copy for the backup commands (`backup:*`).
+///
+/// Every other query in this layer treats `deleted_at IS NULL` as the default
+/// semantic; these two deliberately do not. A backup is a copy of the
+/// database, so soft-deleted rows travel with it and come back on restore.
+pub mod backup {
+    use super::*;
+    use crate::models::{BackupData, TaskTagLink};
+
+    /// Every row of every user-data table.
+    pub fn export_all(conn: &Connection) -> Result<BackupData, AppError> {
+        Ok(BackupData {
+            projects: all_rows(conn, "projects", PROJECT_COLUMNS, project_from_row)?,
+            board_columns: all_rows(
+                conn,
+                "board_columns",
+                BOARD_COLUMN_COLUMNS,
+                board_column_from_row,
+            )?,
+            tags: all_rows(conn, "tags", TAG_COLUMNS, tag_from_row)?,
+            tasks: all_rows(conn, "tasks", TASK_COLUMNS, task_from_row)?,
+            subtasks: all_rows(conn, "subtasks", SUBTASK_COLUMNS, subtask_from_row)?,
+            task_tags: query_all(
+                conn,
+                "SELECT task_id, tag_id FROM task_tags ORDER BY task_id, tag_id",
+                &[],
+                |row| {
+                    Ok(TaskTagLink {
+                        task_id: parse_uuid(row.get("task_id")?)?,
+                        tag_id: parse_uuid(row.get("tag_id")?)?,
+                    })
+                },
+            )?,
+            comments: all_rows(conn, "comments", COMMENT_COLUMNS, comment_from_row)?,
+            time_entries: all_rows(
+                conn,
+                "time_entries",
+                TIME_ENTRY_COLUMNS,
+                time_entry_from_row,
+            )?,
+            settings: all_rows(conn, "settings", SETTING_COLUMNS, setting_from_row)?,
+        })
+    }
+
+    fn all_rows<T>(
+        conn: &Connection,
+        table: &str,
+        columns: &str,
+        map: RowMap<T>,
+    ) -> Result<Vec<T>, AppError> {
+        query_all(conn, &format!("SELECT {columns} FROM {table}"), &[], map)
+    }
+
+    /// Replaces every user-data table with `data`, inside the caller's
+    /// transaction. Children are cleared before their parents and written
+    /// after them, so the foreign keys hold throughout.
+    pub fn replace_all(conn: &Connection, data: &BackupData) -> Result<(), AppError> {
+        for table in [
+            "task_tags",
+            "comments",
+            "subtasks",
+            "time_entries",
+            "tasks",
+            "board_columns",
+            "projects",
+            "tags",
+            "settings",
+        ] {
+            conn.execute(&format!("DELETE FROM {table}"), [])?;
+        }
+
+        for project in &data.projects {
+            projects::insert(conn, project)?;
+        }
+        for column in &data.board_columns {
+            board_columns::insert(conn, column)?;
+        }
+        for tag in &data.tags {
+            tags::insert(conn, tag)?;
+        }
+        for task in &data.tasks {
+            tasks::insert(conn, task)?;
+        }
+        for subtask in &data.subtasks {
+            subtasks::insert(conn, subtask)?;
+        }
+        {
+            let mut statement =
+                conn.prepare("INSERT INTO task_tags (task_id, tag_id) VALUES (?1, ?2)")?;
+            for link in &data.task_tags {
+                statement.execute(params![link.task_id.to_string(), link.tag_id.to_string()])?;
+            }
+        }
+        for comment in &data.comments {
+            comments::insert(conn, comment)?;
+        }
+        for entry in &data.time_entries {
+            time_entries::insert(conn, entry)?;
+        }
+        for setting in &data.settings {
+            conn.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                params![setting.key, setting.value, setting.updated_at],
+            )?;
+        }
+        Ok(())
     }
 }
 

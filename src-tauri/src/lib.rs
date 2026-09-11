@@ -20,6 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(shortcut::plugin())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
@@ -63,6 +64,8 @@ pub fn run() {
             commands::stats_trend,
             commands::stats_project_progress,
             commands::stats_time_distribution,
+            commands::backup_export,
+            commands::backup_import,
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;

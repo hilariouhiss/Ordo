@@ -3,6 +3,7 @@ export type AppErrorCode =
   | "database"
   | "migration"
   | "db"
+  | "io"
   | "validation"
   | "not_found"
   | "unknown";
@@ -19,6 +20,7 @@ const KNOWN_CODES: readonly AppErrorCode[] = [
   "database",
   "migration",
   "db",
+  "io",
   "validation",
   "not_found",
 ];

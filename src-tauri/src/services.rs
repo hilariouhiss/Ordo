@@ -14,6 +14,7 @@
 //! that keeps keys short forever.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
@@ -21,15 +22,15 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
+    BackupDocument, BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
     NewTimeEntry, Patch, Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind,
     RepeatFreq, RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags,
     TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
     UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
-    board_columns, comments, projects, reminders, search, stats, subtasks, tags, task_tags, tasks,
-    time_entries,
+    backup, board_columns, comments, projects, reminders, search, stats, subtasks, tags,
+    task_tags, tasks, time_entries,
 };
 use crate::sort;
 
@@ -1065,6 +1066,71 @@ pub fn time_distribution(
     Ok(TimeDistribution {
         groups: stats::time_shares(conn, &query)?,
         buckets: stats::time_buckets(conn, &query)?,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// backup:*
+// ---------------------------------------------------------------------------
+
+/// Format marker written into every backup document.
+pub const BACKUP_FORMAT: &str = "ordo.backup";
+/// Generation of the backup format this build reads and writes.
+pub const BACKUP_VERSION: u32 = 1;
+
+/// Writes every table to `path` as one JSON backup document.
+pub fn export_backup(conn: &Connection, path: &Path) -> Result<BackupSummary, AppError> {
+    let data = backup::export_all(conn)?;
+    let document = BackupDocument {
+        format: BACKUP_FORMAT.to_string(),
+        version: BACKUP_VERSION,
+        exported_at: Utc::now(),
+        data,
+    };
+    let json = serde_json::to_string_pretty(&document)
+        .map_err(|error| AppError::Db(format!("序列化备份失败：{error}")))?;
+
+    // A save dialog may point into a folder that does not exist yet.
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, json)?;
+
+    Ok(BackupSummary {
+        path: path.to_string_lossy().into_owned(),
+        exported_at: document.exported_at,
+        counts: document.data.counts(),
+    })
+}
+
+/// Replaces the whole database with the backup at `path`, in one transaction:
+/// a foreign, newer or malformed document changes nothing.
+pub fn import_backup(conn: &Connection, path: &Path) -> Result<BackupSummary, AppError> {
+    let text = std::fs::read_to_string(path)?;
+    let document: BackupDocument = serde_json::from_str(&text)
+        .map_err(|error| AppError::Validation(format!("备份文件无法解析：{error}")))?;
+
+    if document.format != BACKUP_FORMAT {
+        return Err(AppError::Validation(format!(
+            "不是 Ordo 备份文件（format = {:?}）",
+            document.format
+        )));
+    }
+    if document.version > BACKUP_VERSION {
+        return Err(AppError::Validation(format!(
+            "备份文件版本 {} 高于当前支持的 {BACKUP_VERSION}",
+            document.version
+        )));
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    backup::replace_all(&tx, &document.data)?;
+    tx.commit()?;
+
+    Ok(BackupSummary {
+        path: path.to_string_lossy().into_owned(),
+        exported_at: document.exported_at,
+        counts: document.data.counts(),
     })
 }
 
@@ -3307,5 +3373,162 @@ mod tests {
             distribution_elapsed.as_millis() < 100,
             "distribution took {distribution_elapsed:?}"
         );
+    }
+
+    /// A temp file path for the backup round trip; callers remove it.
+    fn backup_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("ordo-backup-test-{}.json", Uuid::new_v4()))
+    }
+
+    /// One project with a board column, a tagged/commented/timed task, a
+    /// subtask, a setting and a soft-deleted task — enough to prove a restore
+    /// covers every table.
+    fn seed_everything(conn: &Connection) -> Task {
+        let project = make_project(conn, "Alpha");
+        let column = first_column(conn, project.id);
+        let tag = create_tag(
+            conn,
+            NewTag {
+                name: "工作".into(),
+                color: Some("#3b82f6".into()),
+            },
+        )
+        .unwrap();
+
+        let task = make_task_in(conn, Some(project.id), vec![tag.id], "备份任务");
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, note = '备注', priority = 'high', \
+             due_at = ?2 WHERE id = ?3",
+            params![column.id.to_string(), at(30, 9), task.id.to_string()],
+        )
+        .unwrap();
+        create_subtask(
+            conn,
+            task.id,
+            NewSubtask {
+                title: "第一步".into(),
+            },
+        )
+        .unwrap();
+        create_comment(
+            conn,
+            task.id,
+            NewComment {
+                body: "写下来免得忘".into(),
+            },
+        )
+        .unwrap();
+        make_entry(conn, task.id, at(9, 1), 1800);
+
+        let removed = make_task_in(conn, Some(project.id), Vec::new(), "已删除的任务");
+        soft_delete_task(conn, removed.id).unwrap();
+
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('theme', 'dark', ?1)",
+            params![at(9, 0)],
+        )
+        .unwrap();
+
+        tasks::get(conn, task.id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn backup_round_trip_restores_every_table() {
+        let conn = conn();
+        let task = seed_everything(&conn);
+        let before = backup::export_all(&conn).unwrap();
+        let path = backup_path();
+
+        let exported = export_backup(&conn, &path).unwrap();
+        assert_eq!(exported.path, path.to_string_lossy());
+        assert_eq!(
+            (
+                exported.counts.projects,
+                exported.counts.board_columns,
+                exported.counts.tasks,
+                exported.counts.tags,
+                exported.counts.subtasks,
+                exported.counts.comments,
+                exported.counts.time_entries,
+                exported.counts.settings,
+            ),
+            (1, 3, 2, 1, 1, 1, 1, 1)
+        );
+
+        // Restoring into a database that never saw the data reproduces it all,
+        // soft-deleted rows included.
+        let restored = db::test_conn();
+        let summary = import_backup(&restored, &path).unwrap();
+        assert_eq!(summary.counts.tasks, 2);
+        assert_eq!(summary.exported_at, exported.exported_at);
+        let after = backup::export_all(&restored).unwrap();
+        assert_eq!(after, before, "every table survives a backup round trip");
+        assert_eq!(
+            tasks::get(&restored, task.id).unwrap().unwrap().priority,
+            Priority::High
+        );
+        assert_eq!(subtasks::list_by_task(&restored, task.id).unwrap().len(), 1);
+        assert_eq!(list_comments(&restored, task.id).unwrap().len(), 1);
+        assert_eq!(list_time_entries(&restored, task.id).unwrap().len(), 1);
+        assert_eq!(
+            task_tags::list_tags_for_task(&restored, task.id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            board_columns::list_by_project(&restored, before.projects[0].id)
+                .unwrap()
+                .len(),
+            3
+        );
+
+        // The FTS index follows the restored rows without a rebuild.
+        let hits = search(&restored, "备份任务").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].task_id, task.id);
+
+        // A second import replaces rather than merges: the task created after
+        // the first restore is gone, while the soft-deleted row stayed deleted
+        // and therefore stays out of the live list.
+        make_task(&restored, "导入之后新增的");
+        import_backup(&restored, &path).unwrap();
+        assert_eq!(tasks::list(&restored).unwrap().len(), 1);
+        assert_eq!(backup::export_all(&restored).unwrap().tasks.len(), 2);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn import_rejects_foreign_documents_and_missing_files() {
+        let conn = conn();
+        let path = backup_path();
+        std::fs::write(&path, r#"{"format":"something-else","version":1}"#).unwrap();
+        assert_eq!(import_backup(&conn, &path).unwrap_err().code(), "validation");
+
+        std::fs::write(
+            &path,
+            serde_json::to_string(&serde_json::json!({
+                "format": BACKUP_FORMAT,
+                "version": BACKUP_VERSION + 1,
+                "exportedAt": "2026-09-11T00:00:00Z",
+                "data": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(import_backup(&conn, &path).unwrap_err().code(), "validation");
+
+        std::fs::write(&path, "{ not json").unwrap();
+        assert_eq!(import_backup(&conn, &path).unwrap_err().code(), "validation");
+
+        // A rejected import leaves the data alone.
+        let task = seed_everything(&conn);
+        assert!(import_backup(&conn, &path).is_err());
+        assert!(tasks::get(&conn, task.id).unwrap().is_some());
+
+        std::fs::remove_file(&path).unwrap();
+        let missing = backup_path();
+        assert_eq!(import_backup(&conn, &missing).unwrap_err().code(), "io");
     }
 }
