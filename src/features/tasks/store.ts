@@ -8,7 +8,7 @@
  */
 
 import { createStore, produce } from "solid-js/store";
-import type { Subtask, Tag, Task } from "./types";
+import type { Comment, Subtask, Tag, Task } from "./types";
 
 export interface TasksState {
   /** All live tasks, ordered by `sortOrder` as returned by `task:list`. */
@@ -17,6 +17,8 @@ export interface TasksState {
   tags: Tag[];
   /** Subtask cache per task, filled on demand by `loadSubtasks`. */
   subtasksByTask: Record<string, Subtask[]>;
+  /** Comment cache per task, filled on demand by `loadComments`. */
+  commentsByTask: Record<string, Comment[]>;
   /** Whether the initial `loadAll` completed successfully. */
   loaded: boolean;
 }
@@ -25,6 +27,7 @@ const [state, setState] = createStore<TasksState>({
   tasks: [],
   tags: [],
   subtasksByTask: {},
+  commentsByTask: {},
   loaded: false,
 });
 
@@ -46,6 +49,15 @@ export function getSubtasks(taskId: string): Subtask[] {
 /** Whether the task's subtask list has been loaded into the cache. */
 export function hasSubtasks(taskId: string): boolean {
   return taskId in state.subtasksByTask;
+}
+
+export function getComments(taskId: string): Comment[] {
+  return state.commentsByTask[taskId] ?? [];
+}
+
+/** Whether the task's comment list has been loaded into the cache. */
+export function hasComments(taskId: string): boolean {
+  return taskId in state.commentsByTask;
 }
 
 /** Index of a task in the ordered list, or -1. */
@@ -191,7 +203,35 @@ export function insertSubtaskAt(taskId: string, index: number, subtask: Subtask)
   );
 }
 
+export function setComments(taskId: string, comments: Comment[]): void {
+  setState("commentsByTask", taskId, comments);
+}
+
+export function upsertComment(taskId: string, comment: Comment): void {
+  setState("commentsByTask", taskId, (list) => {
+    const index = list.findIndex((item) => item.id === comment.id);
+    if (index === -1) return [...list, comment];
+    return list.map((item) => (item.id === comment.id ? comment : item));
+  });
+}
+
+export function patchComment(taskId: string, id: string, patch: Partial<Comment>): void {
+  setState("commentsByTask", taskId, (list) =>
+    list.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+  );
+}
+
+export function removeComment(taskId: string, id: string): void {
+  setState("commentsByTask", taskId, (list) => list.filter((item) => item.id !== id));
+}
+
 /** Resets the store to its pristine state (test seam). */
 export function resetTasksStore(): void {
-  setState({ tasks: [], tags: [], subtasksByTask: {}, loaded: false });
+  setState({
+    tasks: [],
+    tags: [],
+    subtasksByTask: {},
+    commentsByTask: {},
+    loaded: false,
+  });
 }

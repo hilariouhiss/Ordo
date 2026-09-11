@@ -13,12 +13,15 @@ import { pushError } from "../../common/stores/notifications";
 import * as api from "./api";
 import * as store from "./store";
 import type {
+  Comment,
+  NewComment,
   NewSubtask,
   NewTag,
   NewTask,
   Subtask,
   Tag,
   Task,
+  UpdateComment,
   UpdateSubtask,
   UpdateTag,
   UpdateTask,
@@ -427,4 +430,87 @@ function moveItem<T>(list: T[], from: number, to: number): T[] {
   const [item] = copy.splice(from, 1);
   copy.splice(Math.min(Math.max(to, 0), copy.length), 0, item);
   return copy;
+}
+
+// --- comments ------------------------------------------------------------------
+
+/** Loads one task's comments into the cache; returns success. */
+export async function loadComments(taskId: string): Promise<boolean> {
+  try {
+    const comments = await api.listComments(taskId);
+    store.setComments(taskId, comments);
+    return true;
+  } catch (error) {
+    reportFailure(error);
+    return false;
+  }
+}
+
+/** Creates a comment appended to the cached list (once that list is loaded). */
+export function createComment(taskId: string, input: NewComment): Promise<Comment | null> {
+  const tempId = nextTempId();
+  const now = new Date().toISOString();
+  const body = input.body.trim();
+  const optimisticComment: Comment = {
+    id: tempId,
+    taskId,
+    body,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+  const cached = store.hasComments(taskId);
+
+  return optimistic(
+    () => {
+      if (cached) store.upsertComment(taskId, optimisticComment);
+    },
+    () => {
+      if (cached) store.removeComment(taskId, tempId);
+    },
+    async () => {
+      const created = await api.createComment(taskId, { body });
+      if (cached) {
+        store.removeComment(taskId, tempId);
+        store.upsertComment(taskId, created);
+      }
+      return created;
+    },
+  );
+}
+
+export function updateComment(
+  taskId: string,
+  commentId: string,
+  patch: UpdateComment,
+): Promise<Comment | null> {
+  const current = store.getComments(taskId).find((item) => item.id === commentId);
+  if (!current) return Promise.resolve(missingEntity("评论"));
+  const before: Comment = { ...current };
+  const body = patch.body.trim();
+
+  return optimistic(
+    () => store.patchComment(taskId, commentId, { body, updatedAt: new Date().toISOString() }),
+    () => store.patchComment(taskId, commentId, before),
+    async () => {
+      const saved = await api.updateComment(commentId, { body });
+      store.patchComment(taskId, commentId, saved);
+      return saved;
+    },
+  );
+}
+
+export function deleteComment(taskId: string, commentId: string): Promise<boolean | null> {
+  const list = store.getComments(taskId);
+  const index = list.findIndex((item) => item.id === commentId);
+  if (index === -1) return Promise.resolve(missingEntity("评论"));
+
+  return optimistic(
+    () => store.removeComment(taskId, commentId),
+    () => store.setComments(taskId, [...list]),
+    async () => {
+      await api.deleteComment(commentId);
+      return true;
+    },
+  );
 }

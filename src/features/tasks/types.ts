@@ -60,6 +60,15 @@ export interface Subtask {
   deletedAt: string | null;
 }
 
+export interface Comment {
+  id: string;
+  taskId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
 // --- Write payloads ----------------------------------------------------------
 
 export interface NewTask {
@@ -105,4 +114,13 @@ export interface NewSubtask {
 export interface UpdateSubtask {
   title?: string;
   done?: boolean;
+}
+
+export interface NewComment {
+  body: string;
+}
+
+/** Comments only have a body; edits replace it wholesale. */
+export interface UpdateComment {
+  body: string;
 }

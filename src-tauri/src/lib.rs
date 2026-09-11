@@ -47,6 +47,10 @@ pub fn run() {
             commands::board_delete_column,
             commands::board_move_task,
             commands::search_query,
+            commands::comment_list,
+            commands::comment_create,
+            commands::comment_update,
+            commands::comment_delete,
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;

@@ -6,12 +6,15 @@
 
 import { COMMANDS, invokeCommand } from "../../common/ipc";
 import type {
+  Comment,
+  NewComment,
   NewSubtask,
   NewTag,
   NewTask,
   Subtask,
   Tag,
   Task,
+  UpdateComment,
   UpdateSubtask,
   UpdateTag,
   UpdateTask,
@@ -94,4 +97,22 @@ export function reorderSubtask(
   next: string | null,
 ): Promise<Subtask[]> {
   return invokeCommand(COMMANDS.subtask.reorder, { subtaskId, prev, next });
+}
+
+// --- comment:* ----------------------------------------------------------------
+
+export function listComments(taskId: string): Promise<Comment[]> {
+  return invokeCommand(COMMANDS.comment.list, { taskId });
+}
+
+export function createComment(taskId: string, payload: NewComment): Promise<Comment> {
+  return invokeCommand(COMMANDS.comment.create, { taskId, payload });
+}
+
+export function updateComment(commentId: string, payload: UpdateComment): Promise<Comment> {
+  return invokeCommand(COMMANDS.comment.update, { commentId, payload });
+}
+
+export function deleteComment(commentId: string): Promise<void> {
+  return invokeCommand(COMMANDS.comment.delete, { commentId });
 }

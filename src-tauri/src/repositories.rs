@@ -15,7 +15,8 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Subtask, Tag, Task,
+    BoardColumn, Comment, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Subtask,
+    Tag, Task,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -28,6 +29,7 @@ const PROJECT_COLUMNS: &str = "id, name, description, color, icon, due_at, statu
                                created_at, updated_at, deleted_at";
 const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
                                     updated_at, deleted_at";
+const COMMENT_COLUMNS: &str = "id, task_id, body, created_at, updated_at, deleted_at";
 
 type RowMap<T> = fn(&Row<'_>) -> Result<T, AppError>;
 
@@ -181,6 +183,17 @@ fn board_column_from_row(row: &Row<'_>) -> Result<BoardColumn, AppError> {
         name: row.get("name")?,
         position: row.get("position")?,
         is_done: row.get("is_done")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        deleted_at: row.get("deleted_at")?,
+    })
+}
+
+fn comment_from_row(row: &Row<'_>) -> Result<Comment, AppError> {
+    Ok(Comment {
+        id: parse_uuid(row.get("id")?)?,
+        task_id: parse_uuid(row.get("task_id")?)?,
+        body: row.get("body")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         deleted_at: row.get("deleted_at")?,
@@ -893,6 +906,71 @@ pub mod search {
     }
 }
 
+/// Comment CRUD (`comments` table), always scoped to a parent task. Bodies
+/// are indexed for full-text search by the V2 triggers; soft-deleted rows
+/// stay in the index and are filtered at query time.
+pub mod comments {
+    use super::*;
+
+    pub fn insert(conn: &Connection, comment: &Comment) -> Result<(), AppError> {
+        conn.execute(
+            "INSERT INTO comments (id, task_id, body, created_at, updated_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                comment.id.to_string(),
+                comment.task_id.to_string(),
+                comment.body,
+                comment.created_at,
+                comment.updated_at,
+                comment.deleted_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get(conn: &Connection, id: Uuid) -> Result<Option<Comment>, AppError> {
+        query_one(
+            conn,
+            &format!("SELECT {COMMENT_COLUMNS} FROM comments WHERE id = ?1 AND deleted_at IS NULL"),
+            params![id.to_string()],
+            comment_from_row,
+        )
+    }
+
+    /// Non-deleted comments of one task, in chronological order.
+    pub fn list_by_task(conn: &Connection, task_id: Uuid) -> Result<Vec<Comment>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {COMMENT_COLUMNS} FROM comments \
+                 WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY created_at, id"
+            ),
+            params![task_id.to_string()],
+            comment_from_row,
+        )
+    }
+
+    /// Body-only update; returns false when the comment is missing or
+    /// soft-deleted.
+    pub fn update(conn: &Connection, comment: &Comment) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE comments SET body = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL",
+            params![comment.body, comment.updated_at, comment.id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+
+    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE comments SET deleted_at = ?1, updated_at = ?1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+}
+
 /// Reminder dedup markers (`task_reminders`) and the candidate scan that
 /// feeds the scheduler's reminder decisions.
 pub mod reminders {
@@ -1389,6 +1467,56 @@ mod tests {
             params![Uuid::new_v4().to_string(), task_id.to_string(), body],
         )
         .unwrap();
+    }
+
+    fn sample_comment(task_id: Uuid, body: &str, created_at: chrono::DateTime<Utc>) -> Comment {
+        Comment {
+            id: Uuid::new_v4(),
+            task_id,
+            body: body.into(),
+            created_at,
+            updated_at: created_at,
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn comments_crud_scope_and_soft_delete() {
+        let conn = conn();
+        let task_a = sample_task("a");
+        let task_b = sample_task("n");
+        tasks::insert(&conn, &task_a).unwrap();
+        tasks::insert(&conn, &task_b).unwrap();
+
+        let first = sample_comment(task_a.id, "第一条", ts(0));
+        let second = sample_comment(task_a.id, "第二条", ts(1));
+        let other = sample_comment(task_b.id, "别的任务", ts(2));
+        for comment in [&first, &second, &other] {
+            comments::insert(&conn, comment).unwrap();
+        }
+
+        // Chronological within the task, scoped to it.
+        assert_eq!(
+            comments::list_by_task(&conn, task_a.id).unwrap(),
+            vec![first.clone(), second.clone()]
+        );
+        assert_eq!(comments::get(&conn, first.id).unwrap().unwrap(), first);
+
+        // Body-only update stamps updated_at and skips soft-deleted rows.
+        let mut edited = second.clone();
+        edited.body = "第二条（修订）".into();
+        edited.updated_at = ts(5);
+        assert!(comments::update(&conn, &edited).unwrap());
+        assert_eq!(comments::get(&conn, second.id).unwrap().unwrap(), edited);
+        assert!(!comments::update(&conn, &sample_comment(Uuid::new_v4(), "缺失", ts(0))).unwrap());
+
+        assert!(comments::soft_delete(&conn, first.id, ts(10)).unwrap());
+        assert!(!comments::soft_delete(&conn, first.id, ts(11)).unwrap());
+        assert_eq!(comments::get(&conn, first.id).unwrap(), None);
+        assert_eq!(
+            comments::list_by_task(&conn, task_a.id).unwrap(),
+            vec![edited]
+        );
     }
 
     #[test]

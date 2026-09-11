@@ -22,6 +22,10 @@ vi.mock("../api", () => ({
   completeSubtask: vi.fn(),
   deleteSubtask: vi.fn(),
   reorderSubtask: vi.fn(),
+  listComments: vi.fn(),
+  createComment: vi.fn(),
+  updateComment: vi.fn(),
+  deleteComment: vi.fn(),
 }));
 
 import * as api from "../api";

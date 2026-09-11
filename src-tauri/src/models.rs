@@ -368,6 +368,19 @@ pub struct UpdateBoardColumn {
     pub is_done: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewComment {
+    pub body: String,
+}
+
+/// Comments only have a body; edits replace it wholesale.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateComment {
+    pub body: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

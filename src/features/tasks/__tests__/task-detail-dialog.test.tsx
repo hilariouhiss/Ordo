@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as store from "../store";
-import type { Subtask, Task } from "../types";
+import type { Comment, Subtask, Task } from "../types";
 import { TaskDetailDialog } from "../components/TaskDetailDialog";
 
 vi.mock("../api", () => ({
@@ -24,6 +24,10 @@ vi.mock("../api", () => ({
   completeSubtask: vi.fn(),
   deleteSubtask: vi.fn(),
   reorderSubtask: vi.fn(),
+  listComments: vi.fn(),
+  createComment: vi.fn(),
+  updateComment: vi.fn(),
+  deleteComment: vi.fn(),
 }));
 
 function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
@@ -60,6 +64,17 @@ function subtaskFixture(id: string, taskId: string, overrides: Partial<Subtask> 
   };
 }
 
+function commentFixture(id: string, body: string): Comment {
+  return {
+    id,
+    taskId: TASK_ID,
+    body,
+    createdAt: "2026-09-09T10:00:00Z",
+    updatedAt: "2026-09-09T10:00:00Z",
+    deletedAt: null,
+  };
+}
+
 const TASK_ID = "task-1";
 
 function seedSubtasks(subtasks: Subtask[]): void {
@@ -83,6 +98,10 @@ function subtaskIdsInOrder(): string[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.listComments).mockResolvedValue([]);
+  vi.mocked(api.createComment).mockResolvedValue(
+    commentFixture("c-new", "新评论"),
+  );
   store.resetTasksStore();
   store.setAll([taskFixture(TASK_ID)], []);
 });
@@ -123,7 +142,12 @@ describe("TaskDetailDialog", () => {
 
     renderDetail();
 
-    expect(screen.getByRole("status").textContent).toBe("子任务加载中…");
+    // Both lazy sections show their loading placeholder until loaded.
+    const statuses = screen.getAllByRole("status");
+    expect(statuses.map((el) => el.textContent)).toEqual([
+      "子任务加载中…",
+      "评论加载中…",
+    ]);
     expect(await screen.findByText("子任务 s1")).toBeTruthy();
     expect(api.listSubtasks).toHaveBeenCalledWith(TASK_ID);
   });
@@ -258,5 +282,64 @@ describe("TaskDetailDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     await waitFor(() => expect(api.softDeleteTask).toHaveBeenCalledWith(TASK_ID));
+  });
+  it("loads comments through comment:list and adds one optimistically", async () => {
+    vi.mocked(api.listComments).mockResolvedValue([
+      commentFixture("c1", "首次评审意见"),
+    ]);
+    let resolveCreate!: (value: Comment) => void;
+    vi.mocked(api.createComment).mockReturnValue(
+      new Promise<Comment>((res) => {
+        resolveCreate = res;
+      }),
+    );
+
+    renderDetail();
+    expect(await screen.findByText("首次评审意见")).toBeTruthy();
+    expect(api.listComments).toHaveBeenCalledWith(TASK_ID);
+
+    fireEvent.input(screen.getByLabelText("添加评论"), {
+      target: { value: "补充一点" },
+    });
+    fireEvent.keyDown(screen.getByLabelText("添加评论"), { key: "Enter" });
+
+    // Optimistic row appears before the backend answers.
+    expect(screen.getByText("补充一点")).toBeTruthy();
+    resolveCreate(commentFixture("c2", "补充一点"));
+    await waitFor(() => expect(api.createComment).toHaveBeenCalledTimes(1));
+    expect(
+      (screen.getByLabelText("添加评论") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  it("deletes a comment from its row button", async () => {
+    store.setComments(TASK_ID, [commentFixture("c1", "待删除的评论")]);
+    vi.mocked(api.deleteComment).mockResolvedValue(undefined);
+
+    renderDetail();
+    expect(await screen.findByText("待删除的评论")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除评论 待删除的评论" }));
+
+    await waitFor(() => expect(api.deleteComment).toHaveBeenCalledWith("c1"));
+    expect(screen.queryByText("待删除的评论")).toBeNull();
+  });
+
+  it("inline-edits a comment body (Enter commits)", async () => {
+    store.setComments(TASK_ID, [commentFixture("c1", "原始内容")]);
+    vi.mocked(api.updateComment).mockResolvedValue(
+      commentFixture("c1", "修改后的内容"),
+    );
+
+    renderDetail();
+    fireEvent.click(await screen.findByText("原始内容"));
+    const editor = screen.getByLabelText("编辑评论") as HTMLTextAreaElement;
+    fireEvent.input(editor, { target: { value: "修改后的内容" } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(api.updateComment).toHaveBeenCalledWith("c1", { body: "修改后的内容" }),
+    );
+    expect(await screen.findByText("修改后的内容")).toBeTruthy();
   });
 });

@@ -13,9 +13,9 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Project, SearchHit,
-    Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag,
-    UpdateTask,
+    BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
+    Project, SearchHit, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateComment,
+    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
 };
 use crate::services;
 
@@ -238,4 +238,34 @@ pub fn board_move_task(
 #[tauri::command(rename = "search:query")]
 pub fn search_query(db: State<'_, Db>, query: &str) -> Result<Vec<SearchHit>, AppError> {
     with_conn(&db, |conn| services::search(conn, query))
+}
+
+// --- comment:* -------------------------------------------------------------
+
+#[tauri::command(rename = "comment:list")]
+pub fn comment_list(db: State<'_, Db>, task_id: Uuid) -> Result<Vec<Comment>, AppError> {
+    with_conn(&db, |conn| services::list_comments(conn, task_id))
+}
+
+#[tauri::command(rename = "comment:create")]
+pub fn comment_create(
+    db: State<'_, Db>,
+    task_id: Uuid,
+    payload: NewComment,
+) -> Result<Comment, AppError> {
+    with_conn(&db, |conn| services::create_comment(conn, task_id, payload))
+}
+
+#[tauri::command(rename = "comment:update")]
+pub fn comment_update(
+    db: State<'_, Db>,
+    comment_id: Uuid,
+    payload: UpdateComment,
+) -> Result<Comment, AppError> {
+    with_conn(&db, |conn| services::update_comment(conn, comment_id, payload))
+}
+
+#[tauri::command(rename = "comment:delete")]
+pub fn comment_delete(db: State<'_, Db>, comment_id: Uuid) -> Result<(), AppError> {
+    with_conn(&db, |conn| services::delete_comment(conn, comment_id))
 }

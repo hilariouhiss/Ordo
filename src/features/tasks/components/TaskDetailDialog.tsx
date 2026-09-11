@@ -8,6 +8,9 @@ import type { Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 import { PRIORITY_BADGES } from "./TaskItemRow";
 import { SubtaskList } from "./SubtaskList";
+import { CommentList } from "./CommentList";
+import { loadComments } from "../hooks";
+import { hasComments } from "../store";
 
 export interface TaskDetailDialogProps {
   open: boolean;
@@ -35,7 +38,9 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
     on(
       () => [props.open, props.task.id] as const,
       ([open, id]) => {
-        if (open && !hasSubtasks(id)) void loadSubtasks(id);
+        if (!open) return;
+        if (!hasSubtasks(id)) void loadSubtasks(id);
+        if (!hasComments(id)) void loadComments(id);
       },
     ),
   );
@@ -125,6 +130,19 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
               }
             >
               <SubtaskList taskId={task().id} />
+            </Show>
+          </div>
+
+          <div class="mt-4 border-t border-border pt-4">
+            <Show
+              when={hasComments(task().id)}
+              fallback={
+                <p role="status" class="py-4 text-center text-sm text-muted-foreground">
+                  评论加载中…
+                </p>
+              }
+            >
+              <CommentList taskId={task().id} />
             </Show>
           </div>
 

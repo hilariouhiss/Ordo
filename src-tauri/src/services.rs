@@ -21,13 +21,13 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Patch, Priority, Project,
-    ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit, SearchHitKind,
-    Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag,
-    UpdateTask,
+    BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
+    Patch, Priority, Project, ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule,
+    SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateComment,
+    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
 };
 use crate::repositories::{
-    board_columns, projects, reminders, search, subtasks, tags, task_tags, tasks,
+    board_columns, comments, projects, reminders, search, subtasks, tags, task_tags, tasks,
 };
 use crate::sort;
 
@@ -39,13 +39,18 @@ fn not_found(what: &str, id: Uuid) -> AppError {
     AppError::NotFound(format!("{what} {id} 不存在"))
 }
 
-/// Trims and rejects blank titles/names shared by tasks, tags and subtasks.
-fn validated_name(raw: &str) -> Result<String, AppError> {
+/// Trims and rejects blank user-provided text, e.g. `{label}不能为空`.
+fn validated_text(label: &str, raw: &str) -> Result<String, AppError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(AppError::Validation("标题不能为空".into()));
+        return Err(AppError::Validation(format!("{label}不能为空")));
     }
     Ok(trimmed.to_string())
+}
+
+/// Trims and rejects blank titles/names shared by tasks, tags and subtasks.
+fn validated_name(raw: &str) -> Result<String, AppError> {
+    validated_text("标题", raw)
 }
 
 fn dedup(ids: Vec<Uuid>) -> Vec<Uuid> {
@@ -863,6 +868,56 @@ pub fn move_task(
 
     tx.commit()?;
     Ok(moved)
+}
+
+// ---------------------------------------------------------------------------
+// comments
+// ---------------------------------------------------------------------------
+
+pub fn list_comments(conn: &Connection, task_id: Uuid) -> Result<Vec<Comment>, AppError> {
+    comments::list_by_task(conn, task_id)
+}
+
+pub fn create_comment(
+    conn: &Connection,
+    task_id: Uuid,
+    input: NewComment,
+) -> Result<Comment, AppError> {
+    if tasks::get(conn, task_id)?.is_none() {
+        return Err(not_found("任务", task_id));
+    }
+    let now = Utc::now();
+    let comment = Comment {
+        id: Uuid::new_v4(),
+        task_id,
+        body: validated_text("评论内容", &input.body)?,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    comments::insert(conn, &comment)?;
+    Ok(comment)
+}
+
+pub fn update_comment(
+    conn: &Connection,
+    id: Uuid,
+    patch: UpdateComment,
+) -> Result<Comment, AppError> {
+    let mut comment = comments::get(conn, id)?.ok_or_else(|| not_found("评论", id))?;
+    comment.body = validated_text("评论内容", &patch.body)?;
+    comment.updated_at = Utc::now();
+    if !comments::update(conn, &comment)? {
+        return Err(not_found("评论", id));
+    }
+    Ok(comment)
+}
+
+pub fn delete_comment(conn: &Connection, id: Uuid) -> Result<(), AppError> {
+    if !comments::soft_delete(conn, id, Utc::now())? {
+        return Err(not_found("评论", id));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2217,6 +2272,63 @@ mod tests {
         let fired = scan_reminders(&conn, base).unwrap();
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].kind, ReminderKind::Due);
+    }
+
+    #[test]
+    fn comment_crud_validates_and_soft_deletes() {
+        let conn = conn();
+        let task = make_task(&conn, "被评论的任务");
+
+        // Unknown task and blank body are rejected.
+        let err = create_comment(&conn, Uuid::new_v4(), NewComment { body: "你好".into() })
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+        let err = create_comment(&conn, task.id, NewComment { body: "   ".into() }).unwrap_err();
+        assert_eq!(err.code(), "validation");
+
+        let comment = create_comment(&conn, task.id, NewComment { body: "  第一条评论  ".into() })
+            .unwrap();
+        assert_eq!(comment.body, "第一条评论");
+        assert_eq!(
+            list_comments(&conn, task.id).unwrap()[0].body,
+            "第一条评论"
+        );
+
+        let edited = update_comment(
+            &conn,
+            comment.id,
+            UpdateComment {
+                body: "修订后的评论".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(edited.body, "修订后的评论");
+
+        delete_comment(&conn, comment.id).unwrap();
+        assert_eq!(list_comments(&conn, task.id).unwrap().len(), 0);
+        assert_eq!(delete_comment(&conn, comment.id).unwrap_err().code(), "not_found");
+        assert_eq!(
+            update_comment(&conn, comment.id, UpdateComment { body: "x".into() })
+                .unwrap_err()
+                .code(),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn comments_created_through_the_service_are_searchable() {
+        let conn = conn();
+        let task = make_task(&conn, "整理季度回顾");
+        create_comment(&conn, task.id, NewComment { body: "记得附上留存率曲线图".into() }).unwrap();
+
+        let hits = search(&conn, "留存率曲线").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].kind, SearchHitKind::Comment);
+        assert_eq!(hits[0].task_id, task.id);
+
+        // Deleting the comment removes it from the search scope.
+        delete_comment(&conn, hits[0].id).unwrap();
+        assert!(search(&conn, "留存率曲线").unwrap().is_empty());
     }
 
     #[test]
