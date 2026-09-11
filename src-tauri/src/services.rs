@@ -22,10 +22,10 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Patch, Priority, Project,
-    ProjectStatus, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateProject,
-    UpdateSubtask, UpdateTag, UpdateTask,
+    ProjectStatus, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn,
+    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
 };
-use crate::repositories::{board_columns, projects, subtasks, tags, task_tags, tasks};
+use crate::repositories::{board_columns, projects, search, subtasks, tags, task_tags, tasks};
 use crate::sort;
 
 /// Sort keys longer than this trigger a sibling-list rebalance; keys normally
@@ -760,11 +760,160 @@ pub fn move_task(
     Ok(moved)
 }
 
+// ---------------------------------------------------------------------------
+// search:*
+// ---------------------------------------------------------------------------
+
+/// Hits returned per kind; the search view only needs the best matches, and
+/// unbounded result sets would slow the IPC hop.
+const SEARCH_MAX_HITS: i64 = 50;
+
+/// Trigram tokens need three characters, so shorter terms cannot hit the FTS
+/// index and the query falls back to a LIKE scan.
+const MIN_FTS_TERM_CHARS: usize = 3;
+
+/// Context characters kept on each side of a LIKE-path snippet highlight.
+const SNIPPET_RADIUS_CHARS: usize = 24;
+
+/// `search:query` — full-text search across task titles/notes and comment
+/// bodies. Blank queries return no hits so the view can fire on every
+/// keystroke. Queries whose terms all have at least [`MIN_FTS_TERM_CHARS`]
+/// characters go through FTS5 ranked by bm25; anything shorter falls back to
+/// a LIKE scan ordered by recency. Task hits precede comment hits (the two
+/// tables' bm25 scores are not comparable).
+pub fn search(conn: &Connection, query: &str) -> Result<Vec<SearchHit>, AppError> {
+    let terms: Vec<String> = query.split_whitespace().map(str::to_string).collect();
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if terms.iter().all(|t| t.chars().count() >= MIN_FTS_TERM_CHARS) {
+        let match_expr = fts_match_expression(&terms);
+        let task_hits = search::fts_tasks(conn, &match_expr, SEARCH_MAX_HITS)?
+            .into_iter()
+            .map(|row| SearchHit {
+                kind: SearchHitKind::Task,
+                id: row.id,
+                task_id: row.id,
+                task_title: row.title,
+                snippet: row.snippet,
+            });
+        let comment_hits = search::fts_comments(conn, &match_expr, SEARCH_MAX_HITS)?
+            .into_iter()
+            .map(|row| SearchHit {
+                kind: SearchHitKind::Comment,
+                id: row.id,
+                task_id: row.task_id,
+                task_title: row.task_title,
+                snippet: row.snippet,
+            });
+        return Ok(task_hits.chain(comment_hits).collect());
+    }
+
+    let task_hits = search::like_tasks(conn, &terms, SEARCH_MAX_HITS)?
+        .into_iter()
+        .map(|row| {
+            let note = row.note.as_deref().unwrap_or("");
+            let snippet = like_snippet(&[&row.title, note], &terms);
+            SearchHit {
+                kind: SearchHitKind::Task,
+                id: row.id,
+                task_id: row.id,
+                task_title: row.title,
+                snippet,
+            }
+        });
+    let comment_hits = search::like_comments(conn, &terms, SEARCH_MAX_HITS)?
+        .into_iter()
+        .map(|row| {
+            let snippet = like_snippet(&[&row.body], &terms);
+            SearchHit {
+                kind: SearchHitKind::Comment,
+                id: row.id,
+                task_id: row.task_id,
+                task_title: row.task_title,
+                snippet,
+            }
+        });
+    Ok(task_hits.chain(comment_hits).collect())
+}
+
+/// Quotes each term as an FTS5 phrase (doubling embedded quotes) and joins
+/// them with AND. Quoting keeps every FTS5 operator character in the user's
+/// input literal, and phrases substring-match under the trigram tokenizer.
+fn fts_match_expression(terms: &[String]) -> String {
+    terms
+        .iter()
+        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
+/// ASCII case-insensitive substring search returning the match's byte range.
+/// `to_ascii_lowercase` preserves byte lengths, so the range stays valid in
+/// the original text.
+fn find_ascii_ci(haystack: &str, needle: &str) -> Option<(usize, usize)> {
+    if needle.is_empty() {
+        return None;
+    }
+    let fold = |s: &str| s.chars().map(|c| c.to_ascii_lowercase()).collect::<String>();
+    let start = fold(haystack).find(&fold(needle))?;
+    Some((start, start + needle.len()))
+}
+
+/// Builds a highlighted snippet around the first term occurrence found across
+/// `texts` (tried in order, e.g. title before note). SQLite's `snippet()`
+/// does the equivalent for the FTS path; this serves the LIKE path.
+fn like_snippet(texts: &[&str], terms: &[String]) -> String {
+    for text in texts {
+        if let Some((start, end)) = terms.iter().find_map(|t| find_ascii_ci(text, t)) {
+            return window_snippet(text, start, end);
+        }
+    }
+    // No occurrence found (only possible when SQLite's LIKE case folding
+    // diverges from ours): a plain head of the first text.
+    texts
+        .first()
+        .map(|text| {
+            let count = text.chars().count();
+            let mut head: String = text.chars().take(SNIPPET_RADIUS_CHARS * 2).collect();
+            if count > SNIPPET_RADIUS_CHARS * 2 {
+                head.push('…');
+            }
+            head
+        })
+        .unwrap_or_default()
+}
+
+/// Extracts `text[start..end]` wrapped in `<mark>` markers with
+/// [`SNIPPET_RADIUS_CHARS`] characters of context, ellipsised on truncation.
+fn window_snippet(text: &str, start: usize, end: usize) -> String {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let index_of = |byte: usize| chars.partition_point(|&(b, _)| b < byte);
+    let lo = index_of(start).saturating_sub(SNIPPET_RADIUS_CHARS);
+    let hi = (index_of(end) + SNIPPET_RADIUS_CHARS).min(chars.len());
+
+    let mut snippet = String::new();
+    if lo > 0 {
+        snippet.push('…');
+    }
+    snippet.extend(chars[lo..index_of(start)].iter().map(|&(_, c)| c));
+    snippet.push_str("<mark>");
+    snippet.extend(chars[index_of(start)..index_of(end)].iter().map(|&(_, c)| c));
+    snippet.push_str("</mark>");
+    snippet.extend(chars[index_of(end)..hi].iter().map(|&(_, c)| c));
+    if hi < chars.len() {
+        snippet.push('…');
+    }
+    snippet
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db;
     use crate::models::{NewSubtask, NewTag, NewTask, UpdateTask};
+    use rusqlite::params;
 
     fn conn() -> Connection {
         db::test_conn()
@@ -1644,5 +1793,165 @@ mod tests {
                 .code(),
             "validation"
         );
+    }
+
+    /// Inserts a comment directly; the comments repository/service arrive
+    /// with C-01, and the FTS triggers index this row for search.
+    fn insert_comment(conn: &Connection, task_id: Uuid, body: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        conn.execute(
+            "INSERT INTO comments (id, task_id, body, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            params![id.to_string(), task_id.to_string(), body],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn search_blank_query_has_no_hits() {
+        let conn = conn();
+        make_task(&conn, "周报");
+        assert!(search(&conn, "").unwrap().is_empty());
+        assert!(search(&conn, "  \t\n ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_hits_titles_notes_and_comments_with_highlighted_snippets() {
+        let conn = conn();
+        let doc = make_task(&conn, "撰写产品需求文档");
+        update_task(
+            &conn,
+            doc.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Set(Some("包含竞品分析章节".into())),
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+            },
+        )
+        .unwrap();
+        let comment_id = insert_comment(&conn, doc.id, "产品需求评审结论：通过");
+
+        // The term hits the task title and a comment body: tasks come first,
+        // comment hits carry the parent task's id/title for navigation.
+        let hits = search(&conn, "产品需求").unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].kind, SearchHitKind::Task);
+        assert_eq!(hits[0].task_id, doc.id);
+        assert!(hits[0].snippet.contains("<mark>产品需求</mark>"));
+        assert_eq!(hits[1].kind, SearchHitKind::Comment);
+        assert_eq!(hits[1].id, comment_id);
+        assert_eq!(hits[1].task_id, doc.id);
+        assert_eq!(hits[1].task_title, "撰写产品需求文档");
+        assert!(hits[1].snippet.contains("<mark>产品需求</mark>"));
+
+        // Note-only hits resolve to the owning task with a marked snippet.
+        let hits = search(&conn, "竞品分析").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].kind, SearchHitKind::Task);
+        assert_eq!(hits[0].task_id, doc.id);
+        assert!(hits[0].snippet.contains("<mark>竞品分析</mark>"));
+
+        // Comment-only queries return a single comment hit.
+        let hits = search(&conn, "评审结论").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].kind, SearchHitKind::Comment);
+        assert_eq!(hits[0].id, comment_id);
+    }
+
+    #[test]
+    fn search_excludes_soft_deleted_tasks_and_their_comments() {
+        let conn = conn();
+        let task = make_task(&conn, "采购显示器支架");
+        insert_comment(&conn, task.id, "显示器支架购买链接");
+
+        assert_eq!(search(&conn, "显示器支架").unwrap().len(), 2);
+        soft_delete_task(&conn, task.id).unwrap();
+        assert!(search(&conn, "显示器支架").unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_short_terms_fall_back_to_like_case_insensitively() {
+        let conn = conn();
+        make_task(&conn, "Go live checklist");
+        make_task(&conn, "周报整理");
+
+        // "go" (2 ASCII chars) and "周报" (2 CJK chars) both take the LIKE path.
+        let hits = search(&conn, "go").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].task_title, "Go live checklist");
+        assert!(
+            hits[0].snippet.contains("<mark>Go</mark>"),
+            "unexpected snippet: {}", hits[0].snippet
+        );
+
+        let hits = search(&conn, "周报").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].task_title, "周报整理");
+        assert!(hits[0].snippet.contains("<mark>周报</mark>"));
+    }
+
+    #[test]
+    fn search_requires_every_term_to_match() {
+        let conn = conn();
+        make_task(&conn, "alpha beta");
+        make_task(&conn, "alpha gamma");
+        make_task(&conn, "ab cd");
+        make_task(&conn, "ab ef");
+
+        // FTS path: quoted phrases AND-ed together.
+        let hits = search(&conn, "alpha beta").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].task_title, "alpha beta");
+
+        // LIKE path: every term must occur too.
+        let hits = search(&conn, "ab cd").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].task_title, "ab cd");
+    }
+
+    #[test]
+    fn search_on_thousands_of_tasks_stays_millisecond_level() {
+        let conn = conn();
+        let tx = conn.unchecked_transaction().unwrap();
+        for i in 0..5000 {
+            tx.execute(
+                "INSERT INTO tasks (id, title, priority, sort_order, created_at, updated_at) \
+                 VALUES (?1, ?2, 'none', ?3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                params![
+                    Uuid::new_v4().to_string(),
+                    format!("例行任务{i}号"),
+                    format!("{i:08}"),
+                ],
+            )
+            .unwrap();
+        }
+        tx.execute(
+            "INSERT INTO tasks (id, title, priority, sort_order, created_at, updated_at) \
+             VALUES (?1, '季度目标复盘会议', 'none', 'zzzz', '2026-01-01T00:00:00Z', \
+                     '2026-01-01T00:00:00Z')",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        // FTS path (>= 3 chars, indexed trigrams).
+        let started = std::time::Instant::now();
+        let hits = search(&conn, "目标复盘").unwrap();
+        let fts_elapsed = started.elapsed();
+        assert_eq!(hits.len(), 1);
+        assert!(fts_elapsed.as_millis() < 100, "fts took {fts_elapsed:?}");
+
+        // LIKE fallback (2 chars, full scan over 5001 rows).
+        let started = std::time::Instant::now();
+        let hits = search(&conn, "复盘").unwrap();
+        let like_elapsed = started.elapsed();
+        assert_eq!(hits.len(), 1);
+        assert!(like_elapsed.as_millis() < 100, "like took {like_elapsed:?}");
     }
 }

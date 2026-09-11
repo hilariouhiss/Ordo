@@ -175,6 +175,31 @@ pub struct TaskWithTags {
     pub tag_ids: Vec<Uuid>,
 }
 
+/// Which entity produced a search hit (`search:query`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchHitKind {
+    Task,
+    Comment,
+}
+
+/// One full-text search hit — the response item of `search:query`.
+///
+/// Comment hits carry the parent task's id/title so the frontend can always
+/// navigate to the owning task; `snippet` highlights the first match window
+/// with `<mark>`/`</mark>` markers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub kind: SearchHitKind,
+    /// Id of the matching entity (the task itself, or the comment).
+    pub id: Uuid,
+    /// Id of the task to navigate to (for task hits, same as `id`).
+    pub task_id: Uuid,
+    pub task_title: String,
+    pub snippet: String,
+}
+
 /// Input payloads for write commands.
 ///
 /// Nullable columns in update payloads use [`Patch`]: a missing field leaves
@@ -636,6 +661,30 @@ mod tests {
 
         assert!(serde_json::from_value::<Priority>(json!("urgent")).is_err());
         assert!(serde_json::from_value::<ProjectStatus>(json!("deleted")).is_err());
+    }
+
+    #[test]
+    fn search_hit_fields_serialize_as_camel_case() {
+        let hit = SearchHit {
+            kind: SearchHitKind::Comment,
+            id: Uuid::nil(),
+            task_id: Uuid::nil(),
+            task_title: "写周报".into(),
+            snippet: "评语<mark>周报</mark>内容".into(),
+        };
+
+        let value = serde_json::to_value(&hit).unwrap();
+        assert_eq!(
+            sorted_keys(&value),
+            ["id", "kind", "snippet", "taskId", "taskTitle"]
+                .map(String::from)
+                .to_vec()
+        );
+        assert_eq!(value["kind"], json!("comment"));
+        assert_eq!(
+            serde_json::from_value::<SearchHit>(value).unwrap(),
+            hit
+        );
     }
 
     #[test]

@@ -215,6 +215,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 **手动排序（字典序键）说明**：`sort_order` / `position` 采用字典序字符串键，语义是「用户手动拖拽后的位置」。它与视图级的「按优先级 / 按截止日期」即时排序正交——后者用 `createMemo` 派生计算、不落库；前者才是持久化的自定义顺序，仅在「手动排序」模式下作为默认展示顺序。中间键的生成用后端统一实现（`services`/`lib` 中的 `between(a, b)` 工具），前端只传「目标前驱/后继键」，保证算法一致。
 
 > 完整 DDL 见 `src-tauri/migrations/V2__schema.sql`：上述实体 + 索引（`tasks` 按 project/column/due_at/completed_at、`board_columns` 按 project+position、`subtasks`/`comments`/`time_entries` 按 task_id、`time_entries` 另按 started_at、`task_tags` 按 tag_id）+ FTS5 外部内容表 `task_search(title,note)` 与 `comment_search(body)`（trigram 分词，insert/update/delete 触发器同步）。软删除行仍留在 FTS 索引，查询需按 `deleted_at IS NULL` 过滤。后续 schema 变更新增迁移、不改旧迁移。
+>
+> `search:query` 查询语义：全部查询词 ≥3 字符时走 FTS5——每个词以引号包裹为短语（使 FTS5 操作符字符按字面匹配）并用 AND 组合，bm25 排序，`snippet()` 返回 `<mark>` 高亮片段；任一词不足 3 字符（trigram 词元下限，常见于双字中文词）时整体回退 LIKE 扫描（`ESCAPE '\'` 转义通配符，按 updated_at 倒序）。任务命中在前、评论命中在后（两表 bm25 分值不可比）；评论命中携带父任务 id/标题供跳转定位。
 
 ---
 

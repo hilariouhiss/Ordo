@@ -13,8 +13,9 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Project, Subtask, Tag,
-    Task, TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Project, SearchHit,
+    Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag,
+    UpdateTask,
 };
 use crate::services;
 
@@ -230,4 +231,11 @@ pub fn board_move_task(
     with_conn(&db, |conn| {
         services::move_task(conn, task_id, column_id, prev, next)
     })
+}
+
+// --- search:* --------------------------------------------------------------
+
+#[tauri::command(rename = "search:query")]
+pub fn search_query(db: State<'_, Db>, query: &str) -> Result<Vec<SearchHit>, AppError> {
+    with_conn(&db, |conn| services::search(conn, query))
 }

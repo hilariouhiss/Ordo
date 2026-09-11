@@ -44,6 +44,7 @@ pub fn run() {
             commands::board_update_column,
             commands::board_delete_column,
             commands::board_move_task,
+            commands::search_query,
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;

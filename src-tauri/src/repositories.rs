@@ -725,6 +725,174 @@ pub mod board_columns {
     }
 }
 
+/// Full-text search over the FTS5 external-content tables `task_search` and
+/// `comment_search`, plus a LIKE fallback for terms the trigram tokenizer
+/// cannot index (fewer than three characters). Soft-deleted rows stay in the
+/// FTS index, so every query joins the source table and filters
+/// `deleted_at IS NULL`. FTS paths rank with bm25; the LIKE paths have no
+/// relevance signal and order by recency.
+pub mod search {
+    use super::*;
+
+    /// A task hit from the FTS path; `snippet` carries `<mark>` highlight
+    /// markers produced by SQLite's `snippet()`.
+    pub struct FtsTaskHit {
+        pub id: Uuid,
+        pub title: String,
+        pub snippet: String,
+    }
+
+    /// A comment hit from the FTS path, resolved to its parent task.
+    pub struct FtsCommentHit {
+        pub id: Uuid,
+        pub task_id: Uuid,
+        pub task_title: String,
+        pub snippet: String,
+    }
+
+    /// A matching task's raw text for the LIKE path; the service builds the
+    /// snippet (SQL has no snippet function for LIKE scans).
+    pub struct LikeTaskRow {
+        pub id: Uuid,
+        pub title: String,
+        pub note: Option<String>,
+    }
+
+    /// A matching comment's raw text plus its parent task, for the LIKE path.
+    pub struct LikeCommentRow {
+        pub id: Uuid,
+        pub task_id: Uuid,
+        pub task_title: String,
+        pub body: String,
+    }
+
+    /// Escapes LIKE wildcards and wraps the term in a contains-pattern
+    /// (`ESCAPE '\'` must accompany the query).
+    fn like_pattern(term: &str) -> String {
+        let escaped = term
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        format!("%{escaped}%")
+    }
+
+    pub fn fts_tasks(
+        conn: &Connection,
+        match_expr: &str,
+        limit: i64,
+    ) -> Result<Vec<FtsTaskHit>, AppError> {
+        query_all(
+            conn,
+            "SELECT t.id, t.title, \
+             snippet(task_search, -1, '<mark>', '</mark>', '…', 16) AS snippet \
+             FROM task_search \
+             JOIN tasks t ON t.rowid = task_search.rowid \
+             WHERE task_search MATCH ?1 AND t.deleted_at IS NULL \
+             ORDER BY bm25(task_search), t.updated_at DESC, t.id \
+             LIMIT ?2",
+            params![match_expr, limit],
+            |row| {
+                Ok(FtsTaskHit {
+                    id: parse_uuid(row.get("id")?)?,
+                    title: row.get("title")?,
+                    snippet: row.get("snippet")?,
+                })
+            },
+        )
+    }
+
+    pub fn fts_comments(
+        conn: &Connection,
+        match_expr: &str,
+        limit: i64,
+    ) -> Result<Vec<FtsCommentHit>, AppError> {
+        query_all(
+            conn,
+            "SELECT c.id, t.id AS task_id, t.title AS task_title, \
+             snippet(comment_search, -1, '<mark>', '</mark>', '…', 16) AS snippet \
+             FROM comment_search \
+             JOIN comments c ON c.rowid = comment_search.rowid \
+             JOIN tasks t ON t.id = c.task_id \
+             WHERE comment_search MATCH ?1 AND c.deleted_at IS NULL \
+               AND t.deleted_at IS NULL \
+             ORDER BY bm25(comment_search), c.updated_at DESC, c.id \
+             LIMIT ?2",
+            params![match_expr, limit],
+            |row| {
+                Ok(FtsCommentHit {
+                    id: parse_uuid(row.get("id")?)?,
+                    task_id: parse_uuid(row.get("task_id")?)?,
+                    task_title: row.get("task_title")?,
+                    snippet: row.get("snippet")?,
+                })
+            },
+        )
+    }
+
+    /// Tasks where every term occurs in title or note; terms are AND-ed
+    /// across columns (`title LIKE p1 OR note LIKE p1) AND ...`).
+    pub fn like_tasks(
+        conn: &Connection,
+        terms: &[String],
+        limit: i64,
+    ) -> Result<Vec<LikeTaskRow>, AppError> {
+        let patterns: Vec<String> = terms.iter().map(|t| like_pattern(t)).collect();
+        let clauses: Vec<String> = (1..=patterns.len())
+            .map(|i| {
+                format!(
+                    "(title LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\')"
+                )
+            })
+            .collect();
+        let sql = format!(
+            "SELECT id, title, note FROM tasks \
+             WHERE deleted_at IS NULL AND {} \
+             ORDER BY updated_at DESC, id LIMIT ?{}",
+            clauses.join(" AND "),
+            patterns.len() + 1,
+        );
+        let mut params: Vec<&dyn ToSql> = patterns.iter().map(|p| p as &dyn ToSql).collect();
+        params.push(&limit);
+        query_all(conn, &sql, &params, |row| {
+            Ok(LikeTaskRow {
+                id: parse_uuid(row.get("id")?)?,
+                title: row.get("title")?,
+                note: row.get("note")?,
+            })
+        })
+    }
+
+    /// Comments on live tasks whose body contains every term.
+    pub fn like_comments(
+        conn: &Connection,
+        terms: &[String],
+        limit: i64,
+    ) -> Result<Vec<LikeCommentRow>, AppError> {
+        let patterns: Vec<String> = terms.iter().map(|t| like_pattern(t)).collect();
+        let clauses: Vec<String> = (1..=patterns.len())
+            .map(|i| format!("c.body LIKE ?{i} ESCAPE '\\'"))
+            .collect();
+        let sql = format!(
+            "SELECT c.id, t.id AS task_id, t.title AS task_title, c.body \
+             FROM comments c JOIN tasks t ON t.id = c.task_id \
+             WHERE c.deleted_at IS NULL AND t.deleted_at IS NULL AND {} \
+             ORDER BY c.updated_at DESC, c.id LIMIT ?{}",
+            clauses.join(" AND "),
+            patterns.len() + 1,
+        );
+        let mut params: Vec<&dyn ToSql> = patterns.iter().map(|p| p as &dyn ToSql).collect();
+        params.push(&limit);
+        query_all(conn, &sql, &params, |row| {
+            Ok(LikeCommentRow {
+                id: parse_uuid(row.get("id")?)?,
+                task_id: parse_uuid(row.get("task_id")?)?,
+                task_title: row.get("task_title")?,
+                body: row.get("body")?,
+            })
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1150,5 +1318,102 @@ mod tests {
             board_columns::list_by_project(&conn, project_a.id).unwrap(),
             vec![edited, done]
         );
+    }
+
+    fn insert_comment(conn: &Connection, task_id: Uuid, body: &str) {
+        conn.execute(
+            "INSERT INTO comments (id, task_id, body, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            params![Uuid::new_v4().to_string(), task_id.to_string(), body],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fts_task_search_marks_snippets_and_filters_soft_deleted() {
+        let conn = conn();
+        let mut hit = sample_task("a");
+        hit.title = "设计评审会议".into();
+        hit.note = Some("带上原型稿".into());
+        let mut deleted = sample_task("n");
+        deleted.title = "设计评审归档".into();
+        let other = sample_task("t");
+        for task in [&hit, &deleted, &other] {
+            tasks::insert(&conn, task).unwrap();
+        }
+        tasks::soft_delete(&conn, deleted.id, ts(1)).unwrap();
+
+        let hits = search::fts_tasks(&conn, "\"设计评审\"", 10).unwrap();
+        assert_eq!(hits.len(), 1, "soft-deleted rows stay indexed but filtered");
+        assert_eq!(hits[0].id, hit.id);
+        assert_eq!(hits[0].title, "设计评审会议");
+        assert!(hits[0].snippet.contains("<mark>设计评审</mark>"));
+
+        // Note-only hits come back with the snippet from the note column.
+        let hits = search::fts_tasks(&conn, "\"带上原型稿\"", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, hit.id);
+        assert!(hits[0].snippet.contains("<mark>带上原型稿</mark>"));
+    }
+
+    #[test]
+    fn fts_comment_search_resolves_the_parent_task_and_filters_deletes() {
+        let conn = conn();
+        let live = sample_task("a");
+        let gone = sample_task("n");
+        tasks::insert(&conn, &live).unwrap();
+        tasks::insert(&conn, &gone).unwrap();
+        tasks::soft_delete(&conn, gone.id, ts(1)).unwrap();
+
+        insert_comment(&conn, live.id, "评审意见：交互再简化");
+        insert_comment(&conn, gone.id, "评审意见：旧任务的评论");
+        insert_comment(&conn, live.id, "无匹配内容");
+
+        let hits = search::fts_comments(&conn, "\"评审意见\"", 10).unwrap();
+        assert_eq!(hits.len(), 1, "comments on deleted tasks are filtered");
+        assert_eq!(hits[0].task_id, live.id);
+        assert_eq!(hits[0].task_title, live.title);
+        assert!(hits[0].snippet.contains("<mark>评审意见</mark>"));
+    }
+
+    #[test]
+    fn like_fallback_escapes_wildcards_and_ands_terms() {
+        let conn = conn();
+        let mut percent = sample_task("a");
+        percent.title = "进度50%更新".into();
+        percent.note = Some("下划线_备注".into());
+        let mut plain = sample_task("n");
+        plain.title = "进度完成".into();
+        for task in [&percent, &plain] {
+            tasks::insert(&conn, task).unwrap();
+        }
+
+        // `%`/`_` in the query are literals, not wildcards.
+        let hits = search::like_tasks(&conn, &["50%".to_string()], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, percent.id);
+        let hits = search::like_tasks(&conn, &["_备".to_string()], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, percent.id);
+        assert_eq!(hits[0].note.as_deref(), Some("下划线_备注"));
+
+        // Every term must occur in title or note.
+        let hits = search::like_tasks(
+            &conn,
+            &["50%".to_string(), "_备".to_string()],
+            10,
+        )
+        .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, percent.id);
+        let hits = search::like_tasks(&conn, &["进度".to_string()], 10).unwrap();
+        assert_eq!(hits.len(), 2);
+
+        insert_comment(&conn, percent.id, "成本_a 讨论");
+        insert_comment(&conn, plain.id, "普通评论");
+        let hits = search::like_comments(&conn, &["_a".to_string()], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].task_id, percent.id);
+        assert_eq!(hits[0].task_title, percent.title);
     }
 }
