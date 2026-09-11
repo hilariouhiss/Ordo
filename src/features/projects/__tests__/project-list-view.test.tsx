@@ -115,7 +115,8 @@ describe("ProjectListView", () => {
     expect(screen.getByText("项目说明")).toBeTruthy();
     expect(screen.getByText(/截止：/).textContent).toContain("2026年");
     // Only the project's own tasks are listed; rate counts them.
-    expect(screen.getByText("1 / 2 已完成（50%）")).toBeTruthy();
+    expect(screen.getByText("1 / 2 已完成")).toBeTruthy();
+    expect(screen.getByText("剩余 1 项")).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: "完成率 50%" }).getAttribute("aria-valuenow")).toBe(
       "50",
     );
@@ -130,14 +131,17 @@ describe("ProjectListView", () => {
     const pending = deferred<Task>();
     vi.mocked(api.completeTask).mockReturnValue(pending.promise);
 
-    expect(screen.getByText("0 / 2 已完成（0%）")).toBeTruthy();
+    expect(screen.getByText("0 / 2 已完成")).toBeTruthy();
+    expect(screen.getByText("剩余 2 项")).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: "完成 任务 t1" }));
 
-    // Optimistic patch flips the rate before the backend replies.
-    expect(screen.getByText("1 / 2 已完成（50%）")).toBeTruthy();
+    // Optimistic patch flips the rate and the remaining count before the
+    // backend replies.
+    expect(screen.getByText("1 / 2 已完成")).toBeTruthy();
+    expect(screen.getByText("剩余 1 项")).toBeTruthy();
 
     pending.resolve(task("t1", { completedAt: "2026-09-09T10:00:00Z" }));
-    await waitFor(() => expect(screen.getByText("1 / 2 已完成（50%）")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1 / 2 已完成")).toBeTruthy());
     expect(
       screen.getByRole("progressbar", { name: "完成率 50%" }).getAttribute("aria-valuenow"),
     ).toBe("50");

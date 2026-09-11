@@ -12,12 +12,15 @@ import { getProjectIcon } from "../icons";
 import { getProject } from "../store";
 import type { Project } from "../types";
 import { ProjectEditorDialog } from "./ProjectEditorDialog";
+import { ProjectProgress } from "./ProjectProgress";
 
 /**
- * Project detail work area (P-04): the project's identity header with a live
- * completion rate, and its task list with manual/priority/due/tag sorting
- * plus quick completion. All data flows through the reactive task/project
- * stores, so completing a task updates the rate in the same tick.
+ * Project detail work area (P-04/ST-03): the project's identity header with a
+ * live progress summary (bar, completion rate, remaining work and the time
+ * left until the due date), and its task list with manual/priority/due/tag
+ * sorting plus quick completion. All data flows through the reactive
+ * task/project stores, so completing a task updates the progress in the same
+ * tick.
  */
 export function ProjectListView(props: { project: Project }) {
   // Prefer the live store row so optimistic patches (e.g. renames from the
@@ -26,8 +29,6 @@ export function ProjectListView(props: { project: Project }) {
   const tasks = createMemo(() =>
     tasksState.tasks.filter((task) => task.projectId === project().id),
   );
-  const doneCount = () => tasks().filter((task) => task.completedAt !== null).length;
-  const rate = () => (tasks().length === 0 ? 0 : Math.round((doneCount() / tasks().length) * 100));
 
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [view, setView] = createSignal<"list" | "board">("list");
@@ -101,23 +102,8 @@ export function ProjectListView(props: { project: Project }) {
           </p>
         </Show>
 
-        <div class="mt-3 flex items-center gap-3">
-          <div
-            class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-hover"
-            role="progressbar"
-            aria-label={`完成率 ${rate()}%`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={rate()}
-          >
-            <div
-              class="h-full w-full origin-left rounded-full bg-primary transition-transform motion-reduce:transition-none"
-              style={{ transform: `scaleX(${rate() / 100})` }}
-            />
-          </div>
-          <span class="shrink-0 text-xs text-muted-foreground" role="status">
-            {doneCount()} / {tasks().length} 已完成（{rate()}%）
-          </span>
+        <div class="mt-3">
+          <ProjectProgress tasks={tasks()} dueAt={project().dueAt} />
         </div>
       </header>
 

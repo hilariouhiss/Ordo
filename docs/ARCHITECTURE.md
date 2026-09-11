@@ -231,6 +231,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > **统计（ST-01）**：`repositories::stats` 的三个只读聚合命令，全部以索引范围扫描打底——`tasks.completed_at`（趋势）与 `time_entries.started_at`（时间分布）——且查询计划由单测断言（必须是 `SEARCH … USING INDEX`，全表 SCAN 即失败）。范围是半开区间 `[from, to)`，边界由前端按用户时区算成 UTC 瞬间；`offsetMinutes`（`-new Date().getTimezoneOffset()`，缺省 0 即 UTC）作为 SQLite 日期修饰符参与分桶，使「日/周/月」是用户日历上的日/周/月（周桶键取该周周一，如 `2026-09-07`），无数据的桶不补零（由前端补齐坐标轴）。时间戳一律以 `DateTime` 参数绑定（与写入路径同一编码），不写字符串字面量：rusqlite 存的是 `YYYY-MM-DD HH:MM:SS.SSS+00:00`，字面量的时区后缀（`Z` vs `+00:00`）会让边界比较错位。`stats:projectProgress` 只统计 `deleted_at IS NULL AND status = 'active'` 的项目（归档项目不在当前视野，恢复后回归），返回 `total`/`completed`/`due_at`，完成率与剩余量由前端派生；`stats:timeDistribution` 的 `groupBy` 取 project/tag——按项目分组时，未归属项目的收件箱时间形成 id 为空的份额；按标签分组时，多标签任务的时间计入它的每个标签（因此各分组之和可能大于总时长），`buckets` 是同一批时间按 `granularity` 的序列。
 >
 > **统计视图（ST-02）**：`/stats` 的图表全部自绘 SVG（不引图表库，守体积红线）：`LineChart` 折线（y 轴取 1/2/5×10ⁿ 整数刻度）、`CalendarHeatmap` 周列网格（周一为首、按范围内峰值分 4 档着色；按固有尺寸渲染并横向滚动，避免「单列的一周」被拉伸成大色块）、`BarList` 横向对比条（填充用 `transform: scaleX`，不animate宽度）。交互只用 CSS：每个数据点/格子带 `<title>` 提示 + hover 透明度，无 JS 悬浮层，范围切换不引发布局抖动。`series.ts` 负责前后端契约的前端一半——把「近 7 天/30 天/本年」换算成本地日起止的 UTC 半开区间与 `offsetMinutes`（本年为周桶）、按 `bucketKeys` 生成坐标轴、用 `fillSeries` 把后端省略的空桶补零；`useStats` 以请求序号丢弃过期响应，快速切换范围时旧数据留在屏上、不会闪空白或画出过期窗口。时间分布可切「按项目/按标签」，复用同一个命令。
+>
+> **项目进度（ST-03）**：项目详情页头部内嵌 `ProjectProgress`（列表/看板两个 tab 共用）：总进度条、完成率、剩余任务数、距截止剩余时间。四个数值全部由传入的**实时任务切片**（`tasksState` 中属于该项目的任务）派生，而不是查 `stats:projectProgress`——勾选或拖拽完成在同一 tick 就推动进度条，无 IPC 往返与刷新窗口；`stats:projectProgress` 只服务跨项目对比（ST-02 的对比图）。截止倒计时按本地日历判断：同日读作「今天截止」（项目截止由 `localDateValueToIso` 存为本地日末 23:59:59），逾期显示「已逾期 N 天」并转 danger 色，未来显示「距截止还有 N 天」；倒计时在渲染时读取，不额外起定时器。
 
 ---
 
