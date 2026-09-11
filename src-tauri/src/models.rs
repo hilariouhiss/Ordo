@@ -381,6 +381,25 @@ pub struct UpdateComment {
     pub body: String,
 }
 
+/// `time:create` — a manually recorded entry: when the work started plus how
+/// long it took in seconds. The service derives `ended_at` from the two.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTimeEntry {
+    pub started_at: DateTime<Utc>,
+    /// Tracked length in seconds; must be >= 1 (validated on write).
+    pub duration: i64,
+}
+
+/// `time:update` — edits a manual entry. A missing field keeps its stored
+/// value, and `ended_at` is always re-derived from start + duration.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTimeEntry {
+    pub started_at: Option<DateTime<Utc>>,
+    pub duration: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

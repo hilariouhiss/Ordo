@@ -51,6 +51,12 @@ pub fn run() {
             commands::comment_create,
             commands::comment_update,
             commands::comment_delete,
+            commands::time_list,
+            commands::time_create,
+            commands::time_update,
+            commands::time_delete,
+            commands::time_start,
+            commands::time_stop,
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;

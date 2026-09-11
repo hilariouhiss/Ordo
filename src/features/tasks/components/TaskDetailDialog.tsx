@@ -9,8 +9,9 @@ import { formatDueLabel, isOverdue } from "../view-filters";
 import { PRIORITY_BADGES } from "./TaskItemRow";
 import { SubtaskList } from "./SubtaskList";
 import { CommentList } from "./CommentList";
-import { loadComments } from "../hooks";
-import { hasComments } from "../store";
+import { TimeTracker } from "./TimeTracker";
+import { loadComments, loadTimeEntries } from "../hooks";
+import { hasComments, hasTimeEntries } from "../store";
 
 export interface TaskDetailDialogProps {
   open: boolean;
@@ -41,6 +42,7 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
         if (!open) return;
         if (!hasSubtasks(id)) void loadSubtasks(id);
         if (!hasComments(id)) void loadComments(id);
+        if (!hasTimeEntries(id)) void loadTimeEntries(id);
       },
     ),
   );
@@ -143,6 +145,19 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
               }
             >
               <CommentList taskId={task().id} />
+            </Show>
+          </div>
+
+          <div class="mt-4 border-t border-border pt-4">
+            <Show
+              when={hasTimeEntries(task().id)}
+              fallback={
+                <p role="status" class="py-4 text-center text-sm text-muted-foreground">
+                  时间记录加载中…
+                </p>
+              }
+            >
+              <TimeTracker taskId={task().id} />
             </Show>
           </div>
 

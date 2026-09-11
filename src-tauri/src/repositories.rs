@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, Comment, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Subtask,
-    Tag, Task,
+    Tag, Task, TimeEntry,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -30,6 +30,8 @@ const PROJECT_COLUMNS: &str = "id, name, description, color, icon, due_at, statu
 const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
                                     updated_at, deleted_at";
 const COMMENT_COLUMNS: &str = "id, task_id, body, created_at, updated_at, deleted_at";
+const TIME_ENTRY_COLUMNS: &str =
+    "id, task_id, started_at, ended_at, duration, created_at, updated_at, deleted_at";
 
 type RowMap<T> = fn(&Row<'_>) -> Result<T, AppError>;
 
@@ -194,6 +196,19 @@ fn comment_from_row(row: &Row<'_>) -> Result<Comment, AppError> {
         id: parse_uuid(row.get("id")?)?,
         task_id: parse_uuid(row.get("task_id")?)?,
         body: row.get("body")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        deleted_at: row.get("deleted_at")?,
+    })
+}
+
+fn time_entry_from_row(row: &Row<'_>) -> Result<TimeEntry, AppError> {
+    Ok(TimeEntry {
+        id: parse_uuid(row.get("id")?)?,
+        task_id: parse_uuid(row.get("task_id")?)?,
+        started_at: row.get("started_at")?,
+        ended_at: row.get("ended_at")?,
+        duration: row.get("duration")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         deleted_at: row.get("deleted_at")?,
@@ -964,6 +979,97 @@ pub mod comments {
     pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
         let affected = conn.execute(
             "UPDATE comments SET deleted_at = ?1, updated_at = ?1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+}
+
+/// Time-tracking CRUD (`time_entries` table), always scoped to a parent task.
+/// Entries link to projects and tags through that task, so the statistics
+/// layer aggregates by joining `time_entries → tasks → projects/task_tags`.
+pub mod time_entries {
+    use super::*;
+
+    pub fn insert(conn: &Connection, entry: &TimeEntry) -> Result<(), AppError> {
+        conn.execute(
+            "INSERT INTO time_entries (id, task_id, started_at, ended_at, duration, created_at, \
+             updated_at, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                entry.id.to_string(),
+                entry.task_id.to_string(),
+                entry.started_at,
+                entry.ended_at,
+                entry.duration,
+                entry.created_at,
+                entry.updated_at,
+                entry.deleted_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get(conn: &Connection, id: Uuid) -> Result<Option<TimeEntry>, AppError> {
+        query_one(
+            conn,
+            &format!(
+                "SELECT {TIME_ENTRY_COLUMNS} FROM time_entries \
+                 WHERE id = ?1 AND deleted_at IS NULL"
+            ),
+            params![id.to_string()],
+            time_entry_from_row,
+        )
+    }
+
+    /// Non-deleted entries of one task, most recent first.
+    pub fn list_by_task(conn: &Connection, task_id: Uuid) -> Result<Vec<TimeEntry>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {TIME_ENTRY_COLUMNS} FROM time_entries \
+                 WHERE task_id = ?1 AND deleted_at IS NULL \
+                 ORDER BY started_at DESC, created_at DESC, id"
+            ),
+            params![task_id.to_string()],
+            time_entry_from_row,
+        )
+    }
+
+    /// The task's running entry (`ended_at IS NULL`), if its timer is on.
+    pub fn get_running(conn: &Connection, task_id: Uuid) -> Result<Option<TimeEntry>, AppError> {
+        query_one(
+            conn,
+            &format!(
+                "SELECT {TIME_ENTRY_COLUMNS} FROM time_entries \
+                 WHERE task_id = ?1 AND ended_at IS NULL AND deleted_at IS NULL \
+                 ORDER BY started_at DESC, id LIMIT 1"
+            ),
+            params![task_id.to_string()],
+            time_entry_from_row,
+        )
+    }
+
+    /// Rewrites start/end/duration; returns false when the entry is missing or
+    /// soft-deleted.
+    pub fn update(conn: &Connection, entry: &TimeEntry) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE time_entries SET started_at = ?1, ended_at = ?2, duration = ?3, \
+             updated_at = ?4 WHERE id = ?5 AND deleted_at IS NULL",
+            params![
+                entry.started_at,
+                entry.ended_at,
+                entry.duration,
+                entry.updated_at,
+                entry.id.to_string(),
+            ],
+        )?;
+        Ok(affected == 1)
+    }
+
+    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE time_entries SET deleted_at = ?1, updated_at = ?1 \
              WHERE id = ?2 AND deleted_at IS NULL",
             params![at, id.to_string()],
         )?;

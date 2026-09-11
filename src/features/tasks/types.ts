@@ -69,6 +69,22 @@ export interface Comment {
   deletedAt: string | null;
 }
 
+/**
+ * A time-tracking row (`time_entries`). `duration` is in seconds; a row with
+ * `endedAt` unset is the task's running timer. Entries link to projects and
+ * tags through their task.
+ */
+export interface TimeEntry {
+  id: string;
+  taskId: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  duration: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
 // --- Write payloads ----------------------------------------------------------
 
 export interface NewTask {
@@ -123,4 +139,17 @@ export interface NewComment {
 /** Comments only have a body; edits replace it wholesale. */
 export interface UpdateComment {
   body: string;
+}
+
+/** A manual time entry; the backend derives `endedAt` from start + duration. */
+export interface NewTimeEntry {
+  startedAt: string;
+  /** Tracked seconds; must be >= 1. */
+  duration: number;
+}
+
+/** Missing fields keep their stored value; `endedAt` is always re-derived. */
+export interface UpdateTimeEntry {
+  startedAt?: string;
+  duration?: number;
 }

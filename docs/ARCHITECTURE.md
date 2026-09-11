@@ -225,6 +225,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > **提醒（R-01/R-02）**：V3 迁移增加去重标记表 `task_reminders(task_id, kind, sent_at)`（主键 `(task_id, kind)`，随任务硬删级联）。`scheduler.rs` 的后台线程每 30s 扫描一次：对未完成、未软删、有 `due_at` 的任务，在提前 1 小时 / 10 分钟 / 到期时刻各触发一次提醒；标记持久化，跨扫描与重启均不重复。停机补扫时逾期任务只补发到期提醒；截止超过 24 小时的陈年逾期不再提醒。每次触发同时做两件事：以 `reminder:triggered` 事件广播给前端（应用内 toast），并通过 `tauri-plugin-notification` 直接发送系统通知（Rust 侧直发，不经 webview，后台/托盘可达；capability 为 `notification:default`）。点击定位：插件桌面端不暴露点击回调，点击系统通知由 OS 聚焦应用窗口；前端把窗口隐藏期间触发的提醒挂起为 pending，在下一次 window `focus` 时打开任务查看器定位该任务（`features/tasks/reminders.ts`）。
 >
 > **重复任务（RP-01）**：`repeat_rule` 为 JSON（`{freq: daily|weekly|monthly, interval>=1, paused}`，旧数据缺 `paused` 反序列化为 false）。完成的两条路径——`task:complete` 与看板拖入 `is_done` 列——都会在同一事务内生成下一次实例：`due_at` 按规则推进一个周期（按月加法钳制到月末，如 1 月 31 日 → 2 月 28 日），继承标题/备注/优先级/项目/标签/子任务（子任务重置为未完成）与规则本身，追加回原列（看板路径回到来源列）。已逾期的提前提醒不补发；暂停规则（`paused`）与无 `due_at` 的重复任务完成时不生成；`task:update` 的 `repeatRule` patch 置 `null` 即取消规则。
+>
+> **时间记录（TE-01）**：记录归属任务（`task_id`），项目/标签维度的时间分布由 `time_entries → tasks → projects` / `task_tags` 关联得出（供 ST-01 使用），因此不为每条记录冗余项目/标签列。`started_at`/`ended_at` 存 UTC、`duration` 为秒：手动录入（`time:create`）由「开始时间 + 秒数」推导 `ended_at`（秒数 ≤ 0 返回 validation，任务不存在返回 not_found），`time:update` 同样以 start + duration 重新推导，故更新后必定是已停止的记录。`time:start` 幂等——任务已有运行中记录（`ended_at IS NULL`）时返回该记录而不新建；`time:stop` 以 `now − started_at` 冻结 `duration`，重复停止返回 validation。前端 `features/tasks/time.ts` 负责时长文案与 `datetime-local` 的本地时区换算，计时中的读秒只在本地信号上每秒推进、不写库。
 
 ---
 

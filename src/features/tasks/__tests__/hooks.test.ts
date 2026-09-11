@@ -3,7 +3,7 @@ import {
   clearNotifications,
   notifications,
 } from "../../../common/stores/notifications";
-import type { Subtask, Tag, Task } from "../types";
+import type { Subtask, Tag, Task, TimeEntry } from "../types";
 
 vi.mock("../api", () => ({
   listTasks: vi.fn(),
@@ -26,6 +26,12 @@ vi.mock("../api", () => ({
   createComment: vi.fn(),
   updateComment: vi.fn(),
   deleteComment: vi.fn(),
+  listTimeEntries: vi.fn(),
+  createTimeEntry: vi.fn(),
+  updateTimeEntry: vi.fn(),
+  deleteTimeEntry: vi.fn(),
+  startTimeEntry: vi.fn(),
+  stopTimeEntry: vi.fn(),
 }));
 
 import * as api from "../api";
@@ -74,6 +80,20 @@ function tag(id: string, name: string): Tag {
     createdAt: "2026-09-09T10:00:00Z",
     updatedAt: "2026-09-09T10:00:00Z",
     deletedAt: null,
+  };
+}
+
+function timeEntry(id: string, taskId: string, overrides: Partial<TimeEntry> = {}): TimeEntry {
+  return {
+    id,
+    taskId,
+    startedAt: "2026-09-09T09:00:00Z",
+    endedAt: "2026-09-09T09:30:00Z",
+    duration: 1800,
+    createdAt: "2026-09-09T09:30:00Z",
+    updatedAt: "2026-09-09T09:30:00Z",
+    deletedAt: null,
+    ...overrides,
   };
 }
 
@@ -446,5 +466,149 @@ describe("subtasks", () => {
 
     expect(result).toBeNull();
     expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1", "s2"]);
+  });
+});
+
+describe("time entries", () => {
+  it("loads one task's entries into the cache", async () => {
+    vi.mocked(api.listTimeEntries).mockResolvedValue([timeEntry("e1", "a")]);
+
+    const ok = await hooks.loadTimeEntries("a");
+
+    expect(ok).toBe(true);
+    expect(api.listTimeEntries).toHaveBeenCalledWith("a");
+    expect(store.getTimeEntries("a").map((item) => item.id)).toEqual(["e1"]);
+  });
+
+  it("records a manual entry optimistically and reconciles with the real row", async () => {
+    store.setTimeEntries("a", []);
+    const pending = deferred<TimeEntry>();
+    vi.mocked(api.createTimeEntry).mockReturnValue(pending.promise);
+
+    const call = hooks.createTimeEntry("a", {
+      startedAt: "2026-09-09T09:00:00Z",
+      duration: 600,
+    });
+    const optimistic = store.getTimeEntries("a")[0];
+    expect(optimistic?.id.startsWith("optimistic-")).toBe(true);
+    expect(optimistic?.duration).toBe(600);
+    // The end is derived locally so the row already reads as a finished run.
+    expect(optimistic?.endedAt).toBe("2026-09-09T09:10:00.000Z");
+
+    const authoritative = timeEntry("e1", "a", {
+      startedAt: "2026-09-09T09:00:00Z",
+      endedAt: "2026-09-09T09:10:00Z",
+      duration: 600,
+    });
+    pending.resolve(authoritative);
+    const result = await call;
+
+    expect(result).toEqual(authoritative);
+    expect(store.getTimeEntries("a")).toEqual([authoritative]);
+    expect(api.createTimeEntry).toHaveBeenCalledWith("a", {
+      startedAt: "2026-09-09T09:00:00Z",
+      duration: 600,
+    });
+  });
+
+  it("rolls the optimistic manual entry back and notifies on failure", async () => {
+    store.setTimeEntries("a", []);
+    vi.mocked(api.createTimeEntry).mockRejectedValue(appError("validation", "时长需大于 0 秒"));
+
+    const result = await hooks.createTimeEntry("a", {
+      startedAt: "2026-09-09T09:00:00Z",
+      duration: 0,
+    });
+
+    expect(result).toBeNull();
+    expect(store.getTimeEntries("a")).toEqual([]);
+    expect(notifications()[0]).toMatchObject({ message: "时长需大于 0 秒", code: "validation" });
+  });
+
+  it("starts a timer optimistically and reconciles with the running row", async () => {
+    store.setTimeEntries("a", [timeEntry("old", "a")]);
+    const pending = deferred<TimeEntry>();
+    vi.mocked(api.startTimeEntry).mockReturnValue(pending.promise);
+
+    const call = hooks.startTimer("a");
+    const optimistic = store.getTimeEntries("a")[0];
+    expect(optimistic?.id.startsWith("optimistic-")).toBe(true);
+    expect(optimistic?.endedAt).toBeNull();
+    expect(optimistic?.duration).toBe(0);
+
+    // The backend answers with the authoritative running entry.
+    const running = timeEntry("e2", "a", { endedAt: null, duration: 0 });
+    pending.resolve(running);
+    const result = await call;
+
+    expect(result).toEqual(running);
+    expect(api.startTimeEntry).toHaveBeenCalledWith("a");
+    expect(store.getTimeEntries("a").map((item) => item.id)).toEqual(["e2", "old"]);
+  });
+
+  it("removes the optimistic timer again when starting fails", async () => {
+    store.setTimeEntries("a", []);
+    vi.mocked(api.startTimeEntry).mockRejectedValue(appError("not_found", "任务不存在"));
+
+    const result = await hooks.startTimer("a");
+
+    expect(result).toBeNull();
+    expect(store.getTimeEntries("a")).toEqual([]);
+    expect(notifications()[0]?.code).toBe("not_found");
+  });
+
+  it("stops a timer, freezing the elapsed seconds, and restores it on failure", async () => {
+    const startedAt = new Date(Date.now() - 90_000).toISOString();
+    store.setTimeEntries("a", [
+      timeEntry("e1", "a", { startedAt, endedAt: null, duration: 0 }),
+    ]);
+    const pending = deferred<TimeEntry>();
+    vi.mocked(api.stopTimeEntry).mockReturnValue(pending.promise);
+
+    const call = hooks.stopTimer("a", "e1");
+    const optimistic = store.getTimeEntries("a")[0];
+    expect(optimistic?.endedAt).not.toBeNull();
+    expect(optimistic?.duration).toBeGreaterThanOrEqual(90);
+    expect(optimistic?.duration).toBeLessThan(95);
+
+    const stopped = timeEntry("e1", "a", {
+      startedAt,
+      endedAt: new Date().toISOString(),
+      duration: 91,
+    });
+    pending.resolve(stopped);
+    expect(await call).toEqual(stopped);
+    expect(store.getTimeEntries("a")[0]?.duration).toBe(91);
+
+    // A rejected stop puts the previous row back untouched.
+    const before = { ...store.getTimeEntries("a")[0]! };
+    vi.mocked(api.stopTimeEntry).mockRejectedValue(appError("db", "写入失败"));
+    expect(await hooks.stopTimer("a", "e1")).toBeNull();
+    expect(store.getTimeEntries("a")[0]).toEqual(before);
+    expect(notifications()[0]?.message).toBe("写入失败");
+  });
+
+  it("edits an entry's duration through time:update", async () => {
+    store.setTimeEntries("a", [timeEntry("e1", "a", { duration: 600 })]);
+    vi.mocked(api.updateTimeEntry).mockResolvedValue(timeEntry("e1", "a", { duration: 900 }));
+
+    const result = await hooks.updateTimeEntry("a", "e1", { duration: 900 });
+
+    expect(result?.duration).toBe(900);
+    expect(store.getTimeEntries("a")[0]?.duration).toBe(900);
+    expect(api.updateTimeEntry).toHaveBeenCalledWith("e1", { duration: 900 });
+  });
+
+  it("deletes an entry and re-inserts it at its old position on failure", async () => {
+    store.setTimeEntries("a", [timeEntry("e1", "a"), timeEntry("e2", "a")]);
+    const pending = deferred<void>();
+    vi.mocked(api.deleteTimeEntry).mockReturnValue(pending.promise);
+
+    const call = hooks.deleteTimeEntry("a", "e1");
+    expect(store.getTimeEntries("a").map((item) => item.id)).toEqual(["e2"]);
+
+    pending.reject(appError("db", "写入失败"));
+    expect(await call).toBeNull();
+    expect(store.getTimeEntries("a").map((item) => item.id)).toEqual(["e1", "e2"]);
   });
 });

@@ -22,12 +22,14 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
-    Patch, Priority, Project, ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule,
-    SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateComment,
-    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    NewTimeEntry, Patch, Priority, Project, ProjectStatus, Reminder, ReminderKind, RepeatFreq,
+    RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, TimeEntry,
+    UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    UpdateTimeEntry,
 };
 use crate::repositories::{
     board_columns, comments, projects, reminders, search, subtasks, tags, task_tags, tasks,
+    time_entries,
 };
 use crate::sort;
 
@@ -918,6 +920,123 @@ pub fn delete_comment(conn: &Connection, id: Uuid) -> Result<(), AppError> {
         return Err(not_found("评论", id));
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// time:*
+// ---------------------------------------------------------------------------
+
+/// Records a manual time entry. The end instant is derived from start plus
+/// duration, so the two can never disagree.
+pub fn create_time_entry(
+    conn: &Connection,
+    task_id: Uuid,
+    input: NewTimeEntry,
+) -> Result<TimeEntry, AppError> {
+    if tasks::get(conn, task_id)?.is_none() {
+        return Err(not_found("任务", task_id));
+    }
+    let ended_at = entry_end(input.started_at, input.duration)?;
+    let now = Utc::now();
+    let entry = TimeEntry {
+        id: Uuid::new_v4(),
+        task_id,
+        started_at: Some(input.started_at),
+        ended_at: Some(ended_at),
+        duration: input.duration,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    time_entries::insert(conn, &entry)?;
+    Ok(entry)
+}
+
+/// Edits a manual entry; `ended_at` is re-derived, so an update always lands
+/// on a stopped entry (a running timer is stopped via `stop_time_entry`).
+pub fn update_time_entry(
+    conn: &Connection,
+    id: Uuid,
+    patch: UpdateTimeEntry,
+) -> Result<TimeEntry, AppError> {
+    let mut entry = time_entries::get(conn, id)?.ok_or_else(|| not_found("时间记录", id))?;
+    let started_at = patch
+        .started_at
+        .or(entry.started_at)
+        .ok_or_else(|| AppError::Validation("时间记录缺少开始时间".into()))?;
+    let duration = patch.duration.unwrap_or(entry.duration);
+    entry.started_at = Some(started_at);
+    entry.ended_at = Some(entry_end(started_at, duration)?);
+    entry.duration = duration;
+    entry.updated_at = Utc::now();
+    if !time_entries::update(conn, &entry)? {
+        return Err(not_found("时间记录", id));
+    }
+    Ok(entry)
+}
+
+pub fn delete_time_entry(conn: &Connection, id: Uuid) -> Result<(), AppError> {
+    if !time_entries::soft_delete(conn, id, Utc::now())? {
+        return Err(not_found("时间记录", id));
+    }
+    Ok(())
+}
+
+/// Starts the task's timer. Idempotent: a task already being timed returns
+/// its running entry instead of stacking a second one.
+pub fn start_time_entry(conn: &Connection, task_id: Uuid) -> Result<TimeEntry, AppError> {
+    if tasks::get(conn, task_id)?.is_none() {
+        return Err(not_found("任务", task_id));
+    }
+    if let Some(running) = time_entries::get_running(conn, task_id)? {
+        return Ok(running);
+    }
+    let now = Utc::now();
+    let entry = TimeEntry {
+        id: Uuid::new_v4(),
+        task_id,
+        started_at: Some(now),
+        ended_at: None,
+        duration: 0,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    time_entries::insert(conn, &entry)?;
+    Ok(entry)
+}
+
+/// Stops a running timer, freezing the seconds elapsed since it started.
+pub fn stop_time_entry(conn: &Connection, id: Uuid) -> Result<TimeEntry, AppError> {
+    let mut entry = time_entries::get(conn, id)?.ok_or_else(|| not_found("时间记录", id))?;
+    let started_at = entry
+        .started_at
+        .ok_or_else(|| AppError::Validation("时间记录缺少开始时间".into()))?;
+    if entry.ended_at.is_some() {
+        return Err(AppError::Validation("该计时已停止".into()));
+    }
+    let now = Utc::now();
+    entry.ended_at = Some(now);
+    entry.duration = (now - started_at).num_seconds().max(0);
+    entry.updated_at = now;
+    if !time_entries::update(conn, &entry)? {
+        return Err(not_found("时间记录", id));
+    }
+    Ok(entry)
+}
+
+/// Validates a tracked length and returns the instant it ends at.
+fn entry_end(started_at: DateTime<Utc>, duration: i64) -> Result<DateTime<Utc>, AppError> {
+    if duration < 1 {
+        return Err(AppError::Validation("时长需大于 0 秒".into()));
+    }
+    started_at
+        .checked_add_signed(chrono::Duration::seconds(duration))
+        .ok_or_else(|| AppError::Validation("时长超出可表示范围".into()))
+}
+
+pub fn list_time_entries(conn: &Connection, task_id: Uuid) -> Result<Vec<TimeEntry>, AppError> {
+    time_entries::list_by_task(conn, task_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -2671,5 +2790,113 @@ mod tests {
         // The within-done move completed the fresh task but spawned nothing
         // (no rule): the board still holds exactly four tasks.
         assert_eq!(tasks::list(&conn).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn manual_time_entries_validate_and_derive_their_end() {
+        let conn = conn();
+        let task = make_task(&conn, "写方案");
+        let started = Utc.with_ymd_and_hms(2026, 9, 9, 9, 0, 0).unwrap();
+
+        // Unknown task and a non-positive duration are both rejected.
+        let err = create_time_entry(
+            &conn,
+            Uuid::new_v4(),
+            NewTimeEntry {
+                started_at: started,
+                duration: 600,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+        let err = create_time_entry(
+            &conn,
+            task.id,
+            NewTimeEntry {
+                started_at: started,
+                duration: 0,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "validation");
+
+        // A manual entry's end is derived from start + duration.
+        let entry = create_time_entry(
+            &conn,
+            task.id,
+            NewTimeEntry {
+                started_at: started,
+                duration: 600,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            entry.ended_at,
+            Some(started + chrono::Duration::seconds(600))
+        );
+
+        // Editing the length rewrites the derived end.
+        let edited = update_time_entry(
+            &conn,
+            entry.id,
+            UpdateTimeEntry {
+                started_at: None,
+                duration: Some(1800),
+            },
+        )
+        .unwrap();
+        assert_eq!(edited.duration, 1800);
+        assert_eq!(
+            edited.ended_at,
+            Some(started + chrono::Duration::seconds(1800))
+        );
+        assert_eq!(list_time_entries(&conn, task.id).unwrap(), vec![edited]);
+
+        delete_time_entry(&conn, entry.id).unwrap();
+        assert!(list_time_entries(&conn, task.id).unwrap().is_empty());
+        assert_eq!(
+            delete_time_entry(&conn, entry.id).unwrap_err().code(),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn timer_start_and_stop_records_elapsed_seconds() {
+        let conn = conn();
+        let task = make_task(&conn, "计时任务");
+
+        let running = start_time_entry(&conn, task.id).unwrap();
+        assert!(running.started_at.is_some());
+        assert_eq!(running.ended_at, None);
+        assert_eq!(running.duration, 0);
+        // Starting twice is idempotent: the same running timer comes back.
+        assert_eq!(start_time_entry(&conn, task.id).unwrap().id, running.id);
+
+        // Backdate the stored start by two minutes — what a real two-minute
+        // run leaves behind — so `stop` can be asserted exactly.
+        conn.execute(
+            "UPDATE time_entries SET started_at = ?1 WHERE id = ?2",
+            params![
+                Utc::now() - chrono::Duration::seconds(120),
+                running.id.to_string()
+            ],
+        )
+        .unwrap();
+
+        let stopped = stop_time_entry(&conn, running.id).unwrap();
+        assert_eq!(stopped.duration, 120);
+        assert!(stopped.ended_at.is_some());
+        assert_eq!(list_time_entries(&conn, task.id).unwrap()[0].duration, 120);
+
+        // A stopped timer cannot be stopped again, and an unknown task cannot
+        // be timed at all.
+        assert_eq!(
+            stop_time_entry(&conn, running.id).unwrap_err().code(),
+            "validation"
+        );
+        assert_eq!(
+            start_time_entry(&conn, Uuid::new_v4()).unwrap_err().code(),
+            "not_found"
+        );
     }
 }

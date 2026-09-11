@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as store from "../store";
-import type { Comment, Subtask, Task } from "../types";
+import type { Comment, Subtask, Task, TimeEntry } from "../types";
 import { TaskDetailDialog } from "../components/TaskDetailDialog";
 
 vi.mock("../api", () => ({
@@ -28,6 +28,12 @@ vi.mock("../api", () => ({
   createComment: vi.fn(),
   updateComment: vi.fn(),
   deleteComment: vi.fn(),
+  listTimeEntries: vi.fn(),
+  createTimeEntry: vi.fn(),
+  updateTimeEntry: vi.fn(),
+  deleteTimeEntry: vi.fn(),
+  startTimeEntry: vi.fn(),
+  stopTimeEntry: vi.fn(),
 }));
 
 function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
@@ -75,6 +81,23 @@ function commentFixture(id: string, body: string): Comment {
   };
 }
 
+function timeEntryFixture(
+  id: string,
+  overrides: Partial<TimeEntry> = {},
+): TimeEntry {
+  return {
+    id,
+    taskId: TASK_ID,
+    startedAt: "2026-09-09T09:00:00Z",
+    endedAt: "2026-09-09T09:30:00Z",
+    duration: 1800,
+    createdAt: "2026-09-09T09:30:00Z",
+    updatedAt: "2026-09-09T09:30:00Z",
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
 const TASK_ID = "task-1";
 
 function seedSubtasks(subtasks: Subtask[]): void {
@@ -99,6 +122,7 @@ function subtaskIdsInOrder(): string[] {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listComments).mockResolvedValue([]);
+  vi.mocked(api.listTimeEntries).mockResolvedValue([]);
   vi.mocked(api.createComment).mockResolvedValue(
     commentFixture("c-new", "新评论"),
   );
@@ -147,6 +171,7 @@ describe("TaskDetailDialog", () => {
     expect(statuses.map((el) => el.textContent)).toEqual([
       "子任务加载中…",
       "评论加载中…",
+      "时间记录加载中…",
     ]);
     expect(await screen.findByText("子任务 s1")).toBeTruthy();
     expect(api.listSubtasks).toHaveBeenCalledWith(TASK_ID);
@@ -341,5 +366,130 @@ describe("TaskDetailDialog", () => {
       expect(api.updateComment).toHaveBeenCalledWith("c1", { body: "修改后的内容" }),
     );
     expect(await screen.findByText("修改后的内容")).toBeTruthy();
+  });
+});
+
+describe("TaskDetailDialog time tracking", () => {
+  it("lists the task's entries with their total", () => {
+    store.setTimeEntries(TASK_ID, [
+      timeEntryFixture("e1", { duration: 1800 }),
+      timeEntryFixture("e2", { duration: 900, startedAt: "2026-09-08T09:00:00Z" }),
+    ]);
+
+    renderDetail();
+
+    expect(screen.getByRole("heading", { name: "时间记录" })).toBeTruthy();
+    expect(screen.getByText("共 45 分钟")).toBeTruthy();
+    expect(screen.getByText("30 分钟")).toBeTruthy();
+    expect(screen.getByText("15 分钟")).toBeTruthy();
+    expect(api.listTimeEntries).not.toHaveBeenCalled(); // cache already held them
+  });
+
+  it("shows the live clock of a running timer", () => {
+    const startedAt = new Date(Date.now() - 90_000).toISOString();
+    store.setTimeEntries(TASK_ID, [
+      timeEntryFixture("e1", { startedAt, endedAt: null, duration: 0 }),
+    ]);
+
+    renderDetail();
+
+    expect(screen.getByText("00:01:30")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "停止计时" })).toBeTruthy();
+  });
+
+  it("starts the timer, then stops it through time:stop", async () => {
+    store.setTimeEntries(TASK_ID, []);
+    const running = timeEntryFixture("e2", {
+      startedAt: new Date(Date.now() - 90_000).toISOString(),
+      endedAt: null,
+      duration: 0,
+    });
+    vi.mocked(api.startTimeEntry).mockResolvedValue(running);
+    vi.mocked(api.stopTimeEntry).mockResolvedValue(
+      timeEntryFixture("e2", { endedAt: "2026-09-09T09:31:30Z", duration: 91 }),
+    );
+
+    renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "开始计时" }));
+
+    await waitFor(() => expect(api.startTimeEntry).toHaveBeenCalledWith(TASK_ID));
+    expect(await screen.findByText("00:01:30")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "停止计时" }));
+    await waitFor(() => expect(api.stopTimeEntry).toHaveBeenCalledWith("e2"));
+  });
+
+  it("records a manual entry from the start time and minutes inputs", async () => {
+    store.setTimeEntries(TASK_ID, []);
+    vi.mocked(api.createTimeEntry).mockResolvedValue(
+      timeEntryFixture("e3", { duration: 600 }),
+    );
+
+    renderDetail();
+
+    fireEvent.input(screen.getByLabelText("开始时间"), {
+      target: { value: "2026-09-09T09:00" },
+    });
+    fireEvent.input(screen.getByLabelText("时长（分钟）"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "记录" }));
+
+    await waitFor(() =>
+      expect(api.createTimeEntry).toHaveBeenCalledWith(TASK_ID, {
+        startedAt: new Date(2026, 8, 9, 9, 0).toISOString(),
+        duration: 600,
+      }),
+    );
+    // The optimistic row lands in the list and the input clears.
+    expect(await screen.findByText("10 分钟")).toBeTruthy();
+    expect((screen.getByLabelText("时长（分钟）") as HTMLInputElement).value).toBe("");
+  });
+
+  it("rejects an invalid manual duration without calling the backend", () => {
+    store.setTimeEntries(TASK_ID, []);
+
+    renderDetail();
+
+    fireEvent.input(screen.getByLabelText("时长（分钟）"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "记录" }));
+
+    expect(screen.getByRole("alert").textContent).toBe("请输入大于 0 的分钟数");
+    expect(api.createTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it("edits an entry's length and deletes it", async () => {
+    store.setTimeEntries(TASK_ID, [timeEntryFixture("e1", { duration: 1800 })]);
+    vi.mocked(api.updateTimeEntry).mockResolvedValue(
+      timeEntryFixture("e1", { duration: 2700 }),
+    );
+    vi.mocked(api.deleteTimeEntry).mockResolvedValue(undefined);
+
+    renderDetail();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑时长 30 分钟" }));
+    const editor = screen.getByLabelText("修改时长（分钟）") as HTMLInputElement;
+    fireEvent.input(editor, { target: { value: "45" } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(api.updateTimeEntry).toHaveBeenCalledWith("e1", { duration: 2700 }),
+    );
+    expect(await screen.findByText("45 分钟")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除时间记录 45 分钟" }));
+    await waitFor(() => expect(api.deleteTimeEntry).toHaveBeenCalledWith("e1"));
+    expect(screen.queryByText("45 分钟")).toBeNull();
+  });
+
+  it("loads entries through time:list when opening without a cache", async () => {
+    vi.mocked(api.listTimeEntries).mockResolvedValue([
+      timeEntryFixture("e1", { duration: 2700 }),
+    ]);
+    store.setSubtasks(TASK_ID, []);
+    store.setComments(TASK_ID, []);
+
+    renderDetail();
+
+    expect(await screen.findByText("45 分钟")).toBeTruthy();
+    expect(api.listTimeEntries).toHaveBeenCalledWith(TASK_ID);
   });
 });

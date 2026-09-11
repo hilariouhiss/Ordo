@@ -8,7 +8,7 @@
  */
 
 import { createStore, produce } from "solid-js/store";
-import type { Comment, Subtask, Tag, Task } from "./types";
+import type { Comment, Subtask, Tag, Task, TimeEntry } from "./types";
 
 export interface TasksState {
   /** All live tasks, ordered by `sortOrder` as returned by `task:list`. */
@@ -19,6 +19,9 @@ export interface TasksState {
   subtasksByTask: Record<string, Subtask[]>;
   /** Comment cache per task, filled on demand by `loadComments`. */
   commentsByTask: Record<string, Comment[]>;
+  /** Time-entry cache per task, filled on demand by `loadTimeEntries`;
+   * most recent first, as `time:list` returns them. */
+  timeEntriesByTask: Record<string, TimeEntry[]>;
   /** Whether the initial `loadAll` completed successfully. */
   loaded: boolean;
 }
@@ -28,6 +31,7 @@ const [state, setState] = createStore<TasksState>({
   tags: [],
   subtasksByTask: {},
   commentsByTask: {},
+  timeEntriesByTask: {},
   loaded: false,
 });
 
@@ -58,6 +62,15 @@ export function getComments(taskId: string): Comment[] {
 /** Whether the task's comment list has been loaded into the cache. */
 export function hasComments(taskId: string): boolean {
   return taskId in state.commentsByTask;
+}
+
+export function getTimeEntries(taskId: string): TimeEntry[] {
+  return state.timeEntriesByTask[taskId] ?? [];
+}
+
+/** Whether the task's time-entry list has been loaded into the cache. */
+export function hasTimeEntries(taskId: string): boolean {
+  return taskId in state.timeEntriesByTask;
 }
 
 /** Index of a task in the ordered list, or -1. */
@@ -225,6 +238,29 @@ export function removeComment(taskId: string, id: string): void {
   setState("commentsByTask", taskId, (list) => list.filter((item) => item.id !== id));
 }
 
+export function setTimeEntries(taskId: string, entries: TimeEntry[]): void {
+  setState("timeEntriesByTask", taskId, entries);
+}
+
+/** Inserts new entries at the head, keeping the newest-first list order. */
+export function upsertTimeEntry(taskId: string, entry: TimeEntry): void {
+  setState("timeEntriesByTask", taskId, (list) => {
+    const index = list.findIndex((item) => item.id === entry.id);
+    if (index === -1) return [entry, ...list];
+    return list.map((item) => (item.id === entry.id ? entry : item));
+  });
+}
+
+export function patchTimeEntry(taskId: string, id: string, patch: Partial<TimeEntry>): void {
+  setState("timeEntriesByTask", taskId, (list) =>
+    list.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+  );
+}
+
+export function removeTimeEntry(taskId: string, id: string): void {
+  setState("timeEntriesByTask", taskId, (list) => list.filter((item) => item.id !== id));
+}
+
 /** Resets the store to its pristine state (test seam). */
 export function resetTasksStore(): void {
   setState({
@@ -232,6 +268,7 @@ export function resetTasksStore(): void {
     tags: [],
     subtasksByTask: {},
     commentsByTask: {},
+    timeEntriesByTask: {},
     loaded: false,
   });
 }

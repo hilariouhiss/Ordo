@@ -21,10 +21,13 @@ import type {
   Subtask,
   Tag,
   Task,
+  TimeEntry,
   UpdateComment,
   UpdateSubtask,
   UpdateTag,
   UpdateTask,
+  UpdateTimeEntry,
+  NewTimeEntry,
 } from "./types";
 
 /** Prefix for optimistic ids; never collides with backend UUIDs. */
@@ -511,6 +514,165 @@ export function deleteComment(taskId: string, commentId: string): Promise<boolea
     async () => {
       await api.deleteComment(commentId);
       return true;
+    },
+  );
+}
+
+// --- time entries ---------------------------------------------------------------
+
+/** Loads one task's time entries into the cache; returns success. */
+export async function loadTimeEntries(taskId: string): Promise<boolean> {
+  try {
+    const entries = await api.listTimeEntries(taskId);
+    store.setTimeEntries(taskId, entries);
+    return true;
+  } catch (error) {
+    reportFailure(error);
+    return false;
+  }
+}
+
+/** End instant derived from start + length, mirroring the backend's rule. */
+function entryEnd(startedAt: string, duration: number): string {
+  return new Date(Date.parse(startedAt) + duration * 1000).toISOString();
+}
+
+/** Records a manual entry, appended to the cache (once that cache is loaded). */
+export function createTimeEntry(
+  taskId: string,
+  input: NewTimeEntry,
+): Promise<TimeEntry | null> {
+  const cached = store.hasTimeEntries(taskId);
+  const now = new Date().toISOString();
+  const optimisticEntry: TimeEntry = {
+    id: nextTempId(),
+    taskId,
+    startedAt: input.startedAt,
+    endedAt: entryEnd(input.startedAt, input.duration),
+    duration: input.duration,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+
+  return optimistic(
+    () => {
+      if (cached) store.upsertTimeEntry(taskId, optimisticEntry);
+    },
+    () => {
+      if (cached) store.removeTimeEntry(taskId, optimisticEntry.id);
+    },
+    async () => {
+      const created = await api.createTimeEntry(taskId, input);
+      if (cached) {
+        store.removeTimeEntry(taskId, optimisticEntry.id);
+        store.upsertTimeEntry(taskId, created);
+      }
+      return created;
+    },
+  );
+}
+
+/** Edits a manual entry; the backend re-derives `endedAt` from start + length. */
+export function updateTimeEntry(
+  taskId: string,
+  entryId: string,
+  patch: UpdateTimeEntry,
+): Promise<TimeEntry | null> {
+  const current = store.getTimeEntries(taskId).find((item) => item.id === entryId);
+  if (!current) return Promise.resolve(missingEntity("时间记录"));
+  const before: TimeEntry = { ...current };
+  const optimisticPatch: Partial<TimeEntry> = { updatedAt: new Date().toISOString() };
+  if (patch.startedAt !== undefined) optimisticPatch.startedAt = patch.startedAt;
+  if (patch.duration !== undefined) {
+    optimisticPatch.duration = patch.duration;
+    const startedAt = patch.startedAt ?? current.startedAt;
+    if (startedAt) optimisticPatch.endedAt = entryEnd(startedAt, patch.duration);
+  }
+
+  return optimistic(
+    () => store.patchTimeEntry(taskId, entryId, optimisticPatch),
+    () => store.patchTimeEntry(taskId, entryId, before),
+    async () => {
+      const saved = await api.updateTimeEntry(entryId, patch);
+      store.patchTimeEntry(taskId, entryId, saved);
+      return saved;
+    },
+  );
+}
+
+export function deleteTimeEntry(
+  taskId: string,
+  entryId: string,
+): Promise<boolean | null> {
+  const list = store.getTimeEntries(taskId);
+  const index = list.findIndex((item) => item.id === entryId);
+  if (index === -1) return Promise.resolve(missingEntity("时间记录"));
+
+  return optimistic(
+    () => store.removeTimeEntry(taskId, entryId),
+    () => store.setTimeEntries(taskId, [...list]),
+    async () => {
+      await api.deleteTimeEntry(entryId);
+      return true;
+    },
+  );
+}
+
+/** Starts a task's timer; a task already being timed keeps its running entry. */
+export function startTimer(taskId: string): Promise<TimeEntry | null> {
+  const cached = store.hasTimeEntries(taskId);
+  const now = new Date().toISOString();
+  const optimisticEntry: TimeEntry = {
+    id: nextTempId(),
+    taskId,
+    startedAt: now,
+    endedAt: null,
+    duration: 0,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+
+  return optimistic(
+    () => {
+      if (cached) store.upsertTimeEntry(taskId, optimisticEntry);
+    },
+    () => {
+      if (cached) store.removeTimeEntry(taskId, optimisticEntry.id);
+    },
+    async () => {
+      const running = await api.startTimeEntry(taskId);
+      if (cached) {
+        store.removeTimeEntry(taskId, optimisticEntry.id);
+        store.upsertTimeEntry(taskId, running);
+      }
+      return running;
+    },
+  );
+}
+
+/** Stops a running timer, freezing the seconds elapsed since it started. */
+export function stopTimer(taskId: string, entryId: string): Promise<TimeEntry | null> {
+  const current = store.getTimeEntries(taskId).find((item) => item.id === entryId);
+  if (!current) return Promise.resolve(missingEntity("时间记录"));
+  const before: TimeEntry = { ...current };
+  const stoppedAt = Date.now();
+  const startedAt = current.startedAt ? Date.parse(current.startedAt) : stoppedAt;
+  const stamp = new Date(stoppedAt).toISOString();
+
+  return optimistic(
+    () =>
+      store.patchTimeEntry(taskId, entryId, {
+        endedAt: stamp,
+        duration: Math.max(0, Math.floor((stoppedAt - startedAt) / 1000)),
+        updatedAt: stamp,
+      }),
+    () => store.patchTimeEntry(taskId, entryId, before),
+    async () => {
+      const stopped = await api.stopTimeEntry(entryId);
+      store.patchTimeEntry(taskId, entryId, stopped);
+      return stopped;
     },
   );
 }

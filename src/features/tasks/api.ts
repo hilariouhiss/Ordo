@@ -11,13 +11,16 @@ import type {
   NewSubtask,
   NewTag,
   NewTask,
+  NewTimeEntry,
   Subtask,
   Tag,
   Task,
+  TimeEntry,
   UpdateComment,
   UpdateSubtask,
   UpdateTag,
   UpdateTask,
+  UpdateTimeEntry,
 } from "./types";
 
 // --- task:* ------------------------------------------------------------------
@@ -115,4 +118,35 @@ export function updateComment(commentId: string, payload: UpdateComment): Promis
 
 export function deleteComment(commentId: string): Promise<void> {
   return invokeCommand(COMMANDS.comment.delete, { commentId });
+}
+
+// --- time:* -------------------------------------------------------------------
+
+export function listTimeEntries(taskId: string): Promise<TimeEntry[]> {
+  return invokeCommand(COMMANDS.time.list, { taskId });
+}
+
+export function createTimeEntry(taskId: string, payload: NewTimeEntry): Promise<TimeEntry> {
+  return invokeCommand(COMMANDS.time.create, { taskId, payload });
+}
+
+export function updateTimeEntry(
+  entryId: string,
+  payload: UpdateTimeEntry,
+): Promise<TimeEntry> {
+  return invokeCommand(COMMANDS.time.update, { entryId, payload });
+}
+
+export function deleteTimeEntry(entryId: string): Promise<void> {
+  return invokeCommand(COMMANDS.time.delete, { entryId });
+}
+
+/** Starts the task's timer; a task already being timed returns its running
+ * entry instead of stacking a second one. */
+export function startTimeEntry(taskId: string): Promise<TimeEntry> {
+  return invokeCommand(COMMANDS.time.start, { taskId });
+}
+
+export function stopTimeEntry(entryId: string): Promise<TimeEntry> {
+  return invokeCommand(COMMANDS.time.stop, { entryId });
 }

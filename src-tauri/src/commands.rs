@@ -14,8 +14,9 @@ use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
-    Project, SearchHit, Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateComment,
-    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    NewTimeEntry, Project, SearchHit, Subtask, Tag, Task, TaskWithTags, TimeEntry,
+    UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    UpdateTimeEntry,
 };
 use crate::services;
 
@@ -268,4 +269,48 @@ pub fn comment_update(
 #[tauri::command(rename = "comment:delete")]
 pub fn comment_delete(db: State<'_, Db>, comment_id: Uuid) -> Result<(), AppError> {
     with_conn(&db, |conn| services::delete_comment(conn, comment_id))
+}
+
+// --- time:* ----------------------------------------------------------------
+
+#[tauri::command(rename = "time:list")]
+pub fn time_list(db: State<'_, Db>, task_id: Uuid) -> Result<Vec<TimeEntry>, AppError> {
+    with_conn(&db, |conn| services::list_time_entries(conn, task_id))
+}
+
+#[tauri::command(rename = "time:create")]
+pub fn time_create(
+    db: State<'_, Db>,
+    task_id: Uuid,
+    payload: NewTimeEntry,
+) -> Result<TimeEntry, AppError> {
+    with_conn(&db, |conn| {
+        services::create_time_entry(conn, task_id, payload)
+    })
+}
+
+#[tauri::command(rename = "time:update")]
+pub fn time_update(
+    db: State<'_, Db>,
+    entry_id: Uuid,
+    payload: UpdateTimeEntry,
+) -> Result<TimeEntry, AppError> {
+    with_conn(&db, |conn| {
+        services::update_time_entry(conn, entry_id, payload)
+    })
+}
+
+#[tauri::command(rename = "time:delete")]
+pub fn time_delete(db: State<'_, Db>, entry_id: Uuid) -> Result<(), AppError> {
+    with_conn(&db, |conn| services::delete_time_entry(conn, entry_id))
+}
+
+#[tauri::command(rename = "time:start")]
+pub fn time_start(db: State<'_, Db>, task_id: Uuid) -> Result<TimeEntry, AppError> {
+    with_conn(&db, |conn| services::start_time_entry(conn, task_id))
+}
+
+#[tauri::command(rename = "time:stop")]
+pub fn time_stop(db: State<'_, Db>, entry_id: Uuid) -> Result<TimeEntry, AppError> {
+    with_conn(&db, |conn| services::stop_time_entry(conn, entry_id))
 }
