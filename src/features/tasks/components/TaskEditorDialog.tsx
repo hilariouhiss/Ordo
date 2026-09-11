@@ -8,7 +8,7 @@ import {
 } from "../../../common/utils/datetime";
 import { createTask, updateTask } from "../hooks";
 import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
-import { tasksState } from "../store";
+import { getTag, tasksState } from "../store";
 import type { Priority, RepeatFreq, RepeatRule, Task } from "../types";
 import { TagManagerDialog } from "./TagManagerDialog";
 
@@ -134,7 +134,11 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         priority: priority(),
         projectId: props.task ? props.task.projectId : props.defaultProjectId ?? null,
         dueAt: localInputValueToIso(parsed.data.dueLocal),
-        tagIds: [...tagIds()],
+        // Only tags that still exist: 管理标签 opens from inside this dialog, so
+        // a picked tag can be deleted before the form is submitted. Its chip
+        // disappears with it while `tagIds` keeps a copy the user has no way to
+        // untick, and the backend rejects the whole write with `标签 … 不存在`.
+        tagIds: tagIds().filter((id) => getTag(id) !== undefined),
         repeatRule,
       };
       const result = props.task

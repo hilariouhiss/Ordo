@@ -151,6 +151,28 @@ describe("TaskEditorDialog", () => {
     expect(vi.mocked(hooks.createTask).mock.calls[0]?.[0]?.tagIds).toEqual(["t1"]);
   });
 
+  // Reported bug: a tag picked on the new task, then deleted from 管理标签 (the
+  // manager is opened from inside this dialog). The chip disappears with the
+  // tag, so the selection cannot be undone by hand — and the dead id used to
+  // reach the backend, which rejected the whole write with `标签 … 不存在`.
+  it("skips a tag deleted while it was selected instead of failing the write", async () => {
+    vi.mocked(hooks.createTask).mockResolvedValue(taskFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("标题"), { target: { value: "带已删标签" } });
+    fireEvent.click(screen.getByRole("button", { name: "生活" }));
+    expect(
+      screen.getByRole("button", { name: "生活" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    store.removeTag("t2"); // what deleteTag does to the store
+
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(vi.mocked(hooks.createTask).mock.calls[0]?.[0]?.tagIds).toEqual([]);
+  });
+
   it("submits the chosen priority", async () => {
     vi.mocked(hooks.createTask).mockResolvedValue(taskFixture("new-1"));
     const { onOpenChange } = renderDialog();
