@@ -400,6 +400,106 @@ pub struct UpdateTimeEntry {
     pub duration: Option<i64>,
 }
 
+// --- statistics (`stats:*`) --------------------------------------------------
+//
+// The statistics layer is read-only: its types are query payloads and result
+// rows, never persisted. Ranges are half-open `[from, to)` UTC instants that
+// the frontend derives from the user's local boundaries; the UTC `offset`
+// lets the backend bucket in that same local calendar.
+
+/// Bucket width of a statistics series.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StatsGranularity {
+    Day,
+    Week,
+    Month,
+}
+
+/// `stats:trend` query: completion curve over `[from, to)`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendQuery {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub granularity: StatsGranularity,
+    /// Minutes added to stored UTC instants before bucketing, so a day bucket
+    /// is the caller's day rather than a UTC one
+    /// (`-new Date().getTimezoneOffset()`; 0 means UTC). One offset covers the
+    /// whole range — a range spanning a DST switch is off by that hour.
+    #[serde(default)]
+    pub offset_minutes: i32,
+}
+
+/// One point of the completion curve: `bucket` is `YYYY-MM-DD` for day/week
+/// (the week's Monday) and `YYYY-MM` for month, in the caller's calendar.
+/// Buckets without completions are absent rather than zero-filled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendPoint {
+    pub bucket: String,
+    pub completed: i64,
+}
+
+/// One live project's tally (`stats:projectProgress`); completion rate and
+/// remaining count derive from `total`/`completed`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectProgress {
+    pub project_id: Uuid,
+    pub name: String,
+    pub total: i64,
+    pub completed: i64,
+    pub due_at: Option<DateTime<Utc>>,
+}
+
+/// Dimension `stats:timeDistribution` splits tracked time by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeGroupBy {
+    Project,
+    Tag,
+}
+
+/// `stats:timeDistribution` query; range and offset follow [`TrendQuery`].
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeDistributionQuery {
+    pub group_by: TimeGroupBy,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub granularity: StatsGranularity,
+    #[serde(default)]
+    pub offset_minutes: i32,
+}
+
+/// Tracked time of one project or tag. `id`/`name` are `None` for the
+/// project-less share of a project grouping (inbox time).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeShare {
+    pub id: Option<Uuid>,
+    pub name: Option<String>,
+    pub seconds: i64,
+}
+
+/// Tracked time inside one period bucket (see [`TrendPoint::bucket`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimePoint {
+    pub bucket: String,
+    pub seconds: i64,
+}
+
+/// `stats:timeDistribution` response: time per group across the range, plus
+/// the same time split into period buckets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeDistribution {
+    pub groups: Vec<TimeShare>,
+    pub buckets: Vec<TimePoint>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

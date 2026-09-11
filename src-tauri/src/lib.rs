@@ -57,6 +57,9 @@ pub fn run() {
             commands::time_delete,
             commands::time_start,
             commands::time_stop,
+            commands::stats_trend,
+            commands::stats_project_progress,
+            commands::stats_time_distribution,
         ])
         .setup(|app| {
             let db = db::init(&db_path(app)?)?;

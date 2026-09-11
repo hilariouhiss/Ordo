@@ -227,6 +227,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > **重复任务（RP-01）**：`repeat_rule` 为 JSON（`{freq: daily|weekly|monthly, interval>=1, paused}`，旧数据缺 `paused` 反序列化为 false）。完成的两条路径——`task:complete` 与看板拖入 `is_done` 列——都会在同一事务内生成下一次实例：`due_at` 按规则推进一个周期（按月加法钳制到月末，如 1 月 31 日 → 2 月 28 日），继承标题/备注/优先级/项目/标签/子任务（子任务重置为未完成）与规则本身，追加回原列（看板路径回到来源列）。已逾期的提前提醒不补发；暂停规则（`paused`）与无 `due_at` 的重复任务完成时不生成；`task:update` 的 `repeatRule` patch 置 `null` 即取消规则。
 >
 > **时间记录（TE-01）**：记录归属任务（`task_id`），项目/标签维度的时间分布由 `time_entries → tasks → projects` / `task_tags` 关联得出（供 ST-01 使用），因此不为每条记录冗余项目/标签列。`started_at`/`ended_at` 存 UTC、`duration` 为秒：手动录入（`time:create`）由「开始时间 + 秒数」推导 `ended_at`（秒数 ≤ 0 返回 validation，任务不存在返回 not_found），`time:update` 同样以 start + duration 重新推导，故更新后必定是已停止的记录。`time:start` 幂等——任务已有运行中记录（`ended_at IS NULL`）时返回该记录而不新建；`time:stop` 以 `now − started_at` 冻结 `duration`，重复停止返回 validation。前端 `features/tasks/time.ts` 负责时长文案与 `datetime-local` 的本地时区换算，计时中的读秒只在本地信号上每秒推进、不写库。
+>
+> **统计（ST-01）**：`repositories::stats` 的三个只读聚合命令，全部以索引范围扫描打底——`tasks.completed_at`（趋势）与 `time_entries.started_at`（时间分布）——且查询计划由单测断言（必须是 `SEARCH … USING INDEX`，全表 SCAN 即失败）。范围是半开区间 `[from, to)`，边界由前端按用户时区算成 UTC 瞬间；`offsetMinutes`（`-new Date().getTimezoneOffset()`，缺省 0 即 UTC）作为 SQLite 日期修饰符参与分桶，使「日/周/月」是用户日历上的日/周/月（周桶键取该周周一，如 `2026-09-07`），无数据的桶不补零（由前端补齐坐标轴）。时间戳一律以 `DateTime` 参数绑定（与写入路径同一编码），不写字符串字面量：rusqlite 存的是 `YYYY-MM-DD HH:MM:SS.SSS+00:00`，字面量的时区后缀（`Z` vs `+00:00`）会让边界比较错位。`stats:projectProgress` 只统计 `deleted_at IS NULL AND status = 'active'` 的项目（归档项目不在当前视野，恢复后回归），返回 `total`/`completed`/`due_at`，完成率与剩余量由前端派生；`stats:timeDistribution` 的 `groupBy` 取 project/tag——按项目分组时，未归属项目的收件箱时间形成 id 为空的份额；按标签分组时，多标签任务的时间计入它的每个标签（因此各分组之和可能大于总时长），`buckets` 是同一批时间按 `granularity` 的序列。
 
 ---
 

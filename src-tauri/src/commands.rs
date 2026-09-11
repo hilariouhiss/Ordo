@@ -14,9 +14,9 @@ use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
-    NewTimeEntry, Project, SearchHit, Subtask, Tag, Task, TaskWithTags, TimeEntry,
-    UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
-    UpdateTimeEntry,
+    NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag, Task, TaskWithTags,
+    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
+    UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::services;
 
@@ -313,4 +313,24 @@ pub fn time_start(db: State<'_, Db>, task_id: Uuid) -> Result<TimeEntry, AppErro
 #[tauri::command(rename = "time:stop")]
 pub fn time_stop(db: State<'_, Db>, entry_id: Uuid) -> Result<TimeEntry, AppError> {
     with_conn(&db, |conn| services::stop_time_entry(conn, entry_id))
+}
+
+// --- stats:* ---------------------------------------------------------------
+
+#[tauri::command(rename = "stats:trend")]
+pub fn stats_trend(db: State<'_, Db>, query: TrendQuery) -> Result<Vec<TrendPoint>, AppError> {
+    with_conn(&db, |conn| services::completion_trend(conn, query))
+}
+
+#[tauri::command(rename = "stats:projectProgress")]
+pub fn stats_project_progress(db: State<'_, Db>) -> Result<Vec<ProjectProgress>, AppError> {
+    with_conn(&db, services::project_progress)
+}
+
+#[tauri::command(rename = "stats:timeDistribution")]
+pub fn stats_time_distribution(
+    db: State<'_, Db>,
+    query: TimeDistributionQuery,
+) -> Result<TimeDistribution, AppError> {
+    with_conn(&db, |conn| services::time_distribution(conn, query))
 }

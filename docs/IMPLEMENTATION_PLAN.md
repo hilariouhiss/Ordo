@@ -142,7 +142,7 @@ M4 出口：重复任务、评论、时间记录验收要点（PRD 2.1/2.3）通
 
 | ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| ST-01 | 统计聚合命令 | `stats:trend`（日/周完成曲线）、`stats:projectProgress`（完成率/剩余/截止对比）、`stats:timeDistribution`（按项目/标签、日/周/月粒度）；基于 completed_at/TimeEntry 聚合 + 索引 | 数千任务数据秒级返回；聚合 SQL 有索引支撑 | T-02、P-02、TE-01 | ⬜ |
+| ST-01 | 统计聚合命令 | `stats:trend`（日/周完成曲线）、`stats:projectProgress`（完成率/剩余/截止对比）、`stats:timeDistribution`（按项目/标签、日/周/月粒度）；基于 completed_at/TimeEntry 聚合 + 索引 | 数千任务数据秒级返回；聚合 SQL 有索引支撑 | T-02、P-02、TE-01 | ✅ |
 | ST-02 | 图表组件 | `src/features/stats/`：折线、日历热力图、项目对比、时间分布（自绘 SVG，不引图表库）；`/stats` 视图 | 图表交互流畅；范围切换（7/30 天/本年）正确 | ST-01 | ⬜ |
 | ST-03 | 项目进度视图 | `features/projects` 进度视图：总进度条、完成率、剩余任务、距截止剩余时间 | 进度随任务完成实时更新 | ST-01/02 | ⬜ |
 

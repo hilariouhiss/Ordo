@@ -1077,6 +1077,243 @@ pub mod time_entries {
     }
 }
 
+/// Read-only aggregation for the statistics commands (`stats:*`).
+///
+/// Every query is range-filtered on an indexed timestamp column
+/// (`tasks.completed_at`, `time_entries.started_at`) and only *buckets* by a
+/// computed local date, so the scan stays index-supported. Timestamps go in
+/// as bound `DateTime` parameters — the same encoding the write paths use —
+/// never as string literals, whose timezone suffix would compare differently.
+pub mod stats {
+    use super::*;
+    use crate::models::{
+        ProjectProgress, StatsGranularity, TimeDistributionQuery, TimeGroupBy, TimePoint,
+        TimeShare, TrendPoint, TrendQuery,
+    };
+
+    /// SQLite date modifier shifting stored UTC instants into the caller's
+    /// local frame. Built from an integer, so it carries no injection surface,
+    /// and bound as a parameter rather than interpolated.
+    fn offset_modifier(offset_minutes: i32) -> String {
+        format!("{offset_minutes:+} minutes")
+    }
+
+    /// Bucket key for `column`: the local date (day), the local Monday of
+    /// that week, or the local month.
+    fn bucket(column: &str, granularity: StatsGranularity, offset_param: usize) -> String {
+        match granularity {
+            StatsGranularity::Day => format!("date({column}, ?{offset_param})"),
+            StatsGranularity::Week => {
+                format!("date({column}, ?{offset_param}, '-6 days', 'weekday 1')")
+            }
+            StatsGranularity::Month => format!("strftime('%Y-%m', {column}, ?{offset_param})"),
+        }
+    }
+
+    /// Completions per period bucket, ascending.
+    pub fn completion_trend(
+        conn: &Connection,
+        query: &TrendQuery,
+    ) -> Result<Vec<TrendPoint>, AppError> {
+        query_all(
+            conn,
+            &trend_sql(query.granularity),
+            params![query.from, query.to, offset_modifier(query.offset_minutes)],
+            |row| {
+                Ok(TrendPoint {
+                    bucket: row.get("bucket")?,
+                    completed: row.get("completed")?,
+                })
+            },
+        )
+    }
+
+    /// The trend query; `completed_at`'s range predicate is what lets SQLite
+    /// walk `idx_tasks_completed_at` instead of the table (see the module
+    /// tests' query-plan assertions).
+    fn trend_sql(granularity: StatsGranularity) -> String {
+        format!(
+            "SELECT {} AS bucket, COUNT(*) AS completed FROM tasks \
+             WHERE deleted_at IS NULL AND completed_at >= ?1 AND completed_at < ?2 \
+             GROUP BY bucket ORDER BY bucket",
+            bucket("completed_at", granularity, 3)
+        )
+    }
+
+    /// Tracked seconds per period bucket, ascending.
+    pub fn time_buckets(
+        conn: &Connection,
+        query: &TimeDistributionQuery,
+    ) -> Result<Vec<TimePoint>, AppError> {
+        query_all(
+            conn,
+            &time_buckets_sql(query.granularity),
+            params![query.from, query.to, offset_modifier(query.offset_minutes)],
+            |row| {
+                Ok(TimePoint {
+                    bucket: row.get("bucket")?,
+                    seconds: row.get("seconds")?,
+                })
+            },
+        )
+    }
+
+    /// The period series query, index-backed on `time_entries.started_at`.
+    fn time_buckets_sql(granularity: StatsGranularity) -> String {
+        format!(
+            "SELECT {} AS bucket, SUM(e.duration) AS seconds \
+             FROM time_entries e JOIN tasks t ON t.id = e.task_id \
+             WHERE e.deleted_at IS NULL AND t.deleted_at IS NULL \
+               AND e.started_at >= ?1 AND e.started_at < ?2 \
+             GROUP BY bucket ORDER BY bucket",
+            bucket("e.started_at", granularity, 3)
+        )
+    }
+
+    /// Tracked time per project or tag over the range, longest first. A task
+    /// carrying several tags contributes its time to each of them, and time on
+    /// project-less (inbox) tasks forms a share with no id.
+    pub fn time_shares(
+        conn: &Connection,
+        query: &TimeDistributionQuery,
+    ) -> Result<Vec<TimeShare>, AppError> {
+        query_all(
+            conn,
+            time_shares_sql(query.group_by),
+            params![query.from, query.to],
+            |row| {
+                let id: Option<String> = row.get("id")?;
+                Ok(TimeShare {
+                    id: id.map(parse_uuid).transpose()?,
+                    name: row.get("name")?,
+                    seconds: row.get("seconds")?,
+                })
+            },
+        )
+    }
+
+    /// The grouping query, index-backed on `time_entries.started_at`; ties
+    /// fall back to name order (id-less shares last).
+    fn time_shares_sql(group_by: TimeGroupBy) -> &'static str {
+        match group_by {
+            TimeGroupBy::Project => {
+                "SELECT t.project_id AS id, p.name AS name, SUM(e.duration) AS seconds \
+                 FROM time_entries e \
+                 JOIN tasks t ON t.id = e.task_id \
+                 LEFT JOIN projects p ON p.id = t.project_id \
+                 WHERE e.deleted_at IS NULL AND t.deleted_at IS NULL \
+                   AND e.started_at >= ?1 AND e.started_at < ?2 \
+                 GROUP BY t.project_id \
+                 ORDER BY seconds DESC, name IS NULL, name COLLATE NOCASE"
+            }
+            TimeGroupBy::Tag => {
+                "SELECT g.id AS id, g.name AS name, SUM(e.duration) AS seconds \
+                 FROM time_entries e \
+                 JOIN tasks t ON t.id = e.task_id \
+                 JOIN task_tags tt ON tt.task_id = t.id \
+                 JOIN tags g ON g.id = tt.tag_id AND g.deleted_at IS NULL \
+                 WHERE e.deleted_at IS NULL AND t.deleted_at IS NULL \
+                   AND e.started_at >= ?1 AND e.started_at < ?2 \
+                 GROUP BY g.id \
+                 ORDER BY seconds DESC, name COLLATE NOCASE"
+            }
+        }
+    }
+
+    /// Every live project's task tally, by name. Archived projects are left
+    /// out — they are out of the current picture and restoring brings them
+    /// back; completion rate and remaining count derive from the tally.
+    pub fn project_progress(conn: &Connection) -> Result<Vec<ProjectProgress>, AppError> {
+        query_all(conn, PROJECT_PROGRESS_SQL, &[], |row| {
+            Ok(ProjectProgress {
+                project_id: parse_uuid(row.get("project_id")?)?,
+                name: row.get("name")?,
+                total: row.get("total")?,
+                completed: row.get("completed")?,
+                due_at: row.get("due_at")?,
+            })
+        })
+    }
+
+    /// Project tally query; the join walks `idx_tasks_project`.
+    const PROJECT_PROGRESS_SQL: &str =
+        "SELECT p.id AS project_id, p.name AS name, p.due_at AS due_at, \
+                COUNT(t.id) AS total, COUNT(t.completed_at) AS completed \
+         FROM projects p \
+         LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL \
+         WHERE p.deleted_at IS NULL AND p.status = 'active' \
+         GROUP BY p.id ORDER BY p.name COLLATE NOCASE, p.id";
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::db;
+        use rusqlite::params_from_iter;
+        use rusqlite::types::Value;
+
+        /// The planner's explanation of `sql`, one detail line per step. The
+        /// statements take their range/modifier parameters even while only
+        /// being explained, so they are bound with representative values.
+        fn plan(conn: &Connection, sql: &str, bound: &[Value]) -> String {
+            let mut stmt = conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("prepare explain");
+            let details = stmt
+                .query_map(params_from_iter(bound.iter()), |row| {
+                    row.get::<_, String>("detail")
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            details.join(" | ")
+        }
+
+        /// Range and offset bounds in the encoding the app stores timestamps
+        /// in, so the planner sees a real (index-usable) range constraint.
+        fn bounds() -> Vec<Value> {
+            vec![
+                Value::Text("2026-01-01 00:00:00+00:00".into()),
+                Value::Text("2026-12-31 00:00:00+00:00".into()),
+                Value::Text("+0 minutes".into()),
+            ]
+        }
+
+        #[test]
+        fn statistics_queries_are_index_backed() {
+            let conn = db::test_conn();
+            let bounds = bounds();
+
+            // The statistics DoD is "aggregation SQL backed by indexes". Each
+            // range predicate must *seek* its timestamp index (SEARCH, not a
+            // SCAN of the table or of the whole index), and the project tally
+            // must reach tasks through `idx_tasks_project`.
+            let trend = plan(&conn, &trend_sql(StatsGranularity::Day), &bounds);
+            assert!(
+                trend.contains("SEARCH tasks USING INDEX idx_tasks_completed_at"),
+                "trend does not seek idx_tasks_completed_at: {trend}"
+            );
+
+            let buckets = plan(&conn, &time_buckets_sql(StatsGranularity::Week), &bounds);
+            assert!(
+                buckets.contains("SEARCH e USING INDEX idx_time_entries_started_at"),
+                "period series does not seek idx_time_entries_started_at: {buckets}"
+            );
+
+            let shares = plan(&conn, time_shares_sql(TimeGroupBy::Project), &bounds[..2]);
+            assert!(
+                shares.contains("SEARCH e USING INDEX idx_time_entries_started_at"),
+                "project shares do not seek idx_time_entries_started_at: {shares}"
+            );
+
+            let progress = plan(&conn, PROJECT_PROGRESS_SQL, &[]);
+            assert!(
+                progress.contains("SEARCH t USING INDEX idx_tasks_project"),
+                "project tally does not seek idx_tasks_project: {progress}"
+            );
+        }
+    }
+}
+
 /// Reminder dedup markers (`task_reminders`) and the candidate scan that
 /// feeds the scheduler's reminder decisions.
 pub mod reminders {

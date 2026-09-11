@@ -22,13 +22,13 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
-    NewTimeEntry, Patch, Priority, Project, ProjectStatus, Reminder, ReminderKind, RepeatFreq,
-    RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, TimeEntry,
-    UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
-    UpdateTimeEntry,
+    NewTimeEntry, Patch, Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind,
+    RepeatFreq, RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags,
+    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
+    UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
-    board_columns, comments, projects, reminders, search, subtasks, tags, task_tags, tasks,
+    board_columns, comments, projects, reminders, search, stats, subtasks, tags, task_tags, tasks,
     time_entries,
 };
 use crate::sort;
@@ -1040,6 +1040,35 @@ pub fn list_time_entries(conn: &Connection, task_id: Uuid) -> Result<Vec<TimeEnt
 }
 
 // ---------------------------------------------------------------------------
+// stats:*
+// ---------------------------------------------------------------------------
+
+/// Completion curve over `[from, to)`, one point per local day/week/month.
+pub fn completion_trend(
+    conn: &Connection,
+    query: TrendQuery,
+) -> Result<Vec<TrendPoint>, AppError> {
+    stats::completion_trend(conn, &query)
+}
+
+/// Task and completion tally per live project (archived ones excluded).
+pub fn project_progress(conn: &Connection) -> Result<Vec<ProjectProgress>, AppError> {
+    stats::project_progress(conn)
+}
+
+/// Tracked time over `[from, to)` split by project or tag, plus the same time
+/// in period buckets.
+pub fn time_distribution(
+    conn: &Connection,
+    query: TimeDistributionQuery,
+) -> Result<TimeDistribution, AppError> {
+    Ok(TimeDistribution {
+        groups: stats::time_shares(conn, &query)?,
+        buckets: stats::time_buckets(conn, &query)?,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // search:*
 // ---------------------------------------------------------------------------
 
@@ -1242,7 +1271,10 @@ pub fn scan_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Remin
 mod tests {
     use super::*;
     use crate::db;
-    use crate::models::{NewSubtask, NewTag, NewTask, UpdateTask};
+    use crate::models::{
+        NewSubtask, NewTag, NewTask, StatsGranularity, TimeGroupBy, TimePoint, TimeShare,
+        UpdateTask,
+    };
     use chrono::TimeZone;
     use rusqlite::params;
 
@@ -2897,6 +2929,383 @@ mod tests {
         assert_eq!(
             start_time_entry(&conn, Uuid::new_v4()).unwrap_err().code(),
             "not_found"
+        );
+    }
+
+    /// Task factory with a project/tag set, hitting the real create path.
+    fn make_task_in(
+        conn: &Connection,
+        project_id: Option<Uuid>,
+        tag_ids: Vec<Uuid>,
+        title: &str,
+    ) -> Task {
+        create_task(
+            conn,
+            NewTask {
+                title: title.into(),
+                note: None,
+                priority: None,
+                project_id,
+                column_id: None,
+                due_at: None,
+                tag_ids,
+                subtask_titles: Vec::new(),
+                repeat_rule: None,
+            },
+        )
+        .unwrap()
+    }
+
+    /// Backdates a completion stamp: the create/complete paths always write
+    /// "now", so bucket assertions need an explicit instant.
+    fn complete_at(conn: &Connection, task: &Task, instant: DateTime<Utc>) -> Task {
+        conn.execute(
+            "UPDATE tasks SET completed_at = ?1 WHERE id = ?2",
+            params![instant, task.id.to_string()],
+        )
+        .unwrap();
+        tasks::get(conn, task.id).unwrap().unwrap()
+    }
+
+    fn make_entry(
+        conn: &Connection,
+        task_id: Uuid,
+        started_at: DateTime<Utc>,
+        duration: i64,
+    ) -> TimeEntry {
+        create_time_entry(
+            conn,
+            task_id,
+            NewTimeEntry {
+                started_at,
+                duration,
+            },
+        )
+        .unwrap()
+    }
+
+    /// A September 2026 instant; 09-07 is a Monday, so 09-09/09-10/09-13 all
+    /// fall in its week and 09-14 opens the next one.
+    fn at(day: u32, hour: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, day, hour, 0, 0).unwrap()
+    }
+
+    fn trend_query(
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        granularity: StatsGranularity,
+        offset_minutes: i32,
+    ) -> TrendQuery {
+        TrendQuery {
+            from,
+            to,
+            granularity,
+            offset_minutes,
+        }
+    }
+
+    fn distribution_query(
+        group_by: TimeGroupBy,
+        granularity: StatsGranularity,
+        offset_minutes: i32,
+    ) -> TimeDistributionQuery {
+        TimeDistributionQuery {
+            group_by,
+            from: at(8, 0),
+            to: at(11, 0),
+            granularity,
+            offset_minutes,
+        }
+    }
+
+    #[test]
+    fn trend_buckets_completions_in_the_callers_calendar() {
+        let conn = conn();
+        complete_at(&conn, &make_task(&conn, "A"), at(9, 0)); // +08: 09-09 08:00
+        complete_at(&conn, &make_task(&conn, "B"), at(8, 20)); // +08: 09-09 04:00
+        complete_at(&conn, &make_task(&conn, "C"), at(10, 12)); // +08: 09-10 20:00
+                                                                // Outside the range, and reopened tasks never count.
+        complete_at(&conn, &make_task(&conn, "D"), at(20, 12));
+        let reopened = make_task(&conn, "E");
+        complete_at(&conn, &reopened, at(9, 12));
+        conn.execute(
+            "UPDATE tasks SET completed_at = NULL WHERE id = ?1",
+            params![reopened.id.to_string()],
+        )
+        .unwrap();
+
+        let (from, to) = (at(8, 0), at(11, 0));
+        let day =
+            completion_trend(&conn, trend_query(from, to, StatsGranularity::Day, 480)).unwrap();
+        assert_eq!(
+            day,
+            vec![
+                TrendPoint {
+                    bucket: "2026-09-09".into(),
+                    completed: 2
+                },
+                TrendPoint {
+                    bucket: "2026-09-10".into(),
+                    completed: 1
+                },
+            ]
+        );
+
+        // The same rows bucket differently in UTC — which is what the offset
+        // is for.
+        let utc = completion_trend(&conn, trend_query(from, to, StatsGranularity::Day, 0)).unwrap();
+        assert_eq!(
+            utc.iter()
+                .map(|point| (point.bucket.as_str(), point.completed))
+                .collect::<Vec<_>>(),
+            vec![("2026-09-08", 1), ("2026-09-09", 1), ("2026-09-10", 1)]
+        );
+
+        let week =
+            completion_trend(&conn, trend_query(from, to, StatsGranularity::Week, 480)).unwrap();
+        assert_eq!(
+            week,
+            vec![TrendPoint {
+                bucket: "2026-09-07".into(),
+                completed: 3
+            }]
+        );
+
+        let month =
+            completion_trend(&conn, trend_query(from, to, StatsGranularity::Month, 480)).unwrap();
+        assert_eq!(
+            month,
+            vec![TrendPoint {
+                bucket: "2026-09".into(),
+                completed: 3
+            }]
+        );
+
+        // An empty range is an empty curve, not an error.
+        let empty =
+            completion_trend(&conn, trend_query(at(1, 0), at(2, 0), StatsGranularity::Day, 0))
+                .unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn project_progress_counts_live_tasks_and_skips_archived_projects() {
+        let conn = conn();
+        let alpha = make_project(&conn, "Alpha");
+        let beta = make_project(&conn, "Beta");
+        let old = make_project(&conn, "旧项目");
+        archive_project(&conn, old.id).unwrap();
+
+        make_task_in(&conn, Some(alpha.id), Vec::new(), "待办一");
+        let done = make_task_in(&conn, Some(alpha.id), Vec::new(), "已完成");
+        complete_at(&conn, &done, at(9, 12));
+        let removed = make_task_in(&conn, Some(alpha.id), Vec::new(), "已删除");
+        soft_delete_task(&conn, removed.id).unwrap();
+        // Inbox tasks belong to no project and stay out of the comparison.
+        make_task_in(&conn, None, Vec::new(), "收件箱");
+
+        let progress = project_progress(&conn).unwrap();
+        assert_eq!(progress.len(), 2, "archived projects are out of the picture");
+        assert_eq!(
+            progress[0],
+            ProjectProgress {
+                project_id: alpha.id,
+                name: "Alpha".into(),
+                total: 2,
+                completed: 1,
+                due_at: None,
+            }
+        );
+        assert_eq!(progress[1].project_id, beta.id);
+        assert_eq!((progress[1].total, progress[1].completed), (0, 0));
+    }
+
+    #[test]
+    fn time_distribution_splits_by_project_tag_and_period() {
+        let conn = conn();
+        let alpha = make_project(&conn, "Alpha");
+        let work = create_tag(
+            &conn,
+            NewTag {
+                name: "工作".into(),
+                color: None,
+            },
+        )
+        .unwrap();
+        let private = create_tag(
+            &conn,
+            NewTag {
+                name: "私人".into(),
+                color: None,
+            },
+        )
+        .unwrap();
+
+        let both = make_task_in(&conn, Some(alpha.id), vec![work.id, private.id], "双标签");
+        let work_only = make_task_in(&conn, Some(alpha.id), vec![work.id], "单标签");
+        let inbox = make_task_in(&conn, None, vec![work.id], "收件箱");
+
+        make_entry(&conn, both.id, at(9, 1), 3600); // +08: 09-09 09:00
+        make_entry(&conn, work_only.id, at(8, 20), 1800); // +08: 09-09 04:00
+        make_entry(&conn, inbox.id, at(10, 12), 600); // +08: 09-10 20:00
+        let dropped = make_entry(&conn, both.id, at(9, 5), 999);
+        delete_time_entry(&conn, dropped.id).unwrap();
+
+        let by_project = time_distribution(
+            &conn,
+            distribution_query(TimeGroupBy::Project, StatsGranularity::Day, 480),
+        )
+        .unwrap();
+        assert_eq!(
+            by_project.groups,
+            vec![
+                TimeShare {
+                    id: Some(alpha.id),
+                    name: Some("Alpha".into()),
+                    seconds: 5400
+                },
+                TimeShare {
+                    id: None,
+                    name: None,
+                    seconds: 600
+                },
+            ]
+        );
+        assert_eq!(
+            by_project.buckets,
+            vec![
+                TimePoint {
+                    bucket: "2026-09-09".into(),
+                    seconds: 5400
+                },
+                TimePoint {
+                    bucket: "2026-09-10".into(),
+                    seconds: 600
+                },
+            ]
+        );
+
+        // A two-tag task counts its time under both tags.
+        let by_tag = time_distribution(
+            &conn,
+            distribution_query(TimeGroupBy::Tag, StatsGranularity::Month, 480),
+        )
+        .unwrap();
+        assert_eq!(
+            by_tag.groups,
+            vec![
+                TimeShare {
+                    id: Some(work.id),
+                    name: Some("工作".into()),
+                    seconds: 6000
+                },
+                TimeShare {
+                    id: Some(private.id),
+                    name: Some("私人".into()),
+                    seconds: 3600
+                },
+            ]
+        );
+        assert_eq!(
+            by_tag.buckets,
+            vec![TimePoint {
+                bucket: "2026-09".into(),
+                seconds: 6000
+            }]
+        );
+
+        // 09-09 and 09-10 fall in the same Monday-anchored week.
+        let weekly = time_distribution(
+            &conn,
+            distribution_query(TimeGroupBy::Project, StatsGranularity::Week, 480),
+        )
+        .unwrap();
+        assert_eq!(
+            weekly.buckets,
+            vec![TimePoint {
+                bucket: "2026-09-07".into(),
+                seconds: 6000
+            }]
+        );
+    }
+
+    #[test]
+    fn stats_over_thousands_of_rows_stay_millisecond_level() {
+        let conn = conn();
+        let project = make_project(&conn, "规模项目");
+        let base = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+
+        // Raw inserts keep seeding fast; instants go in as `DateTime` params so
+        // they are stored in the same form the app writes and compares them in.
+        let tx = conn.unchecked_transaction().unwrap();
+        for i in 0..3000 {
+            let task_id = Uuid::new_v4();
+            let completed = (i % 2 == 0).then(|| base + chrono::Duration::hours(i % 1440));
+            tx.execute(
+                "INSERT INTO tasks (id, project_id, title, priority, completed_at, sort_order, \
+                 created_at, updated_at) VALUES (?1, ?2, ?3, 'none', ?4, ?5, ?6, ?6)",
+                params![
+                    task_id.to_string(),
+                    project.id.to_string(),
+                    format!("例行任务{i}号"),
+                    completed,
+                    format!("{i:08}"),
+                    base,
+                ],
+            )
+            .unwrap();
+            let started = base + chrono::Duration::hours(i % 1440);
+            tx.execute(
+                "INSERT INTO time_entries (id, task_id, started_at, ended_at, duration, \
+                 created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    task_id.to_string(),
+                    started,
+                    started + chrono::Duration::hours(1),
+                    600,
+                    base,
+                ],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+
+        let to = base + chrono::Duration::days(60);
+        let started = std::time::Instant::now();
+        let trend = completion_trend(&conn, trend_query(base, to, StatsGranularity::Day, 480))
+            .unwrap();
+        let trend_elapsed = started.elapsed();
+        assert_eq!(trend.iter().map(|point| point.completed).sum::<i64>(), 1500);
+        assert!(trend_elapsed.as_millis() < 100, "trend took {trend_elapsed:?}");
+
+        let started = std::time::Instant::now();
+        let progress = project_progress(&conn).unwrap();
+        let progress_elapsed = started.elapsed();
+        assert_eq!(progress[0].total, 3000);
+        assert_eq!(progress[0].completed, 1500);
+        assert!(
+            progress_elapsed.as_millis() < 100,
+            "progress took {progress_elapsed:?}"
+        );
+
+        let mut query = distribution_query(TimeGroupBy::Project, StatsGranularity::Day, 480);
+        query.from = base;
+        query.to = to;
+        let started = std::time::Instant::now();
+        let distribution = time_distribution(&conn, query).unwrap();
+        let distribution_elapsed = started.elapsed();
+        assert_eq!(
+            distribution
+                .buckets
+                .iter()
+                .map(|point| point.seconds)
+                .sum::<i64>(),
+            3000 * 600
+        );
+        assert!(
+            distribution_elapsed.as_millis() < 100,
+            "distribution took {distribution_elapsed:?}"
         );
     }
 }
