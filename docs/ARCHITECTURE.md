@@ -233,6 +233,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > **统计视图（ST-02）**：`/stats` 的图表全部自绘 SVG（不引图表库，守体积红线）：`LineChart` 折线（y 轴取 1/2/5×10ⁿ 整数刻度）、`CalendarHeatmap` 周列网格（周一为首、按范围内峰值分 4 档着色；按固有尺寸渲染并横向滚动，避免「单列的一周」被拉伸成大色块）、`BarList` 横向对比条（填充用 `transform: scaleX`，不animate宽度）。交互只用 CSS：每个数据点/格子带 `<title>` 提示 + hover 透明度，无 JS 悬浮层，范围切换不引发布局抖动。`series.ts` 负责前后端契约的前端一半——把「近 7 天/30 天/本年」换算成本地日起止的 UTC 半开区间与 `offsetMinutes`（本年为周桶）、按 `bucketKeys` 生成坐标轴、用 `fillSeries` 把后端省略的空桶补零；`useStats` 以请求序号丢弃过期响应，快速切换范围时旧数据留在屏上、不会闪空白或画出过期窗口。时间分布可切「按项目/按标签」，复用同一个命令。
 >
 > **项目进度（ST-03）**：项目详情页头部内嵌 `ProjectProgress`（列表/看板两个 tab 共用）：总进度条、完成率、剩余任务数、距截止剩余时间。四个数值全部由传入的**实时任务切片**（`tasksState` 中属于该项目的任务）派生，而不是查 `stats:projectProgress`——勾选或拖拽完成在同一 tick 就推动进度条，无 IPC 往返与刷新窗口；`stats:projectProgress` 只服务跨项目对比（ST-02 的对比图）。截止倒计时按本地日历判断：同日读作「今天截止」（项目截止由 `localDateValueToIso` 存为本地日末 23:59:59），逾期显示「已逾期 N 天」并转 danger 色，未来显示「距截止还有 N 天」；倒计时在渲染时读取，不额外起定时器。
+>
+> **系统托盘（D-01）**：`tray.rs` 用 Tauri 核心 Tray API 建托盘（`tauri` crate 必须开启 `tray-icon` feature，否则 `tauri::tray` 不存在）：左键单击切换主窗口显示/隐藏，菜单为「显示主窗口 / 隐藏主窗口 / 退出 Ordo」（左键不弹菜单，`show_menu_on_left_click(false)`）。窗口关闭由 `lib.rs` 的 `on_window_event` 拦截 `CloseRequested`（`api.prevent_close()` + `hide()`），因此「关闭」= 驻留托盘，只有菜单「退出」调 `app.exit(0)` 才真正结束进程。托盘图标复用打包图标（`default_window_icon()`，缺失时不设置以免托盘不可见）。提醒不受影响：`scheduler.rs` 是独立线程、直接经 `tauri-plugin-notification` 发系统通知，不依赖可见的 webview；R-02 的「隐藏期间挂起、下次窗口 focus 时定位任务」在托盘唤起时依然成立（`show_main` 会 `set_focus()`）。`tray.rs` 的窗口 label 常量必须与 `tauri.conf.json` 的窗口一致（未声明 label 时 Tauri 默认 `main`，capabilities 也按该名字授权），label 不匹配会让托盘动作静默失效。Linux 下托盘依赖 appindicator 运行时（三端验证见 Q-03）。
 
 ---
 

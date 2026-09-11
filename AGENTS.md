@@ -54,3 +54,4 @@ Product and design documents live in `docs/`. Read them before working on the re
 - Vite dev server is pinned to port **1420** with `strictPort: true` (HMR on 1421); it fails if that port is taken, and it ignores changes under `src-tauri/`.
 - `tsconfig.json` sets `noEmit: true` and `allowImportingTsExtensions: true` — typecheck with `tsc`, imports are bundled by Vite.
 - Animations should use CSS transitions/transforms or Web Animations; drag-and-drop should use the native Drag API. Do not add animation/dnd libraries in this first version.
+- The system tray (D-01) needs the `tray-icon` feature on the `tauri` crate (set in `src-tauri/Cargo.toml`); without it `tauri::tray` does not exist. Tray actions look the window up by label `main` (`src-tauri/src/tray.rs::MAIN_WINDOW`) — keep that in sync with `tauri.conf.json` and `capabilities/default.json`. The tray is built in Rust, so it needs no capability entry.

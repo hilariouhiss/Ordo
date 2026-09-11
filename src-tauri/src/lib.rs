@@ -6,6 +6,7 @@ pub mod repositories;
 pub(crate) mod scheduler;
 pub mod services;
 pub mod sort;
+mod tray;
 
 use std::path::PathBuf;
 
@@ -65,7 +66,16 @@ pub fn run() {
             let db = db::init(&db_path(app)?)?;
             app.manage(db.clone());
             scheduler::spawn(app.handle().clone(), db);
+            tray::init(app.handle())?;
             Ok(())
+        })
+        // Closing the window parks the app in the tray (D-01); 退出 in the tray
+        // menu is the deliberate way out. Reminders keep firing meanwhile.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
