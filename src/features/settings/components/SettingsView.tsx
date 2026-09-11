@@ -1,8 +1,15 @@
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, onMount } from "solid-js";
 import { format } from "date-fns";
 import { Download, Upload } from "lucide-solid";
-import { Button, Dialog } from "../../../common/components";
-import { pickBackupFile, pickExportPath, runExport, runImport } from "../hooks";
+import { Button, Checkbox, Dialog } from "../../../common/components";
+import {
+  loadAutostart,
+  pickBackupFile,
+  pickExportPath,
+  runExport,
+  runImport,
+  setAutostart,
+} from "../hooks";
 import type { BackupSummary } from "../types";
 
 const PANEL_CLASS = "rounded-lg border border-border bg-surface p-4";
@@ -12,16 +19,33 @@ function stamp(summary: BackupSummary): string {
 }
 
 /**
- * `/settings` (D-03): the manual backup entry. Export writes the whole
- * database to a JSON file chosen in the OS save dialog; restore reads one back
- * and replaces everything, so it asks for confirmation first — that dialog is
- * the only place stating how destructive it is.
+ * `/settings`: the manual backup entry (D-03) and the startup switch (D-04).
+ *
+ * Export writes the whole database to a JSON file chosen in the OS save dialog;
+ * restore reads one back and replaces everything, so it asks for confirmation
+ * first — that dialog is the only place stating how destructive it is.
+ *
+ * The startup switch reads the OS login items on mount, so it shows what the
+ * system actually does rather than what we last wrote; nothing turns it on by
+ * itself, which is what keeps startup off by default.
  */
 export function SettingsView() {
   const [exported, setExported] = createSignal<BackupSummary | null>(null);
   const [restored, setRestored] = createSignal<BackupSummary | null>(null);
   const [pendingPath, setPendingPath] = createSignal<string | null>(null);
+  const [autostart, setAutostartOn] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+
+  onMount(() => {
+    void loadAutostart().then(setAutostartOn);
+  });
+
+  async function toggleAutostart(enabled: boolean): Promise<void> {
+    setBusy(true);
+    const applied = await setAutostart(enabled);
+    setBusy(false);
+    if (applied !== null) setAutostartOn(applied);
+  }
 
   async function exportNow(): Promise<void> {
     const path = await pickExportPath();
@@ -98,6 +122,25 @@ export function SettingsView() {
               </p>
             )}
           </Show>
+        </section>
+
+        <section aria-label="启动" class={`${PANEL_CLASS} mt-4 max-w-2xl`}>
+          <h2 class="text-sm font-medium text-foreground">启动</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            随系统登录启动 Ordo，默认关闭。启动后应用驻留托盘，关闭主窗口不会退出。
+          </p>
+          <Checkbox.Root
+            class="mt-3"
+            checked={autostart()}
+            disabled={busy()}
+            onChange={(checked) => void toggleAutostart(checked)}
+          >
+            <Checkbox.Input />
+            <Checkbox.Control>
+              <Checkbox.Indicator />
+            </Checkbox.Control>
+            <Checkbox.Label>开机自启</Checkbox.Label>
+          </Checkbox.Root>
         </section>
       </div>
 

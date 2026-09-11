@@ -31,6 +31,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 thiserror = "2.0.20"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2.5.1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -18,6 +18,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 vi.mock("../api", () => ({
   exportBackup: vi.fn(),
   importBackup: vi.fn(),
+  autostartEnabled: vi.fn(),
+  setAutostart: vi.fn(),
 }));
 
 vi.mock("../../tasks/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
@@ -44,6 +46,9 @@ function summary(overrides: Partial<BackupSummary> = {}): BackupSummary {
 beforeEach(() => {
   vi.clearAllMocks();
   clearNotifications();
+  // The OS is the source of truth for startup; nothing is registered until the
+  // user asks for it.
+  vi.mocked(api.autostartEnabled).mockResolvedValue(false);
 });
 
 afterEach(cleanup);
@@ -121,5 +126,46 @@ describe("SettingsView backup", () => {
 
     expect(await screen.findByText(/from-disk\.json/)).toBeTruthy();
     expect(screen.getByText(/2 个项目/)).toBeTruthy();
+  });
+});
+
+describe("SettingsView startup", () => {
+  it("is off by default and registers nothing on its own", async () => {
+    render(() => <SettingsView />);
+
+    const toggle = (await screen.findByRole("checkbox", { name: "开机自启" })) as HTMLInputElement;
+    await waitFor(() => expect(api.autostartEnabled).toHaveBeenCalled());
+    expect(toggle.checked).toBe(false);
+    expect(api.setAutostart).not.toHaveBeenCalled();
+  });
+
+  it("registers Ordo with the OS when switched on", async () => {
+    vi.mocked(api.autostartEnabled).mockResolvedValueOnce(false).mockResolvedValue(true);
+    vi.mocked(api.setAutostart).mockResolvedValue(undefined);
+
+    render(() => <SettingsView />);
+    const toggle = (await screen.findByRole("checkbox", { name: "开机自启" })) as HTMLInputElement;
+    await waitFor(() => expect(api.autostartEnabled).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(api.setAutostart).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(toggle.checked).toBe(true));
+  });
+
+  it("keeps the switch off and reports a refused change", async () => {
+    vi.mocked(api.setAutostart).mockRejectedValue({
+      code: "unknown",
+      message: "无法写入登录项",
+    });
+
+    render(() => <SettingsView />);
+    const toggle = (await screen.findByRole("checkbox", { name: "开机自启" })) as HTMLInputElement;
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(api.setAutostart).toHaveBeenCalledWith(true));
+    expect(toggle.checked).toBe(false);
+    await waitFor(() => expect(notifications()[0]?.message).toBe("无法写入登录项"));
   });
 });

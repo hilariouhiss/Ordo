@@ -21,6 +21,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        // Autostart (D-04) is driven from the settings page, so the webview
+        // calls it and `autostart:default` is what lets it.
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(shortcut::plugin())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
