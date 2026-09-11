@@ -5,6 +5,7 @@ pub mod models;
 pub mod repositories;
 pub(crate) mod scheduler;
 pub mod services;
+mod shortcut;
 pub mod sort;
 mod tray;
 
@@ -19,6 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(shortcut::plugin())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::task_list,
@@ -67,6 +69,7 @@ pub fn run() {
             app.manage(db.clone());
             scheduler::spawn(app.handle().clone(), db);
             tray::init(app.handle())?;
+            shortcut::register(app.handle());
             Ok(())
         })
         // Closing the window parks the app in the tray (D-01); 退出 in the tray

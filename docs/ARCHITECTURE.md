@@ -235,6 +235,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > **项目进度（ST-03）**：项目详情页头部内嵌 `ProjectProgress`（列表/看板两个 tab 共用）：总进度条、完成率、剩余任务数、距截止剩余时间。四个数值全部由传入的**实时任务切片**（`tasksState` 中属于该项目的任务）派生，而不是查 `stats:projectProgress`——勾选或拖拽完成在同一 tick 就推动进度条，无 IPC 往返与刷新窗口；`stats:projectProgress` 只服务跨项目对比（ST-02 的对比图）。截止倒计时按本地日历判断：同日读作「今天截止」（项目截止由 `localDateValueToIso` 存为本地日末 23:59:59），逾期显示「已逾期 N 天」并转 danger 色，未来显示「距截止还有 N 天」；倒计时在渲染时读取，不额外起定时器。
 >
 > **系统托盘（D-01）**：`tray.rs` 用 Tauri 核心 Tray API 建托盘（`tauri` crate 必须开启 `tray-icon` feature，否则 `tauri::tray` 不存在）：左键单击切换主窗口显示/隐藏，菜单为「显示主窗口 / 隐藏主窗口 / 退出 Ordo」（左键不弹菜单，`show_menu_on_left_click(false)`）。窗口关闭由 `lib.rs` 的 `on_window_event` 拦截 `CloseRequested`（`api.prevent_close()` + `hide()`），因此「关闭」= 驻留托盘，只有菜单「退出」调 `app.exit(0)` 才真正结束进程。托盘图标复用打包图标（`default_window_icon()`，缺失时不设置以免托盘不可见）。提醒不受影响：`scheduler.rs` 是独立线程、直接经 `tauri-plugin-notification` 发系统通知，不依赖可见的 webview；R-02 的「隐藏期间挂起、下次窗口 focus 时定位任务」在托盘唤起时依然成立（`show_main` 会 `set_focus()`）。`tray.rs` 的窗口 label 常量必须与 `tauri.conf.json` 的窗口一致（未声明 label 时 Tauri 默认 `main`，capabilities 也按该名字授权），label 不匹配会让托盘动作静默失效。Linux 下托盘依赖 appindicator 运行时（三端验证见 Q-03）。
+>
+> **全局快捷键快速添加（D-02）**：`shortcut.rs` 用 `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`）：按下时 `tray::show_main` 把窗口显示并聚焦，再以 `quick-add:open` 事件通知前端，前端 `app/QuickAddDialog.tsx` 打开单输入框弹窗，回车写入收件箱后调 `getCurrentWindow().hide()` 把窗口收回（录入即隐，用户回到原来的工作）。注册在 Rust 侧而非 webview：窗口藏在托盘、最小化或从未聚焦时都能触发，且不经过 IPC——因此**不需要** `global-shortcut:*` capability（但前端要隐藏窗口，capabilities 里增加了 `core:window:allow-hide`，该名字由 tauri-build 在编译期校验，写错会构建失败）。`Shortcut` 的相等比较包含自增 id，所以 handler 必须与注册时**同一个实例**比较：`quick_add_shortcut()` 用 `OnceLock` 记忆化。快捷键被其他应用占用时只记日志、不影响启动。
 
 ---
 

@@ -20,6 +20,7 @@ import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster } from "../common/components";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import TaskViewer from "./TaskViewer";
+import QuickAddDialog from "./QuickAddDialog";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
 import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
 import { getProjectIcon } from "../features/projects/icons";
@@ -298,6 +299,8 @@ export default function AppShell() {
       />
 
       <TaskViewer />
+
+      <QuickAddDialog />
 
       <Toaster />
     </div>

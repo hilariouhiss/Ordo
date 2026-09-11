@@ -6,4 +6,6 @@
 export const EVENTS = {
   /** Payload: `Reminder` (`src-tauri/src/models.rs`), emitted per fired reminder. */
   reminderTriggered: "reminder:triggered",
+  /** Payload: none; the global quick-add shortcut fired (`src-tauri/src/shortcut.rs`). */
+  quickAdd: "quick-add:open",
 } as const;
