@@ -75,7 +75,9 @@ describe("ProjectProgress", () => {
     render(() => <ProjectProgress tasks={[]} dueAt={dueIn(10)} />);
 
     const countdown = screen.getByText(/距截止还有/);
-    expect(countdown.textContent).toContain("天");
+    // Calendar days, not elapsed hours: the number must not shift with the
+    // hour the panel happens to be read at.
+    expect(countdown.textContent).toBe("距截止还有 10 天");
     expect(countdown.className).not.toContain("text-danger");
   });
 
@@ -89,7 +91,7 @@ describe("ProjectProgress", () => {
     render(() => <ProjectProgress tasks={[]} dueAt={dueIn(-3)} />);
 
     const countdown = screen.getByText(/已逾期/);
-    expect(countdown.textContent).toContain("3 天");
+    expect(countdown.textContent).toBe("已逾期 3 天");
     expect(countdown.className).toContain("text-danger");
   });
 

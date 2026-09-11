@@ -1,6 +1,5 @@
 import { Show, createMemo } from "solid-js";
-import { differenceInCalendarDays, formatDistanceToNowStrict } from "date-fns";
-import { zhCN } from "date-fns/locale";
+import { differenceInCalendarDays } from "date-fns";
 import type { Task } from "../../tasks/types";
 
 export interface ProjectProgressProps {
@@ -35,7 +34,11 @@ export function ProjectProgress(props: ProjectProgressProps) {
 
     const days = differenceInCalendarDays(date, new Date());
     if (days === 0) return { text: "今天截止", overdue: false };
-    const distance = formatDistanceToNowStrict(date, { locale: zhCN });
+    // Calendar days on both sides of the decision. Measuring the text as
+    // elapsed time instead disagreed with the "today" rule for the first
+    // hours of every day: yesterday 23:59 read at 01:10 came out as
+    // 「已逾期 1 小时」next to a today/overdue verdict made in days.
+    const distance = `${Math.abs(days)} 天`;
     return days < 0
       ? { text: `已逾期 ${distance}`, overdue: true }
       : { text: `距截止还有 ${distance}`, overdue: false };
