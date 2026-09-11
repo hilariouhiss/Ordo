@@ -1,6 +1,8 @@
 import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js";
+import { Repeat } from "lucide-solid";
 import { Badge, Button, Dialog } from "../../../common/components";
 import { completeTask, loadSubtasks, softDeleteTask, uncompleteTask } from "../hooks";
+import { describeRepeatRule } from "../repeat";
 import { getTag, getTask, hasSubtasks } from "../store";
 import type { Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
@@ -68,6 +70,18 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
               {(badge) => (
                 <Badge size="sm" class={badge().class}>
                   {badge().label}
+                </Badge>
+              )}
+            </Show>
+            <Show when={task().repeatRule}>
+              {(rule) => (
+                <Badge
+                  size="sm"
+                  variant="outline"
+                  class={`shrink-0 ${rule().paused ? "opacity-60" : ""}`}
+                >
+                  <Repeat size={11} aria-hidden="true" />
+                  {describeRepeatRule(rule())}
                 </Badge>
               )}
             </Show>

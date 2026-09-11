@@ -15,6 +15,8 @@ export interface RepeatRule {
   freq: RepeatFreq;
   /** Recur every `interval` periods; always >= 1. */
   interval: number;
+  /** Paused rules stay attached but completing spawns no next instance. */
+  paused: boolean;
 }
 
 export interface Tag {
@@ -69,6 +71,7 @@ export interface NewTask {
   dueAt?: string | null;
   tagIds?: string[];
   subtaskTitles?: string[];
+  repeatRule?: RepeatRule | null;
 }
 
 export interface UpdateTask {
@@ -81,6 +84,8 @@ export interface UpdateTask {
   /** `null` un-completes the task; missing leaves `completedAt` unchanged. */
   completedAt?: string | null;
   tagIds?: string[];
+  /** `null` cancels the rule; missing leaves `repeatRule` unchanged. */
+  repeatRule?: RepeatRule | null;
 }
 
 export interface NewTag {

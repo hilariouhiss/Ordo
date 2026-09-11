@@ -48,6 +48,12 @@ async function selectPriority(label: string): Promise<void> {
   fireEvent.click(option);
 }
 
+async function selectRepeat(label: string): Promise<void> {
+  fireEvent.pointerDown(screen.getByRole("button", { name: /重复规则/ }));
+  const option = await screen.findByRole("option", { name: label });
+  fireEvent.click(option);
+}
+
 describe("TaskEditorDialog", () => {
   afterEach(cleanup);
 
@@ -95,6 +101,7 @@ describe("TaskEditorDialog", () => {
       projectId: null,
       dueAt: null,
       tagIds: [],
+      repeatRule: null,
     });
   });
 
@@ -207,7 +214,64 @@ describe("TaskEditorDialog", () => {
       projectId: null,
       dueAt: "2026-01-15T01:30:00.000Z",
       tagIds: ["t1"],
+      repeatRule: null,
     });
+  });
+
+  it("submits a repeat rule built from the dialog controls", async () => {
+    vi.mocked(hooks.createTask).mockResolvedValue(taskFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("标题"), { target: { value: "重复任务" } });
+    await selectRepeat("每周");
+    fireEvent.input(screen.getByLabelText("重复间隔"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /暂停重复/ }));
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(vi.mocked(hooks.createTask).mock.calls[0]?.[0]?.repeatRule).toEqual({
+      freq: "weekly",
+      interval: 2,
+      paused: true,
+    });
+  });
+
+  it("rejects a non-positive repeat interval without calling the backend", async () => {
+    renderDialog();
+
+    fireEvent.input(screen.getByLabelText("标题"), { target: { value: "坏间隔" } });
+    await selectRepeat("每天");
+    fireEvent.input(screen.getByLabelText("重复间隔"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(await screen.findByText("间隔需为不小于 1 的整数")).toBeTruthy();
+    expect(hooks.createTask).not.toHaveBeenCalled();
+  });
+
+  it("prefills the repeat rule in edit mode and cancels it via 不重复", async () => {
+    const existing = taskFixture("task-9", {
+      title: "重复旧任务",
+      repeatRule: { freq: "monthly", interval: 1, paused: true },
+    });
+    vi.mocked(hooks.updateTask).mockResolvedValue(existing);
+    const { onOpenChange } = renderDialog(existing);
+
+    // Seeded controls reflect the stored rule.
+    expect(screen.getByRole("button", { name: /重复规则/ }).textContent).toContain("每月");
+    expect((screen.getByLabelText("重复间隔") as HTMLInputElement).value).toBe("1");
+    const pausedInput = screen.getByRole("checkbox", {
+      name: /暂停重复/,
+    }) as HTMLInputElement;
+    expect(pausedInput.checked).toBe(true);
+
+    await selectRepeat("不重复");
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(hooks.updateTask).toHaveBeenCalledWith(
+      "task-9",
+      expect.objectContaining({ repeatRule: null }),
+    );
   });
 
   it("keeps the dialog open when the backend rejects the write", async () => {

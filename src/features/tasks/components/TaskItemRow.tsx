@@ -1,7 +1,8 @@
 import { For, Show } from "solid-js";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-solid";
+import { MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
 import { Badge, Checkbox, DropdownMenu } from "../../../common/components";
 import { getTag } from "../store";
+import { describeRepeatRule } from "../repeat";
 import type { Priority, Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 
@@ -55,6 +56,17 @@ export function TaskItemRow(props: TaskItemRowProps) {
           {props.task.title}
         </span>
       </button>
+
+      <Show when={props.task.repeatRule}>
+        {(rule) => (
+          <span
+            class="shrink-0 text-subtle-foreground"
+            title={`重复 ${describeRepeatRule(rule())}`}
+          >
+            <Repeat size={14} aria-label={`重复 ${describeRepeatRule(rule())}`} />
+          </span>
+        )}
+      </Show>
 
       <Show when={priority()}>
         {(badge) => (

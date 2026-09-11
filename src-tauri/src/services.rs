@@ -22,8 +22,9 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, NewBoardColumn, NewProject, NewSubtask, NewTag, NewTask, Patch, Priority, Project,
-    ProjectStatus, Reminder, ReminderKind, SearchHit, SearchHitKind, Subtask, Tag, Task,
-    TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit, SearchHitKind,
+    Subtask, Tag, Task, TaskWithTags, UpdateBoardColumn, UpdateProject, UpdateSubtask, UpdateTag,
+    UpdateTask,
 };
 use crate::repositories::{
     board_columns, projects, reminders, search, subtasks, tags, task_tags, tasks,
@@ -59,6 +60,73 @@ fn validate_tag_ids(conn: &Connection, tag_ids: &[Uuid]) -> Result<(), AppError>
             return Err(not_found("标签", *id));
         }
     }
+    Ok(())
+}
+
+/// Repeat rules must recur: an interval of 0 would never advance.
+fn validate_repeat_rule(rule: &RepeatRule) -> Result<(), AppError> {
+    if rule.interval < 1 {
+        return Err(AppError::Validation("重复间隔需不小于 1".into()));
+    }
+    Ok(())
+}
+
+/// Advances a due time by one recurrence period. Monthly addition clamps to
+/// the month's last day (Jan 31 + 1 month = Feb 28); the overflow fallback is
+/// unreachable for realistic dates and keeps completion non-fatal.
+fn next_due(due: DateTime<Utc>, rule: &RepeatRule) -> DateTime<Utc> {
+    match rule.freq {
+        RepeatFreq::Daily => due + chrono::Duration::days(rule.interval as i64),
+        RepeatFreq::Weekly => due + chrono::Duration::weeks(rule.interval as i64),
+        RepeatFreq::Monthly => due
+            .checked_add_months(chrono::Months::new(rule.interval))
+            .unwrap_or(due),
+    }
+}
+
+/// Spawns the next instance of a completed repeating task inside the
+/// caller's transaction: one period past the task's due time, carrying over
+/// title/note/priority/project/tags/subtasks (subtasks reset to uncompleted)
+/// and the rule itself, appended to `column_id`'s scope. Repeats anchored to
+/// nothing (`due_at = None`) or paused rules complete without spawning.
+fn spawn_next_instance(
+    conn: &Connection,
+    task: &Task,
+    column_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    let Some(rule) = task.repeat_rule else {
+        return Ok(());
+    };
+    if rule.paused {
+        return Ok(());
+    }
+    let Some(due) = task.due_at else {
+        return Ok(());
+    };
+
+    let tag_ids: Vec<Uuid> = task_tags::list_tags_for_task(conn, task.id)?
+        .into_iter()
+        .map(|tag| tag.id)
+        .collect();
+    let subtask_titles: Vec<String> = subtasks::list_by_task(conn, task.id)?
+        .into_iter()
+        .map(|subtask| subtask.title)
+        .collect();
+
+    create_task_in_tx(
+        conn,
+        NewTask {
+            title: task.title.clone(),
+            note: task.note.clone(),
+            priority: Some(task.priority),
+            project_id: task.project_id,
+            column_id,
+            due_at: Some(next_due(due, &rule)),
+            tag_ids,
+            subtask_titles,
+            repeat_rule: Some(rule),
+        },
+    )?;
     Ok(())
 }
 
@@ -191,6 +259,18 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskWithTags>, AppError> {
 /// the task is appended after the last task sharing its board-column scope
 /// (inbox tasks share the `column_id = NULL` scope).
 pub fn create_task(conn: &Connection, input: NewTask) -> Result<Task, AppError> {
+    if let Some(rule) = &input.repeat_rule {
+        validate_repeat_rule(rule)?;
+    }
+    let tx = conn.unchecked_transaction()?;
+    let task = create_task_in_tx(&tx, input)?;
+    tx.commit()?;
+    Ok(task)
+}
+
+/// [`create_task`]'s body against an open transaction, so completion paths
+/// can spawn repeat instances atomically with their own write.
+fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError> {
     let title = validated_name(&input.title)?;
     let tag_ids = dedup(input.tag_ids);
     let now = Utc::now();
@@ -202,10 +282,9 @@ pub fn create_task(conn: &Connection, input: NewTask) -> Result<Task, AppError> 
         .collect();
     let (sort_order, rebalanced) = append_key(&siblings)?;
 
-    let tx = conn.unchecked_transaction()?;
-    validate_tag_ids(&tx, &tag_ids)?;
+    validate_tag_ids(conn, &tag_ids)?;
     for (id, key) in &rebalanced {
-        if !tasks::set_sort_order(&tx, *id, key, now)? {
+        if !tasks::set_sort_order(conn, *id, key, now)? {
             return Err(not_found("任务", *id));
         }
     }
@@ -219,14 +298,14 @@ pub fn create_task(conn: &Connection, input: NewTask) -> Result<Task, AppError> 
         column_id: input.column_id,
         due_at: input.due_at,
         completed_at: None,
-        repeat_rule: None,
+        repeat_rule: input.repeat_rule,
         sort_order,
         created_at: now,
         updated_at: now,
         deleted_at: None,
     };
-    tasks::insert(&tx, &task)?;
-    task_tags::set_task_tags(&tx, task.id, &tag_ids)?;
+    tasks::insert(conn, &task)?;
+    task_tags::set_task_tags(conn, task.id, &tag_ids)?;
 
     // Initial subtasks get a plain first()/after() chain: an editor never
     // creates enough of them to hit the length threshold, and later appends
@@ -238,7 +317,7 @@ pub fn create_task(conn: &Connection, input: NewTask) -> Result<Task, AppError> 
             Some(last) => sort::after(last)?,
         };
         subtasks::insert(
-            &tx,
+            conn,
             &Subtask {
                 id: Uuid::new_v4(),
                 task_id: task.id,
@@ -253,7 +332,6 @@ pub fn create_task(conn: &Connection, input: NewTask) -> Result<Task, AppError> 
         last_key = Some(key);
     }
 
-    tx.commit()?;
     Ok(task)
 }
 
@@ -283,6 +361,12 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
     if let Patch::Set(completed_at) = patch.completed_at {
         task.completed_at = completed_at;
     }
+    if let Patch::Set(repeat_rule) = patch.repeat_rule {
+        if let Some(rule) = &repeat_rule {
+            validate_repeat_rule(rule)?;
+        }
+        task.repeat_rule = repeat_rule;
+    }
     task.updated_at = Utc::now();
 
     let tx = conn.unchecked_transaction()?;
@@ -299,15 +383,23 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
 }
 
 /// Marks a task completed by stamping `completed_at`; completing twice keeps
-/// the original timestamp. (Repeat-task instance generation arrives with
-/// RP-01.)
+/// the original timestamp. A repeating task spawns its next instance in the
+/// same transaction (unless its rule is paused or has no due date).
 pub fn complete_task(conn: &Connection, id: Uuid) -> Result<Task, AppError> {
     let mut task = tasks::get(conn, id)?.ok_or_else(|| not_found("任务", id))?;
-    if task.completed_at.is_none() {
-        task.completed_at = Some(Utc::now());
-        task.updated_at = task.completed_at.expect("just set");
-        tasks::update(conn, &task)?;
+    if task.completed_at.is_some() {
+        return Ok(task);
     }
+
+    let now = Utc::now();
+    let tx = conn.unchecked_transaction()?;
+    task.completed_at = Some(now);
+    task.updated_at = now;
+    if !tasks::update(&tx, &task)? {
+        return Err(not_found("任务", id));
+    }
+    spawn_next_instance(&tx, &task, task.column_id)?;
+    tx.commit()?;
     Ok(task)
 }
 
@@ -722,10 +814,15 @@ pub fn move_task(
         .map(|t| (t.id, t.sort_order))
         .collect();
 
+    let previous_column = moved.column_id;
     moved.project_id = Some(column.project_id);
     moved.column_id = Some(column_id);
+    let mut entered_done = false;
     match (column.is_done, moved.completed_at.is_some()) {
-        (true, false) => moved.completed_at = Some(now),
+        (true, false) => {
+            moved.completed_at = Some(now);
+            entered_done = true;
+        }
         (false, true) => moved.completed_at = None,
         _ => {}
     }
@@ -756,6 +853,12 @@ pub fn move_task(
                 }
             }
         }
+    }
+
+    // Entering the done column completes the task: a repeating task spawns
+    // its next instance back into the column it came from.
+    if entered_done {
+        spawn_next_instance(&tx, &moved, previous_column)?;
     }
 
     tx.commit()?;
@@ -986,6 +1089,7 @@ mod tests {
                 due_at: None,
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
+                repeat_rule: None,
             },
         )
         .unwrap()
@@ -1046,6 +1150,7 @@ mod tests {
                 due_at: None,
                 tag_ids: vec![tag.id, tag.id],
                 subtask_titles: vec!["回归测试".into(), "发布公告".into()],
+                repeat_rule: None,
             },
         )
         .unwrap();
@@ -1080,6 +1185,7 @@ mod tests {
                 due_at: None,
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
+                repeat_rule: None,
             },
         )
         .unwrap_err();
@@ -1101,6 +1207,7 @@ mod tests {
                 due_at: None,
                 tag_ids: vec![Uuid::new_v4()],
                 subtask_titles: vec!["不应存在".into()],
+                repeat_rule: None,
             },
         )
         .unwrap_err();
@@ -1161,6 +1268,7 @@ mod tests {
                 due_at: None,
                 tag_ids: vec![tag_a.id],
                 subtask_titles: Vec::new(),
+                repeat_rule: None,
             },
         )
         .unwrap();
@@ -1178,6 +1286,7 @@ mod tests {
                 due_at: Patch::Unchanged,
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
+                repeat_rule: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1202,6 +1311,7 @@ mod tests {
                 due_at: Patch::Unchanged,
                 completed_at: Patch::Unchanged,
                 tag_ids: Some(vec![tag_b.id]),
+                repeat_rule: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1224,6 +1334,7 @@ mod tests {
                 due_at: Patch::Unchanged,
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
+                repeat_rule: Patch::Unchanged,
             },
         )
         .unwrap_err();
@@ -1504,6 +1615,7 @@ mod tests {
                 due_at: None,
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
+                repeat_rule: None,
             },
         )
         .unwrap()
@@ -1886,6 +1998,7 @@ mod tests {
                 due_at: Patch::Unchanged,
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
+                repeat_rule: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2022,6 +2135,7 @@ mod tests {
                 due_at: Some(due),
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
+                repeat_rule: None,
             },
         )
         .unwrap()
@@ -2103,5 +2217,347 @@ mod tests {
         let fired = scan_reminders(&conn, base).unwrap();
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].kind, ReminderKind::Due);
+    }
+
+    #[test]
+    fn next_due_advances_one_period_with_month_end_clamping() {
+        let rule = |freq: RepeatFreq, interval: u32| RepeatRule {
+            freq,
+            interval,
+            paused: false,
+        };
+        let due = Utc.with_ymd_and_hms(2026, 1, 31, 9, 0, 0).unwrap();
+
+        assert_eq!(
+            next_due(due, &rule(RepeatFreq::Daily, 3)),
+            due + chrono::Duration::days(3)
+        );
+        assert_eq!(
+            next_due(due, &rule(RepeatFreq::Weekly, 2)),
+            due + chrono::Duration::weeks(2)
+        );
+        // Jan 31 + 1 month clamps to Feb 28.
+        assert_eq!(
+            next_due(due, &rule(RepeatFreq::Monthly, 1)),
+            Utc.with_ymd_and_hms(2026, 2, 28, 9, 0, 0).unwrap()
+        );
+    }
+
+    #[test]
+    fn repeat_rules_validate_on_create_and_update() {
+        let conn = conn();
+        let zero_interval = RepeatRule {
+            freq: RepeatFreq::Daily,
+            interval: 0,
+            paused: false,
+        };
+        let err = create_task(
+            &conn,
+            NewTask {
+                title: "规则任务".into(),
+                note: None,
+                priority: None,
+                project_id: None,
+                column_id: None,
+                due_at: None,
+                tag_ids: Vec::new(),
+                subtask_titles: Vec::new(),
+                repeat_rule: Some(zero_interval),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "validation");
+
+        let rule = RepeatRule {
+            freq: RepeatFreq::Weekly,
+            interval: 2,
+            paused: false,
+        };
+        let task = make_task(&conn, "每周任务");
+        let updated = update_task(
+            &conn,
+            task.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Set(Some(rule)),
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.repeat_rule, Some(rule));
+
+        // A zero interval cannot sneak in through an update either.
+        let err = update_task(
+            &conn,
+            task.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Set(Some(RepeatRule {
+                    freq: RepeatFreq::Daily,
+                    interval: 0,
+                    paused: false,
+                })),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "validation");
+
+        // Cancelling the rule clears it without touching the task.
+        let cleared = update_task(
+            &conn,
+            task.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Set(None),
+            },
+        )
+        .unwrap();
+        assert_eq!(cleared.repeat_rule, None);
+    }
+
+    #[test]
+    fn completing_a_repeating_task_spawns_the_next_instance() {
+        let conn = conn();
+        let tag = create_tag(&conn, NewTag { name: "家务".into(), color: None }).unwrap();
+        let due = Utc.with_ymd_and_hms(2026, 9, 11, 18, 0, 0).unwrap();
+        let rule = RepeatRule {
+            freq: RepeatFreq::Daily,
+            interval: 1,
+            paused: false,
+        };
+
+        let first = create_task(
+            &conn,
+            NewTask {
+                title: "倒垃圾".into(),
+                note: Some("可回收分开".into()),
+                priority: Some(Priority::Low),
+                project_id: None,
+                column_id: None,
+                due_at: Some(due),
+                tag_ids: vec![tag.id],
+                subtask_titles: vec!["套新垃圾袋".into()],
+                repeat_rule: Some(rule),
+            },
+        )
+        .unwrap();
+
+        let completed = complete_task(&conn, first.id).unwrap();
+        assert!(completed.completed_at.is_some());
+
+        // The next instance carries everything over, uncompleted and due one
+        // period later, placed after the completed original.
+        let listed = tasks::list(&conn).unwrap();
+        assert_eq!(listed.len(), 2);
+        let next = &listed[1];
+        assert_eq!(next.title, "倒垃圾");
+        assert_eq!(next.note.as_deref(), Some("可回收分开"));
+        assert_eq!(next.priority, Priority::Low);
+        assert_eq!(next.completed_at, None);
+        assert_eq!(next.due_at, Some(due + chrono::Duration::days(1)));
+        assert_eq!(next.repeat_rule, Some(rule));
+        let next_tag_ids: Vec<Uuid> = task_tags::list_tags_for_task(&conn, next.id)
+            .unwrap()
+            .iter()
+            .map(|tag| tag.id)
+            .collect();
+        assert_eq!(next_tag_ids, vec![tag.id]);
+        let next_subtasks = subtasks::list_by_task(&conn, next.id).unwrap();
+        assert_eq!(next_subtasks.len(), 1);
+        assert!(!next_subtasks[0].done);
+        assert_eq!(next_subtasks[0].title, "套新垃圾袋");
+
+        // Completing the instance spawns the following one; every completed
+        // generation stays completed (original + first instance).
+        complete_task(&conn, next.id).unwrap();
+        let listed = tasks::list(&conn).unwrap();
+        assert_eq!(listed.len(), 3);
+        assert_eq!(listed[2].due_at, Some(due + chrono::Duration::days(2)));
+        assert_eq!(completed_task_count(&conn), 2);
+    }
+
+    fn completed_task_count(conn: &Connection) -> usize {
+        tasks::list(conn)
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.completed_at.is_some())
+            .count()
+    }
+
+    #[test]
+    fn paused_rules_and_missing_due_dates_spawn_nothing() {
+        let conn = conn();
+        let base = Utc.with_ymd_and_hms(2026, 9, 11, 9, 0, 0).unwrap();
+        let paused_rule = RepeatRule {
+            freq: RepeatFreq::Daily,
+            interval: 1,
+            paused: true,
+        };
+        let active_rule = RepeatRule {
+            freq: RepeatFreq::Daily,
+            interval: 1,
+            paused: false,
+        };
+
+        let paused = make_due_task_with_rule(&conn, "已暂停", base, paused_rule);
+        complete_task(&conn, paused.id).unwrap();
+        assert_eq!(tasks::list(&conn).unwrap().len(), 1);
+
+        let undated = make_task(&conn, "无截止的重复");
+        update_task(
+            &conn,
+            undated.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Set(Some(active_rule)),
+            },
+        )
+        .unwrap();
+        complete_task(&conn, undated.id).unwrap();
+        assert_eq!(tasks::list(&conn).unwrap().len(), 2);
+
+        // Un-pausing the rule resumes generation on the next completion.
+        let resumed = make_due_task_with_rule(&conn, "恢复后生成", base, paused_rule);
+        update_task(
+            &conn,
+            resumed.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Set(Some(active_rule)),
+            },
+        )
+        .unwrap();
+        complete_task(&conn, resumed.id).unwrap();
+        let listed = tasks::list(&conn).unwrap();
+        assert_eq!(listed.len(), 4);
+        assert_eq!(listed[3].title, "恢复后生成");
+    }
+
+    fn make_due_task_with_rule(
+        conn: &Connection,
+        title: &str,
+        due: DateTime<Utc>,
+        rule: RepeatRule,
+    ) -> Task {
+        create_task(
+            conn,
+            NewTask {
+                title: title.into(),
+                note: None,
+                priority: None,
+                project_id: None,
+                column_id: None,
+                due_at: Some(due),
+                tag_ids: Vec::new(),
+                subtask_titles: Vec::new(),
+                repeat_rule: Some(rule),
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn board_completion_spawns_the_instance_into_the_previous_column() {
+        let conn = conn();
+        let project = make_project(&conn, "重复项目");
+        let todo = first_column(&conn, project.id);
+        let done = done_column(&conn, project.id);
+        let due = Utc.with_ymd_and_hms(2026, 9, 14, 9, 0, 0).unwrap();
+        let rule = RepeatRule {
+            freq: RepeatFreq::Weekly,
+            interval: 1,
+            paused: false,
+        };
+        let recurring = create_task(
+            &conn,
+            NewTask {
+                title: "周例会准备".into(),
+                note: None,
+                priority: None,
+                project_id: Some(project.id),
+                column_id: Some(todo.id),
+                due_at: Some(due),
+                tag_ids: Vec::new(),
+                subtask_titles: Vec::new(),
+                repeat_rule: Some(rule),
+            },
+        )
+        .unwrap();
+
+        // Dragging the task into the done column completes it and drops the
+        // next week's instance back into the todo column. (A move needs a
+        // slot key; anchor at the end of the done column.)
+        let anchor = make_column_task(&conn, &done, "完成锚点");
+        let moved = move_task(
+            &conn,
+            recurring.id,
+            done.id,
+            Some(anchor.sort_order.clone()),
+            None,
+        )
+        .unwrap();
+        assert!(moved.completed_at.is_some());
+        assert_eq!(moved.column_id, Some(done.id));
+
+        let listed = tasks::list(&conn).unwrap();
+        assert_eq!(listed.len(), 3);
+        let next = listed
+            .iter()
+            .find(|t| t.column_id == Some(todo.id))
+            .expect("instance spawned into the todo column");
+        assert_eq!(next.title, "周例会准备");
+        assert_eq!(next.column_id, Some(todo.id));
+        assert_eq!(next.project_id, Some(project.id));
+        assert_eq!(next.completed_at, None);
+        assert_eq!(next.due_at, Some(due + chrono::Duration::weeks(1)));
+
+        // Moving within the done column is not a completion: no extra spawn.
+        let already_done = make_column_task(&conn, &done, "已在完成列");
+        let moved_within = move_task(
+            &conn,
+            already_done.id,
+            done.id,
+            Some(moved.sort_order.clone()),
+            None,
+        )
+        .unwrap();
+        assert!(moved_within.completed_at.is_some());
+        // The within-done move completed the fresh task but spawned nothing
+        // (no rule): the board still holds exactly four tasks.
+        assert_eq!(tasks::list(&conn).unwrap().len(), 4);
     }
 }

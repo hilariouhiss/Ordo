@@ -41,14 +41,20 @@ pub enum RepeatFreq {
 
 /// Recurrence rule for a task, persisted in `tasks.repeat_rule` as JSON text.
 ///
-/// Semantics (next-instance generation on completion, pause/end) are defined
-/// by RP-01; for now only the serde shape is fixed.
+/// On completion (via `task:complete` or by entering a done board column) a
+/// task carrying a non-paused rule spawns its next instance, anchored to the
+/// task's `due_at` and advanced by one period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepeatRule {
     pub freq: RepeatFreq,
-    /// Recur every `interval` periods; always >= 1.
+    /// Recur every `interval` periods; always >= 1 (validated on write).
     pub interval: u32,
+    /// Paused rules stay attached but completion spawns no next instance;
+    /// un-pausing resumes generation. Defaults to `false` so rules stored
+    /// before the flag existed still deserialize.
+    #[serde(default)]
+    pub paused: bool,
 }
 
 /// Which reminder of a task fired (`task_reminders.kind`); the serde values
@@ -262,6 +268,8 @@ pub struct NewTask {
     pub tag_ids: Vec<Uuid>,
     #[serde(default)]
     pub subtask_titles: Vec<String>,
+    #[serde(default)]
+    pub repeat_rule: Option<RepeatRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -281,6 +289,10 @@ pub struct UpdateTask {
     pub completed_at: Patch<DateTime<Utc>>,
     /// Replace the task's tag set; missing leaves the set unchanged.
     pub tag_ids: Option<Vec<Uuid>>,
+    /// Replace/clear (`Patch::Set(None)`) the repeat rule; missing leaves it
+    /// unchanged.
+    #[serde(default)]
+    pub repeat_rule: Patch<RepeatRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -380,17 +392,21 @@ mod tests {
         assert_eq!(missing.title.as_deref(), Some("新标题"));
         assert_eq!(missing.note, Patch::Unchanged);
         assert_eq!(missing.tag_ids, None);
+        assert_eq!(missing.repeat_rule, Patch::Unchanged);
 
         let explicit_null: UpdateTask =
-            serde_json::from_value(json!({ "note": null, "tagIds": [] })).unwrap();
+            serde_json::from_value(json!({ "note": null, "tagIds": [], "repeatRule": null }))
+                .unwrap();
         assert_eq!(explicit_null.note, Patch::Set(None));
         assert_eq!(explicit_null.tag_ids, Some(Vec::new()));
+        assert_eq!(explicit_null.repeat_rule, Patch::Set(None));
         assert_eq!(explicit_null.due_at, Patch::Unchanged);
 
         let new_task: NewTask = serde_json::from_value(json!({ "title": "任务" })).unwrap();
         assert!(new_task.tag_ids.is_empty());
         assert!(new_task.subtask_titles.is_empty());
         assert_eq!(new_task.priority, None);
+        assert_eq!(new_task.repeat_rule, None);
     }
 
     #[test]
@@ -735,10 +751,16 @@ mod tests {
         let rule = RepeatRule {
             freq: RepeatFreq::Weekly,
             interval: 2,
+            paused: false,
         };
         let value = serde_json::to_value(&rule).unwrap();
-        assert_eq!(value, json!({ "freq": "weekly", "interval": 2 }));
+        assert_eq!(value, json!({ "freq": "weekly", "interval": 2, "paused": false }));
         assert_eq!(serde_json::from_value::<RepeatRule>(value).unwrap(), rule);
+
+        // Rules stored before the paused flag existed deserialize paused=false.
+        let legacy: RepeatRule =
+            serde_json::from_value(json!({ "freq": "daily", "interval": 1 })).unwrap();
+        assert!(!legacy.paused);
     }
 
     #[test]

@@ -1,14 +1,15 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
 import { Settings2 } from "lucide-solid";
 import { z } from "zod";
-import { Button, Dialog, Select, TextField } from "../../../common/components";
+import { Button, Checkbox, Dialog, Select, TextField } from "../../../common/components";
 import {
   isoToLocalInputValue,
   localInputValueToIso,
 } from "../../../common/utils/datetime";
 import { createTask, updateTask } from "../hooks";
+import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
 import { tasksState } from "../store";
-import type { Priority, Task } from "../types";
+import type { Priority, RepeatFreq, RepeatRule, Task } from "../types";
 import { TagManagerDialog } from "./TagManagerDialog";
 
 /**
@@ -35,7 +36,7 @@ const formSchema = z.object({
     ),
 });
 
-type FormField = "title" | "dueLocal";
+type FormField = "title" | "dueLocal" | "repeatInterval";
 
 export interface TaskEditorDialogProps {
   open: boolean;
@@ -52,6 +53,9 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const [priority, setPriority] = createSignal<Priority>("none");
   const [dueLocal, setDueLocal] = createSignal("");
   const [tagIds, setTagIds] = createSignal<string[]>([]);
+  const [repeatFreq, setRepeatFreq] = createSignal<RepeatFreq | "none">("none");
+  const [repeatInterval, setRepeatInterval] = createSignal("1");
+  const [repeatPaused, setRepeatPaused] = createSignal(false);
   const [managerOpen, setManagerOpen] = createSignal(false);
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
@@ -67,6 +71,9 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         setPriority(task?.priority ?? "none");
         setDueLocal(isoToLocalInputValue(task?.dueAt ?? null));
         setTagIds(task ? [...task.tagIds] : []);
+        setRepeatFreq(task?.repeatRule?.freq ?? "none");
+        setRepeatInterval(String(task?.repeatRule?.interval ?? 1));
+        setRepeatPaused(task?.repeatRule?.paused ?? false);
         setManagerOpen(false);
         setErrors({});
         setSubmitting(false);
@@ -77,6 +84,15 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const selectedPriority = () =>
     PRIORITY_OPTIONS.find((option) => option.value === priority()) ??
     PRIORITY_OPTIONS[PRIORITY_OPTIONS.length - 1];
+
+  const selectedRepeatOption = () =>
+    REPEAT_FREQ_OPTIONS.find((option) => option.value === repeatFreq()) ??
+    REPEAT_FREQ_OPTIONS[0];
+
+  const repeatUnit = () => {
+    const freq = repeatFreq();
+    return REPEAT_FREQ_UNITS[freq === "none" ? "daily" : freq];
+  };
 
   const toggleTag = (id: string) => {
     setTagIds((ids) =>
@@ -97,6 +113,17 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
       return;
     }
 
+    let repeatRule: RepeatRule | null = null;
+    const freq = repeatFreq();
+    if (freq !== "none") {
+      const interval = Number(repeatInterval());
+      if (!Number.isInteger(interval) || interval < 1) {
+        setErrors({ ...errors(), repeatInterval: "间隔需为不小于 1 的整数" });
+        return;
+      }
+      repeatRule = { freq, interval, paused: repeatPaused() };
+    }
+
     setErrors({});
     setSubmitting(true);
     try {
@@ -108,6 +135,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         projectId: props.task ? props.task.projectId : props.defaultProjectId ?? null,
         dueAt: localInputValueToIso(parsed.data.dueLocal),
         tagIds: [...tagIds()],
+        repeatRule,
       };
       const result = props.task
         ? await updateTask(props.task.id, payload)
@@ -131,7 +159,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
           </Dialog.Description>
           <Dialog.CloseButton aria-label="关闭" />
 
-          <form class="mt-4 flex flex-col gap-4" onSubmit={handleSubmit}>
+          <form noValidate class="mt-4 flex flex-col gap-4" onSubmit={handleSubmit}>
             <TextField.Root
               value={title()}
               onChange={(value) => {
@@ -180,6 +208,64 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               <TextField.Input type="datetime-local" />
               <TextField.ErrorMessage>{errors().dueLocal ?? ""}</TextField.ErrorMessage>
             </TextField.Root>
+
+            <div class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-foreground">重复</span>
+              <div class="flex items-center gap-2">
+                <Select.Root
+                  options={REPEAT_FREQ_OPTIONS}
+                  optionValue={(option) => option.value}
+                  optionTextValue={(option) => option.label}
+                  itemToString={(option) => option.label}
+                  value={selectedRepeatOption()}
+                  onChange={(option) => setRepeatFreq(option?.value ?? "none")}
+                >
+                  <Select.Label class="sr-only">重复规则</Select.Label>
+                  <Select.Trigger class="h-9 w-28 px-2.5 text-sm">
+                    <Select.Value>{selectedRepeatOption().label}</Select.Value>
+                    <Select.Icon />
+                  </Select.Trigger>
+                  <Select.Content>
+                    <Select.Listbox />
+                  </Select.Content>
+                </Select.Root>
+                <Show when={repeatFreq() !== "none"}>
+                  <span class="text-sm text-muted-foreground">每</span>
+                  <TextField.Root
+                    class="w-16"
+                    value={repeatInterval()}
+                    onChange={(value) => {
+                      setRepeatInterval(value);
+                      if (errors().repeatInterval) {
+                        setErrors({ ...errors(), repeatInterval: undefined });
+                      }
+                    }}
+                    validationState={errors().repeatInterval ? "invalid" : "valid"}
+                  >
+                    <TextField.Input type="number" min={1} aria-label="重复间隔" />
+                    <TextField.ErrorMessage>
+                      {errors().repeatInterval ?? ""}
+                    </TextField.ErrorMessage>
+                  </TextField.Root>
+                  <span class="text-sm text-muted-foreground">{repeatUnit()}</span>
+                </Show>
+              </div>
+              <Show when={repeatFreq() !== "none"}>
+                <Checkbox.Root
+                  checked={repeatPaused()}
+                  onChange={(checked) => setRepeatPaused(checked)}
+                  class="mt-0.5"
+                >
+                  <Checkbox.Input aria-label="暂停重复" />
+                  <Checkbox.Control>
+                    <Checkbox.Indicator />
+                  </Checkbox.Control>
+                  <Checkbox.Label class="text-sm text-muted-foreground">
+                    已暂停（完成后不生成下一次）
+                  </Checkbox.Label>
+                </Checkbox.Root>
+              </Show>
+            </div>
 
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">

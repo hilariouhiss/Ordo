@@ -1084,6 +1084,7 @@ mod tests {
         edited.repeat_rule = Some(RepeatRule {
             freq: RepeatFreq::Weekly,
             interval: 2,
+            paused: false,
         });
         edited.updated_at = ts(5);
 
