@@ -170,13 +170,28 @@ describe("QuickAddWindow", () => {
     await renderWindow();
     const input = screen.getByLabelText("任务标题");
 
-    fireEvent.input(input, { target: { value: "写周报 @Work !高 明天下午3点" } });
+    fireEvent.input(input, { target: { value: "写周报 @Work !高 #明天下午3点" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     await waitFor(() =>
       expect(api.createTask).toHaveBeenCalledWith({
         title: "写周报",
         ...payload({ projectId: "p-work", priority: "high", dueAt: tomorrowAt(15, 0) }),
+      }),
+    );
+  });
+
+  it("leaves a date word alone when it has no # in front of it", async () => {
+    await renderWindow();
+    const input = screen.getByLabelText("任务标题");
+
+    fireEvent.input(input, { target: { value: "月底前完成报表" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(api.createTask).toHaveBeenCalledWith({
+        title: "月底前完成报表",
+        ...payload(),
       }),
     );
   });
@@ -341,7 +356,7 @@ describe("QuickAddWindow", () => {
     await renderWindow();
     const input = screen.getByLabelText("任务标题");
 
-    fireEvent.input(input, { target: { value: "@Work !高 明天" } });
+    fireEvent.input(input, { target: { value: "@Work !高 #明天" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(api.createTask).not.toHaveBeenCalled();

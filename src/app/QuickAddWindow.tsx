@@ -194,7 +194,7 @@ export default function QuickAddWindow() {
               input = element;
             }}
             aria-label="任务标题"
-            placeholder="要做点什么？@项目 !高 明天"
+            placeholder="要做点什么？@项目 !高 #明天"
             autofocus
             value={title()}
             onInput={(event) => setTitle(event.currentTarget.value)}

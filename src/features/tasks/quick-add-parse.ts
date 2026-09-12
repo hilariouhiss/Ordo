@@ -11,7 +11,7 @@
  *    markers that actually resolved, so `等 @张三 回复` keeps its `@张三`.
  */
 
-import { addDays, addWeeks, startOfDay, startOfWeek } from "date-fns";
+import { addDays, addMonths, addWeeks, startOfDay, startOfMonth, startOfWeek } from "date-fns";
 import { priorityFromLabel } from "./priority";
 import type { Priority } from "./types";
 
@@ -33,13 +33,27 @@ export interface NamedRef {
 /** Markers accept the full-width forms a Chinese IME produces. */
 const AT_SIGN = "[@＠]";
 const BANG = "[!！]";
-const PROJECT_CANDIDATE = new RegExp(`${AT_SIGN}([^\\s@＠!！]+)`, "g");
+const HASH = "[#＃]";
+const PROJECT_CANDIDATE = new RegExp(`${AT_SIGN}([^\\s@＠!！#＃]+)`, "g");
+const DATE_MARKER = new RegExp(HASH, "g");
 
+// Order matters. The numeric form is first because it is the most specific;
+// `md` (9月30日) sits ahead of the month edge so that a spelled-out day always
+// beats the 底/初/中 reading of the same 月.
 const DATE_CORE = [
-  "(?<rel>今天|今日|明天|明日|后天|大后天)",
+  "(?:(?<numYear>\\d{4})\\s*[/-]\\s*)?(?<numMonth>\\d{1,2})\\s*[/-]\\s*(?<numDay>\\d{1,2})",
+  "|(?<rel>今天|今日|明天|明日|后天|大后天)",
   "|(?<intervalN>\\d+)\\s*(?<intervalUnit>天|周|个?星期)后",
   "|(?:(?<mdYear>\\d{4})\\s*年\\s*)?(?<mdMonth>\\d{1,2})\\s*月\\s*(?<mdDay>\\d{1,2})\\s*[日号]",
   "|(?<weekOffset>下下|下|本|这)?\\s*(?:周|星期|礼拜)\\s*(?<weekDay>[一二三四五六日天])",
+  // 月底 / 本月底 / 下个月底 / 3月底 — the 月 belongs to the edge word, so it
+  // carries no year and no day of its own.
+  "|(?<monthRef>下下|下个|下|这个|这|本)?\\s*个?\\s*(?<edgeMonth>\\d{1,2})?\\s*月\\s*(?<monthKind>底|初|中)",
+  // 年底 / 今年底 / 明年底 / 2028年底. `今年` already ends in 年, hence the
+  // three-way choice rather than an optional prefix.
+  "|(?:(?<yearRef>今年|明年|本年)|(?<edgeYear>\\d{4})年|年)\\s*(?<yearKind>底|初|中)",
+  // 周末 / 本周末 / 下周末 — the Sunday that closes the named week.
+  "|(?:(?<weekendRef>下下|下个|下|这个|这|本)\\s*)?(?<weekend>周末)",
 ].join("");
 
 /** `下午3点半` / `9点15分` / nothing at all — the date alone means end of day. */
@@ -50,8 +64,9 @@ const DATE_TIME = [
 
 // The core is wrapped in a group on purpose: concatenation binds tighter than
 // alternation, so without it the trailing time would only ever attach to the
-// last branch (weekday) and `明天下午3点` would silently lose its 3pm.
-const DATE_RE = new RegExp(`(?:${DATE_CORE})${DATE_TIME}`);
+// last branch (weekday) and `#明天下午3点` would silently lose its 3pm. It is
+// anchored because a date only counts immediately after its `#`.
+const DATE_RE = new RegExp(`^(?:${DATE_CORE})${DATE_TIME}`);
 
 const REL_DAYS: Record<string, number> = {
   今天: 0,
@@ -62,7 +77,19 @@ const REL_DAYS: Record<string, number> = {
   大后天: 3,
 };
 
-const WEEK_OFFSETS: Record<string, number> = { 下下: 2, 下: 1, 本: 0, 这: 0 };
+/**
+ * How far ahead a period word points, shared by weeks, months and weekends:
+ * `下周` and `下个月` are both "the next one". A missing word (a bare 周末)
+ * means the current period, and then rolls forward if it has already passed.
+ */
+const PERIOD_OFFSETS: Record<string, number> = {
+  下下: 2,
+  下个: 1,
+  下: 1,
+  这个: 0,
+  这: 0,
+  本: 0,
+};
 
 const WEEK_DAYS: Record<string, number> = {
   一: 1,
@@ -165,28 +192,42 @@ function takePriority(text: string): { rest: string; priority: Priority | null }
   };
 }
 
-/** A Chinese date phrase → the instant it means, and the line without it. */
+/**
+ * `#日期` → the instant it means, and the line without the marker.
+ *
+ * Every `#` is tried in turn, because one that reads as nothing (`issue #123`,
+ * `C#`) has to stay in the title — and must not stop a later `#明天` from
+ * being read.
+ */
 function takeDate(text: string, now: Date): { rest: string; dueAt: string | null } {
-  const match = DATE_RE.exec(text);
-  if (!match?.groups) return { rest: text, dueAt: null };
+  DATE_MARKER.lastIndex = 0;
+  for (
+    let marker = DATE_MARKER.exec(text);
+    marker !== null;
+    marker = DATE_MARKER.exec(text)
+  ) {
+    const match = DATE_RE.exec(text.slice(marker.index + 1));
+    if (!match?.groups) continue;
 
-  const day = resolveDay(match.groups, now);
-  if (!day) return { rest: text, dueAt: null };
-  const time = resolveTime(match.groups);
-  if (!time) return { rest: text, dueAt: null };
+    const day = resolveDay(match.groups, now);
+    if (!day) continue;
+    const time = resolveTime(match.groups);
+    if (!time) continue;
 
-  const dueAt = new Date(
-    day.getFullYear(),
-    day.getMonth(),
-    day.getDate(),
-    time.hour,
-    time.minute,
-    time.second,
-  );
-  return {
-    rest: text.slice(0, match.index) + text.slice(match.index + match[0].length),
-    dueAt: dueAt.toISOString(),
-  };
+    const dueAt = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      time.hour,
+      time.minute,
+      time.second,
+    );
+    return {
+      rest: text.slice(0, marker.index) + text.slice(marker.index + 1 + match[0].length),
+      dueAt: dueAt.toISOString(),
+    };
+  }
+  return { rest: text, dueAt: null };
 }
 
 /** The calendar day a date phrase lands on; `null` when it is not a real date. */
@@ -201,26 +242,24 @@ function resolveDay(groups: Record<string, string | undefined>, now: Date): Date
     return unit === "天" ? addDays(midnight, count) : addWeeks(midnight, count);
   }
 
-  if (groups.mdMonth !== undefined) {
-    const month = Number(groups.mdMonth);
-    const date = Number(groups.mdDay);
-    const explicitYear = groups.mdYear !== undefined;
-    let year = explicitYear ? Number(groups.mdYear) : now.getFullYear();
-    let candidate = new Date(year, month - 1, date);
-    // `new Date(2026, 1, 31)` silently becomes 3 March; refuse it instead.
-    if (candidate.getMonth() !== month - 1 || candidate.getDate() !== date) return null;
-    // A date already behind us means next year's, unless one was written out.
-    if (!explicitYear && candidate < midnight) {
-      year += 1;
-      candidate = new Date(year, month - 1, date);
-    }
-    return candidate;
+  // 9月30日 and 9/30 say the same thing; only the spelling differs.
+  if (groups.mdMonth !== undefined || groups.numMonth !== undefined) {
+    const spelled = groups.mdMonth !== undefined;
+    const yearText = spelled ? groups.mdYear : groups.numYear;
+    return calendarDate(
+      Number(yearText ?? now.getFullYear()),
+      Number(spelled ? groups.mdMonth : groups.numMonth),
+      Number(spelled ? groups.mdDay : groups.numDay),
+      // A date already behind us means next year's, unless one was written out.
+      yearText === undefined,
+      midnight,
+    );
   }
 
   if (groups.weekDay !== undefined) {
     const weekday = WEEK_DAYS[groups.weekDay];
     if (weekday === undefined) return null;
-    const offset = groups.weekOffset === undefined ? 0 : WEEK_OFFSETS[groups.weekOffset];
+    const offset = periodOffset(groups.weekOffset);
     if (offset === undefined) return null;
     const target = addDays(startOfWeek(now, { weekStartsOn: 1 }), offset * 7 + weekday - 1);
     // A bare 周三 on a Thursday means the one coming up, not the one gone by.
@@ -228,7 +267,94 @@ function resolveDay(groups: Record<string, string | undefined>, now: Date): Date
     return !explicitWeek && target < midnight ? addWeeks(target, 1) : target;
   }
 
+  if (groups.monthKind !== undefined) {
+    const kind = groups.monthKind;
+    const explicitMonth = groups.edgeMonth;
+    const named = groups.monthRef !== undefined;
+
+    let year = now.getFullYear();
+    let month = now.getMonth();
+    if (explicitMonth !== undefined) {
+      month = Number(explicitMonth) - 1;
+      if (month < 0 || month > 11) return null; // 13月底 is not a month
+    } else if (named) {
+      const base = addMonths(startOfMonth(now), periodOffset(groups.monthRef) ?? 0);
+      year = base.getFullYear();
+      month = base.getMonth();
+    }
+
+    const candidate = new Date(year, month, monthEdgeDay(year, month, kind));
+    if (named || candidate >= midnight) return candidate;
+    // Bare 月初 said on the 20th belongs to next month, not to a month already
+    // under way; a spelled-out month instead waits for next year, exactly as
+    // `9月1日` does.
+    if (explicitMonth !== undefined) return new Date(year + 1, month, monthEdgeDay(year + 1, month, kind));
+    const next = addMonths(startOfMonth(now), 1);
+    const nextYear = next.getFullYear();
+    const nextMonth = next.getMonth();
+    return new Date(nextYear, nextMonth, monthEdgeDay(nextYear, nextMonth, kind));
+  }
+
+  if (groups.yearKind !== undefined) {
+    const kind = groups.yearKind;
+    // 底 = 31 December, 中 = 1 July, 初 = 1 January.
+    const month = kind === "底" ? 11 : kind === "中" ? 6 : 0;
+    const day = kind === "底" ? 31 : 1;
+    const named = groups.yearRef !== undefined || groups.edgeYear !== undefined;
+
+    let year = groups.edgeYear !== undefined
+      ? Number(groups.edgeYear)
+      : groups.yearRef === "明年"
+        ? now.getFullYear() + 1
+        : now.getFullYear();
+
+    const candidate = new Date(year, month, day);
+    if (named || candidate >= midnight) return candidate;
+    year += 1; // a bare 年初/年中/年底 means the one coming up
+    return new Date(year, month, day);
+  }
+
+  if (groups.weekend !== undefined) {
+    const offset = periodOffset(groups.weekendRef);
+    if (offset === undefined) return null;
+    // Sunday closes the week, so that is the day 「周末前搞定」 means.
+    const sunday = addDays(startOfWeek(now, { weekStartsOn: 1 }), offset * 7 + 6);
+    return groups.weekendRef === undefined && sunday < midnight ? addWeeks(sunday, 1) : sunday;
+  }
+
   return null;
+}
+
+/** `下`/`下个`/`下下` → 1/1/2 periods ahead; absent → 0; unknown → undefined. */
+function periodOffset(word: string | undefined): number | undefined {
+  return word === undefined ? 0 : PERIOD_OFFSETS[word];
+}
+
+/**
+ * A written month/day (however spelled) → its local midnight; `null` when it
+ * is not a real date. `mayRollOver` is the "no year written" case: a date
+ * already behind us means next year's.
+ */
+function calendarDate(
+  year: number,
+  month: number,
+  day: number,
+  mayRollOver: boolean,
+  midnight: Date,
+): Date | null {
+  if (month < 1 || month > 12 || day < 1) return null;
+  const candidate = new Date(year, month - 1, day);
+  // `new Date(2026, 1, 31)` silently becomes 3 March; refuse it instead.
+  if (candidate.getMonth() !== month - 1 || candidate.getDate() !== day) return null;
+  if (mayRollOver && candidate < midnight) return new Date(year + 1, month - 1, day);
+  return candidate;
+}
+
+/** 底 is the month's real last day, so February answers 28 or 29 on its own. */
+function monthEdgeDay(year: number, month: number, kind: string): number {
+  if (kind === "初") return 1;
+  if (kind === "中") return 15;
+  return new Date(year, month + 1, 0).getDate();
 }
 
 /** The clock time a phrase carries; end of day when it names none. */
