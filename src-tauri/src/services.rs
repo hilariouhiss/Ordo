@@ -4144,6 +4144,20 @@ mod tests {
         import_backup(&conn, &path).unwrap();
         assert_eq!(list_dependencies(&conn).unwrap().len(), 2);
 
+        // Dormant edges travel too. With B soft-deleted the A → B edge is out
+        // of `dependency:listAll`'s live view but still in the database, and a
+        // backup is a copy of the database, not a view of it.
+        soft_delete_task(&conn, b.id).unwrap();
+        assert_eq!(list_dependencies(&conn).unwrap().len(), 1);
+        export_backup(&conn, &path).unwrap();
+        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        import_backup(&conn, &path).unwrap();
+
+        // Restoring the endpoint brings the relation back, which only works
+        // because the dormant edge came along in the document.
+        restore_task(&conn, b.id).unwrap();
+        assert_eq!(list_dependencies(&conn).unwrap().len(), 2);
+
         std::fs::remove_file(&path).ok();
     }
 
