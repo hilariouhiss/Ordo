@@ -132,6 +132,13 @@ pub struct Task {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+/// Deserialization fallback for [`Subtask::priority`] in documents written
+/// before subtasks had a priority: the `subtasks.priority` column defaults to
+/// `'none'`, so an absent key means the same thing as the column default.
+fn legacy_subtask_priority() -> Priority {
+    Priority::None
+}
+
 /// A subtask row (`subtasks`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,6 +148,8 @@ pub struct Subtask {
     pub title: String,
     /// Free-form description; `None` when unset.
     pub note: Option<String>,
+    /// Missing from backups exported before this column existed.
+    #[serde(default = "legacy_subtask_priority")]
     pub priority: Priority,
     pub due_at: Option<DateTime<Utc>>,
     /// 1-5, or `None` when never estimated.

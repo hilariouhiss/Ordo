@@ -4024,6 +4024,42 @@ mod tests {
     }
 
     #[test]
+    fn import_accepts_backups_written_before_subtasks_had_attributes() {
+        let conn = conn();
+        let task = seed_everything(&conn);
+        let path = backup_path();
+        export_backup(&conn, &path).unwrap();
+
+        // A backup written before subtasks carried attributes: the four keys
+        // are simply absent from the document.
+        let mut document: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let subtasks = document["data"]["subtasks"].as_array_mut().unwrap();
+        assert_eq!(subtasks.len(), 1);
+        for subtask in subtasks {
+            let object = subtask.as_object_mut().unwrap();
+            for key in ["note", "priority", "dueAt", "complexity"] {
+                assert!(object.remove(key).is_some(), "{key} was in the export");
+            }
+        }
+        std::fs::write(&path, serde_json::to_string(&document).unwrap()).unwrap();
+
+        let restored = db::test_conn();
+        import_backup(&restored, &path).unwrap();
+        let imported = subtasks::list_by_task(&restored, task.id).unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(
+            imported[0].priority,
+            Priority::None,
+            "an old row comes back at the column's default"
+        );
+        assert_eq!(imported[0].note, None);
+        assert_eq!(imported[0].complexity, None);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
     fn import_rejects_foreign_documents_and_missing_files() {
         let conn = conn();
         let path = backup_path();
