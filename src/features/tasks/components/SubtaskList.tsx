@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { ChevronDown, ChevronUp, Trash2 } from "lucide-solid";
-import { Checkbox, iconButtonClass } from "../../../common/components";
+import { ChevronDown, ChevronUp, SlidersHorizontal, Trash2 } from "lucide-solid";
+import { Badge, Checkbox, iconButtonClass } from "../../../common/components";
 import {
   completeSubtask,
   createSubtask,
@@ -10,6 +10,9 @@ import {
 } from "../hooks";
 import { getSubtasks } from "../store";
 import type { Subtask } from "../types";
+import { formatDueLabel, isOverdue } from "../view-filters";
+import { PRIORITY_BADGES } from "./TaskItemRow";
+import { SubtaskEditor } from "./SubtaskEditor";
 
 export interface SubtaskListProps {
   taskId: string;
@@ -21,6 +24,10 @@ export interface SubtaskListProps {
  * Reordering passes the neighbours' sort keys around the target slot
  * (plan §3); the hook optimistically applies the move and reconciles with
  * the authoritative list.
+ *
+ * The sliders button unfolds one subtask's attribute panel in place
+ * (`SubtaskEditor`); the title row then wears the priority and due-date badges
+ * those attributes produce. Only one panel is open at a time.
  */
 export function SubtaskList(props: SubtaskListProps) {
   const subtasks = createMemo(() => getSubtasks(props.taskId));
@@ -32,6 +39,8 @@ export function SubtaskList(props: SubtaskListProps) {
   const [adding, setAdding] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [editValue, setEditValue] = createSignal("");
+  /** The subtask whose inline attribute panel is open, if any. */
+  const [propertyId, setPropertyId] = createSignal<string | null>(null);
 
   async function add(): Promise<void> {
     const title = newTitle().trim();
@@ -108,78 +117,114 @@ export function SubtaskList(props: SubtaskListProps) {
       <ul class="mt-2 flex flex-col">
         <For each={subtasks()}>
           {(subtask, index) => (
-            <li
-              class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover"
-              data-subtask-id={subtask.id}
-            >
-              <Checkbox.Root
-                checked={subtask.done}
-                onChange={(done) => void completeSubtask(props.taskId, subtask.id, done)}
-              >
-                <Checkbox.Input
-                  aria-label={
-                    subtask.done ? `恢复子任务 ${subtask.title}` : `完成子任务 ${subtask.title}`
-                  }
-                />
-                <Checkbox.Control>
-                  <Checkbox.Indicator />
-                </Checkbox.Control>
-              </Checkbox.Root>
+            <li class="flex flex-col" data-subtask-id={subtask.id}>
+              <div class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover">
+                <Checkbox.Root
+                  checked={subtask.done}
+                  onChange={(done) => void completeSubtask(props.taskId, subtask.id, done)}
+                >
+                  <Checkbox.Input
+                    aria-label={
+                      subtask.done ? `恢复子任务 ${subtask.title}` : `完成子任务 ${subtask.title}`
+                    }
+                  />
+                  <Checkbox.Control>
+                    <Checkbox.Indicator />
+                  </Checkbox.Control>
+                </Checkbox.Root>
 
-              <Show
-                when={editingId() === subtask.id}
-                fallback={
-                  <button
-                    type="button"
-                    class="min-w-0 flex-1 truncate text-left text-sm focus-ring"
-                    title={subtask.title}
-                    onClick={() => startEdit(subtask)}
+                <Show
+                  when={editingId() === subtask.id}
+                  fallback={
+                    <button
+                      type="button"
+                      class="min-w-0 flex-1 truncate text-left text-sm focus-ring"
+                      title={subtask.title}
+                      onClick={() => startEdit(subtask)}
+                    >
+                      <span classList={{ "text-subtle-foreground line-through": subtask.done }}>
+                        {subtask.title}
+                      </span>
+                    </button>
+                  }
+                >
+                  <input
+                    class="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
+                    value={editValue()}
+                    onInput={(event) => setEditValue(event.currentTarget.value)}
+                    onBlur={() => commitEdit(subtask.id)}
+                    onKeyDown={(event) => {
+                      // Enter during IME composition belongs to the IME, not to us.
+                      if (event.key === "Enter" && !event.isComposing) commitEdit(subtask.id);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                  />
+                </Show>
+
+                {/* Priority rides a Badge variant, never extra colour classes:
+                    Tailwind resolves same-property conflicts by source order. */}
+                <Show when={PRIORITY_BADGES[subtask.priority]}>
+                  {(badge) => (
+                    <Badge variant={badge().variant} size="sm">
+                      {badge().label}
+                    </Badge>
+                  )}
+                </Show>
+                <Show when={subtask.dueAt}>
+                  <Badge
+                    variant={isOverdue(subtask.dueAt, new Date()) ? "danger" : "outline"}
+                    size="sm"
                   >
-                    <span classList={{ "text-subtle-foreground line-through": subtask.done }}>
-                      {subtask.title}
-                    </span>
-                  </button>
-                }
-              >
-                <input
-                  class="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
-                  value={editValue()}
-                  onInput={(event) => setEditValue(event.currentTarget.value)}
-                  onBlur={() => commitEdit(subtask.id)}
-                  onKeyDown={(event) => {
-                    // Enter during IME composition belongs to the IME, not to us.
-                    if (event.key === "Enter" && !event.isComposing) commitEdit(subtask.id);
-                    if (event.key === "Escape") setEditingId(null);
-                  }}
+                    {formatDueLabel(subtask.dueAt, new Date())}
+                  </Badge>
+                </Show>
+
+                <button
+                  type="button"
+                  class={iconButtonClass}
+                  aria-label={`上移子任务 ${subtask.title}`}
+                  disabled={index() === 0}
+                  onClick={() => move(subtask.id, -1)}
+                >
+                  <ChevronUp size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class={iconButtonClass}
+                  aria-label={`下移子任务 ${subtask.title}`}
+                  disabled={index() === subtasks().length - 1}
+                  onClick={() => move(subtask.id, 1)}
+                >
+                  <ChevronDown size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class={iconButtonClass}
+                  aria-label={`${propertyId() === subtask.id ? "收起" : "展开"}子任务属性 ${subtask.title}`}
+                  aria-expanded={propertyId() === subtask.id}
+                  onClick={() =>
+                    setPropertyId((current) => (current === subtask.id ? null : subtask.id))
+                  }
+                >
+                  <SlidersHorizontal size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class={iconButtonClass}
+                  aria-label={`删除子任务 ${subtask.title}`}
+                  onClick={() => void deleteSubtask(props.taskId, subtask.id)}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </button>
+              </div>
+
+              <Show when={propertyId() === subtask.id}>
+                <SubtaskEditor
+                  taskId={props.taskId}
+                  subtask={subtask}
+                  onClose={() => setPropertyId(null)}
                 />
               </Show>
-
-              <button
-                type="button"
-                class={iconButtonClass}
-                aria-label={`上移子任务 ${subtask.title}`}
-                disabled={index() === 0}
-                onClick={() => move(subtask.id, -1)}
-              >
-                <ChevronUp size={14} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                class={iconButtonClass}
-                aria-label={`下移子任务 ${subtask.title}`}
-                disabled={index() === subtasks().length - 1}
-                onClick={() => move(subtask.id, 1)}
-              >
-                <ChevronDown size={14} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                class={iconButtonClass}
-                aria-label={`删除子任务 ${subtask.title}`}
-                onClick={() => void deleteSubtask(props.taskId, subtask.id)}
-              >
-                <Trash2 size={14} aria-hidden="true" />
-              </button>
             </li>
           )}
         </For>

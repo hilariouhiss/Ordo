@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
 import { completeSubtask, completeTask, softDeleteTask, uncompleteTask } from "../hooks";
+import { blockersOf, buildIndex, completionSet, isBlocked } from "../dependencies";
 import { getSubtasks, tasksState } from "../store";
 import type { Priority, Subtask, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
@@ -22,8 +23,15 @@ const ROW_HEIGHT = 56;
  * variable rows would mean rewriting a primitive four other views depend on.
  */
 type ListRow =
-  | { kind: "task"; task: Task; subtaskCount: number; subtaskDone: number }
-  | { kind: "subtask"; task: Task; subtask: Subtask };
+  | {
+      kind: "task";
+      task: Task;
+      subtaskCount: number;
+      subtaskDone: number;
+      /** Prerequisites still unfinished; 0 means the row is not blocked. */
+      blockerCount: number;
+    }
+  | { kind: "subtask"; task: Task; subtask: Subtask; blocked: boolean };
 
 export type SortOption = { value: SortMode; label: string };
 
@@ -101,22 +109,38 @@ export function TaskListView(props: TaskListViewProps) {
 
   // After `visible`, not before it: Solid runs a memo's body eagerly as it is
   // created, so reading `visible` from above its own `const` is a TDZ crash.
-  const rows = createMemo<ListRow[]>(() =>
-    visible().flatMap((task) => {
+  //
+  // The dependency index and the completion set are built once per pass, here,
+  // and each row is then answered from them: the per-row cost is that row's own
+  // prerequisite count, not the size of the graph.
+  const rows = createMemo<ListRow[]>(() => {
+    const index = buildIndex(tasksState.dependencies);
+    const done = completionSet(tasksState.tasks, tasksState.subtasksByTask);
+    return visible().flatMap((task) => {
       const children = getSubtasks(task.id);
-      const done = children.filter((child) => child.done).length;
       const head: ListRow = {
         kind: "task",
         task,
         subtaskCount: children.length,
-        subtaskDone: done,
+        subtaskDone: children.filter((child) => child.done).length,
+        blockerCount: blockersOf(index, done, "task", task.id).length,
       };
       if (children.length === 0 || !expanded()[task.id]) return [head];
       // The return annotation is load-bearing too: without it the literal's
       // `kind` widens to `string` and the array stops being a `ListRow[]`.
-      return [head, ...children.map((subtask): ListRow => ({ kind: "subtask", task, subtask }))];
-    }),
-  );
+      return [
+        head,
+        ...children.map(
+          (subtask): ListRow => ({
+            kind: "subtask",
+            task,
+            subtask,
+            blocked: isBlocked(index, done, "subtask", subtask.id),
+          }),
+        ),
+      ];
+    });
+  });
 
   const toggleExpand = (task: Task) =>
     setExpanded((current) => ({ ...current, [task.id]: !current[task.id] }));
@@ -314,6 +338,8 @@ export function TaskListView(props: TaskListViewProps) {
                 now={now()}
                 subtaskCount={row.subtaskCount}
                 subtaskDone={row.subtaskDone}
+                blocked={row.blockerCount > 0}
+                blockerCount={row.blockerCount}
                 expanded={Boolean(expanded()[row.task.id])}
                 onToggleExpand={toggleExpand}
                 onToggleComplete={toggleComplete}
@@ -325,6 +351,7 @@ export function TaskListView(props: TaskListViewProps) {
               <SubtaskRow
                 subtask={row.subtask}
                 parent={row.task}
+                blocked={row.blocked}
                 onToggleDone={toggleSubtask}
                 onOpenDetail={openDetail}
               />

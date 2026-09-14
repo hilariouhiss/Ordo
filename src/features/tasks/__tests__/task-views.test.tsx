@@ -450,6 +450,7 @@ describe("SubtaskRow", () => {
       <SubtaskRow
         subtask={child}
         parent={parent}
+        blocked={false}
         onToggleDone={onToggleDone}
         onOpenDetail={onOpenDetail}
       />
@@ -467,6 +468,7 @@ describe("SubtaskRow", () => {
       <SubtaskRow
         subtask={subtask("s1", "t1", "第一步", true)}
         parent={task("t1")}
+        blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
       />
@@ -481,6 +483,7 @@ describe("SubtaskRow", () => {
       <SubtaskRow
         subtask={subtask("s1", "t1", "第一步")}
         parent={task("t1")}
+        blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
       />
@@ -637,5 +640,38 @@ describe("任务列表的层级展示", () => {
     expect(
       dimension(list.querySelector("[data-subtask-id]")!.firstElementChild as Element, "w"),
     ).toEqual(["w-5"]);
+  });
+});
+
+describe("阻塞标记", () => {
+  it("有未完成前置的任务行显示阻塞中与数量", () => {
+    const blocked = task("a");
+    const prerequisite = task("b");
+    store.setAll([blocked, prerequisite], []);
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+
+    render(() => <InboxView />);
+    expect(screen.getByText("阻塞中 · 还差 1 项")).toBeTruthy();
+
+    // Finishing the prerequisite clears the badge.
+    store.patchTask("b", { completedAt: "2026-09-14T10:00:00Z" });
+    expect(screen.queryByText("阻塞中 · 还差 1 项")).toBeNull();
+    store.setDependencies([]);
+  });
+
+  it("展开后未完成前置的子任务行也带标记", () => {
+    const parent = task("a");
+    const first = subtask("s1", "a", "一");
+    const second = subtask("s2", "a", "二");
+    store.setAll([parent], []);
+    store.setSubtasksAll([first, second], ["a"]);
+    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+
+    render(() => <InboxView />);
+    // The factory titles a task `任务 <id>`, so the disclosure's accessible
+    // name carries that prefix (the brief's snippet abbreviated it).
+    fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
+    expect(screen.getByText("阻塞中")).toBeTruthy();
+    store.setDependencies([]);
   });
 });

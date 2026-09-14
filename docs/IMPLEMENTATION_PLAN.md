@@ -172,6 +172,15 @@ M6 出口：PRD §4 验收要点 + 5.6 备份能力达成。
 
 M7 出口：Ordo v1 达到发布条件。
 
+### M8 属性扩展与依赖（v1 迭代）
+
+| ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| T-08 | 任务/子任务属性扩展 | V4 迁移（`tasks.complexity`、`subtasks.{note,priority,due_at,complexity}`）；`complexity.ts` 词表；任务编辑器与子任务属性面板 `SubtaskEditor`（描述/优先级/截止时间/复杂度一次写回）；子任务行与详情徽标 | 属性可编辑并持久化 | T-04、T-06 | ✅ |
+| T-09 | 依赖与完成顺序（含子任务提醒） | `task_dependencies` / `subtask_dependencies` 两张连接表与 `dependency:listAll/add/remove`；`dependencies.ts` 纯函数派生；`TaskDependencies` 依赖区与子任务前置选择器；列表行阻塞标记与完成前确认（`blocked-confirm.ts`）；`subtask_reminders` 与「父任务 › 子任务」提醒文案；备份携带依赖边 | 依赖可增删且拒绝成环；被阻塞项有标记且完成需确认；备份携带依赖边 | T-08 | ✅ |
+
+M8 出口：属性可编辑并持久化；依赖可增删且拒绝成环；被阻塞项有标记且完成需确认；备份携带依赖边；`cargo test` / `pnpm test` / `pnpm typecheck` 全绿。
+
 ## 5. 依赖与并行关系
 
 ```

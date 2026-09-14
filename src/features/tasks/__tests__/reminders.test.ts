@@ -100,6 +100,19 @@ describe("formatReminderMessage", () => {
       "「提交周报」已到截止时间（）",
     );
   });
+
+  it("子任务提醒把父任务与子任务都写进文案", () => {
+    expect(
+      formatReminderMessage({
+        taskId: "t1",
+        taskTitle: "写周报",
+        subtaskId: "s1",
+        subtaskTitle: "收集数据",
+        kind: "advance_10m",
+        dueAt: "2026-09-14T10:00:00Z",
+      }),
+    ).toContain("写周报 › 收集数据");
+  });
 });
 
 describe("subscribeToReminders", () => {

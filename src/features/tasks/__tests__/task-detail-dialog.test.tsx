@@ -633,3 +633,47 @@ describe("任务详情的依赖区", () => {
     expect(offered("发布")).toBeNull();
   });
 });
+
+describe("子任务属性面板", () => {
+  it("前置只列同一父任务下的兄弟子任务，属性保存时一次写回", async () => {
+    seedSubtasks([
+      subtaskFixture("s1", TASK_ID, { title: "收集数据" }),
+      subtaskFixture("s2", TASK_ID, { title: "定稿" }),
+    ]);
+    vi.mocked(api.updateSubtask).mockResolvedValue(
+      subtaskFixture("s2", TASK_ID, { title: "定稿", note: "先对齐口径" }),
+    );
+
+    renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "展开子任务属性 定稿" }));
+
+    // The picker offers the sibling and nothing else: a subtask is never its own
+    // prerequisite, and cross-parent edges are rejected by the backend, so no
+    // other subtask can appear here at all.
+    const section = document.querySelector('[aria-label="子任务"]') as HTMLElement;
+    const offered = () =>
+      [...section.querySelectorAll("[aria-pressed]")].map((el) => el.textContent);
+    expect(offered()).toEqual(["收集数据"]);
+
+    // A prerequisite is a discrete write: one edge per click, no save step.
+    fireEvent.click(screen.getByRole("button", { name: "收集数据", pressed: false }));
+    expect(api.addDependency).toHaveBeenCalledWith({
+      kind: "subtask",
+      dependentId: "s2",
+      prerequisiteId: "s1",
+    });
+
+    // The four attributes ride a single updateSubtask call, then the panel closes.
+    fireEvent.input(screen.getByLabelText("描述"), { target: { value: "先对齐口径" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledTimes(1));
+    expect(api.updateSubtask).toHaveBeenCalledWith("s2", {
+      note: "先对齐口径",
+      priority: "none",
+      dueAt: null,
+      complexity: null,
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "保存" })).toBeNull());
+  });
+});

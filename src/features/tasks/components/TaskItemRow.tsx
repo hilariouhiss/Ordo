@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { ChevronRight, MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
+import { ChevronRight, Lock, MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
 import {
   Badge,
   Checkbox,
@@ -39,6 +39,10 @@ export interface TaskItemRowProps {
   subtaskCount: number;
   /** How many of them are done, for the collapsed progress badge. */
   subtaskDone: number;
+  /** Whether an unfinished prerequisite is holding this task back. */
+  blocked: boolean;
+  /** How many prerequisites are still unfinished. */
+  blockerCount: number;
   expanded: boolean;
   onToggleExpand: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
@@ -147,6 +151,18 @@ export function TaskItemRow(props: TaskItemRowProps) {
           </Show>
         )}
       </For>
+
+      <Show when={props.blocked}>
+        {/* Same split as the progress badge above: the compact text is the
+            sighted label, and the sentence behind it is what gets announced. */}
+        <Badge variant="warning">
+          <Lock size={11} aria-hidden="true" />
+          <span aria-hidden="true">阻塞中 · 还差 {props.blockerCount} 项</span>
+          <span class="sr-only">
+            阻塞中，还有 {props.blockerCount} 项前置未完成
+          </span>
+        </Badge>
+      </Show>
 
       <Show when={props.task.dueAt}>
         <Badge variant={isOverdue(props.task.dueAt, props.now) ? "danger" : "outline"}>

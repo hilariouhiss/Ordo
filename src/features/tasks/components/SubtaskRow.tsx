@@ -1,4 +1,5 @@
-import { Checkbox } from "../../../common/components";
+import { Show } from "solid-js";
+import { Badge, Checkbox } from "../../../common/components";
 import type { Subtask, Task } from "../types";
 
 export interface SubtaskRowProps {
@@ -6,6 +7,8 @@ export interface SubtaskRowProps {
   /** The parent task. Clicking the title opens *its* detail — a subtask has
    * no detail view of its own; it is edited from inside the parent's. */
   parent: Task;
+  /** Whether an unfinished prerequisite is holding this subtask back. */
+  blocked: boolean;
   onToggleDone: (parent: Task, subtask: Subtask, done: boolean) => void;
   onOpenDetail: (parent: Task) => void;
 }
@@ -57,6 +60,12 @@ export function SubtaskRow(props: SubtaskRowProps) {
           {props.subtask.title}
         </span>
       </button>
+
+      <Show when={props.blocked}>
+        <Badge variant="warning" size="sm" title="前置子任务未完成">
+          阻塞中
+        </Badge>
+      </Show>
     </div>
   );
 }

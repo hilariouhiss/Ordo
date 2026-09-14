@@ -7,6 +7,9 @@ export type BadgeProps = {
   variant?: BadgeVariant;
   size?: BadgeSize;
   class?: string;
+  /** Hover tooltip. A Badge is a generic span, which ARIA forbids naming, so
+   * this is the only way to add context to a badge whose text is terse. */
+  title?: string;
   children: JSX.Element;
 };
 

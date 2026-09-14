@@ -93,7 +93,7 @@ src/
 - **任务/项目/标签/时间记录**：领域 store 持有全量数据，是前端的事实来源。
 - **UI 状态**（侧边栏折叠、当前路由激活态、主题、弹窗开合）放 `common/stores/`，与业务数据分离。
 - 派生数据（今日任务、项目完成率、统计聚合）用 Solid 的派生计算（`createMemo`）从 store 计算，**不重复存储**，保证单一事实来源。
-- **阻塞状态同样是派生量**：依赖边随任务列表一次载入（`dependency:listAll`），每次渲染各构建一次索引与完成集合（`dependencies.ts` 的 `buildIndex` / `completionSet`），每行只查自己那几条前置——单次查询的代价是该行的前置数量，而不是整张图的规模。阻塞是**软**的：`completeTask` / `completeSubtask` 只在「完成」时检查未完成前置，命中就**先不写库**，把请求停到 `blocked-confirm.ts`，由 `AppShell` 挂载的唯一 `BlockedConfirmHost` 弹一次确认（取消即丢弃，确认后走 `forceCompleteTask` / `forceCompleteSubtask`）；取消完成永不检查。
+- **阻塞状态同样是派生量**：依赖边随任务列表一次载入（`dependency:listAll`），列表行的阻塞标记由 `TaskListView` 的 `rows` memo 每轮渲染一次算出——同一轮构建一次索引与完成集合（`dependencies.ts` 的 `buildIndex` / `completionSet`），把任务行的「还差几项」与展开后每个子任务行的阻塞与否一并传给 `TaskItemRow` / `SubtaskRow` 渲染，行组件自己不再查图（详情页的依赖区、子任务属性面板各自持有一份自己的索引 memo）——单次查询的代价是该行的前置数量，而不是整张图的规模。阻塞是**软**的：`completeTask` / `completeSubtask` 只在「完成」时检查未完成前置，命中就**先不写库**，把请求停到 `blocked-confirm.ts`，由 `AppShell` 挂载的唯一 `BlockedConfirmHost` 弹一次确认（取消即丢弃，确认后走 `forceCompleteTask` / `forceCompleteSubtask`）；取消完成永不检查。
 
 ### 2.3 数据访问与乐观更新
 
