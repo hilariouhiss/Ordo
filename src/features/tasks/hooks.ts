@@ -133,6 +133,11 @@ export function createTask(input: NewTask): Promise<Task | null> {
       const created = await api.createTask({ ...input, title });
       store.removeTask(tempId);
       store.upsertTask(created);
+      // The initial subtasks were inserted server-side, so their ids are not
+      // in the response. Pull them now, or the new row would sit without a
+      // disclosure control or a progress badge until someone opens its
+      // detail. Fire-and-forget: the task itself must appear immediately.
+      if (input.subtaskTitles?.length) void loadSubtasks(created.id);
       return created;
     },
   );

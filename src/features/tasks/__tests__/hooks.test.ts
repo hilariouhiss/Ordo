@@ -1,4 +1,6 @@
+/** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "@solidjs/testing-library";
 import {
   clearNotifications,
   notifications,
@@ -202,6 +204,24 @@ describe("createTask", () => {
     expect(result).toBeNull();
     expect(store.tasksState.tasks).toEqual([]);
     expect(notifications()[0]).toMatchObject({ message: "标题不能为空", code: "validation" });
+  });
+
+  it("refetches subtasks after creating a task that carried initial ones", async () => {
+    vi.mocked(api.createTask).mockResolvedValue(task("created"));
+    vi.mocked(api.listSubtasks).mockResolvedValue([subtask("s1", "created", "第一步")]);
+
+    await hooks.createTask({ title: "新任务", subtaskTitles: ["第一步"] });
+
+    expect(api.listSubtasks).toHaveBeenCalledWith("created");
+    await waitFor(() => expect(store.getSubtasks("created")).toHaveLength(1));
+  });
+
+  it("does not fetch subtasks when the new task carried none", async () => {
+    vi.mocked(api.createTask).mockResolvedValue(task("created"));
+
+    await hooks.createTask({ title: "新任务" });
+
+    expect(api.listSubtasks).not.toHaveBeenCalled();
   });
 });
 

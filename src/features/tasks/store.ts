@@ -174,8 +174,10 @@ export function setSubtasks(taskId: string, subtasks: Subtask[]): void {
  * fetch again — leaving a childless task without a key would make every such
  * dialog re-request data that is already in hand.
  *
- * Rebuilding rather than merging also drops the keys of tasks deleted since
- * the previous load.
+ * Note that `setState` MERGES this record per key rather than replacing it, so
+ * a task deleted since the previous load keeps its (stale, empty-shell) entry.
+ * Each task's array is still replaced wholesale, so no stale data is readable;
+ * nothing iterates the record's keys, and consumers look up live task ids only.
  */
 export function setSubtasksAll(subtasks: Subtask[]): void {
   const byTask: Record<string, Subtask[]> = {};
