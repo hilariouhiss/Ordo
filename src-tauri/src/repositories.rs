@@ -900,11 +900,7 @@ pub mod search {
     ) -> Result<Vec<LikeTaskRow>, AppError> {
         let patterns: Vec<String> = terms.iter().map(|t| like_pattern(t)).collect();
         let clauses: Vec<String> = (1..=patterns.len())
-            .map(|i| {
-                format!(
-                    "(title LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\')"
-                )
-            })
+            .map(|i| format!("(title LIKE ?{i} ESCAPE '\\' OR note LIKE ?{i} ESCAPE '\\')"))
             .collect();
         let sql = format!(
             "SELECT id, title, note FROM tasks \
@@ -2074,12 +2070,7 @@ mod tests {
         assert_eq!(hits[0].note.as_deref(), Some("下划线_备注"));
 
         // Every term must occur in title or note.
-        let hits = search::like_tasks(
-            &conn,
-            &["50%".to_string(), "_备".to_string()],
-            10,
-        )
-        .unwrap();
+        let hits = search::like_tasks(&conn, &["50%".to_string(), "_备".to_string()], 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, percent.id);
         let hits = search::like_tasks(&conn, &["进度".to_string()], 10).unwrap();

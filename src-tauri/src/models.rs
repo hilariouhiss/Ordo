@@ -321,14 +321,14 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
-/// Input payloads for write commands.
-///
-/// Nullable columns in update payloads use [`Patch`]: a missing field leaves
-/// the stored value unchanged, an explicit `null` clears the column, and a
-/// value replaces it. (`Option<Option<T>>` alone cannot express this — serde
-/// collapses a missing field and an explicit `null` to the same `None`.)
+// --- write-command payloads --------------------------------------------------
 
 /// Update-patch semantics for one nullable column.
+///
+/// Nullable columns in update payloads use this: a missing field leaves the
+/// stored value unchanged, an explicit `null` clears the column, and a value
+/// replaces it. (`Option<Option<T>>` alone cannot express this — serde
+/// collapses a missing field and an explicit `null` to the same `None`.)
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Patch<T> {
     /// Field absent from the payload: leave the stored value unchanged.
@@ -944,10 +944,7 @@ mod tests {
                 .to_vec()
         );
         assert_eq!(value["kind"], json!("comment"));
-        assert_eq!(
-            serde_json::from_value::<SearchHit>(value).unwrap(),
-            hit
-        );
+        assert_eq!(serde_json::from_value::<SearchHit>(value).unwrap(), hit);
     }
 
     #[test]
@@ -961,7 +958,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             sorted_keys(&value),
-            ["dueAt", "kind", "taskId", "taskTitle"].map(String::from).to_vec()
+            ["dueAt", "kind", "taskId", "taskTitle"]
+                .map(String::from)
+                .to_vec()
         );
         assert_eq!(value["kind"], json!("advance_10m"));
         assert_eq!(
@@ -977,8 +976,11 @@ mod tests {
             interval: 2,
             paused: false,
         };
-        let value = serde_json::to_value(&rule).unwrap();
-        assert_eq!(value, json!({ "freq": "weekly", "interval": 2, "paused": false }));
+        let value = serde_json::to_value(rule).unwrap();
+        assert_eq!(
+            value,
+            json!({ "freq": "weekly", "interval": 2, "paused": false })
+        );
         assert_eq!(serde_json::from_value::<RepeatRule>(value).unwrap(), rule);
 
         // Rules stored before the paused flag existed deserialize paused=false.

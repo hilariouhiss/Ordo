@@ -29,12 +29,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, MENU_QUIT, "退出 Ordo", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[
-            &show,
-            &hide,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
+        &[&show, &hide, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)

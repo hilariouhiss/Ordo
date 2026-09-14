@@ -22,15 +22,16 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BackupDocument, BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
-    NewTimeEntry, Patch, Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind,
-    RepeatFreq, RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags,
-    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
-    UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
+    BackupDocument, BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject,
+    NewSubtask, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project, ProjectProgress,
+    ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit, SearchHitKind,
+    Subtask, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry,
+    TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask,
+    UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
-    backup, board_columns, comments, projects, reminders, search, stats, subtasks, tags,
-    task_tags, tasks, time_entries,
+    backup, board_columns, comments, projects, reminders, search, stats, subtasks, tags, task_tags,
+    tasks, time_entries,
 };
 use crate::sort;
 
@@ -1055,10 +1056,7 @@ pub fn list_time_entries(conn: &Connection, task_id: Uuid) -> Result<Vec<TimeEnt
 // ---------------------------------------------------------------------------
 
 /// Completion curve over `[from, to)`, one point per local day/week/month.
-pub fn completion_trend(
-    conn: &Connection,
-    query: TrendQuery,
-) -> Result<Vec<TrendPoint>, AppError> {
+pub fn completion_trend(conn: &Connection, query: TrendQuery) -> Result<Vec<TrendPoint>, AppError> {
     stats::completion_trend(conn, &query)
 }
 
@@ -1101,7 +1099,10 @@ pub fn export_backup(conn: &Connection, path: &Path) -> Result<BackupSummary, Ap
         .map_err(|error| AppError::Db(format!("序列化备份失败：{error}")))?;
 
     // A save dialog may point into a folder that does not exist yet.
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, json)?;
@@ -1171,7 +1172,10 @@ pub fn search(conn: &Connection, query: &str) -> Result<Vec<SearchHit>, AppError
         return Ok(Vec::new());
     }
 
-    if terms.iter().all(|t| t.chars().count() >= MIN_FTS_TERM_CHARS) {
+    if terms
+        .iter()
+        .all(|t| t.chars().count() >= MIN_FTS_TERM_CHARS)
+    {
         let match_expr = fts_match_expression(&terms);
         let task_hits = search::fts_tasks(conn, &match_expr, SEARCH_MAX_HITS)?
             .into_iter()
@@ -1240,7 +1244,11 @@ fn find_ascii_ci(haystack: &str, needle: &str) -> Option<(usize, usize)> {
     if needle.is_empty() {
         return None;
     }
-    let fold = |s: &str| s.chars().map(|c| c.to_ascii_lowercase()).collect::<String>();
+    let fold = |s: &str| {
+        s.chars()
+            .map(|c| c.to_ascii_lowercase())
+            .collect::<String>()
+    };
     let start = fold(haystack).find(&fold(needle))?;
     Some((start, start + needle.len()))
 }
@@ -1283,7 +1291,11 @@ fn window_snippet(text: &str, start: usize, end: usize) -> String {
     }
     snippet.extend(chars[lo..index_of(start)].iter().map(|&(_, c)| c));
     snippet.push_str("<mark>");
-    snippet.extend(chars[index_of(start)..index_of(end)].iter().map(|&(_, c)| c));
+    snippet.extend(
+        chars[index_of(start)..index_of(end)]
+            .iter()
+            .map(|&(_, c)| c),
+    );
     snippet.push_str("</mark>");
     snippet.extend(chars[index_of(end)..hi].iter().map(|&(_, c)| c));
     if hi < chars.len() {
@@ -1745,7 +1757,14 @@ mod tests {
         // Soft-deleting a task does not cascade to its subtasks, so the query
         // has to exclude them by looking at the parent.
         let doomed = make_task(&conn, "要删的任务");
-        create_subtask(&conn, doomed.id, NewSubtask { title: "陪葬".into() }).unwrap();
+        create_subtask(
+            &conn,
+            doomed.id,
+            NewSubtask {
+                title: "陪葬".into(),
+            },
+        )
+        .unwrap();
         soft_delete_task(&conn, doomed.id).unwrap();
 
         let all = list_all_subtasks(&conn).unwrap();
@@ -1761,7 +1780,11 @@ mod tests {
         };
         assert_eq!(titles_of(first.id), vec!["a", "b"]);
         assert_eq!(titles_of(second.id), vec!["c"]);
-        assert_eq!(all.len(), 3, "the deleted task's subtask must not be returned");
+        assert_eq!(
+            all.len(),
+            3,
+            "the deleted task's subtask must not be returned"
+        );
 
         // A soft-deleted subtask disappears too.
         delete_subtask(&conn, b.id).unwrap();
@@ -2376,7 +2399,8 @@ mod tests {
         assert_eq!(hits[0].task_title, "Go live checklist");
         assert!(
             hits[0].snippet.contains("<mark>Go</mark>"),
-            "unexpected snippet: {}", hits[0].snippet
+            "unexpected snippet: {}",
+            hits[0].snippet
         );
 
         let hits = search(&conn, "周报").unwrap();
@@ -2495,11 +2519,9 @@ mod tests {
         );
 
         // Everything has fired: rescans are no-ops, even past the due time.
-        assert!(
-            scan_reminders(&conn, due + chrono::Duration::hours(1))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(scan_reminders(&conn, due + chrono::Duration::hours(1))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2521,11 +2543,9 @@ mod tests {
         assert!(fired.iter().all(|r| r.kind == ReminderKind::Due));
 
         // The stale backlog stays unmarked but never fires later either.
-        assert!(
-            scan_reminders(&conn, base + chrono::Duration::hours(1))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(scan_reminders(&conn, base + chrono::Duration::hours(1))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2547,19 +2567,28 @@ mod tests {
         let task = make_task(&conn, "被评论的任务");
 
         // Unknown task and blank body are rejected.
-        let err = create_comment(&conn, Uuid::new_v4(), NewComment { body: "你好".into() })
-            .unwrap_err();
+        let err = create_comment(
+            &conn,
+            Uuid::new_v4(),
+            NewComment {
+                body: "你好".into(),
+            },
+        )
+        .unwrap_err();
         assert_eq!(err.code(), "not_found");
         let err = create_comment(&conn, task.id, NewComment { body: "   ".into() }).unwrap_err();
         assert_eq!(err.code(), "validation");
 
-        let comment = create_comment(&conn, task.id, NewComment { body: "  第一条评论  ".into() })
-            .unwrap();
+        let comment = create_comment(
+            &conn,
+            task.id,
+            NewComment {
+                body: "  第一条评论  ".into(),
+            },
+        )
+        .unwrap();
         assert_eq!(comment.body, "第一条评论");
-        assert_eq!(
-            list_comments(&conn, task.id).unwrap()[0].body,
-            "第一条评论"
-        );
+        assert_eq!(list_comments(&conn, task.id).unwrap()[0].body, "第一条评论");
 
         let edited = update_comment(
             &conn,
@@ -2573,7 +2602,10 @@ mod tests {
 
         delete_comment(&conn, comment.id).unwrap();
         assert_eq!(list_comments(&conn, task.id).unwrap().len(), 0);
-        assert_eq!(delete_comment(&conn, comment.id).unwrap_err().code(), "not_found");
+        assert_eq!(
+            delete_comment(&conn, comment.id).unwrap_err().code(),
+            "not_found"
+        );
         assert_eq!(
             update_comment(&conn, comment.id, UpdateComment { body: "x".into() })
                 .unwrap_err()
@@ -2586,7 +2618,14 @@ mod tests {
     fn comments_created_through_the_service_are_searchable() {
         let conn = conn();
         let task = make_task(&conn, "整理季度回顾");
-        create_comment(&conn, task.id, NewComment { body: "记得附上留存率曲线图".into() }).unwrap();
+        create_comment(
+            &conn,
+            task.id,
+            NewComment {
+                body: "记得附上留存率曲线图".into(),
+            },
+        )
+        .unwrap();
 
         let hits = search(&conn, "留存率曲线").unwrap();
         assert_eq!(hits.len(), 1);
@@ -2717,7 +2756,14 @@ mod tests {
     #[test]
     fn completing_a_repeating_task_spawns_the_next_instance() {
         let conn = conn();
-        let tag = create_tag(&conn, NewTag { name: "家务".into(), color: None }).unwrap();
+        let tag = create_tag(
+            &conn,
+            NewTag {
+                name: "家务".into(),
+                color: None,
+            },
+        )
+        .unwrap();
         let due = Utc.with_ymd_and_hms(2026, 9, 11, 18, 0, 0).unwrap();
         let rule = RepeatRule {
             freq: RepeatFreq::Daily,
@@ -3198,9 +3244,11 @@ mod tests {
         );
 
         // An empty range is an empty curve, not an error.
-        let empty =
-            completion_trend(&conn, trend_query(at(1, 0), at(2, 0), StatsGranularity::Day, 0))
-                .unwrap();
+        let empty = completion_trend(
+            &conn,
+            trend_query(at(1, 0), at(2, 0), StatsGranularity::Day, 0),
+        )
+        .unwrap();
         assert!(empty.is_empty());
     }
 
@@ -3221,7 +3269,11 @@ mod tests {
         make_task_in(&conn, None, Vec::new(), "收件箱");
 
         let progress = project_progress(&conn).unwrap();
-        assert_eq!(progress.len(), 2, "archived projects are out of the picture");
+        assert_eq!(
+            progress.len(),
+            2,
+            "archived projects are out of the picture"
+        );
         assert_eq!(
             progress[0],
             ProjectProgress {
@@ -3389,11 +3441,14 @@ mod tests {
 
         let to = base + chrono::Duration::days(60);
         let started = std::time::Instant::now();
-        let trend = completion_trend(&conn, trend_query(base, to, StatsGranularity::Day, 480))
-            .unwrap();
+        let trend =
+            completion_trend(&conn, trend_query(base, to, StatsGranularity::Day, 480)).unwrap();
         let trend_elapsed = started.elapsed();
         assert_eq!(trend.iter().map(|point| point.completed).sum::<i64>(), 1500);
-        assert!(trend_elapsed.as_millis() < 100, "trend took {trend_elapsed:?}");
+        assert!(
+            trend_elapsed.as_millis() < 100,
+            "trend took {trend_elapsed:?}"
+        );
 
         let started = std::time::Instant::now();
         let progress = project_progress(&conn).unwrap();
@@ -3554,7 +3609,10 @@ mod tests {
         let conn = conn();
         let path = backup_path();
         std::fs::write(&path, r#"{"format":"something-else","version":1}"#).unwrap();
-        assert_eq!(import_backup(&conn, &path).unwrap_err().code(), "validation");
+        assert_eq!(
+            import_backup(&conn, &path).unwrap_err().code(),
+            "validation"
+        );
 
         std::fs::write(
             &path,
@@ -3567,10 +3625,16 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(import_backup(&conn, &path).unwrap_err().code(), "validation");
+        assert_eq!(
+            import_backup(&conn, &path).unwrap_err().code(),
+            "validation"
+        );
 
         std::fs::write(&path, "{ not json").unwrap();
-        assert_eq!(import_backup(&conn, &path).unwrap_err().code(), "validation");
+        assert_eq!(
+            import_backup(&conn, &path).unwrap_err().code(),
+            "validation"
+        );
 
         // A rejected import leaves the data alone.
         let task = seed_everything(&conn);

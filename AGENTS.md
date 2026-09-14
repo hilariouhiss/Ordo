@@ -22,7 +22,7 @@
 - `pnpm test` — Vitest (unit tests); `pnpm test:watch` for watch mode.
 - `pnpm tauri dev` — full app in dev mode (runs `pnpm dev` then launches the Rust window).
 - `pnpm tauri build` — full release build/bundle.
-- Rust (inside `src-tauri/`): `cargo check`, `cargo test`, `cargo build`.
+- Rust (inside `src-tauri/`): `cargo check`, `cargo test`, `cargo build`. No CI runs the linters, so run them by hand — `cargo fmt` (the tree is rustfmt-clean, default config) and `cargo clippy --all-targets -- -D warnings` must both come back silent.
 
 ## Documentation
 

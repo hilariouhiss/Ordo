@@ -15,10 +15,11 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask,
-    NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag, Task, TaskWithTags,
-    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
-    UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
+    BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask,
+    NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag, Task,
+    TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
+    UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    UpdateTimeEntry,
 };
 use crate::services;
 
@@ -106,7 +107,7 @@ pub fn subtask_list(db: State<'_, Db>, task_id: Uuid) -> Result<Vec<Subtask>, Ap
 
 #[tauri::command(rename = "subtask:listAll")]
 pub fn subtask_list_all(db: State<'_, Db>) -> Result<Vec<Subtask>, AppError> {
-    with_conn(&db, |conn| services::list_all_subtasks(conn))
+    with_conn(&db, services::list_all_subtasks)
 }
 
 #[tauri::command(rename = "subtask:create")]
@@ -270,7 +271,9 @@ pub fn comment_update(
     comment_id: Uuid,
     payload: UpdateComment,
 ) -> Result<Comment, AppError> {
-    with_conn(&db, |conn| services::update_comment(conn, comment_id, payload))
+    with_conn(&db, |conn| {
+        services::update_comment(conn, comment_id, payload)
+    })
 }
 
 #[tauri::command(rename = "comment:delete")]
