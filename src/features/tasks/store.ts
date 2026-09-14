@@ -176,12 +176,13 @@ export function setSubtasks(taskId: string, subtasks: Subtask[]): void {
  * decide whether to fetch again — leaving a childless task without a key
  * would make every such dialog re-request data that is already in hand.
  *
- * The rebuild is blind: it replaces each covered task's array wholesale, so a
- * subtask written to the cache while a `loadAll` was in flight (add, delete or
- * toggle from the task detail dialog) is overwritten by the result. The dialog
- * can show a ghost or a missing row until the next load; the database stays
- * correct. Upgrade path: stream the sub-task bulk out of the mid-session
- * reload so it runs only on the initial load, which removes the trigger.
+ * The rebuild is blind: it replaces each covered task's array wholesale. Its
+ * only caller is `loadAll`, which runs for the initial load (and the
+ * post-import refresh) — the mid-session refresh (`reloadTasks`) deliberately
+ * leaves the snapshot out — so a rebuild never lands on top of a write the
+ * user just made from a row that was on screen. If a future refresh does have
+ * to carry the snapshot again, skip tasks whose cache is already loaded
+ * instead of merging: a merge would resurrect rows the user deleted.
  *
  * Note that `setState` MERGES this record per key rather than replacing it, so
  * a task deleted since the previous load keeps its stale entry — the whole

@@ -31,7 +31,7 @@ import {
 } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
-import { loadAll } from "../features/tasks/hooks";
+import { reloadTasks } from "../features/tasks/hooks";
 
 type NavPath =
   | "/inbox"
@@ -110,7 +110,9 @@ export default function AppShell() {
     void subscribeToReminders();
     // The quick-add window (D-02) is a separate webview with its own store, so
     // a task filed there stays invisible here until the list is pulled again.
-    listen(EVENTS.taskCreated, () => void loadAll()).catch(() => {});
+    // Tasks + tags only: that window creates nothing but bare tasks, and the
+    // bulk subtask rebuild would clobber a cache the user is writing to.
+    listen(EVENTS.taskCreated, () => void reloadTasks()).catch(() => {});
   });
 
   const openCreateProject = () => {

@@ -513,8 +513,10 @@ describe("任务列表的层级展示", () => {
     expect(await screen.findByText("任务 t1")).toBeTruthy();
     expect(screen.queryByText("收集意见")).toBeNull();
     expect(screen.getByText("1/2")).toBeTruthy();
-    // The badge's digits stay visible; the label is what a screen reader reads.
-    expect(screen.getByText("1/2").getAttribute("aria-label")).toBe("子任务 1/2 已完成");
+    // The digits stay visible but are hidden from assistive tech; the name is
+    // real text, because `aria-label` on the Badge's generic span is ignored.
+    expect(screen.getByText("1/2").getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getByText("子任务 1/2 已完成").className).toContain("sr-only");
   });
 
   it("expands to list the cached children in their seeded order and collapses again", async () => {
@@ -587,5 +589,47 @@ describe("任务列表的层级展示", () => {
     // 0/2 above a single visible row would be lying.
     expect(screen.getByText("收集意见")).toBeTruthy();
     expect(screen.getByText("定稿")).toBeTruthy();
+  });
+
+  /*
+   * The row height lives in three places that cannot see each other:
+   * `ROW_HEIGHT` (the virtualizer's only input), the `h-14` both row
+   * components must carry to match it, and the 20px gutter that keeps their
+   * checkboxes in one column. jsdom has no layout engine, so the classes are
+   * the assertable half — pinned here once, rather than in three comments.
+   * Tailwind's scale is 4px per unit: h-14 = 56px, (size|w)-5 = 20px.
+   */
+  it("pins the virtualizer, both row components and the gutter to one scale", async () => {
+    /** The height (or width) utilities an element carries, as written. */
+    const dimension = (element: Element, axis: "h" | "w") =>
+      [...element.classList].filter((name) => new RegExp(`^(?:${axis}|size)-`).test(name));
+
+    seedWithSubtasks();
+    render(() => <InboxView />);
+    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+
+    const list = document.querySelector('[role="list"]') as HTMLElement;
+    // Four flattened rows (t1, its two children, t2) at the virtualizer's
+    // assumed 56px. A 60px row here would misplace every row below the fold.
+    expect((list.firstElementChild as HTMLElement).style.height).toBe("224px");
+
+    const rows = [...list.querySelectorAll<HTMLElement>("[data-task-id], [data-subtask-id]")];
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      // Exactly one height class: a second one wins or loses by CSS source
+      // order, which is how the rail slot broke before.
+      expect(dimension(row, "h")).toEqual(["h-14"]);
+    }
+
+    // Disclosure slot (button with children, spacer without) and the subtask
+    // rail: all three are the same 20px, which is what lines the checkboxes up.
+    const [withChildren, childless] = [
+      ...list.querySelectorAll<HTMLElement>("[data-task-id]"),
+    ];
+    expect(dimension(withChildren.firstElementChild as Element, "w")).toEqual(["size-5"]);
+    expect(dimension(childless.firstElementChild as Element, "w")).toEqual(["size-5"]);
+    expect(
+      dimension(list.querySelector("[data-subtask-id]")!.firstElementChild as Element, "w"),
+    ).toEqual(["w-5"]);
   });
 });

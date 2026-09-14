@@ -11,7 +11,9 @@ import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskItemRow } from "./TaskItemRow";
 import { TagManagerDialog } from "./TagManagerDialog";
 
-/** Must match the row height in `TaskItemRow` (VirtualList v1 is fixed-height). */
+/** Both row components carry this height as `h-14`; VirtualList v1 cannot
+ * measure rows. The three copies — this number, those classes and the 20px
+ * gutter — are pinned by one assertion in `task-views.test.tsx`. */
 const ROW_HEIGHT = 56;
 
 /**

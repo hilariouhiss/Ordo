@@ -48,7 +48,8 @@ export interface TaskItemRowProps {
   onDelete: (task: Task) => void;
 }
 
-/** One task row inside the virtualized views; height must stay 56px (ROW_HEIGHT). */
+/** One task row inside the virtualized views; its `h-14` height and 20px
+ * gutter are part of the contract pinned in `task-views.test.tsx`. */
 export function TaskItemRow(props: TaskItemRowProps) {
   const completed = () => props.task.completedAt !== null;
   const priority = () => PRIORITY_BADGES[props.task.priority];
@@ -102,9 +103,17 @@ export function TaskItemRow(props: TaskItemRowProps) {
       </button>
 
       <Show when={props.subtaskCount > 0}>
-        {/* A bare `1/3` has no context read aloud; the digits stay visible. */}
-        <Badge aria-label={`子任务 ${props.subtaskDone}/${props.subtaskCount} 已完成`}>
-          {props.subtaskDone}/{props.subtaskCount}
+        {/* A bare `1/3` has no context read aloud, and `aria-label` cannot give
+            it one: the Badge is a generic span, and ARIA forbids naming those
+            (`role=generic` has no name-from-author). So the digits are hidden
+            from assistive tech and the label is real text instead. */}
+        <Badge>
+          <span aria-hidden="true">
+            {props.subtaskDone}/{props.subtaskCount}
+          </span>
+          <span class="sr-only">
+            子任务 {props.subtaskDone}/{props.subtaskCount} 已完成
+          </span>
         </Badge>
       </Show>
 

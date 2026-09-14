@@ -171,6 +171,45 @@ describe("loadAll", () => {
   });
 });
 
+describe("reloadTasks", () => {
+  it("re-reads tasks and tags without touching the subtask cache", async () => {
+    store.setAll([task("a")], []);
+    store.setSubtasks("a", [subtask("s1", "a", "第一步")]);
+    vi.mocked(api.listTasks).mockResolvedValue([task("a", { title: "改名" }), task("new")]);
+    vi.mocked(api.listTags).mockResolvedValue([tag("t1", "工作")]);
+
+    const ok = await hooks.reloadTasks();
+
+    expect(ok).toBe(true);
+    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "new"]);
+    expect(store.tasksState.tags).toHaveLength(1);
+    // The snapshot stays home: the bulk rebuild would overwrite whatever the
+    // user just wrote from the detail dialog, and the mid-session caller (the
+    // quick-add window filing a task) creates no subtasks to pull.
+    expect(api.listSubtasksAll).not.toHaveBeenCalled();
+    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1"]);
+    // The new task gets no entry, so its detail dialog fetches once — the
+    // lazy fallback, and the truthful answer for a task nobody has opened.
+    expect(store.hasSubtasks("new")).toBe(false);
+  });
+
+  it("notifies and reports failure without touching the loaded data", async () => {
+    store.setAll([task("a")], []);
+    store.setSubtasks("a", [subtask("s1", "a", "第一步")]);
+    vi.mocked(api.listTasks).mockRejectedValue(appError("database", "数据库错误"));
+    vi.mocked(api.listTags).mockResolvedValue([]);
+
+    const ok = await hooks.reloadTasks();
+
+    expect(ok).toBe(false);
+    expect(notifications()).toEqual([
+      { id: expect.any(Number), kind: "error", message: "数据库错误", code: "database" },
+    ]);
+    expect(store.getTask("a")).toBeTruthy();
+    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1"]);
+  });
+});
+
 describe("createTask", () => {
   it("shows a trimmed optimistic entry, then reconciles with the real row", async () => {
     const pending = deferred<Task>();

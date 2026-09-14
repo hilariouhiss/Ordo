@@ -79,6 +79,8 @@ store.setSubtasksAll(subtasks, tasks.map((task) => task.id));
 
 子任务查询失败即整体 `loadAll` 失败，与现有语义一致（单库单连接，查询失败就是数据库故障）。
 
+**批量载入只发生在启动（实现后修正）。** `loadAll` 的这份快照只服务初始加载（以及备份导入后的整体刷新）；会话中途的刷新走另一个函数 `reloadTasks()`，只重拉任务与标签。原因是 `setSubtasksAll` 的盲重建：中途带着快照重跑，会把用户此刻在详情弹窗里刚写入的子任务整数组覆盖掉。而中途刷新的唯一来源是快捷添加窗（`task:created`），它创建的任务没有子任务，其行不该有进度徽章，详情弹窗按 `hasSubtasks` 兜底拉一次即可。若将来真需要在中途重跑批量载入，应当**跳过已缓存的任务**（保留用户刚写入的数据），而不是做 merge —— merge 会把用户已删除的行复活。
+
 **保留懒加载兜底。** `loadSubtasks` 与 `hasSubtasks` 不动，因为它们仍覆盖一个真实场景：会话中途新建、且带初始子任务的任务，缓存里还没有它的条目。
 
 `createTask` 需要在成功分支补一次拉取：当 `input.subtaskTitles` 非空时，`store.upsertTask(created)` 之后 `void loadSubtasks(created.id)`。不补的话，列表里新建的任务不会显示进度徽章，直到用户点开它的详情——这与「列表能看出子任务进度」的目标直接矛盾。用 fire-and-forget，任务本身仍然瞬时出现。
@@ -163,7 +165,7 @@ const rows = createMemo(() =>
 - **勾选子任务使其完成**：父任务本身没完成，所以父任务仍留在当前视图，子行显示为已完成（带删除线）。父行的数字跟着走
 - **任务在展开状态下被删除**：`expanded` 里会残留一个不再被读取的键。无副作用，不做清理
 - **子任务全部完成但父任务未完成**：父行显示 `3/3`，父任务本身仍在待办状态。不自动完成父任务
-- **快速新增窗口创建的任务**：走 `task:created` 事件触发 `loadAll`，批量查询会覆盖到
+- **快速新增窗口创建的任务**：走 `task:created` 事件触发 `reloadTasks()`（任务 + 标签，不带子任务快照，见 §4.3）。它没有子任务，因此不显示三角与进度徽章，直到用户点开详情才按需拉取
 
 ## 8. 测试
 
@@ -208,7 +210,8 @@ Rust：
 | `src/common/ipc/commands.ts` | `subtask.listAll` |
 | `src/features/tasks/api.ts` | `listSubtasksAll` |
 | `src/features/tasks/store.ts` | `setSubtasksAll` |
-| `src/features/tasks/hooks.ts` | `loadAll` 并入批量查询；`createTask` 带初始子任务时补拉 |
+| `src/features/tasks/hooks.ts` | `loadAll` 并入批量查询；`reloadTasks`（中途刷新，不带快照）；`createTask` 带初始子任务时补拉 |
+| `src/app/AppShell.tsx` | `task:created` 监听改用 `reloadTasks` |
 | `src/features/tasks/components/TaskListView.tsx` | 拍平成行序列、展开状态、行类型分发 |
 | `src/features/tasks/components/TaskItemRow.tsx` | 三角、占位、进度徽章 |
 | `src/features/tasks/components/SubtaskRow.tsx` | 新增 |

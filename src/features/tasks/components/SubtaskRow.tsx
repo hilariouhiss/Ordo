@@ -13,13 +13,13 @@ export interface SubtaskRowProps {
 /**
  * One subtask under an expanded task row.
  *
- * Height and horizontal rhythm match `TaskItemRow` exactly — the virtualizer
- * is fixed-height, and the two rows' checkboxes only line up as a column if
- * both reserve the same 20px disclosure slot on the left. The guide line in
- * that slot is what makes the nesting readable once the checkboxes align.
- * The slot is `w-5 self-stretch`, not `size-5`: `size-5` also fixes the
- * height, and under the row's `items-center` that clamps the rail to a 20px
- * tick with a 36px break between rows instead of a continuous guide.
+ * Height and 20px gutter match `TaskItemRow`; that contract is pinned in
+ * `task-views.test.tsx`. The checkboxes of the two rows only line up as a
+ * column because both reserve that slot on the left, and the slot is
+ * `w-5 self-stretch`, not `size-5`: `size-5` also fixes the height, and under
+ * the row's `items-center` that clamps the rail to a 20px tick with a 36px
+ * break between rows instead of a continuous guide. Once the checkboxes
+ * align, that guide line is what makes the nesting readable.
  */
 export function SubtaskRow(props: SubtaskRowProps) {
   return (

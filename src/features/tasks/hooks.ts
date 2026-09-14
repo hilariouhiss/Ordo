@@ -86,6 +86,28 @@ export async function loadAll(): Promise<boolean> {
   }
 }
 
+/**
+ * Re-reads tasks and tags only; returns success. This is the mid-session
+ * refresh: the quick-add window files a task through its own store, so this
+ * window has to pull the list again.
+ *
+ * Deliberately without the bulk subtask snapshot: `setSubtasksAll` rebuilds
+ * the cache blind, so running it here could only overwrite a subtask the user
+ * just wrote from the detail dialog. Nothing the quick-add window creates has
+ * subtasks, and a task without a cache entry simply renders no progress badge
+ * until its detail is opened (the `hasSubtasks` fallback).
+ */
+export async function reloadTasks(): Promise<boolean> {
+  try {
+    const [tasks, tags] = await Promise.all([api.listTasks(), api.listTags()]);
+    store.setAll(tasks, tags);
+    return true;
+  } catch (error) {
+    reportFailure(error);
+    return false;
+  }
+}
+
 /** Loads one task's subtasks into the cache; returns success. */
 export async function loadSubtasks(taskId: string): Promise<boolean> {
   try {
