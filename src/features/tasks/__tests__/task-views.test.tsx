@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as store from "../store";
-import type { Task } from "../types";
+import type { Subtask, Task } from "../types";
 import { CompletedView } from "../components/views/CompletedView";
 import { InboxView } from "../components/views/InboxView";
 import { TodayView } from "../components/views/TodayView";
@@ -63,6 +63,19 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     updatedAt: "2026-09-01T10:00:00Z",
     deletedAt: null,
     ...overrides,
+  };
+}
+
+function subtask(id: string, taskId: string, title: string, done = false): Subtask {
+  return {
+    id,
+    taskId,
+    title,
+    done,
+    sortOrder: "n",
+    createdAt: "2026-09-01T10:00:00Z",
+    updatedAt: "2026-09-01T10:00:00Z",
+    deletedAt: null,
   };
 }
 
@@ -387,5 +400,34 @@ describe("filtering and sorting", () => {
       ...(document.querySelector('[role="list"]') as HTMLElement).querySelectorAll("[data-task-id]"),
     ].map((el) => el.getAttribute("data-task-id"));
     expect(ids).toEqual(["sooner", "later"]);
+  });
+});
+
+describe("任务行的子任务展开位", () => {
+  it("shows a disclosure control and a done/total badge when the task has subtasks", async () => {
+    store.setAll([task("t1")], []);
+    store.setSubtasks("t1", [
+      subtask("s1", "t1", "第一步", true),
+      subtask("s2", "t1", "第二步", false),
+      subtask("s3", "t1", "第三步", false),
+    ]);
+    vi.mocked(api.listTasks).mockResolvedValue([task("t1")]);
+
+    render(() => <InboxView />);
+
+    expect(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" })).toBeTruthy();
+    expect(screen.getByText("1/3")).toBeTruthy();
+  });
+
+  it("renders neither a disclosure control nor a badge for a childless task", async () => {
+    store.setAll([task("t1")], []);
+    store.setSubtasks("t1", []);
+    vi.mocked(api.listTasks).mockResolvedValue([task("t1")]);
+
+    render(() => <InboxView />);
+
+    expect(await screen.findByText("任务 t1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /的子任务/ })).toBeNull();
+    expect(screen.queryByText(/^\d+\/\d+$/)).toBeNull();
   });
 });

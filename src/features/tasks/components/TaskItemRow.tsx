@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
+import { ChevronRight, MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
 import {
   Badge,
   Checkbox,
@@ -35,6 +35,12 @@ export interface TaskItemRowProps {
   task: Task;
   /** Current clock, passed in so day boundaries stay stable per view render. */
   now: Date;
+  /** How many subtasks the task has; 0 hides the disclosure control. */
+  subtaskCount: number;
+  /** How many of them are done, for the collapsed progress badge. */
+  subtaskDone: number;
+  expanded: boolean;
+  onToggleExpand: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   /** Clicking the title opens the task detail (subtasks live there). */
   onOpenDetail: (task: Task) => void;
@@ -55,6 +61,26 @@ export function TaskItemRow(props: TaskItemRowProps) {
       class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-task-id={props.task.id}
     >
+      <Show
+        when={props.subtaskCount > 0}
+        fallback={<span class="size-5 shrink-0" aria-hidden="true" />}
+      >
+        <button
+          type="button"
+          class="flex size-5 shrink-0 items-center justify-center rounded text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring"
+          aria-expanded={props.expanded}
+          aria-label={`${props.expanded ? "收起" : "展开"} ${props.task.title} 的子任务`}
+          onClick={() => props.onToggleExpand(props.task)}
+        >
+          <ChevronRight
+            size={14}
+            aria-hidden="true"
+            class="transition-transform duration-150 ease-out"
+            classList={{ "rotate-90": props.expanded }}
+          />
+        </button>
+      </Show>
+
       <Checkbox.Root checked={completed()} onChange={() => props.onToggleComplete(props.task)}>
         <Checkbox.Input
           aria-label={completed() ? `恢复 ${props.task.title}` : `完成 ${props.task.title}`}
@@ -74,6 +100,12 @@ export function TaskItemRow(props: TaskItemRowProps) {
           {props.task.title}
         </span>
       </button>
+
+      <Show when={props.subtaskCount > 0}>
+        <Badge>
+          {props.subtaskDone}/{props.subtaskCount}
+        </Badge>
+      </Show>
 
       <Show when={props.task.repeatRule}>
         {(rule) => (

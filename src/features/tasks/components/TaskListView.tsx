@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
 import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
-import { tasksState } from "../store";
+import { getSubtasks, tasksState } from "../store";
 import type { Priority, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
 import { TaskDetailDialog } from "./TaskDetailDialog";
@@ -269,6 +269,10 @@ export function TaskListView(props: TaskListViewProps) {
             <TaskItemRow
               task={task}
               now={now()}
+              subtaskCount={getSubtasks(task.id).length}
+              subtaskDone={getSubtasks(task.id).filter((child) => child.done).length}
+              expanded={false}
+              onToggleExpand={() => {}}
               onToggleComplete={toggleComplete}
               onOpenDetail={openDetail}
               onEdit={openEdit}
