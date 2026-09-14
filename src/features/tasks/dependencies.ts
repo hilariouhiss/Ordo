@@ -3,9 +3,9 @@
  * table-tested instead of click-tested.
  *
  * The full edge set arrives with the task list, so "is this blocked?" is a
- * local computation. Callers build the index and the completion set once per
- * render pass (inside a `createMemo`) and then ask per row; the per-row cost is
- * that row's own prerequisite count, not the size of the graph.
+ * local computation. Callers build the live set, the index and the completion
+ * set once per render pass (inside a `createMemo`) and then ask per row; the
+ * per-row cost is that row's own prerequisite count, not the size of the graph.
  */
 
 import type { Dependency, DependencyKind, Subtask, Task } from "./types";
@@ -28,14 +28,37 @@ function push(map: Map<string, string[]>, key: string, value: string): void {
   else map.set(key, [value]);
 }
 
-export function buildIndex(dependencies: readonly Dependency[]): DependencyIndex {
+export function buildIndex(
+  dependencies: readonly Dependency[],
+  live: ReadonlySet<string>,
+): DependencyIndex {
   const prerequisites = new Map<string, string[]>();
   const successors = new Map<string, string[]>();
   for (const edge of dependencies) {
-    push(prerequisites, entityKey(edge.kind, edge.dependentId), edge.prerequisiteId);
-    push(successors, entityKey(edge.kind, edge.prerequisiteId), edge.dependentId);
+    const dependent = entityKey(edge.kind, edge.dependentId);
+    const prerequisite = entityKey(edge.kind, edge.prerequisiteId);
+    // A soft delete is optimistic here: the row leaves the store while the
+    // edge list keeps the edge (`dependency:listAll` only hides it at the next
+    // load), so liveness — not the raw list — decides whether an edge counts.
+    if (!live.has(dependent) || !live.has(prerequisite)) continue;
+    push(prerequisites, dependent, edge.prerequisiteId);
+    push(successors, prerequisite, edge.dependentId);
   }
   return { prerequisites, successors };
+}
+
+/** Keys of every entity the store still holds: a soft-deleted task is gone
+ * from `state.tasks`, a soft-deleted subtask from its parent's cache array. */
+export function liveSet(
+  tasks: readonly Task[],
+  subtasksByTask: Record<string, readonly Subtask[]>,
+): Set<string> {
+  const live = new Set<string>();
+  for (const task of tasks) live.add(entityKey("task", task.id));
+  for (const list of Object.values(subtasksByTask)) {
+    for (const subtask of list) live.add(entityKey("subtask", subtask.id));
+  }
+  return live;
 }
 
 /** Keys of every finished entity: completed tasks and done subtasks. */

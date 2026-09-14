@@ -12,9 +12,8 @@ import { normalizeError } from "../../common/ipc";
 import { pushError } from "../../common/stores/notifications";
 import * as api from "./api";
 import { requestBlockedConfirm } from "./blocked-confirm";
-import { blockersOf, buildIndex, completionSet, edgeEquals } from "./dependencies";
+import { blockersOf, buildIndex, completionSet, edgeEquals, liveSet } from "./dependencies";
 import * as store from "./store";
-import type { BlockedRequest } from "./blocked-confirm";
 import type {
   Comment,
   Dependency,
@@ -219,21 +218,31 @@ function applyCompleteTask(taskId: string): Promise<Task | null> {
 }
 
 /**
- * Completing something with an unfinished prerequisite needs one confirmation
- * first: the action is not refused (a local single-user tool must not lock its
- * owner out), but it does not happen silently either.
+ * The one soft-block gate. Completing something with an unfinished
+ * prerequisite needs one confirmation first: the action is not refused (a
+ * local single-user tool must not lock its owner out), but it does not happen
+ * silently either. `run` is the *whole* action, so the host replays it without
+ * knowing which entry point parked it — the board's drag, for instance, also
+ * moves the card.
+ *
+ * Returns `true` when the action was parked, in which case the caller must do
+ * nothing else; `false` means it is not blocked and the caller runs `run`.
  */
-function blockedRequestFor(
+export function parkIfBlocked(
   kind: DependencyKind,
   id: string,
   title: string,
   parentId: string | null,
-): BlockedRequest | null {
-  const index = buildIndex(store.tasksState.dependencies);
+  run: () => Promise<unknown>,
+): boolean {
+  const index = buildIndex(
+    store.tasksState.dependencies,
+    liveSet(store.tasksState.tasks, store.tasksState.subtasksByTask),
+  );
   const done = completionSet(store.tasksState.tasks, store.tasksState.subtasksByTask);
   const blockers = blockersOf(index, done, kind, id);
-  if (blockers.length === 0) return null;
-  return {
+  if (blockers.length === 0) return false;
+  requestBlockedConfirm({
     kind,
     id,
     parentId,
@@ -243,7 +252,9 @@ function blockedRequestFor(
       id: blockerId,
       title: titleOf(kind, blockerId),
     })),
-  };
+    run,
+  });
+  return true;
 }
 
 /** Title of a task or subtask by id, for the confirmation list. */
@@ -259,15 +270,15 @@ function titleOf(kind: DependencyKind, id: string): string {
 export function completeTask(taskId: string): Promise<Task | null> {
   const current = store.getTask(taskId);
   if (!current) return Promise.resolve(missingEntity("任务"));
-  const blocked = blockedRequestFor("task", taskId, current.title, null);
-  if (blocked) {
-    requestBlockedConfirm(blocked);
+  const complete = () => forceCompleteTask(taskId);
+  if (parkIfBlocked("task", taskId, current.title, null, complete)) {
     return Promise.resolve(null);
   }
-  return applyCompleteTask(taskId);
+  return complete();
 }
 
-/** Completion that skips the dependency check; only `BlockedConfirmHost` calls it. */
+/** Completion that skips the dependency check: the body of the action
+ * `completeTask` parks for the confirmation host. */
 export function forceCompleteTask(taskId: string): Promise<Task | null> {
   return applyCompleteTask(taskId);
 }
@@ -440,6 +451,12 @@ export function updateSubtask(
   const optimisticPatch: Partial<Subtask> = { updatedAt: new Date().toISOString() };
   if (patch.title !== undefined) optimisticPatch.title = patch.title.trim();
   if (patch.done !== undefined) optimisticPatch.done = patch.done;
+  // The four attributes the subtask editor writes in one call: leaving them out
+  // here would show the old values until the round trip lands.
+  if ("note" in patch) optimisticPatch.note = patch.note ?? null;
+  if (patch.priority !== undefined) optimisticPatch.priority = patch.priority;
+  if ("dueAt" in patch) optimisticPatch.dueAt = patch.dueAt ?? null;
+  if ("complexity" in patch) optimisticPatch.complexity = patch.complexity ?? null;
 
   return optimistic(
     () => store.patchSubtask(taskId, subtaskId, optimisticPatch),
@@ -479,19 +496,18 @@ export function completeSubtask(
   subtaskId: string,
   done: boolean,
 ): Promise<Subtask | null> {
+  const complete = () => forceCompleteSubtask(taskId, subtaskId);
   if (done) {
     const current = store.getSubtasks(taskId).find((item) => item.id === subtaskId);
     if (!current) return Promise.resolve(missingEntity("子任务"));
-    const blocked = blockedRequestFor("subtask", subtaskId, current.title, taskId);
-    if (blocked) {
-      requestBlockedConfirm(blocked);
+    if (parkIfBlocked("subtask", subtaskId, current.title, taskId, complete)) {
       return Promise.resolve(null);
     }
   }
   return applyCompleteSubtask(taskId, subtaskId, done);
 }
 
-/** Completion that skips the dependency check; only `BlockedConfirmHost` calls it. */
+/** Subtask counterpart of `forceCompleteTask`. */
 export function forceCompleteSubtask(
   taskId: string,
   subtaskId: string,
@@ -832,9 +848,10 @@ export function removeDependency(
 ): Promise<boolean | null> {
   const edge: Dependency = { kind, dependentId, prerequisiteId };
   const before = [...store.tasksState.dependencies];
-  if (!before.some((item) => edgeEquals(item, edge))) {
-    return Promise.resolve(missingEntity("依赖"));
-  }
+  // A second click on the same remove button, or an edge the last load already
+  // hid, lands here. Removal is idempotent on the backend too, so the absent
+  // edge is a success, not the "data has been refreshed" error.
+  if (!before.some((item) => edgeEquals(item, edge))) return Promise.resolve(true);
 
   return optimistic(
     () => store.removeDependencyEdge(edge),

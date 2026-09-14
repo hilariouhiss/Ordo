@@ -1,10 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js";
-import { Repeat } from "lucide-solid";
+import { Lock, Repeat } from "lucide-solid";
 import { Badge, Button, Dialog, Skeleton } from "../../../common/components";
 import { completeTask, loadSubtasks, softDeleteTask, uncompleteTask } from "../hooks";
 import { complexityLabel } from "../complexity";
+import { blockersOf, buildIndex, completionSet, liveSet } from "../dependencies";
 import { describeRepeatRule } from "../repeat";
-import { getTag, getTask, hasSubtasks } from "../store";
+import { getTag, getTask, hasSubtasks, tasksState } from "../store";
 import type { Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 import { PRIORITY_BADGES } from "./TaskItemRow";
@@ -59,6 +60,18 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
   const priority = () => PRIORITY_BADGES[task().priority];
   const [now] = createSignal(new Date());
 
+  // One index + completion set per pass, like the list rows; the badge is gated
+  // on the task's own completion for the same reason (a task finished through
+  // 「仍要完成」 is not waiting for anything any more).
+  const blockers = createMemo(() => {
+    const index = buildIndex(
+      tasksState.dependencies,
+      liveSet(tasksState.tasks, tasksState.subtasksByTask),
+    );
+    const done = completionSet(tasksState.tasks, tasksState.subtasksByTask);
+    return blockersOf(index, done, "task", task().id).length;
+  });
+
   createEffect(
     on(
       () => [props.open, props.task.id] as const,
@@ -99,6 +112,15 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
             </Show>
             <Show when={complexityLabel(task().complexity)}>
               {(label) => <Badge variant="outline">{label()}</Badge>}
+            </Show>
+            <Show when={!completed() && blockers() > 0}>
+              {/* Same split as the list row: the compact text is the sighted
+                  label, the sentence behind it is what gets announced. */}
+              <Badge variant="warning">
+                <Lock size={11} aria-hidden="true" />
+                <span aria-hidden="true">阻塞中 · 还差 {blockers()} 项</span>
+                <span class="sr-only">阻塞中，还有 {blockers()} 项前置未完成</span>
+              </Badge>
             </Show>
             <Show when={task().repeatRule}>
               {(rule) => (

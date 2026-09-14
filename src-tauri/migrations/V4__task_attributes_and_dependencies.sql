@@ -1,13 +1,14 @@
 -- Migration V4: task/subtask attributes and dependency edges.
 --
--- Attributes: tasks gain a 1-5 complexity; subtasks gain the description,
+-- Attributes: tasks gain a 1-5 complexity; subtasks gain the note,
 -- priority, due date and complexity they were missing.
 --
 -- Dependencies: `(dependent, depends_on)` reads "dependent waits for
 -- depends_on". Both edge tables follow the `task_tags` convention (pure join
 -- table: composite key, no UUID/audit columns); `subtask_reminders` mirrors
--- V3's `task_reminders`, which cannot be reused because it is WITHOUT ROWID
--- and a nullable source column cannot join that primary key.
+-- V3's `task_reminders`, which cannot be reused because that table is keyed
+-- `(task_id, kind)` with `task_id NOT NULL REFERENCES tasks(id)`: a subtask
+-- reminder needs a different foreign key, and with it a different key shape.
 --
 -- The index on `depends_on` is load-bearing: both the reverse lookup ("who is
 -- waiting for me") and the cycle check walk that side.

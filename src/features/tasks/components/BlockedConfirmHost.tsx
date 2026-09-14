@@ -1,25 +1,34 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { Button, Dialog } from "../../../common/components";
 import { blockedRequest, clearBlockedConfirm } from "../blocked-confirm";
-import { forceCompleteSubtask, forceCompleteTask } from "../hooks";
 
 /**
  * The one place a blocked completion is confirmed. Mounted once by the app
  * shell, so none of the completion entry points has to know about it: they go
- * through `completeTask` / `completeSubtask`, which park the request here.
+ * through `completeTask` / `completeSubtask` (and, for the board's drag, its
+ * move hook), which park the request here.
+ *
+ * Confirming replays the parked action itself — the hook that parked it wrote
+ * `run`, so this component never branches on what kind of entity it is. The
+ * request is dropped only once `run` reports success (`null` is the hooks'
+ * failure answer): a failed write keeps the dialog, and its blocker list, on
+ * screen.
  */
 export function BlockedConfirmHost() {
   const request = () => blockedRequest();
+  const [running, setRunning] = createSignal(false);
 
   async function confirm(): Promise<void> {
     const pending = request();
-    if (!pending) return;
-    clearBlockedConfirm();
-    if (pending.kind === "task") {
-      await forceCompleteTask(pending.id);
-    } else if (pending.parentId) {
-      await forceCompleteSubtask(pending.parentId, pending.id);
+    if (!pending || running()) return;
+    setRunning(true);
+    let saved: unknown = null;
+    try {
+      saved = await pending.run();
+    } finally {
+      setRunning(false);
     }
+    if (saved) clearBlockedConfirm();
   }
 
   return (
@@ -54,7 +63,9 @@ export function BlockedConfirmHost() {
                 <Button variant="secondary" onClick={clearBlockedConfirm}>
                   取消
                 </Button>
-                <Button onClick={() => void confirm()}>仍要完成</Button>
+                <Button disabled={running()} onClick={() => void confirm()}>
+                  仍要完成
+                </Button>
               </div>
             </Dialog.Content>
           </Dialog.Portal>

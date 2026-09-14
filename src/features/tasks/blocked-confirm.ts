@@ -5,7 +5,9 @@
  * row, board card, detail dialog, subtask row) goes through them — so the
  * blocked case parks the request here and a single host component
  * (`components/BlockedConfirmHost.tsx`, mounted once by the app shell) turns it
- * into a dialog. Callers keep treating `null` as "did not complete".
+ * into a dialog. Callers keep treating `null` as "did not complete". The
+ * request carries the whole action (`run`), so the host replays the entry
+ * point's own write without knowing which one it was.
  */
 
 import { createSignal } from "solid-js";
@@ -26,6 +28,8 @@ export interface BlockedRequest {
   parentId: string | null;
   title: string;
   blockers: BlockerRef[];
+  /** What to run once the user confirms; the host awaits it. */
+  run: () => Promise<unknown>;
 }
 
 const [request, setRequest] = createSignal<BlockedRequest | null>(null);

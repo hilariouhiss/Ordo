@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { Button, Select, TextField } from "../../../common/components";
 import { COMPLEXITY_OPTIONS, complexityFromOption, complexityOptionValue } from "../complexity";
 import { isoToLocalInputValue, localInputValueToIso } from "../../../common/utils/datetime";
-import { buildIndex, entityKey, wouldCycle } from "../dependencies";
+import { buildIndex, entityKey, liveSet, wouldCycle } from "../dependencies";
 import { addDependency, removeDependency, updateSubtask } from "../hooks";
 import { PRIORITY_OPTIONS } from "../priority";
 import { getSubtasks, tasksState } from "../store";
@@ -31,7 +31,9 @@ export function SubtaskEditor(props: SubtaskEditorProps) {
   const siblings = createMemo(() =>
     getSubtasks(props.taskId).filter((item) => item.id !== props.subtask.id),
   );
-  const index = createMemo(() => buildIndex(tasksState.dependencies));
+  const index = createMemo(() =>
+    buildIndex(tasksState.dependencies, liveSet(tasksState.tasks, tasksState.subtasksByTask)),
+  );
   const prerequisites = createMemo(
     () => index().prerequisites.get(entityKey("subtask", props.subtask.id)) ?? [],
   );

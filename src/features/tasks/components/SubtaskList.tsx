@@ -8,8 +8,9 @@ import {
   reorderSubtask,
   updateSubtask,
 } from "../hooks";
-import { getSubtasks } from "../store";
+import { getSubtasks, tasksState } from "../store";
 import type { Subtask } from "../types";
+import { buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
 import { formatDueLabel, isOverdue } from "../view-filters";
 import { PRIORITY_BADGES } from "./TaskItemRow";
 import { SubtaskEditor } from "./SubtaskEditor";
@@ -34,6 +35,18 @@ export function SubtaskList(props: SubtaskListProps) {
   const doneCount = createMemo(() => subtasks().filter((item) => item.done).length);
   const progressPercent = () =>
     subtasks().length === 0 ? 0 : Math.round((doneCount() / subtasks().length) * 100);
+
+  // Same one-pass derivation as the list rows: one index and one completion set
+  // per render pass, then a per-row question. A subtask whose prerequisite is
+  // unfinished wears the compact 阻塞中 badge — this dialog is the only place a
+  // subtask prerequisite can be created, so it is exactly where the marker has
+  // to appear next to the priority and due-date badges.
+  const index = createMemo(() =>
+    buildIndex(tasksState.dependencies, liveSet(tasksState.tasks, tasksState.subtasksByTask)),
+  );
+  const done = createMemo(() => completionSet(tasksState.tasks, tasksState.subtasksByTask));
+  const blocked = (subtask: Subtask) =>
+    !subtask.done && isBlocked(index(), done(), "subtask", subtask.id);
 
   const [newTitle, setNewTitle] = createSignal("");
   const [adding, setAdding] = createSignal(false);
@@ -176,6 +189,11 @@ export function SubtaskList(props: SubtaskListProps) {
                     size="sm"
                   >
                     {formatDueLabel(subtask.dueAt, new Date())}
+                  </Badge>
+                </Show>
+                <Show when={blocked(subtask)}>
+                  <Badge variant="warning" size="sm" title="前置子任务未完成">
+                    阻塞中
                   </Badge>
                 </Show>
 

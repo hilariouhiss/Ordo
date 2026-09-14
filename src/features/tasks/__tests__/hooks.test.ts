@@ -704,7 +704,7 @@ describe("time entries", () => {
 });
 
 describe("依赖与软阻塞", () => {
-  it("被阻塞时不落库，force 版本才发 IPC", async () => {
+  it("被阻塞时不落库，确认后由请求自带的动作完成", async () => {
     const blocked = task("a");
     const prerequisite = task("b");
     store.setAll([blocked, prerequisite], []);
@@ -718,8 +718,9 @@ describe("依赖与软阻塞", () => {
     // (`task()` names its fixtures `任务 <id>`).
     expect(blockedRequest()?.title).toBe("任务 a");
 
+    // The host replays exactly what was parked — no kind-switching.
     vi.mocked(api.completeTask).mockResolvedValue({ ...blocked, completedAt: "2026-09-14T10:00:00Z" });
-    await hooks.forceCompleteTask("a");
+    await blockedRequest()?.run();
     expect(api.completeTask).toHaveBeenCalledWith("a");
     store.setDependencies([]);
     clearBlockedConfirm();
@@ -741,8 +742,36 @@ describe("依赖与软阻塞", () => {
     });
 
     vi.mocked(api.completeSubtask).mockResolvedValue(subtask("s1", "a", "第一步", true));
-    await hooks.forceCompleteSubtask("a", "s1");
+    await blockedRequest()?.run();
     expect(api.completeSubtask).toHaveBeenCalledWith("s1", true);
+    store.setDependencies([]);
+    clearBlockedConfirm();
+  });
+
+  it("前置被软删后不再阻塞，恢复后依赖自动回来", async () => {
+    store.setAll([task("a"), task("b")], []);
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
+    vi.mocked(api.completeTask).mockResolvedValue(
+      task("a", { completedAt: "2026-09-14T10:00:00Z" }),
+    );
+
+    await hooks.softDeleteTask("b");
+
+    // The edge is still in the list — the store's liveness is what changed, so
+    // the dependent is free again without a restart or a `loadAll`.
+    expect(store.tasksState.dependencies).toHaveLength(1);
+    expect(await hooks.completeTask("a")).not.toBeNull();
+    expect(api.completeTask).toHaveBeenCalledWith("a");
+    expect(blockedRequest()).toBeNull();
+
+    // Restoring the prerequisite brings the relation back on its own.
+    vi.mocked(api.restoreTask).mockResolvedValue(task("b"));
+    await hooks.restoreTask("b");
+
+    expect(await hooks.completeTask("a")).toBeNull();
+    expect(blockedRequest()?.blockers.map((blocker) => blocker.id)).toEqual(["b"]);
+
     store.setDependencies([]);
     clearBlockedConfirm();
   });
@@ -829,11 +858,64 @@ describe("依赖与软阻塞", () => {
       { kind: "task", dependentId: "a", prerequisiteId: "b" },
     ]);
 
-    // An edge that is not in the store is a no-op with a toast, not a write.
-    expect(await hooks.removeDependency("task", "a", "zz")).toBeNull();
+    // An edge that is not in the store is a silent no-op success, not a write:
+    // a second click on the same remove button must not raise an error toast.
+    expect(await hooks.removeDependency("task", "a", "zz")).toBe(true);
     expect(store.tasksState.dependencies).toEqual([
       { kind: "task", dependentId: "a", prerequisiteId: "b" },
     ]);
     expect(api.removeDependency).toHaveBeenCalledTimes(1);
+  });
+
+  it("删除不存在的依赖不写库、不通知", async () => {
+    store.setAll([task("a"), task("b")], []);
+
+    expect(await hooks.removeDependency("task", "a", "b")).toBe(true);
+
+    expect(api.removeDependency).not.toHaveBeenCalled();
+    expect(notifications()).toEqual([]);
+  });
+});
+
+describe("子任务属性", () => {
+  it("updateSubtask 的四个属性立即进 store，不等 IPC 回来", async () => {
+    store.setSubtasks("a", [subtask("s1", "a", "n")]);
+    const pending = deferred<Subtask>();
+    vi.mocked(api.updateSubtask).mockReturnValue(pending.promise);
+
+    const call = hooks.updateSubtask("a", "s1", {
+      note: "先对齐口径",
+      priority: "high",
+      dueAt: "2026-09-20T09:00:00Z",
+      complexity: 3,
+    });
+
+    const optimistic = store.getSubtasks("a")[0];
+    expect(optimistic?.note).toBe("先对齐口径");
+    expect(optimistic?.priority).toBe("high");
+    expect(optimistic?.dueAt).toBe("2026-09-20T09:00:00Z");
+    expect(optimistic?.complexity).toBe(3);
+
+    pending.resolve({
+      ...subtask("s1", "a", "n"),
+      note: "先对齐口径",
+      priority: "high",
+      dueAt: "2026-09-20T09:00:00Z",
+      complexity: 3,
+    });
+    await call;
+
+    // Clearing is the same patch shape (`null` = clear) and lands just as fast.
+    const clearing = deferred<Subtask>();
+    vi.mocked(api.updateSubtask).mockReturnValue(clearing.promise);
+    void hooks.updateSubtask("a", "s1", { note: null, dueAt: null, complexity: null });
+
+    const cleared = store.getSubtasks("a")[0];
+    expect(cleared?.note).toBeNull();
+    expect(cleared?.dueAt).toBeNull();
+    expect(cleared?.complexity).toBeNull();
+
+    clearing.resolve({ ...subtask("s1", "a", "n"), priority: "high" });
+    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledTimes(2));
   });
 });

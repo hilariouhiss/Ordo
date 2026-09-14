@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
+import * as hooks from "../hooks";
 import * as store from "../store";
 import type { Subtask, Task } from "../types";
 import { SubtaskRow } from "../components/SubtaskRow";
@@ -659,6 +660,29 @@ describe("阻塞标记", () => {
     store.setDependencies([]);
   });
 
+  it("软删前置后阻塞标记立即消失，恢复后回来", async () => {
+    store.setAll([task("a"), task("b")], []);
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
+
+    render(() => <InboxView />);
+    expect(screen.getByText("阻塞中 · 还差 1 项")).toBeTruthy();
+
+    // The delete is optimistic — the row leaves the store at once, while the
+    // edge list still holds the edge — so the badge has to go with the row,
+    // not on the next load.
+    await hooks.softDeleteTask("b");
+
+    expect(store.tasksState.dependencies).toHaveLength(1);
+    expect(screen.queryByText("阻塞中 · 还差 1 项")).toBeNull();
+
+    vi.mocked(api.restoreTask).mockResolvedValue(task("b"));
+    await hooks.restoreTask("b");
+
+    expect(screen.getByText("阻塞中 · 还差 1 项")).toBeTruthy();
+    store.setDependencies([]);
+  });
+
   it("展开后未完成前置的子任务行也带标记", () => {
     const parent = task("a");
     const first = subtask("s1", "a", "一");
@@ -672,6 +696,41 @@ describe("阻塞标记", () => {
     // name carries that prefix (the brief's snippet abbreviated it).
     fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
     expect(screen.getByText("阻塞中")).toBeTruthy();
+    store.setDependencies([]);
+  });
+});
+
+describe("完成后的行不再戴阻塞标记", () => {
+  it("已完成的任务行不显示阻塞中（已完成视图）", () => {
+    store.setAll(
+      [task("a", { completedAt: iso(0, 12) }), task("b")],
+      [],
+    );
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+
+    render(() => <CompletedView />);
+
+    // The row is on screen, so the missing badge is the gate, not a missing row.
+    expect(screen.getByText("任务 a")).toBeTruthy();
+    expect(screen.queryByText("阻塞中 · 还差 1 项")).toBeNull();
+
+    store.setDependencies([]);
+  });
+
+  it("已完成的子任务行不戴阻塞中", async () => {
+    store.setAll([task("a")], []);
+    store.setSubtasksAll(
+      [subtask("s1", "a", "一"), subtask("s2", "a", "二", true)],
+      ["a"],
+    );
+    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+
+    render(() => <InboxView />);
+    fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
+
+    expect(screen.getByText("二")).toBeTruthy();
+    expect(screen.queryByText("阻塞中")).toBeNull();
+
     store.setDependencies([]);
   });
 });

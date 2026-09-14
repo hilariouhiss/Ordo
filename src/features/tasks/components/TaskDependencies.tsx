@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { X } from "lucide-solid";
 import { iconButtonClass } from "../../../common/components";
 import { addDependency, removeDependency } from "../hooks";
-import { buildIndex, completionSet, entityKey, successorsOf, wouldCycle } from "../dependencies";
+import { buildIndex, completionSet, entityKey, liveSet, successorsOf, wouldCycle } from "../dependencies";
 import { getTask, tasksState } from "../store";
 
 export interface TaskDependenciesProps {
@@ -18,7 +18,9 @@ export interface TaskDependenciesProps {
 export function TaskDependencies(props: TaskDependenciesProps) {
   const [query, setQuery] = createSignal("");
 
-  const index = createMemo(() => buildIndex(tasksState.dependencies));
+  const index = createMemo(() =>
+    buildIndex(tasksState.dependencies, liveSet(tasksState.tasks, tasksState.subtasksByTask)),
+  );
   const done = createMemo(() => completionSet(tasksState.tasks, tasksState.subtasksByTask));
 
   const titleOf = (id: string) => getTask(id)?.title ?? "（已删除）";

@@ -3,6 +3,7 @@ import {
   clearNotifications,
   notifications,
 } from "../../../common/stores/notifications";
+import { blockedRequest, clearBlockedConfirm } from "../../tasks/blocked-confirm";
 import * as tasksStore from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import * as api from "../api";
@@ -62,6 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   clearNotifications();
+  clearBlockedConfirm();
 });
 
 describe("loadColumns", () => {
@@ -260,5 +262,83 @@ describe("moveTaskToColumn", () => {
     expect(await hooks.moveTaskToColumn("t1", "ghost", null, null)).toBeNull();
     expect(api.moveTask).not.toHaveBeenCalled();
     expect(notifications()).toHaveLength(2);
+  });
+});
+
+/*
+ * Entering a done column completes the card backend-side (`completed_at` plus
+ * the repeat instance), so the drop is a completion entry point like the list
+ * row's checkbox and has to pass the same soft-block gate. Confirming replays
+ * the whole move: the drop also rewrites column/project/sort key.
+ */
+describe("moveTaskToColumn 的软阻塞", () => {
+  function seedBlockedMove() {
+    store.setColumns("proj-1", [column("todo"), column("done", { isDone: true, position: "o" })]);
+    tasksStore.setAll([task("t1"), task("prereq")], []);
+    tasksStore.setDependencies([
+      { kind: "task", dependentId: "t1", prerequisiteId: "prereq" },
+    ]);
+  }
+
+  it("拖进完成列先停请求，确认后完整重放一次移动", async () => {
+    seedBlockedMove();
+    vi.mocked(api.moveTask).mockResolvedValue(
+      task("t1", { columnId: "done", completedAt: "2026-09-09T12:00:00Z" }),
+    );
+
+    const moved = await hooks.moveTaskToColumn("t1", "done", "n", "o");
+
+    expect(moved).toBeNull();
+    expect(api.moveTask).not.toHaveBeenCalled();
+    const pending = blockedRequest();
+    expect(pending).toMatchObject({ kind: "task", id: "t1", title: "任务 t1" });
+    expect(pending?.blockers.map((blocker) => blocker.id)).toEqual(["prereq"]);
+    // Nothing moved yet: the card is still in its own column.
+    expect(tasksStore.getTask("t1")?.columnId).toBeNull();
+
+    await pending?.run();
+
+    expect(api.moveTask).toHaveBeenCalledTimes(1);
+    expect(api.moveTask).toHaveBeenCalledWith("t1", "done", "n", "o");
+    expect(tasksStore.getTask("t1")?.columnId).toBe("done");
+    expect(tasksStore.getTask("t1")?.completedAt).not.toBeNull();
+
+    tasksStore.setDependencies([]);
+    clearBlockedConfirm();
+  });
+
+  it("拖进非完成列不检查前置，直接移动", async () => {
+    seedBlockedMove();
+    vi.mocked(api.moveTask).mockResolvedValue(task("t1", { columnId: "todo" }));
+
+    const moved = await hooks.moveTaskToColumn("t1", "todo", null, null);
+
+    expect(api.moveTask).toHaveBeenCalledWith("t1", "todo", null, null);
+    expect(moved?.columnId).toBe("todo");
+    expect(blockedRequest()).toBeNull();
+
+    tasksStore.setDependencies([]);
+  });
+
+  it("已完成的任务在完成列内重排不再确认", async () => {
+    store.setColumns("proj-1", [column("done", { isDone: true })]);
+    tasksStore.setAll(
+      [task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z" }), task("prereq")],
+      [],
+    );
+    tasksStore.setDependencies([
+      { kind: "task", dependentId: "t1", prerequisiteId: "prereq" },
+    ]);
+    vi.mocked(api.moveTask).mockResolvedValue(
+      task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z", sortOrder: "o" }),
+    );
+
+    const moved = await hooks.moveTaskToColumn("t1", "done", null, null);
+
+    expect(moved?.sortOrder).toBe("o");
+    expect(blockedRequest()).toBeNull();
+    expect(api.moveTask).toHaveBeenCalledTimes(1);
+
+    tasksStore.setDependencies([]);
   });
 });

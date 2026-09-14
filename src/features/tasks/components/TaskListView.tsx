@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
 import { completeSubtask, completeTask, softDeleteTask, uncompleteTask } from "../hooks";
-import { blockersOf, buildIndex, completionSet, isBlocked } from "../dependencies";
+import { blockersOf, buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
 import { getSubtasks, tasksState } from "../store";
 import type { Priority, Subtask, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
@@ -110,11 +110,12 @@ export function TaskListView(props: TaskListViewProps) {
   // After `visible`, not before it: Solid runs a memo's body eagerly as it is
   // created, so reading `visible` from above its own `const` is a TDZ crash.
   //
-  // The dependency index and the completion set are built once per pass, here,
-  // and each row is then answered from them: the per-row cost is that row's own
-  // prerequisite count, not the size of the graph.
+  // The live set, the dependency index and the completion set are built once
+  // per pass, here, and each row is then answered from them: the per-row cost is
+  // that row's own prerequisite count, not the size of the graph.
   const rows = createMemo<ListRow[]>(() => {
-    const index = buildIndex(tasksState.dependencies);
+    const live = liveSet(tasksState.tasks, tasksState.subtasksByTask);
+    const index = buildIndex(tasksState.dependencies, live);
     const done = completionSet(tasksState.tasks, tasksState.subtasksByTask);
     return visible().flatMap((task) => {
       const children = getSubtasks(task.id);
@@ -123,7 +124,11 @@ export function TaskListView(props: TaskListViewProps) {
         task,
         subtaskCount: children.length,
         subtaskDone: children.filter((child) => child.done).length,
-        blockerCount: blockersOf(index, done, "task", task.id).length,
+        // A finished item is not waiting for anything: it wears no blocked
+        // marker, or 已完成 would contradict itself (the task got there through
+        // 「仍要完成」, and its prerequisite may still be open).
+        blockerCount:
+          task.completedAt === null ? blockersOf(index, done, "task", task.id).length : 0,
       };
       if (children.length === 0 || !expanded()[task.id]) return [head];
       // The return annotation is load-bearing too: without it the literal's
@@ -135,7 +140,7 @@ export function TaskListView(props: TaskListViewProps) {
             kind: "subtask",
             task,
             subtask,
-            blocked: isBlocked(index, done, "subtask", subtask.id),
+            blocked: !subtask.done && isBlocked(index, done, "subtask", subtask.id),
           }),
         ),
       ];

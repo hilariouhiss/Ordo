@@ -677,3 +677,70 @@ describe("子任务属性面板", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "保存" })).toBeNull());
   });
 });
+
+describe("任务详情的阻塞标记", () => {
+  it("有未完成前置的任务在徽标区显示「阻塞中 · 还差 N 项」", () => {
+    store.setAll(
+      [taskFixture(TASK_ID), taskFixture("b", { title: "收集数据" })],
+      [],
+    );
+    store.setDependencies([{ kind: "task", dependentId: TASK_ID, prerequisiteId: "b" }]);
+
+    renderDetail();
+
+    expect(screen.getByText("阻塞中 · 还差 1 项")).toBeTruthy();
+
+    // Finishing the prerequisite clears it without reopening the dialog.
+    store.patchTask("b", { completedAt: "2026-09-14T10:00:00Z" });
+    expect(screen.queryByText("阻塞中 · 还差 1 项")).toBeNull();
+    store.setDependencies([]);
+  });
+
+  it("已完成的任务不再戴阻塞徽标", () => {
+    store.setAll(
+      [
+        taskFixture(TASK_ID, { completedAt: "2026-09-14T10:00:00Z" }),
+        taskFixture("b", { title: "收集数据" }),
+      ],
+      [],
+    );
+    store.setDependencies([{ kind: "task", dependentId: TASK_ID, prerequisiteId: "b" }]);
+
+    renderDetail();
+
+    // The dialog is really showing the completed task, so the assertion below
+    // cannot pass just because nothing rendered.
+    expect(screen.getByText("任务 task-1")).toBeTruthy();
+    expect(screen.queryByText(/阻塞中/)).toBeNull();
+    store.setDependencies([]);
+  });
+});
+
+describe("子任务行的阻塞标记", () => {
+  it("前置未完成的子任务行戴紧凑阻塞标记", () => {
+    seedSubtasks([
+      subtaskFixture("s1", TASK_ID, { title: "收集数据", sortOrder: "a" }),
+      subtaskFixture("s2", TASK_ID, { title: "定稿", sortOrder: "b" }),
+    ]);
+    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+
+    renderDetail();
+
+    expect(screen.getByText("阻塞中")).toBeTruthy();
+    store.setDependencies([]);
+  });
+
+  it("已完成的子任务行不再戴标记", () => {
+    seedSubtasks([
+      subtaskFixture("s1", TASK_ID, { title: "收集数据", sortOrder: "a" }),
+      subtaskFixture("s2", TASK_ID, { title: "定稿", done: true, sortOrder: "b" }),
+    ]);
+    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+
+    renderDetail();
+
+    expect(screen.getByText("定稿")).toBeTruthy();
+    expect(screen.queryByText("阻塞中")).toBeNull();
+    store.setDependencies([]);
+  });
+});

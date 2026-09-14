@@ -9,6 +9,7 @@
 
 import { normalizeError } from "../../common/ipc";
 import { pushError } from "../../common/stores/notifications";
+import { parkIfBlocked } from "../tasks/hooks";
 import * as tasksStore from "../tasks/store";
 import type { Task } from "../tasks/types";
 import * as api from "./api";
@@ -171,8 +172,36 @@ export function deleteColumn(columnId: string): Promise<boolean | null> {
  * `is_done` flag — entering a done column stamps it, leaving one clears it;
  * the authoritative row reconciles everything, including the real sort key
  * (a backend rebalance may rewrite neighbouring keys too).
+ *
+ * Entering a done column *is* a completion (the backend stamps `completed_at`
+ * and spawns the repeat instance), so it passes the same soft-block gate as the
+ * other completion entry points before anything is written; confirming replays
+ * this whole call, not just the completion.
  */
 export function moveTaskToColumn(
+  taskId: string,
+  columnId: string,
+  prev: string | null,
+  next: string | null,
+): Promise<Task | null> {
+  const task = tasksStore.getTask(taskId);
+  if (!task) return Promise.resolve(missingEntity("任务"));
+  const column = store.getColumn(columnId);
+  if (!column) return Promise.resolve(missingEntity("看板列"));
+
+  const move = () => applyMove(taskId, columnId, prev, next);
+  if (
+    column.isDone &&
+    task.completedAt === null &&
+    parkIfBlocked("task", taskId, task.title, null, move)
+  ) {
+    return Promise.resolve(null);
+  }
+  return move();
+}
+
+/** The write itself: the first drop and the confirmed replay both land here. */
+function applyMove(
   taskId: string,
   columnId: string,
   prev: string | null,
