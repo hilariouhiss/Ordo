@@ -218,8 +218,10 @@ export function setSubtasks(taskId: string, subtasks: Subtask[]): void {
  * a task deleted since the previous load keeps its stale entry — the whole
  * previous value survives, array included, so that stale array is not
  * necessarily empty. Each task in `taskIds` still has its array replaced
- * wholesale; nothing iterates the record's keys, and consumers look up live
- * task ids only.
+ * wholesale. `completionSet` does iterate every entry now, stale ones included,
+ * and that is still safe: a stale id can never be consulted, because
+ * `dependency:listAll` returns only edges whose endpoints are live, and a
+ * subtask edge never crosses parent tasks.
  */
 export function setSubtasksAll(subtasks: Subtask[], taskIds: string[]): void {
   const byTask: Record<string, Subtask[]> = {};

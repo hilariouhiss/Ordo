@@ -5,7 +5,7 @@ import {
   clearNotifications,
   notifications,
 } from "../../../common/stores/notifications";
-import type { Subtask, Tag, Task, TimeEntry } from "../types";
+import type { Dependency, Subtask, Tag, Task, TimeEntry } from "../types";
 
 vi.mock("../api", () => ({
   listTasks: vi.fn(),
@@ -21,6 +21,8 @@ vi.mock("../api", () => ({
   listSubtasks: vi.fn(),
   listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
+  addDependency: vi.fn(),
+  removeDependency: vi.fn(),
   createSubtask: vi.fn(),
   updateSubtask: vi.fn(),
   completeSubtask: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock("../api", () => ({
 }));
 
 import * as api from "../api";
+import { blockedRequest, clearBlockedConfirm } from "../blocked-confirm";
 import * as hooks from "../hooks";
 import * as store from "../store";
 
@@ -697,5 +700,140 @@ describe("time entries", () => {
     pending.reject(appError("db", "写入失败"));
     expect(await call).toBeNull();
     expect(store.getTimeEntries("a").map((item) => item.id)).toEqual(["e1", "e2"]);
+  });
+});
+
+describe("依赖与软阻塞", () => {
+  it("被阻塞时不落库，force 版本才发 IPC", async () => {
+    const blocked = task("a");
+    const prerequisite = task("b");
+    store.setAll([blocked, prerequisite], []);
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+
+    const result = await hooks.completeTask("a");
+    expect(result).toBeNull();
+    expect(api.completeTask).not.toHaveBeenCalled();
+    expect(blockedRequest()?.blockers.map((blocker) => blocker.id)).toEqual(["b"]);
+    // The parked request carries the blocked entity's title for the dialog
+    // (`task()` names its fixtures `任务 <id>`).
+    expect(blockedRequest()?.title).toBe("任务 a");
+
+    vi.mocked(api.completeTask).mockResolvedValue({ ...blocked, completedAt: "2026-09-14T10:00:00Z" });
+    await hooks.forceCompleteTask("a");
+    expect(api.completeTask).toHaveBeenCalledWith("a");
+    store.setDependencies([]);
+    clearBlockedConfirm();
+  });
+
+  it("子任务被阻塞时同样只停请求", async () => {
+    store.setAll([task("a")], []);
+    store.setSubtasks("a", [subtask("s1", "a", "第一步"), subtask("s2", "a", "第二步")]);
+    store.setDependencies([{ kind: "subtask", dependentId: "s1", prerequisiteId: "s2" }]);
+
+    expect(await hooks.completeSubtask("a", "s1", true)).toBeNull();
+    expect(api.completeSubtask).not.toHaveBeenCalled();
+    expect(blockedRequest()).toMatchObject({
+      kind: "subtask",
+      id: "s1",
+      parentId: "a",
+      title: "第一步",
+      blockers: [{ kind: "subtask", id: "s2", title: "第二步" }],
+    });
+
+    vi.mocked(api.completeSubtask).mockResolvedValue(subtask("s1", "a", "第一步", true));
+    await hooks.forceCompleteSubtask("a", "s1");
+    expect(api.completeSubtask).toHaveBeenCalledWith("s1", true);
+    store.setDependencies([]);
+    clearBlockedConfirm();
+  });
+
+  it("前置已完成时直接完成，不弹确认", async () => {
+    const dependent = task("a");
+    const done = task("b", { completedAt: "2026-09-14T09:00:00Z" });
+    store.setAll([dependent, done], []);
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    vi.mocked(api.completeTask).mockResolvedValue({
+      ...dependent,
+      completedAt: "2026-09-14T10:00:00Z",
+    });
+
+    await hooks.completeTask("a");
+
+    expect(api.completeTask).toHaveBeenCalledWith("a");
+    expect(blockedRequest()).toBeNull();
+    store.setDependencies([]);
+  });
+
+  it("取消完成不受前置影响，直接落库", async () => {
+    store.setAll([task("a")], []);
+    store.setSubtasks("a", [subtask("s1", "a", "第一步", true)]);
+    // The prerequisite is unfinished — and nonexistent, so nothing else can
+    // explain the pass: `done === false` skips the check outright.
+    store.setDependencies([{ kind: "subtask", dependentId: "s1", prerequisiteId: "s2" }]);
+    vi.mocked(api.completeSubtask).mockResolvedValue(subtask("s1", "a", "第一步", false));
+
+    const result = await hooks.completeSubtask("a", "s1", false);
+
+    expect(api.completeSubtask).toHaveBeenCalledWith("s1", false);
+    expect(result?.done).toBe(false);
+    expect(store.getSubtasks("a")[0]?.done).toBe(false);
+    expect(blockedRequest()).toBeNull();
+    store.setDependencies([]);
+  });
+
+  it("添加与删除依赖走乐观更新并调用 api", async () => {
+    store.setAll([task("a"), task("b")], []);
+    vi.mocked(api.addDependency).mockResolvedValue({
+      kind: "task",
+      dependentId: "a",
+      prerequisiteId: "b",
+    });
+
+    await hooks.addDependency("task", "a", "b");
+
+    expect(store.tasksState.dependencies).toEqual([
+      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+    ]);
+    expect(api.addDependency).toHaveBeenCalledWith({
+      kind: "task",
+      dependentId: "a",
+      prerequisiteId: "b",
+    });
+
+    vi.mocked(api.removeDependency).mockResolvedValue(undefined);
+    await hooks.removeDependency("task", "a", "b");
+    expect(store.tasksState.dependencies).toEqual([]);
+  });
+
+  it("依赖写入失败时回滚到原数组并通知", async () => {
+    store.setAll([task("a"), task("b")], []);
+    const pending = deferred<Dependency>();
+    vi.mocked(api.addDependency).mockReturnValue(pending.promise);
+
+    const call = hooks.addDependency("task", "a", "b");
+    // Optimistic: the edge is in the store before the IPC settles.
+    expect(store.tasksState.dependencies).toEqual([
+      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+    ]);
+
+    pending.reject(appError("db", "写入失败"));
+    expect(await call).toBeNull();
+    expect(store.tasksState.dependencies).toEqual([]);
+    expect(notifications()[0]?.message).toBe("写入失败");
+
+    // Removal rolls back the same way, from an edge that is there.
+    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    vi.mocked(api.removeDependency).mockRejectedValue(appError("db", "写入失败"));
+    expect(await hooks.removeDependency("task", "a", "b")).toBeNull();
+    expect(store.tasksState.dependencies).toEqual([
+      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+    ]);
+
+    // An edge that is not in the store is a no-op with a toast, not a write.
+    expect(await hooks.removeDependency("task", "a", "zz")).toBeNull();
+    expect(store.tasksState.dependencies).toEqual([
+      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+    ]);
+    expect(api.removeDependency).toHaveBeenCalledTimes(1);
   });
 });

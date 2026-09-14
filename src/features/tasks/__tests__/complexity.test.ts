@@ -7,6 +7,19 @@ import {
 } from "../complexity";
 
 describe("complexity vocabulary", () => {
+  it("keeps the whole 1–5 scale in the option list", () => {
+    // The cases below are table-driven, so they stay green even if this list
+    // shrinks to one option; the scale itself is the contract.
+    expect(COMPLEXITY_OPTIONS.map((option) => option.value)).toEqual([
+      "none",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+    ]);
+  });
+
   it("round-trips every option through its sentinel value", () => {
     for (const option of COMPLEXITY_OPTIONS) {
       expect(complexityOptionValue(complexityFromOption(option.value))).toBe(option.value);

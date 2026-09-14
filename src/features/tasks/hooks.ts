@@ -11,9 +11,14 @@
 import { normalizeError } from "../../common/ipc";
 import { pushError } from "../../common/stores/notifications";
 import * as api from "./api";
+import { requestBlockedConfirm } from "./blocked-confirm";
+import { blockersOf, buildIndex, completionSet, edgeEquals } from "./dependencies";
 import * as store from "./store";
+import type { BlockedRequest } from "./blocked-confirm";
 import type {
   Comment,
+  Dependency,
+  DependencyKind,
   NewComment,
   NewSubtask,
   NewTag,
@@ -196,7 +201,7 @@ export function updateTask(taskId: string, patch: UpdateTask): Promise<Task | nu
 }
 
 /** Stamps `completedAt` optimistically; the authoritative row reconciles it. */
-export function completeTask(taskId: string): Promise<Task | null> {
+function applyCompleteTask(taskId: string): Promise<Task | null> {
   const current = store.getTask(taskId);
   if (!current) return Promise.resolve(missingEntity("任务"));
   const before: Task = { ...current };
@@ -211,6 +216,60 @@ export function completeTask(taskId: string): Promise<Task | null> {
       return saved;
     },
   );
+}
+
+/**
+ * Completing something with an unfinished prerequisite needs one confirmation
+ * first: the action is not refused (a local single-user tool must not lock its
+ * owner out), but it does not happen silently either.
+ */
+function blockedRequestFor(
+  kind: DependencyKind,
+  id: string,
+  title: string,
+  parentId: string | null,
+): BlockedRequest | null {
+  const index = buildIndex(store.tasksState.dependencies);
+  const done = completionSet(store.tasksState.tasks, store.tasksState.subtasksByTask);
+  const blockers = blockersOf(index, done, kind, id);
+  if (blockers.length === 0) return null;
+  return {
+    kind,
+    id,
+    parentId,
+    title,
+    blockers: blockers.map((blockerId) => ({
+      kind,
+      id: blockerId,
+      title: titleOf(kind, blockerId),
+    })),
+  };
+}
+
+/** Title of a task or subtask by id, for the confirmation list. */
+function titleOf(kind: DependencyKind, id: string): string {
+  if (kind === "task") return store.getTask(id)?.title ?? "（已删除）";
+  for (const list of Object.values(store.tasksState.subtasksByTask)) {
+    const found = list.find((item) => item.id === id);
+    if (found) return found.title;
+  }
+  return "（已删除）";
+}
+
+export function completeTask(taskId: string): Promise<Task | null> {
+  const current = store.getTask(taskId);
+  if (!current) return Promise.resolve(missingEntity("任务"));
+  const blocked = blockedRequestFor("task", taskId, current.title, null);
+  if (blocked) {
+    requestBlockedConfirm(blocked);
+    return Promise.resolve(null);
+  }
+  return applyCompleteTask(taskId);
+}
+
+/** Completion that skips the dependency check; only `BlockedConfirmHost` calls it. */
+export function forceCompleteTask(taskId: string): Promise<Task | null> {
+  return applyCompleteTask(taskId);
 }
 
 /** Un-completes a task (`completedAt: null` through task:update). */
@@ -394,7 +453,7 @@ export function updateSubtask(
 }
 
 /** Checks/unchecks a subtask via the dedicated `subtask:complete` command. */
-export function completeSubtask(
+function applyCompleteSubtask(
   taskId: string,
   subtaskId: string,
   done: boolean,
@@ -413,6 +472,31 @@ export function completeSubtask(
       return saved;
     },
   );
+}
+
+export function completeSubtask(
+  taskId: string,
+  subtaskId: string,
+  done: boolean,
+): Promise<Subtask | null> {
+  if (done) {
+    const current = store.getSubtasks(taskId).find((item) => item.id === subtaskId);
+    if (!current) return Promise.resolve(missingEntity("子任务"));
+    const blocked = blockedRequestFor("subtask", subtaskId, current.title, taskId);
+    if (blocked) {
+      requestBlockedConfirm(blocked);
+      return Promise.resolve(null);
+    }
+  }
+  return applyCompleteSubtask(taskId, subtaskId, done);
+}
+
+/** Completion that skips the dependency check; only `BlockedConfirmHost` calls it. */
+export function forceCompleteSubtask(
+  taskId: string,
+  subtaskId: string,
+): Promise<Subtask | null> {
+  return applyCompleteSubtask(taskId, subtaskId, true);
 }
 
 export function deleteSubtask(taskId: string, subtaskId: string): Promise<boolean | null> {
@@ -716,6 +800,48 @@ export function stopTimer(taskId: string, entryId: string): Promise<TimeEntry | 
       const stopped = await api.stopTimeEntry(entryId);
       store.patchTimeEntry(taskId, entryId, stopped);
       return stopped;
+    },
+  );
+}
+
+// --- dependencies ------------------------------------------------------------
+
+/** Adds `dependent → prerequisite` optimistically; rolls back with a toast. */
+export function addDependency(
+  kind: DependencyKind,
+  dependentId: string,
+  prerequisiteId: string,
+): Promise<boolean | null> {
+  const edge: Dependency = { kind, dependentId, prerequisiteId };
+  const before = [...store.tasksState.dependencies];
+
+  return optimistic(
+    () => store.addDependencyEdge(edge),
+    () => store.setDependencies(before),
+    async () => {
+      await api.addDependency(edge);
+      return true;
+    },
+  );
+}
+
+export function removeDependency(
+  kind: DependencyKind,
+  dependentId: string,
+  prerequisiteId: string,
+): Promise<boolean | null> {
+  const edge: Dependency = { kind, dependentId, prerequisiteId };
+  const before = [...store.tasksState.dependencies];
+  if (!before.some((item) => edgeEquals(item, edge))) {
+    return Promise.resolve(missingEntity("依赖"));
+  }
+
+  return optimistic(
+    () => store.removeDependencyEdge(edge),
+    () => store.setDependencies(before),
+    async () => {
+      await api.removeDependency(edge);
+      return true;
     },
   );
 }

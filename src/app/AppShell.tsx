@@ -31,6 +31,7 @@ import {
 } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
+import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
 import { reloadTasks } from "../features/tasks/hooks";
 
 type NavPath =
@@ -315,6 +316,8 @@ export default function AppShell() {
       />
 
       <TaskViewer />
+
+      <BlockedConfirmHost />
 
       <Toaster />
     </div>

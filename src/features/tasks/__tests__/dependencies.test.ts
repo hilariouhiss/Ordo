@@ -42,8 +42,8 @@ describe("dependency derivations", () => {
   const index = buildIndex(edges);
   const tasks = [task("A"), task("B", "2026-09-14T10:00:00Z"), task("C"), task("D")];
 
-  it("lists the unfinished prerequisites only", () => {
-    // Nothing is finished here; the completed-prerequisite case comes next.
+  it("lists every prerequisite while nothing is finished", () => {
+    // The empty set is the point: the completed-prerequisite case comes next.
     const done = new Set<string>();
     expect(blockersOf(index, done, "task", "A")).toEqual(["B", "D"]);
     expect(blockersOf(index, done, "task", "B")).toEqual(["C"]);

@@ -57,10 +57,13 @@ src/
 │   └── TaskViewer.tsx            # 全局任务详情/编辑弹窗（搜索命中等入口的跳转落点）
 ├── features/                     # 业务领域（按功能划分）
 │   ├── tasks/                    # 任务
-│   │   ├── components/           # TaskItemRow / SubtaskRow / TaskListView / 编辑器 / 看板卡
+│   │   ├── components/           # TaskItemRow / SubtaskRow / TaskListView / 编辑器 / 看板卡 / BlockedConfirmHost
 │   │   ├── store.ts              # 任务内存 Store（Solid createStore）
 │   │   ├── api.ts                # 类型化 IPC 调用
-│   │   ├── hooks.ts              # 领域 hooks（创建/完成/拖拽）
+│   │   ├── hooks.ts              # 领域 hooks（创建/完成/拖拽/依赖写入）
+│   │   ├── dependencies.ts       # 依赖图派生（纯函数：索引、完成集、阻塞与环检测）
+│   │   ├── blocked-confirm.ts    # 待确认的「前置未完成」请求（软阻塞的落点）
+│   │   ├── complexity.ts         # 复杂度词表（1–5，可空 = 未评估）
 │   │   ├── priority.ts           # 优先级标签的唯一出处（编辑器/快捷窗/标记共用）
 │   │   ├── quick-add-parse.ts    # 快捷输入语法解析（@项目 / !优先级 / #日期）
 │   │   └── types.ts              # 任务领域类型（与后端 serde 对齐）
@@ -90,6 +93,7 @@ src/
 - **任务/项目/标签/时间记录**：领域 store 持有全量数据，是前端的事实来源。
 - **UI 状态**（侧边栏折叠、当前路由激活态、主题、弹窗开合）放 `common/stores/`，与业务数据分离。
 - 派生数据（今日任务、项目完成率、统计聚合）用 Solid 的派生计算（`createMemo`）从 store 计算，**不重复存储**，保证单一事实来源。
+- **阻塞状态同样是派生量**：依赖边随任务列表一次载入（`dependency:listAll`），每次渲染各构建一次索引与完成集合（`dependencies.ts` 的 `buildIndex` / `completionSet`），每行只查自己那几条前置——单次查询的代价是该行的前置数量，而不是整张图的规模。阻塞是**软**的：`completeTask` / `completeSubtask` 只在「完成」时检查未完成前置，命中就**先不写库**，把请求停到 `blocked-confirm.ts`，由 `AppShell` 挂载的唯一 `BlockedConfirmHost` 弹一次确认（取消即丢弃，确认后走 `forceCompleteTask` / `forceCompleteSubtask`）；取消完成永不检查。
 
 ### 2.3 数据访问与乐观更新
 
