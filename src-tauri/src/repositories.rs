@@ -465,6 +465,31 @@ pub mod subtasks {
         )
     }
 
+    /// Every live subtask of every live task, for the eager load behind the
+    /// hierarchical task list.
+    ///
+    /// `IN (SELECT ...)` rather than `JOIN tasks`: `SUBTASK_COLUMNS` has no
+    /// table prefix, so a join would make its `id` and `deleted_at` ambiguous
+    /// against `tasks` and force a second, prefixed copy of the column list.
+    /// `tasks.id` is the primary key, so the subquery is an index lookup.
+    ///
+    /// The parent check is load-bearing: `soft_delete_task` does not cascade,
+    /// so without it a deleted task's subtasks would ride along in every load
+    /// forever, growing without bound as tasks are deleted.
+    pub fn list_all(conn: &Connection) -> Result<Vec<Subtask>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {SUBTASK_COLUMNS} FROM subtasks \
+                 WHERE deleted_at IS NULL \
+                   AND task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
+                 ORDER BY task_id, sort_order, created_at, id"
+            ),
+            &[],
+            subtask_from_row,
+        )
+    }
+
     /// Full-row update; returns false when the subtask is missing or
     /// soft-deleted.
     pub fn update(conn: &Connection, subtask: &Subtask) -> Result<bool, AppError> {

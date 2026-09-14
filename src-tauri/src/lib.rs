@@ -38,6 +38,7 @@ pub fn run() {
             commands::tag_update,
             commands::tag_delete,
             commands::subtask_list,
+            commands::subtask_list_all,
             commands::subtask_create,
             commands::subtask_update,
             commands::subtask_complete,

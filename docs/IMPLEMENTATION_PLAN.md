@@ -101,6 +101,7 @@ F-04、F-07、F-08 与其余任务无依赖，可并行。
 | T-04 | 任务编辑器 | `TaskEditorDialog.tsx`：标题（必填）、备注、优先级、标签、截止时间；Zod 校验；新建/编辑复用 | 新建任务 <1s 落库并可见；校验错误有明确提示 | T-03、F-03 | ✅ |
 | T-05 | 四个任务视图 | `features/tasks/components/views/`：Inbox/Today/Upcoming/Completed；优先级/标签/截止日期筛选排序；VirtualList 长列表 | 完成任务立即从「今天」消失并进入「已完成」；万级任务滚动不掉帧 | T-03/04 | ✅ |
 | T-06 | 子任务 UI | 任务详情内子任务列表：增删改、勾选完成、手动排序（排序键） | 父任务显示子任务完成进度；排序持久化 | T-03/05 | ✅ |
+| T-06b | 任务列表层级展示 | `src-tauri/src/repositories.rs`（`subtasks::list_all`）；`src-tauri/src/services.rs`（`list_all_subtasks`）；`src-tauri/src/commands.rs` + `lib.rs`（`subtask:listAll`）；前端 `TaskListView` 拍平成等高行、`TaskItemRow` 展开位与进度徽章、新增 `SubtaskRow` | 列表默认折叠且父行显示 `已完成/总数`；展开列出子任务；勾选子任务走现有乐观更新；看板与项目进度条口径不变 | T-06 | ✅ |
 | T-07 | 标签与优先级 UI | 标签管理（名称/颜色/删除）、任务挂多个标签、四级优先级选择与展示 | 标签增删改即时反映到任务与筛选 | T-03/05 | ✅ |
 
 M1 出口：任务 CRUD + 子任务 + 优先级 + 标签 + 截止日期 + 四个视图的验收要点（PRD 2.1）全部通过。

@@ -104,6 +104,11 @@ pub fn subtask_list(db: State<'_, Db>, task_id: Uuid) -> Result<Vec<Subtask>, Ap
     with_conn(&db, |conn| services::list_subtasks(conn, task_id))
 }
 
+#[tauri::command(rename = "subtask:listAll")]
+pub fn subtask_list_all(db: State<'_, Db>) -> Result<Vec<Subtask>, AppError> {
+    with_conn(&db, |conn| services::list_all_subtasks(conn))
+}
+
 #[tauri::command(rename = "subtask:create")]
 pub fn subtask_create(
     db: State<'_, Db>,

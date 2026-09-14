@@ -486,6 +486,16 @@ pub fn list_subtasks(conn: &Connection, task_id: Uuid) -> Result<Vec<Subtask>, A
     subtasks::list_by_task(conn, task_id)
 }
 
+/// Every live subtask, across every live task.
+///
+/// The hierarchical task list has to know which rows have children, and how
+/// many are done, before any of them is expanded. `task:list` carries no
+/// subtask data and `subtask:list` is per task, so without this the list would
+/// need one round trip per row.
+pub fn list_all_subtasks(conn: &Connection) -> Result<Vec<Subtask>, AppError> {
+    subtasks::list_all(conn)
+}
+
 pub fn create_subtask(
     conn: &Connection,
     task_id: Uuid,
@@ -1720,6 +1730,46 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.code(), "not_found");
         assert!(first.sort_order < second.sort_order);
+    }
+
+    #[test]
+    fn list_all_subtasks_spans_tasks_and_skips_deleted_parents() {
+        let conn = conn();
+        let first = make_task(&conn, "第一个");
+        let second = make_task(&conn, "第二个");
+
+        let a = create_subtask(&conn, first.id, NewSubtask { title: "a".into() }).unwrap();
+        let b = create_subtask(&conn, first.id, NewSubtask { title: "b".into() }).unwrap();
+        let c = create_subtask(&conn, second.id, NewSubtask { title: "c".into() }).unwrap();
+
+        // Soft-deleting a task does not cascade to its subtasks, so the query
+        // has to exclude them by looking at the parent.
+        let doomed = make_task(&conn, "要删的任务");
+        create_subtask(&conn, doomed.id, NewSubtask { title: "陪葬".into() }).unwrap();
+        soft_delete_task(&conn, doomed.id).unwrap();
+
+        let all = list_all_subtasks(&conn).unwrap();
+
+        // Assert per parent, not on one global sequence: the query orders by
+        // `task_id`, which is a UUID, so the two tasks' blocks can arrive in
+        // either order.
+        let titles_of = |task_id: Uuid| -> Vec<String> {
+            all.iter()
+                .filter(|s| s.task_id == task_id)
+                .map(|s| s.title.clone())
+                .collect()
+        };
+        assert_eq!(titles_of(first.id), vec!["a", "b"]);
+        assert_eq!(titles_of(second.id), vec!["c"]);
+        assert_eq!(all.len(), 3, "the deleted task's subtask must not be returned");
+
+        // A soft-deleted subtask disappears too.
+        delete_subtask(&conn, b.id).unwrap();
+        let after = list_all_subtasks(&conn).unwrap();
+        assert_eq!(after.len(), 2);
+        assert!(!after.iter().any(|s| s.id == b.id));
+        assert!(after.iter().any(|s| s.id == c.id));
+        assert!(after.iter().any(|s| s.id == a.id));
     }
 
     #[test]
