@@ -208,6 +208,28 @@ pub struct Setting {
     pub updated_at: DateTime<Utc>,
 }
 
+// --- dependency edges --------------------------------------------------------
+
+/// Which edge table a dependency lives in — tasks depend on tasks, subtasks on
+/// their siblings inside one parent task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DependencyKind {
+    Task,
+    Subtask,
+}
+
+/// One dependency edge: `prerequisite_id` must be finished before
+/// `dependent_id` can be completed. The reverse relation ("who is waiting for
+/// me") is read off the same rows, never stored twice.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dependency {
+    pub kind: DependencyKind,
+    pub dependent_id: Uuid,
+    pub prerequisite_id: Uuid,
+}
+
 // --- backups (`backup:*`) ----------------------------------------------------
 
 /// One task↔tag link (`task_tags`); the join table has no model of its own

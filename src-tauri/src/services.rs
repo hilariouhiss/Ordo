@@ -22,16 +22,16 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BackupDocument, BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject,
-    NewSubtask, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project, ProjectProgress,
-    ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit, SearchHitKind,
-    Subtask, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry,
-    TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask,
-    UpdateTag, UpdateTask, UpdateTimeEntry,
+    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, DependencyKind,
+    NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask, NewTimeEntry, Patch,
+    Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind, RepeatFreq,
+    RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, TimeDistribution,
+    TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment,
+    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
-    backup, board_columns, comments, projects, reminders, search, stats, subtasks, tags, task_tags,
-    tasks, time_entries,
+    backup, board_columns, comments, dependencies, projects, reminders, search, stats, subtasks,
+    tags, task_tags, tasks, time_entries,
 };
 use crate::sort;
 
@@ -682,6 +682,71 @@ pub fn reorder_subtask(
     }
     tx.commit()?;
     subtasks::list_by_task(conn, moved.task_id)
+}
+
+// ---------------------------------------------------------------------------
+// Dependency edges
+// ---------------------------------------------------------------------------
+
+/// Every live dependency edge; the frontend derives blocked state from these.
+pub fn list_dependencies(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
+    dependencies::list_live(conn)
+}
+
+/// Adds `dependent → prerequisite` after validating it. Idempotent: adding an
+/// edge that already exists returns it unchanged.
+pub fn add_dependency(conn: &Connection, input: Dependency) -> Result<Dependency, AppError> {
+    validate_dependency(conn, input.kind, input.dependent_id, input.prerequisite_id)?;
+    dependencies::insert(
+        conn,
+        input.kind,
+        input.dependent_id,
+        input.prerequisite_id,
+        Utc::now(),
+    )?;
+    Ok(input)
+}
+
+pub fn remove_dependency(conn: &Connection, input: Dependency) -> Result<(), AppError> {
+    dependencies::remove(conn, input.kind, input.dependent_id, input.prerequisite_id)
+}
+
+/// The four rules an edge must satisfy: both endpoints live, subtask edges
+/// inside one parent task, no self-reference, and no cycles. The frontend also
+/// filters cyclic candidates out of its picker, but that is a convenience —
+/// this check is the authority.
+fn validate_dependency(
+    conn: &Connection,
+    kind: DependencyKind,
+    dependent_id: Uuid,
+    prerequisite_id: Uuid,
+) -> Result<(), AppError> {
+    if dependent_id == prerequisite_id {
+        return Err(AppError::Validation("不能依赖自身".into()));
+    }
+    match kind {
+        DependencyKind::Task => {
+            if tasks::get(conn, dependent_id)?.is_none() {
+                return Err(not_found("任务", dependent_id));
+            }
+            if tasks::get(conn, prerequisite_id)?.is_none() {
+                return Err(not_found("任务", prerequisite_id));
+            }
+        }
+        DependencyKind::Subtask => {
+            let dependent = subtasks::get(conn, dependent_id)?
+                .ok_or_else(|| not_found("子任务", dependent_id))?;
+            let prerequisite = subtasks::get(conn, prerequisite_id)?
+                .ok_or_else(|| not_found("子任务", prerequisite_id))?;
+            if dependent.task_id != prerequisite.task_id {
+                return Err(AppError::Validation("子任务依赖需在同一个任务内".into()));
+            }
+        }
+    }
+    if dependencies::creates_cycle(conn, kind, dependent_id, prerequisite_id)? {
+        return Err(AppError::Validation("会形成循环依赖".into()));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1491,6 +1556,16 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    /// One dependency edge, `dependent → prerequisite` (the prerequisite must
+    /// be finished first).
+    fn dependency(kind: DependencyKind, dependent_id: Uuid, prerequisite_id: Uuid) -> Dependency {
+        Dependency {
+            kind,
+            dependent_id,
+            prerequisite_id,
+        }
     }
 
     #[test]
@@ -4099,5 +4174,162 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         let missing = backup_path();
         assert_eq!(import_backup(&conn, &missing).unwrap_err().code(), "io");
+    }
+
+    #[test]
+    fn dependencies_are_added_idempotently_and_listed_live_only() {
+        let conn = conn();
+        let a = make_task(&conn, "A");
+        let b = make_task(&conn, "B");
+
+        let edge = add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        assert_eq!(edge.prerequisite_id, b.id);
+        // Adding the same edge twice is a no-op, not an error.
+        add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        assert_eq!(list_dependencies(&conn).unwrap().len(), 1);
+
+        // Soft-deleting the prerequisite hides the edge (A is no longer blocked)
+        // but keeps it in the table: restoring brings the relation back.
+        soft_delete_task(&conn, b.id).unwrap();
+        assert!(list_dependencies(&conn).unwrap().is_empty());
+        restore_task(&conn, b.id).unwrap();
+        assert_eq!(list_dependencies(&conn).unwrap().len(), 1);
+
+        // Removing is idempotent too.
+        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        assert!(list_dependencies(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn dependency_edges_are_scoped_and_acyclic() {
+        let conn = conn();
+        let a = make_task(&conn, "A");
+        let b = make_task(&conn, "B");
+        let c = make_task(&conn, "C");
+
+        // A → B → C, then C → A would close a three-node cycle.
+        add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        add_dependency(&conn, dependency(DependencyKind::Task, b.id, c.id)).unwrap();
+        assert_eq!(
+            add_dependency(&conn, dependency(DependencyKind::Task, c.id, a.id))
+                .unwrap_err()
+                .code(),
+            "validation"
+        );
+        assert_eq!(
+            add_dependency(&conn, dependency(DependencyKind::Task, a.id, a.id))
+                .unwrap_err()
+                .code(),
+            "validation"
+        );
+        assert_eq!(
+            add_dependency(
+                &conn,
+                dependency(DependencyKind::Task, a.id, Uuid::new_v4())
+            )
+            .unwrap_err()
+            .code(),
+            "not_found"
+        );
+
+        // Subtask edges must stay inside one parent task.
+        let other = make_task(&conn, "D");
+        let first = make_subtask(&conn, a.id, "1");
+        let second = make_subtask(&conn, a.id, "2");
+        let foreign = make_subtask(&conn, other.id, "x");
+        add_dependency(
+            &conn,
+            dependency(DependencyKind::Subtask, first.id, second.id),
+        )
+        .unwrap();
+        assert_eq!(
+            add_dependency(
+                &conn,
+                dependency(DependencyKind::Subtask, first.id, foreign.id)
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
+        // A subtask edge does not leak into the task graph.
+        assert_eq!(list_dependencies(&conn).unwrap().len(), 3);
+        assert_eq!(
+            list_dependencies(&conn)
+                .unwrap()
+                .iter()
+                .filter(|edge| edge.kind == DependencyKind::Subtask)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn repeat_instances_do_not_inherit_dependency_edges() {
+        let conn = conn();
+        let due = Utc.with_ymd_and_hms(2026, 9, 14, 9, 0, 0).unwrap();
+        let repeating = create_task(
+            &conn,
+            NewTask {
+                due_at: Some(due),
+                repeat_rule: Some(RepeatRule {
+                    freq: RepeatFreq::Weekly,
+                    interval: 1,
+                    paused: false,
+                }),
+                ..make_new_task("每周复盘")
+            },
+        )
+        .unwrap();
+        let prerequisite = make_task(&conn, "准备数据");
+
+        add_dependency(
+            &conn,
+            dependency(DependencyKind::Task, repeating.id, prerequisite.id),
+        )
+        .unwrap();
+        // A subtask edge too: a copied subtask would otherwise drag an edge
+        // along that points at the previous instance's rows.
+        let first = make_subtask(&conn, repeating.id, "1");
+        let second = make_subtask(&conn, repeating.id, "2");
+        add_dependency(
+            &conn,
+            dependency(DependencyKind::Subtask, first.id, second.id),
+        )
+        .unwrap();
+
+        complete_task(&conn, repeating.id).unwrap();
+
+        // The instance is the second task sharing the original's title.
+        let spawned = list_tasks(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| {
+                candidate.task.title == "每周复盘" && candidate.task.id != repeating.id
+            })
+            .expect("the repeat instance must exist")
+            .task;
+        let mut instance = vec![spawned.id];
+        instance.extend(
+            list_subtasks(&conn, spawned.id)
+                .unwrap()
+                .iter()
+                .map(|subtask| subtask.id),
+        );
+        assert_eq!(instance.len(), 3, "the instance carries both subtasks");
+
+        let edges = list_dependencies(&conn).unwrap();
+        assert!(
+            edges.iter().any(|edge| {
+                edge.dependent_id == repeating.id && edge.prerequisite_id == prerequisite.id
+            }),
+            "the original edge must survive completing the task: {edges:?}"
+        );
+        assert!(
+            edges.iter().all(|edge| {
+                !instance.contains(&edge.dependent_id) && !instance.contains(&edge.prerequisite_id)
+            }),
+            "a repeat instance must inherit no dependency edge: {edges:?}"
+        );
     }
 }

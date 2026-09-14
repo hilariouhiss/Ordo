@@ -178,6 +178,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
   ```
   task:list, task:create, task:update, task:complete, task:softDelete, task:restore
   subtask:list, subtask:listAll, subtask:create, subtask:update, subtask:complete, subtask:delete, subtask:reorder
+  dependency:listAll, dependency:add, dependency:remove
   tag:list, tag:create, tag:update, tag:delete
   project:list, project:create, project:update, project:archive, project:restore
   board:listColumns, board:addColumn, board:updateColumn, board:deleteColumn, board:moveTask
@@ -190,6 +191,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
   ```
 
 - 每个命令返回 `Result<T, AppError>`；`AppError` 已实现 `Serialize`（F-07），跨 IPC 传递 `{ code, message }` 形态的可读错误。
+- 依赖命令的载荷就是整条边 `{kind, dependentId, prerequisiteId}`（`kind` 取 `task` / `subtask`，字段 camelCase）：`dependency:listAll` 返回全部存活边（含 `kind`，无参数）；`dependency:add` 校验后写入并返回该边——重复添加同一条边是幂等的，返回同一条；`dependency:remove` 删除并返回空——删除不存在的边不报错。被依赖/阻塞状态不在后端计算，前端从 `listAll` 的边集派生。
 
 ### 3.3 状态与事务
 
@@ -264,6 +266,12 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > **数据备份（D-03）**：`backup:export` 把整库写成一个 JSON 文档（`{format:"ordo.backup", version:1, exportedAt, data:{projects, boardColumns, tags, tasks, subtasks, taskTags, comments, timeEntries, settings}}`，字段复用既有模型与 camelCase 约定），`backup:import` 读取同一文档并**整体替换**全部用户数据表：先删子表再删父表、先插父表再插子表（外键全程成立），整个过程在一个事务内，因此外来/更高版本/解析失败的文件不会改动任何数据（分别返回 validation）。与其他查询不同，`repositories::backup` 故意不过滤 `deleted_at`——备份是数据库的副本而非视图，软删除行随备份往返；`task_reminders` 不入备份（只用于提醒去重，会由迁移与调度器自然重建）。FTS 索引由既有触发器跟随导入的插入/删除同步，无需 rebuild（有测试断言恢复后可搜到）。`io` 是 AppError 的新错误码（文件读写失败），前端 `common/ipc/errors.ts` 白名单同步。文件由前端用 `tauri-plugin-dialog` 的保存/打开对话框选路径（capability `dialog:default`），Rust 只按给定路径读写，前端不接触字节；恢复前必须经确认弹窗，成功后重载 tasks/projects 两个 store，无需重启即可看到恢复后的数据。
 
 > **属性与依赖（V4）**：`tasks.complexity` 与 `subtasks.{note, priority, due_at, complexity}` 补齐此前缺失的属性；`priority` 沿用任务那套 `high/medium/low/none`（DB 默认 `none`），两处 `complexity` 都是 1–5 的可空整数（`NULL` = 未评估，由 CHECK 约束守住上下界）。依赖用两张纯连接表表示——`task_dependencies(task_id, depends_on, created_at)` 与 `subtask_dependencies(subtask_id, depends_on, created_at)`：复合主键 `(依赖方, 前置)` 即天然去重，`CHECK` 拒绝自环，两个外键都随任一端硬删级联；沿用 `task_tags` 的纯连接表写法（无 UUID/审计列），但额外带 `created_at`。**边的方向是「依赖方 → 前置」**：`(dependent, depends_on)` 读作「dependent 等待 depends_on」，因此「谁在等我」查 `depends_on` 一侧，两张表都为此侧的列建了索引（反向查询与环检测都走这条路径；正向前缀查询由主键覆盖）。`subtask_reminders(subtask_id, kind, sent_at)` 是 V3 `task_reminders` 的子任务版：V3 那张表不能复用，因为它是 `WITHOUT ROWID` 且主键为 `(task_id, kind)`，而子任务提醒的来源列必须可空、无法参与该主键。
+>
+> **依赖的写入校验（`dependency:add`，四条）**：两端都必须存在且未被软删，否则 `not_found`；子任务边两端必须同属一个父任务，否则 `validation`（子任务不能在任务之间建立前置关系，任务级依赖则可跨项目）；不允许自环；不允许成环。环检测是一条递归 CTE：**从「前置」出发**沿 `depends_on` 逐跳向上找它自己的前置，若走到「依赖方」就说明新边会闭合环路。递归项用 `UNION` 而非 `UNION ALL`——同一节点只展开一次，因此即便表里已经存在环也能收敛（写入路径的检查让环进不来，这是兜底）。校验在服务层（`validate_dependency`）而不是靠数据库约束：`CHECK (x <> depends_on)` 只挡得住自环，跨行约束 SQLite 无法表达。
+>
+> **软删除不删边**：端点被软删时边仍然留在表里，只是从 `dependency:listAll` 的存活谓词下消失（任务边要求两端 `deleted_at IS NULL`；子任务边额外要求父任务存活），于是「软删前置 ⇒ 被阻塞方自动解锁，恢复前置 ⇒ 依赖自动回来」，不需要任何补偿写入，也不存在恢复时重建关系的窗口。任务边与子任务边互不影响：两张表分别查询、按 `kind` 区分，子任务边不会泄漏进任务图。注意 `depends_on` 一侧的索引是这条语义的性能支撑（反向查询「谁在等我」与环检测都走它）。
+>
+> **依赖与 `sort_order` 正交**：`sort_order` 是**显示顺序**（用户拖拽出来的位置），依赖是**可执行顺序**（完成的前置约束），两者互不写入对方——拖拽重排不改依赖边，添加依赖也不动任何 `sort_order`。完成动作在后端不被依赖阻止（软阻塞）：被阻塞项照常可以完成，服务层不做拦截，「还差几项 / 确认一次」由前端从边集派生并提示。
 >
 > **全局快捷键快速添加（D-02）**：`shortcut.rs` 用 `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`）：按下时不再唤起主窗口，而是显示 `quick-add`——一个 560×150、无边框、置顶、不进任务栏的独立窗口，内容是一行输入 + 一行控件（项目 / 优先级 / 截止日期）+ 一行预览（`WebviewUrl::App("index.html")`，与主窗口同一个页面；前端 `index.tsx` 按窗口 label 分流：`quick-add` 渲染 `app/QuickAddWindow.tsx`，其余走 RouterProvider，浏览器 dev server 读不到 label 时回落主应用）。窗口在 setup 阶段建好并长期隐藏，所以按下即出、没有 webview 冷启动；`shortcut.rs` 在 show + set_focus 之后向该窗口 `emit_to` 一个 `quick-add:open` 事件——`autofocus` 只在页面加载时生效，而这个页面是在窗口还隐藏时加载的，因此聚焦必须由事件驱动，该事件同时把输入行与三个控件复位（每次唤起都从干净状态开始）并重拉一次项目列表（快捷窗有自己的 store，主窗口里新建或归档的项目它看不到）。回车提交后调 `getCurrentWindow().hide()` 把窗口收回（录入即隐），Esc 同样只隐藏；点击别处则由 `lib.rs` 的 `on_window_event` 捕获 `Focused(false)` 隐藏（无边框窗口没有关闭按钮可点）。两个窗口各有自己的 store，所以快捷窗创建成功后 `emit("task:created")`，主窗口 `AppShell` 监听后用 `reloadTasks()` 重新拉取任务与标签（不带子任务快照——它是盲重建，会覆盖用户刚写入的子任务，见 2.3 数据访问与乐观更新），否则主窗口会一直显示旧列表。
 >

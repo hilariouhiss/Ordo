@@ -15,8 +15,8 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, Priority, Project, ProjectStatus, ReminderKind, RepeatRule, Setting,
-    Subtask, Tag, Task, TimeEntry,
+    BoardColumn, Comment, Dependency, DependencyKind, Priority, Project, ProjectStatus,
+    ReminderKind, RepeatRule, Setting, Subtask, Tag, Task, TimeEntry,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -1469,6 +1469,150 @@ pub mod backup {
             )?;
         }
         Ok(())
+    }
+}
+
+/// Dependency edges (`task_dependencies` / `subtask_dependencies`).
+///
+/// The two tables have the same shape, so the table and column names are
+/// resolved from the kind and interpolated into otherwise identical SQL — both
+/// values are compile-time constants, never user input.
+pub mod dependencies {
+    use super::*;
+
+    fn edge_table(kind: DependencyKind) -> (&'static str, &'static str) {
+        match kind {
+            DependencyKind::Task => ("task_dependencies", "task_id"),
+            DependencyKind::Subtask => ("subtask_dependencies", "subtask_id"),
+        }
+    }
+
+    fn task_edge(row: &Row<'_>) -> Result<Dependency, AppError> {
+        Ok(Dependency {
+            kind: DependencyKind::Task,
+            dependent_id: parse_uuid(row.get("task_id")?)?,
+            prerequisite_id: parse_uuid(row.get("depends_on")?)?,
+        })
+    }
+
+    fn subtask_edge(row: &Row<'_>) -> Result<Dependency, AppError> {
+        Ok(Dependency {
+            kind: DependencyKind::Subtask,
+            dependent_id: parse_uuid(row.get("subtask_id")?)?,
+            prerequisite_id: parse_uuid(row.get("depends_on")?)?,
+        })
+    }
+
+    /// Adds one edge; an existing `(dependent, prerequisite)` pair is a no-op
+    /// (the composite primary key dedups via `INSERT OR IGNORE`).
+    pub fn insert(
+        conn: &Connection,
+        kind: DependencyKind,
+        dependent_id: Uuid,
+        prerequisite_id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<(), AppError> {
+        let (table, column) = edge_table(kind);
+        conn.execute(
+            &format!(
+                "INSERT OR IGNORE INTO {table} ({column}, depends_on, created_at) \
+                 VALUES (?1, ?2, ?3)"
+            ),
+            params![dependent_id.to_string(), prerequisite_id.to_string(), at],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes one edge; a missing edge is a no-op, so the command is
+    /// idempotent like the client's optimistic update assumes.
+    pub fn remove(
+        conn: &Connection,
+        kind: DependencyKind,
+        dependent_id: Uuid,
+        prerequisite_id: Uuid,
+    ) -> Result<(), AppError> {
+        let (table, column) = edge_table(kind);
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE {column} = ?1 AND depends_on = ?2"),
+            params![dependent_id.to_string(), prerequisite_id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Whether adding `dependent → prerequisite` would close a cycle: start at
+    /// the prerequisite and walk *its* prerequisites; if the dependent turns up,
+    /// the new edge would close the loop.
+    ///
+    /// `UNION` (not `UNION ALL`) dedups the recursive step, which also bounds
+    /// the walk if a cycle ever reached the table by another route.
+    pub fn creates_cycle(
+        conn: &Connection,
+        kind: DependencyKind,
+        dependent_id: Uuid,
+        prerequisite_id: Uuid,
+    ) -> Result<bool, AppError> {
+        let (table, column) = edge_table(kind);
+        let sql = format!(
+            "WITH RECURSIVE chain(id) AS ( \
+                 SELECT ?1 \
+                 UNION \
+                 SELECT d.depends_on FROM {table} d JOIN chain ON d.{column} = chain.id \
+             ) SELECT EXISTS(SELECT 1 FROM chain WHERE id = ?2)"
+        );
+        query_one(
+            conn,
+            &sql,
+            params![prerequisite_id.to_string(), dependent_id.to_string()],
+            |row| Ok(row.get::<_, bool>(0)?),
+        )
+        .map(|value| value.unwrap_or(false))
+    }
+
+    /// Every edge whose endpoints are both live — what `dependency:listAll`
+    /// returns. Soft-deleted endpoints are filtered out rather than their edges
+    /// deleted, so deleting a prerequisite unblocks its dependents and
+    /// restoring it brings the relation back.
+    pub fn list_live(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
+        let mut edges = query_all(
+            conn,
+            "SELECT task_id, depends_on FROM task_dependencies d \
+             WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
+               AND depends_on IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
+             ORDER BY task_id, depends_on",
+            &[],
+            task_edge,
+        )?;
+        edges.extend(query_all(
+            conn,
+            "SELECT subtask_id, depends_on FROM subtask_dependencies d \
+             WHERE subtask_id IN (SELECT id FROM subtasks WHERE deleted_at IS NULL) \
+               AND depends_on IN (SELECT id FROM subtasks WHERE deleted_at IS NULL) \
+               AND subtask_id IN (SELECT s.id FROM subtasks s JOIN tasks t ON t.id = s.task_id \
+                                   WHERE t.deleted_at IS NULL) \
+             ORDER BY subtask_id, depends_on",
+            &[],
+            subtask_edge,
+        )?);
+        Ok(edges)
+    }
+
+    /// Every edge, soft-deleted endpoints included: a backup is a copy of the
+    /// database, not a view of it.
+    pub fn list_all(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
+        let mut edges = query_all(
+            conn,
+            "SELECT task_id, depends_on FROM task_dependencies ORDER BY task_id, depends_on",
+            &[],
+            task_edge,
+        )?;
+        edges.extend(query_all(
+            conn,
+            "SELECT subtask_id, depends_on FROM subtask_dependencies \
+             ORDER BY subtask_id, depends_on",
+            &[],
+            subtask_edge,
+        )?);
+        Ok(edges)
     }
 }
 

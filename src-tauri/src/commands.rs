@@ -15,9 +15,9 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BackupSummary, BoardColumn, Comment, NewBoardColumn, NewComment, NewProject, NewSubtask,
-    NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag, Task,
-    TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
+    BackupSummary, BoardColumn, Comment, Dependency, NewBoardColumn, NewComment, NewProject,
+    NewSubtask, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag,
+    Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
     UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
     UpdateTimeEntry,
 };
@@ -158,6 +158,23 @@ pub fn subtask_reorder(
     with_conn(&db, |conn| {
         services::reorder_subtask(conn, subtask_id, prev, next)
     })
+}
+
+// --- dependency:* ----------------------------------------------------------
+
+#[tauri::command(rename = "dependency:listAll")]
+pub fn dependency_list_all(db: State<'_, Db>) -> Result<Vec<Dependency>, AppError> {
+    with_conn(&db, services::list_dependencies)
+}
+
+#[tauri::command(rename = "dependency:add")]
+pub fn dependency_add(db: State<'_, Db>, payload: Dependency) -> Result<Dependency, AppError> {
+    with_conn(&db, |conn| services::add_dependency(conn, payload))
+}
+
+#[tauri::command(rename = "dependency:remove")]
+pub fn dependency_remove(db: State<'_, Db>, payload: Dependency) -> Result<(), AppError> {
+    with_conn(&db, |conn| services::remove_dependency(conn, payload))
 }
 
 // --- project:* -------------------------------------------------------------
