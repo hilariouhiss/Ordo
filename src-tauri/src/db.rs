@@ -76,6 +76,9 @@ mod tests {
             "task_search",
             "comment_search",
             "task_reminders",
+            "task_dependencies",
+            "subtask_dependencies",
+            "subtask_reminders",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
@@ -187,5 +190,85 @@ mod tests {
             )
             .unwrap();
         assert_eq!(after_delete, 0);
+    }
+
+    #[test]
+    fn v4_adds_attributes_and_dependency_tables() {
+        let conn = migrated_connection();
+        let stamp = "2026-01-01T00:00:00Z";
+        let insert_task = |id: &str, complexity: Option<i64>| {
+            conn.execute(
+                "INSERT INTO tasks (id, title, priority, sort_order, created_at, updated_at, complexity) \
+                 VALUES (?1, 'T', 'none', 'a', ?2, ?2, ?3)",
+                rusqlite::params![id, stamp, complexity],
+            )
+        };
+        insert_task("t1", Some(3)).unwrap();
+        insert_task("t2", None).unwrap();
+        assert!(
+            insert_task("t3", Some(6)).is_err(),
+            "complexity 6 must be rejected"
+        );
+        assert!(
+            insert_task("t4", Some(0)).is_err(),
+            "complexity 0 must be rejected"
+        );
+
+        // A subtask written without the new column takes the documented defaults.
+        conn.execute(
+            "INSERT INTO subtasks (id, task_id, title, sort_order, created_at, updated_at) \
+             VALUES ('s1', 't1', 'S', 'a', ?1, ?1)",
+            rusqlite::params![stamp],
+        )
+        .unwrap();
+        let (priority, note, due, complexity): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+        ) = conn
+            .query_row(
+                "SELECT priority, note, due_at, complexity FROM subtasks WHERE id = 's1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(priority, "none");
+        assert_eq!(note, None);
+        assert_eq!(due, None);
+        assert_eq!(complexity, None);
+
+        let insert_edge = |dependent: &str, prerequisite: &str| {
+            conn.execute(
+                "INSERT INTO task_dependencies (task_id, depends_on, created_at) \
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![dependent, prerequisite, stamp],
+            )
+        };
+        insert_edge("t1", "t2").unwrap();
+        assert!(
+            insert_edge("t1", "t2").is_err(),
+            "duplicate edge must be rejected"
+        );
+        assert!(
+            insert_edge("t1", "t1").is_err(),
+            "self-dependency must be rejected"
+        );
+        assert!(
+            insert_edge("t1", "missing").is_err(),
+            "unknown endpoint must be rejected"
+        );
+
+        conn.execute(
+            "INSERT INTO subtask_dependencies (subtask_id, depends_on, created_at) \
+             VALUES ('s1', 's1', ?1)",
+            rusqlite::params![stamp],
+        )
+        .expect_err("self-dependency must be rejected");
+        conn.execute(
+            "INSERT INTO subtask_reminders (subtask_id, kind, sent_at) VALUES ('s1', 'due', ?1)",
+            rusqlite::params![stamp],
+        )
+        .unwrap();
     }
 }
