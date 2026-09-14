@@ -3190,6 +3190,8 @@ export function SubtaskEditor(props: SubtaskEditorProps) {
 }
 ```
 
+> **子任务前置选择器的语义（实现后补充说明）**：候选就是**同父兄弟的全部 chip**（与设计 spec §7.2 的「候选＝同父兄弟」一致），而不是「滤掉已添加与成环者」。已添加的兄弟以 `aria-pressed` 呈现、再点一次即移除；会成环的兄弟 `disabled`。**不要把已添加的兄弟藏起来**：这个面板是子任务依赖唯一的移除入口（`removeDependency("subtask", …)` 在 `src/` 里只有这一处调用），藏起来就等于边再也删不掉。任务级依赖选择器（`TaskDependencies`）是另一套交互——那里用「输入框过滤 + 结果列表」，因此才需要显式过滤。
+
 - [ ] **Step 4: 子任务行接上属性面板**
 
 `src/features/tasks/components/SubtaskList.tsx`：加 `const [propertyId, setPropertyId] = createSignal<string | null>(null);`，在每行的删除按钮之前加一个属性按钮（`SlidersHorizontal`），并在 `</li>` 之前（`<For>` 回调的返回里）把面板放在行下方 —— 由于 `<li>` 是行容器，把整行与面板包进一个 `<li>`：
