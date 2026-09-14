@@ -15,6 +15,7 @@ export const COMMANDS = {
   },
   subtask: {
     list: "subtask:list",
+    listAll: "subtask:listAll",
     create: "subtask:create",
     update: "subtask:update",
     complete: "subtask:complete",

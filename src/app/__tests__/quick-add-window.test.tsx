@@ -35,6 +35,7 @@ vi.mock("../../features/tasks/api", () => ({
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
   listSubtasks: vi.fn(),
+  listSubtasksAll: vi.fn().mockResolvedValue([]),
   createSubtask: vi.fn(),
   updateSubtask: vi.fn(),
   completeSubtask: vi.fn(),

@@ -17,6 +17,7 @@ vi.mock("../api", () => ({
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
   listSubtasks: vi.fn(),
+  listSubtasksAll: vi.fn().mockResolvedValue([]),
   createSubtask: vi.fn(),
   updateSubtask: vi.fn(),
   completeSubtask: vi.fn(),
@@ -97,13 +98,15 @@ function timeEntry(id: string, taskId: string, overrides: Partial<TimeEntry> = {
   };
 }
 
-function subtask(id: string, taskId: string, sortOrder: string): Subtask {
+/** The third argument doubles as title and sort key: the per-task subtask
+ * cases pass distinct keys ("n"/"o"/"p"), the bulk-load case a real title. */
+function subtask(id: string, taskId: string, key: string, done = false): Subtask {
   return {
     id,
     taskId,
-    title: `子任务 ${id}`,
-    done: false,
-    sortOrder,
+    title: key,
+    done,
+    sortOrder: key,
     createdAt: "2026-09-09T10:00:00Z",
     updatedAt: "2026-09-09T10:00:00Z",
     deletedAt: null,
@@ -144,6 +147,25 @@ describe("loadAll", () => {
     expect(notifications()).toEqual([
       { id: expect.any(Number), kind: "error", message: "数据库错误", code: "database" },
     ]);
+  });
+
+  it("fills the subtask cache for every task, including childless ones", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([task("a"), task("b")]);
+    vi.mocked(api.listTags).mockResolvedValue([]);
+    vi.mocked(api.listSubtasksAll).mockResolvedValue([
+      subtask("s1", "a", "第一步"),
+      subtask("s2", "a", "第二步", true),
+    ]);
+
+    const ok = await hooks.loadAll();
+
+    expect(ok).toBe(true);
+    expect(store.getSubtasks("a").map((item) => item.title)).toEqual(["第一步", "第二步"]);
+    // The childless task must still get an entry: `hasSubtasks` is what the
+    // detail dialog reads to decide whether to fetch, and a missing key would
+    // make it re-request data already in hand.
+    expect(store.hasSubtasks("b")).toBe(true);
+    expect(store.getSubtasks("b")).toEqual([]);
   });
 });
 

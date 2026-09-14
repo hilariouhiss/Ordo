@@ -166,6 +166,26 @@ export function setSubtasks(taskId: string, subtasks: Subtask[]): void {
   setState("subtasksByTask", taskId, subtasks);
 }
 
+/**
+ * Rebuilds the whole subtask cache from one bulk load.
+ *
+ * Every live task gets an entry, empty when it has no subtasks. That is what
+ * `hasSubtasks` reads, and the task detail dialog uses it to decide whether to
+ * fetch again — leaving a childless task without a key would make every such
+ * dialog re-request data that is already in hand.
+ *
+ * Rebuilding rather than merging also drops the keys of tasks deleted since
+ * the previous load.
+ */
+export function setSubtasksAll(subtasks: Subtask[]): void {
+  const byTask: Record<string, Subtask[]> = {};
+  for (const task of state.tasks) byTask[task.id] = [];
+  for (const subtask of subtasks) {
+    (byTask[subtask.taskId] ??= []).push(subtask);
+  }
+  setState("subtasksByTask", byTask);
+}
+
 export function upsertSubtask(taskId: string, subtask: Subtask): void {
   setState(
     "subtasksByTask",

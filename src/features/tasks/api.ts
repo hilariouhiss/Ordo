@@ -73,6 +73,11 @@ export function listSubtasks(taskId: string): Promise<Subtask[]> {
   return invokeCommand(COMMANDS.subtask.list, { taskId });
 }
 
+/** Every live subtask of every live task; backs the hierarchical list. */
+export function listSubtasksAll(): Promise<Subtask[]> {
+  return invokeCommand(COMMANDS.subtask.listAll);
+}
+
 export function createSubtask(taskId: string, payload: NewSubtask): Promise<Subtask> {
   return invokeCommand(COMMANDS.subtask.create, { taskId, payload });
 }

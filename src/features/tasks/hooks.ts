@@ -68,11 +68,18 @@ function missingEntity(what: string): null {
 
 // --- loading -----------------------------------------------------------------
 
-/** Loads all tasks (with tagIds) and tags; returns success. */
+/** Loads all tasks (with tagIds), tags and every subtask; returns success. */
 export async function loadAll(): Promise<boolean> {
   try {
-    const [tasks, tags] = await Promise.all([api.listTasks(), api.listTags()]);
+    const [tasks, tags, subtasks] = await Promise.all([
+      api.listTasks(),
+      api.listTags(),
+      api.listSubtasksAll(),
+    ]);
+    // `setAll` first: `setSubtasksAll` seeds an entry per live task, so it has
+    // to read the list this load just installed.
     store.setAll(tasks, tags);
+    store.setSubtasksAll(subtasks);
     return true;
   } catch (error) {
     reportFailure(error);
