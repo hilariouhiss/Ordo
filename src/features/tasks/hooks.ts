@@ -76,10 +76,9 @@ export async function loadAll(): Promise<boolean> {
       api.listTags(),
       api.listSubtasksAll(),
     ]);
-    // `setAll` first: `setSubtasksAll` seeds an entry per live task, so it has
-    // to read the list this load just installed.
+    // Both calls are fed by this load's own snapshot.
     store.setAll(tasks, tags);
-    store.setSubtasksAll(subtasks);
+    store.setSubtasksAll(subtasks, tasks.map((task) => task.id));
     return true;
   } catch (error) {
     reportFailure(error);

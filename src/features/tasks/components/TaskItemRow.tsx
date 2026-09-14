@@ -102,7 +102,8 @@ export function TaskItemRow(props: TaskItemRowProps) {
       </button>
 
       <Show when={props.subtaskCount > 0}>
-        <Badge>
+        {/* A bare `1/3` has no context read aloud; the digits stay visible. */}
+        <Badge aria-label={`子任务 ${props.subtaskDone}/${props.subtaskCount} 已完成`}>
           {props.subtaskDone}/{props.subtaskCount}
         </Badge>
       </Show>

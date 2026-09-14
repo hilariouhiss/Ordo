@@ -24,7 +24,7 @@ export interface SubtaskRowProps {
 export function SubtaskRow(props: SubtaskRowProps) {
   return (
     <div
-      class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
+      class="flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-subtask-id={props.subtask.id}
     >
       <span aria-hidden="true" class="flex w-5 shrink-0 self-stretch justify-center">

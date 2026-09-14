@@ -167,21 +167,32 @@ export function setSubtasks(taskId: string, subtasks: Subtask[]): void {
 }
 
 /**
- * Rebuilds the whole subtask cache from one bulk load.
+ * Rebuilds the whole subtask cache from one bulk load. `taskIds` is the task
+ * snapshot that load came from — not the live store — so the caller decides
+ * which tasks the rebuild covers.
  *
- * Every live task gets an entry, empty when it has no subtasks. That is what
- * `hasSubtasks` reads, and the task detail dialog uses it to decide whether to
- * fetch again — leaving a childless task without a key would make every such
- * dialog re-request data that is already in hand.
+ * Every id in `taskIds` gets an entry, empty when that task has no subtasks.
+ * That is what `hasSubtasks` reads, and the task detail dialog uses it to
+ * decide whether to fetch again — leaving a childless task without a key
+ * would make every such dialog re-request data that is already in hand.
+ *
+ * The rebuild is blind: it replaces each covered task's array wholesale, so a
+ * subtask written to the cache while a `loadAll` was in flight (add, delete or
+ * toggle from the task detail dialog) is overwritten by the result. The dialog
+ * can show a ghost or a missing row until the next load; the database stays
+ * correct. Upgrade path: stream the sub-task bulk out of the mid-session
+ * reload so it runs only on the initial load, which removes the trigger.
  *
  * Note that `setState` MERGES this record per key rather than replacing it, so
- * a task deleted since the previous load keeps its (stale, empty-shell) entry.
- * Each task's array is still replaced wholesale, so no stale data is readable;
- * nothing iterates the record's keys, and consumers look up live task ids only.
+ * a task deleted since the previous load keeps its stale entry — the whole
+ * previous value survives, array included, so that stale array is not
+ * necessarily empty. Each task in `taskIds` still has its array replaced
+ * wholesale; nothing iterates the record's keys, and consumers look up live
+ * task ids only.
  */
-export function setSubtasksAll(subtasks: Subtask[]): void {
+export function setSubtasksAll(subtasks: Subtask[], taskIds: string[]): void {
   const byTask: Record<string, Subtask[]> = {};
-  for (const task of state.tasks) byTask[task.id] = [];
+  for (const id of taskIds) byTask[id] = [];
   for (const subtask of subtasks) {
     (byTask[subtask.taskId] ??= []).push(subtask);
   }

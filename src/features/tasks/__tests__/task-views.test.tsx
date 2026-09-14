@@ -489,6 +489,10 @@ describe("SubtaskRow", () => {
       .firstElementChild as HTMLElement;
     expect(slot.className).toContain("w-5");
     expect(slot.className).toContain("self-stretch");
+    // ...and nothing may re-pin the cross size: `h-5`/`size-5` alongside them
+    // is exactly the regression `self-stretch` cannot out-rank, because a
+    // definite cross size makes `align-self: stretch` a no-op.
+    expect(slot.className).not.toMatch(/\b(?:size|h)-\d/);
   });
 });
 
@@ -509,13 +513,25 @@ describe("任务列表的层级展示", () => {
     expect(await screen.findByText("任务 t1")).toBeTruthy();
     expect(screen.queryByText("收集意见")).toBeNull();
     expect(screen.getByText("1/2")).toBeTruthy();
+    // The badge's digits stay visible; the label is what a screen reader reads.
+    expect(screen.getByText("1/2").getAttribute("aria-label")).toBe("子任务 1/2 已完成");
   });
 
-  it("expands to list children in sort order and collapses again", async () => {
+  it("expands to list the cached children in their seeded order and collapses again", async () => {
     seedWithSubtasks();
     render(() => <InboxView />);
 
     fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+
+    // The view renders the cache's own order; `sortOrder` belongs to the Rust
+    // query and is asserted there. This guards the flattening.
+    const rendered = [
+      ...(document.querySelector('[role="list"]') as HTMLElement).querySelectorAll(
+        "[data-subtask-id]",
+      ),
+    ].map((el) => el.getAttribute("data-subtask-id"));
+    expect(rendered).toEqual(["s1", "s2"]);
+
     expect(screen.getByText("收集意见")).toBeTruthy();
     expect(screen.getByText("定稿")).toBeTruthy();
 
@@ -525,15 +541,18 @@ describe("任务列表的层级展示", () => {
 
   it("completes a subtask optimistically and moves the parent's badge", async () => {
     seedWithSubtasks();
-    vi.mocked(api.completeSubtask).mockResolvedValue(
-      subtask("s2", "t1", "定稿", true),
-    );
+    const pending = deferred<Subtask>();
+    vi.mocked(api.completeSubtask).mockReturnValue(pending.promise);
     render(() => <InboxView />);
 
     fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "完成子任务 定稿" }));
 
-    await waitFor(() => expect(api.completeSubtask).toHaveBeenCalledWith("s2", true));
+    // The badge moves in the same frame, before the backend answers.
+    expect(screen.getByText("2/2")).toBeTruthy();
+    expect(api.completeSubtask).toHaveBeenCalledWith("s2", true);
+
+    pending.resolve(subtask("s2", "t1", "定稿", true));
     await waitFor(() => expect(screen.getByText("2/2")).toBeTruthy());
   });
 
@@ -549,15 +568,20 @@ describe("任务列表的层级展示", () => {
   });
 
   it("keeps every child of an expanded task while a filter is active", async () => {
-    store.setAll([task("t1", { priority: "high" })], []);
+    store.setAll([task("t1", { priority: "high" }), task("t2", { priority: "low" })], []);
     store.setSubtasks("t1", [
       subtask("s1", "t1", "收集意见"),
       subtask("s2", "t1", "定稿"),
     ]);
     render(() => <InboxView />);
 
+    expect(await screen.findByText("任务 t2")).toBeTruthy();
+
     await selectFromCombobox(/优先级筛选/, "仅高");
     fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+
+    // The filter really ran: the low-priority task is gone.
+    expect(screen.queryByText("任务 t2")).toBeNull();
 
     // Subtasks carry no priority, so they are never filtered: a badge reading
     // 0/2 above a single visible row would be lying.

@@ -58,14 +58,14 @@ PRD 59–60 行已经允许子任务存在（「任务可包含多级子任务�
 
 ### 4.2 前端 store
 
-新增 `setSubtasksAll(subtasks: Subtask[])`：
+新增 `setSubtasksAll(subtasks: Subtask[], taskIds: string[])`：
 
-- 按 `taskId` 分组，然后以**当前 `state.tasks` 为准重建整张表**
-- 为每个存活任务建好条目，没有子任务的任务得到 `[]`
+- 按 `taskId` 分组，然后以**本次加载拿到的任务 id 快照 `taskIds` 为准重建整张表**（不再读 `state.tasks`，避免用调用时刻的存活状态去补种子）
+- 为 `taskIds` 里的每个任务建好条目，没有子任务的任务得到 `[]`
 
 为什么必须给空任务也建条目：`hasSubtasks(taskId)` 的实现是 `taskId in state.subtasksByTask`，详情弹窗靠它决定要不要再拉一次。批量加载之后若某一堆任务没有键，打开它们的详情就会各自白发一次 `subtask:list` —— 数据明明已经在手里了。
 
-**注意实现上的一个反直觉点**：`setState("subtasksByTask", byTask)` 在 solid-js/store 里走的是**合并**分支（`isWrappable(prev) && isWrappable(value) && !Array.isArray(value)` → `mergeStoreNode` → 逐键 `setProperty`），所以 `byTask` 里没有的键**不会被删掉**。每个任务的值（数组）是被整体替换的，因此不存在索引合并的陈旧数据；留下的只是已删除任务的空壳键——没有任何代码遍历这些键（消费方一律按存活任务 id 取值），代价仅是内存驻留。若要真正剪掉它们，需要用 `solid-js/store` 的 `reconcile(byTask)`；本设计不需要，也就没有为此引入 diff。
+**注意实现上的一个反直觉点**：`setState("subtasksByTask", byTask)` 在 solid-js/store 里走的是**合并**分支（`isWrappable(prev) && isWrappable(value) && !Array.isArray(value)` → `mergeStoreNode` → 逐键 `setProperty`），所以 `byTask` 里没有的键**不会被删掉**。`taskIds` 里列到的任务，其数组是被整体替换的，因此不存在索引合并的陈旧数据；留下的只是已删除任务的**陈旧条目**——`mergeStoreNode` 逐键赋值，没有出现在 `byTask` 里的键保留的是整个旧值（数组在内），所以那条陈旧数组未必是空的。没有任何代码遍历这些键（消费方一律按存活任务 id 取值），代价仅是内存驻留。若要真正剪掉它们，需要用 `solid-js/store` 的 `reconcile(byTask)`；本设计不需要，也就没有为此引入 diff。
 
 ### 4.3 加载
 
@@ -74,7 +74,7 @@ const [tasks, tags, subtasks] = await Promise.all([
   api.listTasks(), api.listTags(), api.listSubtasksAll(),
 ]);
 store.setAll(tasks, tags);
-store.setSubtasksAll(subtasks);
+store.setSubtasksAll(subtasks, tasks.map((task) => task.id));
 ```
 
 子任务查询失败即整体 `loadAll` 失败，与现有语义一致（单库单连接，查询失败就是数据库故障）。

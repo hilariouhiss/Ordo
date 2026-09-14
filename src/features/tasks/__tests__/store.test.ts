@@ -134,6 +134,31 @@ describe("tasks store", () => {
     expect(store.getSubtasks("unknown")).toEqual([]);
   });
 
+  it("setSubtasksAll seeds the loaded snapshot's ids and leaves other tasks alone", () => {
+    store.setAll([task("a"), task("b"), task("c"), task("late")], []);
+    store.setSubtasks("late", [subtask("s9", "late", "n")]);
+
+    store.setSubtasksAll(
+      [subtask("s1", "a", "n"), subtask("s2", "a", "o"), subtask("s3", "b", "n")],
+      ["a", "b", "c"],
+    );
+
+    // Sub-tasks are grouped under their own taskId.
+    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1", "s2"]);
+    expect(store.getSubtasks("b").map((item) => item.id)).toEqual(["s3"]);
+
+    // A task the load covered, but that has no sub-tasks, still gets an entry:
+    // `hasSubtasks` reads the key, and the detail dialog uses it to decide
+    // whether to fetch again.
+    expect(store.hasSubtasks("c")).toBe(true);
+    expect(store.getSubtasks("c")).toEqual([]);
+
+    // A live task missing from `taskIds` keeps its previous value — the seed
+    // comes from the load's own snapshot, never from `state.tasks`, which
+    // still lists `late` here.
+    expect(store.getSubtasks("late").map((item) => item.id)).toEqual(["s9"]);
+  });
+
   it("resetTasksStore clears everything", () => {
     store.setAll([task("a")], [tag("t1", "工作")]);
     store.setSubtasks("a", [subtask("s1", "a", "n")]);
