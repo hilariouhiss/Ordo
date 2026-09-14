@@ -139,6 +139,12 @@ pub struct Subtask {
     pub id: Uuid,
     pub task_id: Uuid,
     pub title: String,
+    /// Free-form description; `None` when unset.
+    pub note: Option<String>,
+    pub priority: Priority,
+    pub due_at: Option<DateTime<Utc>>,
+    /// 1-5, or `None` when never estimated.
+    pub complexity: Option<i64>,
     pub done: bool,
     pub sort_order: String,
     pub created_at: DateTime<Utc>,
@@ -414,6 +420,10 @@ pub struct UpdateTag {
 #[serde(rename_all = "camelCase")]
 pub struct NewSubtask {
     pub title: String,
+    pub note: Option<String>,
+    pub priority: Option<Priority>,
+    pub due_at: Option<DateTime<Utc>>,
+    pub complexity: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -421,6 +431,13 @@ pub struct NewSubtask {
 pub struct UpdateSubtask {
     pub title: Option<String>,
     pub done: Option<bool>,
+    #[serde(default)]
+    pub note: Patch<String>,
+    pub priority: Option<Priority>,
+    #[serde(default)]
+    pub due_at: Patch<DateTime<Utc>>,
+    #[serde(default)]
+    pub complexity: Patch<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -796,6 +813,10 @@ mod tests {
             id: Uuid::nil(),
             task_id: Uuid::nil(),
             title: "收集数据".into(),
+            note: Some("先拉近三个月".into()),
+            priority: Priority::High,
+            due_at: Some(ts()),
+            complexity: Some(2),
             done: false,
             sort_order: "a".into(),
             created_at: ts(),
@@ -807,10 +828,14 @@ mod tests {
         assert_eq!(
             sorted_keys(&value),
             [
+                "complexity",
                 "createdAt",
                 "deletedAt",
                 "done",
+                "dueAt",
                 "id",
+                "note",
+                "priority",
                 "sortOrder",
                 "taskId",
                 "title",

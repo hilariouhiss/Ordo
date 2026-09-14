@@ -105,8 +105,9 @@ fn next_due(due: DateTime<Utc>, rule: &RepeatRule) -> DateTime<Utc> {
 
 /// Spawns the next instance of a completed repeating task inside the
 /// caller's transaction: one period past the task's due time, carrying over
-/// title/note/priority/project/complexity/tags/subtasks (subtasks reset to
-/// uncompleted) and the rule itself, appended to `column_id`'s scope. Repeats
+/// title/note/priority/project/complexity/tags and the rule itself, appended
+/// to `column_id`'s scope. Subtasks are copied with their attributes but
+/// reset to uncompleted, their due dates advanced by the same period. Repeats
 /// anchored to nothing (`due_at = None`) or paused rules complete without
 /// spawning.
 fn spawn_next_instance(
@@ -128,12 +129,14 @@ fn spawn_next_instance(
         .into_iter()
         .map(|tag| tag.id)
         .collect();
-    let subtask_titles: Vec<String> = subtasks::list_by_task(conn, task.id)?
-        .into_iter()
-        .map(|subtask| subtask.title)
-        .collect();
 
-    create_task_in_tx(
+    // Copies keep the subtask's attributes; `due_at` advances by the same
+    // period as the parent (a copy whose date stayed put would be born
+    // overdue). Dependency edges are deliberately NOT inherited: they would
+    // point at the previous instance's rows.
+    let originals = subtasks::list_by_task(conn, task.id)?;
+
+    let spawned = create_task_in_tx(
         conn,
         NewTask {
             title: task.title.clone(),
@@ -144,10 +147,36 @@ fn spawn_next_instance(
             due_at: Some(next_due(due, &rule)),
             complexity: task.complexity,
             tag_ids,
-            subtask_titles,
+            subtask_titles: Vec::new(),
             repeat_rule: Some(rule),
         },
     )?;
+
+    let mut last_key: Option<String> = None;
+    for original in originals {
+        let key = match &last_key {
+            None => sort::first(),
+            Some(last) => sort::after(last)?,
+        };
+        subtasks::insert(
+            conn,
+            &Subtask {
+                id: Uuid::new_v4(),
+                task_id: spawned.id,
+                title: original.title,
+                note: original.note,
+                priority: original.priority,
+                due_at: original.due_at.map(|date| next_due(date, &rule)),
+                complexity: original.complexity,
+                done: false,
+                sort_order: key.clone(),
+                created_at: spawned.created_at,
+                updated_at: spawned.created_at,
+                deleted_at: None,
+            },
+        )?;
+        last_key = Some(key);
+    }
     Ok(())
 }
 
@@ -345,6 +374,10 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
                 id: Uuid::new_v4(),
                 task_id: task.id,
                 title: validated_name(raw_title)?,
+                note: None,
+                priority: Priority::None,
+                due_at: None,
+                complexity: None,
                 done: false,
                 sort_order: key.clone(),
                 created_at: now,
@@ -523,6 +556,7 @@ pub fn create_subtask(
         return Err(not_found("任务", task_id));
     }
     let title = validated_name(&input.title)?;
+    let complexity = validated_complexity(input.complexity)?;
     let now = Utc::now();
     let siblings: Vec<(Uuid, String)> = subtasks::list_by_task(conn, task_id)?
         .into_iter()
@@ -540,6 +574,10 @@ pub fn create_subtask(
         id: Uuid::new_v4(),
         task_id,
         title,
+        note: input.note,
+        priority: input.priority.unwrap_or(Priority::None),
+        due_at: input.due_at,
+        complexity,
         done: false,
         sort_order,
         created_at: now,
@@ -563,6 +601,18 @@ pub fn update_subtask(
     if let Some(done) = patch.done {
         subtask.done = done;
     }
+    if let Patch::Set(note) = patch.note {
+        subtask.note = note;
+    }
+    if let Some(priority) = patch.priority {
+        subtask.priority = priority;
+    }
+    if let Patch::Set(due_at) = patch.due_at {
+        subtask.due_at = due_at;
+    }
+    if let Patch::Set(complexity) = patch.complexity {
+        subtask.complexity = validated_complexity(complexity)?;
+    }
     subtask.updated_at = Utc::now();
     if !subtasks::update(conn, &subtask)? {
         return Err(not_found("子任务", id));
@@ -578,6 +628,10 @@ pub fn complete_subtask(conn: &Connection, id: Uuid, done: bool) -> Result<Subta
         UpdateSubtask {
             title: None,
             done: Some(done),
+            note: Patch::Unchanged,
+            priority: None,
+            due_at: Patch::Unchanged,
+            complexity: Patch::Unchanged,
         },
     )
 }
@@ -1430,6 +1484,10 @@ mod tests {
             task_id,
             NewSubtask {
                 title: title.into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
             },
         )
         .unwrap()
@@ -1874,6 +1932,10 @@ mod tests {
             Uuid::new_v4(),
             NewSubtask {
                 title: "孤儿".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
             },
         )
         .unwrap_err();
@@ -1882,14 +1944,141 @@ mod tests {
     }
 
     #[test]
+    fn subtask_attributes_roundtrip_and_patch_semantics_hold() {
+        let conn = conn();
+        let task = make_task(&conn, "父任务");
+        let due = Utc.with_ymd_and_hms(2026, 9, 20, 9, 0, 0).unwrap();
+
+        let subtask = create_subtask(
+            &conn,
+            task.id,
+            NewSubtask {
+                title: "收集数据".into(),
+                note: Some("先拉近三个月".into()),
+                priority: Some(Priority::High),
+                due_at: Some(due),
+                complexity: Some(2),
+            },
+        )
+        .unwrap();
+        assert_eq!(subtask.note.as_deref(), Some("先拉近三个月"));
+        assert_eq!(subtask.priority, Priority::High);
+        assert_eq!(subtask.due_at, Some(due));
+        assert_eq!(subtask.complexity, Some(2));
+
+        // Missing fields stay, explicit null clears (same Patch rules as tasks).
+        let renamed = update_subtask(
+            &conn,
+            subtask.id,
+            UpdateSubtask {
+                title: Some("收集数据 v2".into()),
+                done: None,
+                note: Patch::Unchanged,
+                priority: None,
+                due_at: Patch::Unchanged,
+                complexity: Patch::Unchanged,
+            },
+        )
+        .unwrap();
+        assert_eq!(renamed.title, "收集数据 v2");
+        assert_eq!(renamed.note.as_deref(), Some("先拉近三个月"));
+        assert_eq!(renamed.complexity, Some(2));
+
+        let cleared = update_subtask(
+            &conn,
+            subtask.id,
+            UpdateSubtask {
+                title: None,
+                done: None,
+                note: Patch::Set(None),
+                priority: None,
+                due_at: Patch::Set(None),
+                complexity: Patch::Set(None),
+            },
+        )
+        .unwrap();
+        assert_eq!(cleared.note, None);
+        assert_eq!(cleared.due_at, None);
+        assert_eq!(cleared.complexity, None);
+        assert_eq!(cleared.priority, Priority::High, "priority is not nullable");
+
+        assert_eq!(
+            update_subtask(
+                &conn,
+                subtask.id,
+                UpdateSubtask {
+                    title: None,
+                    done: None,
+                    note: Patch::Unchanged,
+                    priority: None,
+                    due_at: Patch::Unchanged,
+                    complexity: Patch::Set(Some(9)),
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
+
+        // A subtask created through the bare-title path takes the defaults.
+        let plain = create_subtask(
+            &conn,
+            task.id,
+            NewSubtask {
+                title: "默认值".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(plain.priority, Priority::None);
+        assert_eq!(plain.complexity, None);
+    }
+
+    #[test]
     fn list_all_subtasks_spans_tasks_and_skips_deleted_parents() {
         let conn = conn();
         let first = make_task(&conn, "第一个");
         let second = make_task(&conn, "第二个");
 
-        let a = create_subtask(&conn, first.id, NewSubtask { title: "a".into() }).unwrap();
-        let b = create_subtask(&conn, first.id, NewSubtask { title: "b".into() }).unwrap();
-        let c = create_subtask(&conn, second.id, NewSubtask { title: "c".into() }).unwrap();
+        let a = create_subtask(
+            &conn,
+            first.id,
+            NewSubtask {
+                title: "a".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
+            },
+        )
+        .unwrap();
+        let b = create_subtask(
+            &conn,
+            first.id,
+            NewSubtask {
+                title: "b".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
+            },
+        )
+        .unwrap();
+        let c = create_subtask(
+            &conn,
+            second.id,
+            NewSubtask {
+                title: "c".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
+            },
+        )
+        .unwrap();
 
         // Soft-deleting a task does not cascade to its subtasks, so the query
         // has to exclude them by looking at the parent.
@@ -1899,6 +2088,10 @@ mod tests {
             doomed.id,
             NewSubtask {
                 title: "陪葬".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
             },
         )
         .unwrap();
@@ -1995,6 +2188,10 @@ mod tests {
             id: Uuid::new_v4(),
             task_id: task.id,
             title: "A".into(),
+            note: None,
+            priority: Priority::None,
+            due_at: None,
+            complexity: None,
             done: false,
             sort_order: "a".into(),
             created_at: task.created_at,
@@ -2005,6 +2202,10 @@ mod tests {
             id: Uuid::new_v4(),
             task_id: task.id,
             title: "B".into(),
+            note: None,
+            priority: Priority::None,
+            due_at: None,
+            complexity: None,
             done: false,
             sort_order: "aa".into(),
             created_at: task.created_at,
@@ -2038,6 +2239,10 @@ mod tests {
             id: Uuid::new_v4(),
             task_id: task.id,
             title: "旧键".into(),
+            note: None,
+            priority: Priority::None,
+            due_at: None,
+            complexity: None,
             done: false,
             sort_order: "z".repeat(MAX_SORT_KEY_LEN + 4),
             created_at: task.created_at,
@@ -2967,6 +3172,65 @@ mod tests {
         assert_eq!(completed_task_count(&conn), 2);
     }
 
+    #[test]
+    fn repeat_instance_copies_subtask_attributes_and_shifts_their_dates() {
+        let conn = conn();
+        let due = Utc.with_ymd_and_hms(2026, 9, 20, 9, 0, 0).unwrap();
+        let task = create_task(
+            &conn,
+            NewTask {
+                due_at: Some(due),
+                repeat_rule: Some(RepeatRule {
+                    freq: RepeatFreq::Weekly,
+                    interval: 1,
+                    paused: false,
+                }),
+                complexity: Some(4),
+                ..make_new_task("每周复盘")
+            },
+        )
+        .unwrap();
+        let subtask = create_subtask(
+            &conn,
+            task.id,
+            NewSubtask {
+                title: "整理指标".into(),
+                note: Some("看漏斗".into()),
+                priority: Some(Priority::Low),
+                due_at: Some(due),
+                complexity: Some(3),
+            },
+        )
+        .unwrap();
+        complete_subtask(&conn, subtask.id, true).unwrap();
+
+        let next = complete_task(&conn, task.id).unwrap();
+        assert!(next.completed_at.is_some());
+
+        let spawned = list_tasks(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.task.id != task.id)
+            .expect("the repeat instance must exist")
+            .task;
+        assert_eq!(
+            spawned.complexity,
+            Some(4),
+            "a repeat instance keeps the task's complexity"
+        );
+        let copied = list_subtasks(&conn, spawned.id).unwrap();
+        assert_eq!(copied.len(), 1);
+        assert_eq!(copied[0].note.as_deref(), Some("看漏斗"));
+        assert_eq!(copied[0].priority, Priority::Low);
+        assert_eq!(copied[0].complexity, Some(3));
+        assert!(!copied[0].done, "a fresh instance starts uncompleted");
+        assert_eq!(
+            copied[0].due_at,
+            Some(due + chrono::Duration::weeks(1)),
+            "a copied subtask's due date advances with the parent"
+        );
+    }
+
     fn completed_task_count(conn: &Connection) -> usize {
         tasks::list(conn)
             .unwrap()
@@ -3663,6 +3927,10 @@ mod tests {
             task.id,
             NewSubtask {
                 title: "第一步".into(),
+                note: None,
+                priority: None,
+                due_at: None,
+                complexity: None,
             },
         )
         .unwrap();

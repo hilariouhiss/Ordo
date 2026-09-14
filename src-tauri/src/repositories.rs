@@ -23,8 +23,8 @@ const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, du
                             completed_at, repeat_rule, complexity, sort_order, created_at, \
                             updated_at, deleted_at";
 const TAG_COLUMNS: &str = "id, name, color, created_at, updated_at, deleted_at";
-const SUBTASK_COLUMNS: &str = "id, task_id, title, done, sort_order, created_at, updated_at, \
-                               deleted_at";
+const SUBTASK_COLUMNS: &str = "id, task_id, title, note, priority, due_at, complexity, done, \
+                               sort_order, created_at, updated_at, deleted_at";
 const PROJECT_COLUMNS: &str = "id, name, description, color, icon, due_at, status, sort_order, \
                                created_at, updated_at, deleted_at";
 const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
@@ -151,10 +151,15 @@ fn tag_from_row(row: &Row<'_>) -> Result<Tag, AppError> {
 }
 
 fn subtask_from_row(row: &Row<'_>) -> Result<Subtask, AppError> {
+    let priority_text: String = row.get("priority")?;
     Ok(Subtask {
         id: parse_uuid(row.get("id")?)?,
         task_id: parse_uuid(row.get("task_id")?)?,
         title: row.get("title")?,
+        note: row.get("note")?,
+        priority: priority_from_text(&priority_text)?,
+        due_at: row.get("due_at")?,
+        complexity: row.get("complexity")?,
         done: row.get("done")?,
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
@@ -431,12 +436,17 @@ pub mod subtasks {
 
     pub fn insert(conn: &Connection, subtask: &Subtask) -> Result<(), AppError> {
         conn.execute(
-            "INSERT INTO subtasks (id, task_id, title, done, sort_order, created_at, \
-             updated_at, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO subtasks (id, task_id, title, note, priority, due_at, complexity, done, \
+             sort_order, created_at, updated_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 subtask.id.to_string(),
                 subtask.task_id.to_string(),
                 subtask.title,
+                subtask.note,
+                priority_as_text(subtask.priority),
+                subtask.due_at,
+                subtask.complexity,
                 subtask.done,
                 subtask.sort_order,
                 subtask.created_at,
@@ -498,10 +508,15 @@ pub mod subtasks {
     /// soft-deleted.
     pub fn update(conn: &Connection, subtask: &Subtask) -> Result<bool, AppError> {
         let affected = conn.execute(
-            "UPDATE subtasks SET title = ?1, done = ?2, sort_order = ?3, updated_at = ?4 \
-             WHERE id = ?5 AND deleted_at IS NULL",
+            "UPDATE subtasks SET title = ?1, note = ?2, priority = ?3, due_at = ?4, \
+             complexity = ?5, done = ?6, sort_order = ?7, updated_at = ?8 \
+             WHERE id = ?9 AND deleted_at IS NULL",
             params![
                 subtask.title,
+                subtask.note,
+                priority_as_text(subtask.priority),
+                subtask.due_at,
+                subtask.complexity,
                 subtask.done,
                 subtask.sort_order,
                 subtask.updated_at,
@@ -1568,6 +1583,10 @@ mod tests {
             id: Uuid::new_v4(),
             task_id,
             title: "收集数据".into(),
+            note: None,
+            priority: Priority::None,
+            due_at: None,
+            complexity: None,
             done: false,
             sort_order: sort_order.into(),
             created_at: ts(0),
