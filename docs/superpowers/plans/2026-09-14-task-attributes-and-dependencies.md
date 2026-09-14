@@ -333,7 +333,7 @@ pub struct Task {
 }
 ```
 
-`NewTask` 加 `pub complexity: Option<i64>,`（放在 `due_at` 之后）；`UpdateTask` 加 `#[serde(default)] pub complexity: Patch<i64>,`（放在 `due_at` 之后），并给结构体加 `#[derive(Debug, Clone, PartialEq, Deserialize, Default)]`。
+`NewTask` 加 `pub complexity: Option<i64>,`（放在 `due_at` 之后）；`UpdateTask` 加 `#[serde(default)] pub complexity: Patch<i64>,`（放在 `due_at` 之后）。`UpdateTask` 的其它 derive 保持不变——不要加 `Default`，理由见 Step 1 末尾。
 
 同一文件 `mod tests` 里两处 `Task { .. }` 字面量补 `complexity: None,`；`task_fields_serialize_as_camel_case` 的 `sorted_keys` 期望数组补 `"complexity"`（按字母序排在 `"completedAt"` 与 `"createdAt"` 之间）。
 
