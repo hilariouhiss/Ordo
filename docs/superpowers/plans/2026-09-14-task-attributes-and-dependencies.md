@@ -595,8 +595,9 @@ git commit -m "feat: give tasks a complexity estimate"
         let spawned = list_tasks(&conn)
             .unwrap()
             .into_iter()
-            .find(|candidate| candidate.id != task.id)
-            .expect("the repeat instance must exist");
+            .find(|candidate| candidate.task.id != task.id)
+            .expect("the repeat instance must exist")
+            .task;
         let copied = list_subtasks(&conn, spawned.id).unwrap();
         assert_eq!(copied.len(), 1);
         assert_eq!(copied[0].note.as_deref(), Some("看漏斗"));
@@ -2327,7 +2328,7 @@ describe("依赖与软阻塞", () => {
 
 ```tsx
 /** @vitest-environment jsdom */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import { BlockedConfirmHost } from "../components/BlockedConfirmHost";
 import { clearBlockedConfirm, requestBlockedConfirm } from "../blocked-confirm";
@@ -2339,6 +2340,11 @@ vi.mock("../hooks", () => ({
 }));
 
 describe("BlockedConfirmHost", () => {
+  beforeEach(() => {
+    // The mock's call history is shared across the two cases below.
+    vi.clearAllMocks();
+  });
+
   it("列出未完成前置，确认后完成并关闭", async () => {
     requestBlockedConfirm({
       kind: "task",
