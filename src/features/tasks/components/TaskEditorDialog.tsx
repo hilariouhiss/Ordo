@@ -7,6 +7,11 @@ import {
   localInputValueToIso,
 } from "../../../common/utils/datetime";
 import { createTask, updateTask } from "../hooks";
+import {
+  COMPLEXITY_OPTIONS,
+  complexityFromOption,
+  complexityOptionValue,
+} from "../complexity";
 import { PRIORITY_OPTIONS } from "../priority";
 import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
 import { getTag, tasksState } from "../store";
@@ -45,6 +50,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const [title, setTitle] = createSignal("");
   const [note, setNote] = createSignal("");
   const [priority, setPriority] = createSignal<Priority>("none");
+  const [complexity, setComplexity] = createSignal<number | null>(null);
   const [dueLocal, setDueLocal] = createSignal("");
   const [tagIds, setTagIds] = createSignal<string[]>([]);
   const [repeatFreq, setRepeatFreq] = createSignal<RepeatFreq | "none">("none");
@@ -63,6 +69,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         setTitle(task?.title ?? "");
         setNote(task?.note ?? "");
         setPriority(task?.priority ?? "none");
+        setComplexity(task?.complexity ?? null);
         setDueLocal(isoToLocalInputValue(task?.dueAt ?? null));
         setTagIds(task ? [...task.tagIds] : []);
         setRepeatFreq(task?.repeatRule?.freq ?? "none");
@@ -78,6 +85,10 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const selectedPriority = () =>
     PRIORITY_OPTIONS.find((option) => option.value === priority()) ??
     PRIORITY_OPTIONS[PRIORITY_OPTIONS.length - 1];
+
+  const selectedComplexity = () =>
+    COMPLEXITY_OPTIONS.find((option) => option.value === complexityOptionValue(complexity())) ??
+    COMPLEXITY_OPTIONS[0];
 
   const selectedRepeatOption = () =>
     REPEAT_FREQ_OPTIONS.find((option) => option.value === repeatFreq()) ??
@@ -126,6 +137,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         title: parsed.data.title,
         note: noteValue,
         priority: priority(),
+        complexity: complexity(),
         projectId: props.task ? props.task.projectId : props.defaultProjectId ?? null,
         dueAt: localInputValueToIso(parsed.data.dueLocal),
         // Only tags that still exist: 管理标签 opens from inside this dialog, so
@@ -187,6 +199,24 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               <Select.Label>优先级</Select.Label>
               <Select.Trigger>
                 <Select.Value>{selectedPriority().label}</Select.Value>
+                <Select.Icon />
+              </Select.Trigger>
+              <Select.Content>
+                <Select.Listbox />
+              </Select.Content>
+            </Select.Root>
+
+            <Select.Root
+              options={COMPLEXITY_OPTIONS}
+              optionValue={(option) => option.value}
+              optionTextValue={(option) => option.label}
+              itemToString={(option) => option.label}
+              value={selectedComplexity()}
+              onChange={(option) => setComplexity(complexityFromOption(option?.value ?? "none"))}
+            >
+              <Select.Label>复杂度</Select.Label>
+              <Select.Trigger>
+                <Select.Value>{selectedComplexity().label}</Select.Value>
                 <Select.Icon />
               </Select.Trigger>
               <Select.Content>

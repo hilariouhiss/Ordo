@@ -55,6 +55,12 @@ async function selectRepeat(label: string): Promise<void> {
   fireEvent.click(option);
 }
 
+async function selectComplexity(label: string): Promise<void> {
+  fireEvent.pointerDown(screen.getByRole("button", { name: /复杂度/ }));
+  const option = await screen.findByRole("option", { name: label });
+  fireEvent.click(option);
+}
+
 describe("TaskEditorDialog", () => {
   afterEach(cleanup);
 
@@ -103,6 +109,7 @@ describe("TaskEditorDialog", () => {
       dueAt: null,
       tagIds: [],
       repeatRule: null,
+      complexity: null,
     });
   });
 
@@ -186,6 +193,22 @@ describe("TaskEditorDialog", () => {
     expect(vi.mocked(hooks.createTask).mock.calls[0]?.[0]?.priority).toBe("high");
   });
 
+  it("提交时带上复杂度", async () => {
+    vi.mocked(hooks.createTask).mockResolvedValue(taskFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("标题"), { target: { value: "估算" } });
+    await selectComplexity("3 · 一般");
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    // The create payload also carries note, projectId and tagIds; this case only
+    // cares that the complexity control is wired through.
+    expect(vi.mocked(hooks.createTask).mock.calls[0]?.[0]).toMatchObject({
+      complexity: 3,
+    });
+  });
+
   it("converts the datetime-local value to a UTC ISO timestamp", async () => {
     vi.mocked(hooks.createTask).mockResolvedValue(taskFixture("new-1"));
     const { onOpenChange } = renderDialog();
@@ -207,6 +230,7 @@ describe("TaskEditorDialog", () => {
       note: "备注内容",
       priority: "high",
       dueAt: "2026-01-15T01:30:00.000Z",
+      complexity: 2,
       tagIds: ["t1"],
     });
     vi.mocked(hooks.updateTask).mockResolvedValue(existing);
@@ -225,6 +249,7 @@ describe("TaskEditorDialog", () => {
     );
     // The priority trigger shows the current value, not the placeholder.
     expect(screen.getByRole("button", { name: /优先级/ }).textContent).toContain("高");
+    expect(screen.getByRole("button", { name: /复杂度/ }).textContent).toContain("2 · 简单");
 
     fireEvent.input(screen.getByLabelText("标题"), { target: { value: "新标题" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -238,6 +263,7 @@ describe("TaskEditorDialog", () => {
       dueAt: "2026-01-15T01:30:00.000Z",
       tagIds: ["t1"],
       repeatRule: null,
+      complexity: 2,
     });
   });
 

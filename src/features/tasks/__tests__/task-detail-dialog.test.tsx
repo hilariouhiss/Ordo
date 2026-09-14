@@ -1,5 +1,12 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
@@ -21,6 +28,8 @@ vi.mock("../api", () => ({
   listSubtasks: vi.fn(),
   listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
+  addDependency: vi.fn(),
+  removeDependency: vi.fn(),
   createSubtask: vi.fn(),
   updateSubtask: vi.fn(),
   completeSubtask: vi.fn(),
@@ -148,6 +157,7 @@ describe("TaskDetailDialog", () => {
           note: "先整理本周数据",
           priority: "high",
           dueAt: "2026-09-09T23:00:00Z",
+          complexity: 4,
         }),
       ],
       [],
@@ -163,6 +173,7 @@ describe("TaskDetailDialog", () => {
     expect(screen.getByText("发布周报")).toBeTruthy();
     expect(screen.getByText("先整理本周数据")).toBeTruthy();
     expect(screen.getByText("高")).toBeTruthy();
+    expect(screen.getByText("复杂度 4")).toBeTruthy();
     expect(screen.getByText("1/3 已完成")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("33");
     expect(api.listSubtasks).not.toHaveBeenCalled(); // cache already held them
@@ -569,5 +580,56 @@ describe("TaskDetailDialog time tracking", () => {
 
     expect(await screen.findByText("45 分钟")).toBeTruthy();
     expect(api.listTimeEntries).toHaveBeenCalledWith(TASK_ID);
+  });
+});
+
+describe("任务详情的依赖区", () => {
+  it("列出前置与后置，并且不把自身与已成环的候选列进来", async () => {
+    store.setAll(
+      [
+        taskFixture(TASK_ID, { title: "写周报" }),
+        taskFixture("b", { title: "收集数据" }),
+        taskFixture("c", { title: "发布" }),
+        taskFixture("d", { title: "整理素材" }),
+      ],
+      [],
+    );
+    store.setDependencies([
+      { kind: "task", dependentId: TASK_ID, prerequisiteId: "b" },
+      { kind: "task", dependentId: "c", prerequisiteId: TASK_ID },
+    ]);
+    render(() => (
+      <TaskDetailDialog
+        open
+        onOpenChange={() => {}}
+        task={store.getTask(TASK_ID)!}
+        onEdit={() => {}}
+      />
+    ));
+
+    const section = await screen.findByRole("region", { name: "依赖" });
+    expect(within(section).getByText("收集数据")).toBeTruthy();
+    expect(within(section).getByText("发布")).toBeTruthy();
+
+    const search = () => within(section).getByLabelText("添加前置");
+    const offered = (title: string) =>
+      within(section).queryByRole("button", { name: `添加前置 ${title}` });
+
+    // An unrelated task is offered, so the assertions below cannot pass just
+    // because the candidate list never renders anything.
+    fireEvent.input(search(), { target: { value: "整" } });
+    expect(offered("整理素材")).toBeTruthy();
+
+    fireEvent.input(search(), { target: { value: "收" } });
+    // "收集数据" is already a prerequisite, so it is not offered again.
+    expect(offered("收集数据")).toBeNull();
+
+    // The task itself is never its own prerequisite.
+    fireEvent.input(search(), { target: { value: "写" } });
+    expect(offered("写周报")).toBeNull();
+
+    // "发布" already waits for this task: adding it back would close a cycle.
+    fireEvent.input(search(), { target: { value: "发" } });
+    expect(offered("发布")).toBeNull();
   });
 });

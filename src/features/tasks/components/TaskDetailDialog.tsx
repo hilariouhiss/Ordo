@@ -2,12 +2,14 @@ import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js"
 import { Repeat } from "lucide-solid";
 import { Badge, Button, Dialog, Skeleton } from "../../../common/components";
 import { completeTask, loadSubtasks, softDeleteTask, uncompleteTask } from "../hooks";
+import { complexityLabel } from "../complexity";
 import { describeRepeatRule } from "../repeat";
 import { getTag, getTask, hasSubtasks } from "../store";
 import type { Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 import { PRIORITY_BADGES } from "./TaskItemRow";
 import { SubtaskList } from "./SubtaskList";
+import { TaskDependencies } from "./TaskDependencies";
 import { CommentList } from "./CommentList";
 import { TimeTracker } from "./TimeTracker";
 import { loadComments, loadTimeEntries } from "../hooks";
@@ -95,6 +97,9 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
             <Show when={priority()}>
               {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
             </Show>
+            <Show when={complexityLabel(task().complexity)}>
+              {(label) => <Badge variant="outline">{label()}</Badge>}
+            </Show>
             <Show when={task().repeatRule}>
               {(rule) => (
                 <Badge variant="outline" class={rule().paused ? "opacity-60" : ""}>
@@ -130,6 +135,10 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
               {task().note}
             </p>
           </Show>
+
+          <div class="mt-5 border-t border-border pt-5">
+            <TaskDependencies taskId={task().id} />
+          </div>
 
           <div class="mt-5 border-t border-border pt-5">
             <Show
