@@ -1403,6 +1403,7 @@ pub mod backup {
                 TIME_ENTRY_COLUMNS,
                 time_entry_from_row,
             )?,
+            dependencies: dependencies::list_all(conn)?,
             settings: all_rows(conn, "settings", SETTING_COLUMNS, setting_from_row)?,
         })
     }
@@ -1421,6 +1422,8 @@ pub mod backup {
     /// after them, so the foreign keys hold throughout.
     pub fn replace_all(conn: &Connection, data: &BackupData) -> Result<(), AppError> {
         for table in [
+            "task_dependencies",
+            "subtask_dependencies",
             "task_tags",
             "comments",
             "subtasks",
@@ -1448,6 +1451,16 @@ pub mod backup {
         }
         for subtask in &data.subtasks {
             subtasks::insert(conn, subtask)?;
+        }
+        // Edges go in last: their foreign keys need both endpoints to exist.
+        for edge in &data.dependencies {
+            dependencies::insert(
+                conn,
+                edge.kind,
+                edge.dependent_id,
+                edge.prerequisite_id,
+                Utc::now(),
+            )?;
         }
         {
             let mut statement =

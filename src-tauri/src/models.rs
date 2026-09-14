@@ -244,8 +244,10 @@ pub struct TaskTagLink {
 /// Every user-data table, exactly as a backup carries them.
 ///
 /// Soft-deleted rows are included on purpose: a backup is a copy of the
-/// database, not a view of it. `task_reminders` stays out — those markers only
-/// dedup notifications and are rebuilt by the scheduler.
+/// database, not a view of it — `dependencies` therefore carries edges whose
+/// endpoints are soft-deleted too. `task_reminders` and `subtask_reminders`
+/// stay out: those markers only dedup notifications and are rebuilt by the
+/// scheduler.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupData {
@@ -265,6 +267,8 @@ pub struct BackupData {
     pub comments: Vec<Comment>,
     #[serde(default)]
     pub time_entries: Vec<TimeEntry>,
+    #[serde(default)]
+    pub dependencies: Vec<Dependency>,
     #[serde(default)]
     pub settings: Vec<Setting>,
 }

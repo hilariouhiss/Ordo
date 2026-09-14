@@ -1219,8 +1219,10 @@ pub fn time_distribution(
 
 /// Format marker written into every backup document.
 pub const BACKUP_FORMAT: &str = "ordo.backup";
-/// Generation of the backup format this build reads and writes.
-pub const BACKUP_VERSION: u32 = 1;
+/// Generation of the backup format. Bumped to 2 when dependency edges joined
+/// the document: an older build reading a v2 file would silently drop them,
+/// so `import_backup` refuses anything newer than this value.
+pub const BACKUP_VERSION: u32 = 2;
 
 /// Writes every table to `path` as one JSON backup document.
 pub fn export_backup(conn: &Connection, path: &Path) -> Result<BackupSummary, AppError> {
@@ -4096,6 +4098,75 @@ mod tests {
         assert_eq!(backup::export_all(&restored).unwrap().tasks.len(), 2);
 
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn backup_roundtrips_dependency_edges() {
+        let conn = conn();
+        let a = make_task(&conn, "A");
+        let b = make_task(&conn, "B");
+        let first = make_subtask(&conn, a.id, "1");
+        let second = make_subtask(&conn, a.id, "2");
+        add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        add_dependency(
+            &conn,
+            dependency(DependencyKind::Subtask, first.id, second.id),
+        )
+        .unwrap();
+
+        let path = backup_path();
+        export_backup(&conn, &path).unwrap();
+
+        // Wiping the edges (rather than the whole database) keeps this test
+        // focused: the import has to restore them from the document.
+        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        remove_dependency(
+            &conn,
+            dependency(DependencyKind::Subtask, first.id, second.id),
+        )
+        .unwrap();
+        assert!(list_dependencies(&conn).unwrap().is_empty());
+
+        import_backup(&conn, &path).unwrap();
+        let restored = list_dependencies(&conn).unwrap();
+        assert_eq!(restored.len(), 2);
+        assert!(restored
+            .iter()
+            .any(|edge| edge.kind == DependencyKind::Task));
+        assert!(restored
+            .iter()
+            .any(|edge| edge.kind == DependencyKind::Subtask));
+
+        // A second import replaces rather than merges — the edge tables
+        // included, so an edge added after the restore does not survive it.
+        let extra = make_task(&conn, "C");
+        add_dependency(&conn, dependency(DependencyKind::Task, a.id, extra.id)).unwrap();
+        import_backup(&conn, &path).unwrap();
+        assert_eq!(list_dependencies(&conn).unwrap().len(), 2);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn version_one_backups_still_import() {
+        let conn = conn();
+        // A v1 document predates `dependencies`; `#[serde(default)]` must let it
+        // through instead of failing the whole import.
+        let document = serde_json::json!({
+            "format": BACKUP_FORMAT,
+            "version": 1,
+            "exportedAt": "2026-01-01T00:00:00Z",
+            "data": {
+                "projects": [], "boardColumns": [], "tags": [], "tasks": [],
+                "subtasks": [], "taskTags": [], "comments": [], "timeEntries": [],
+                "settings": []
+            }
+        });
+        let path = backup_path();
+        std::fs::write(&path, serde_json::to_string(&document).unwrap()).unwrap();
+        import_backup(&conn, &path).unwrap();
+
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
