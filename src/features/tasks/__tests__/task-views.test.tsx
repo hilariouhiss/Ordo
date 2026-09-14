@@ -5,6 +5,7 @@ import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as store from "../store";
 import type { Subtask, Task } from "../types";
+import { SubtaskRow } from "../components/SubtaskRow";
 import { CompletedView } from "../components/views/CompletedView";
 import { InboxView } from "../components/views/InboxView";
 import { TodayView } from "../components/views/TodayView";
@@ -429,5 +430,64 @@ describe("任务行的子任务展开位", () => {
     expect(await screen.findByText("任务 t1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /的子任务/ })).toBeNull();
     expect(screen.queryByText(/^\d+\/\d+$/)).toBeNull();
+  });
+});
+
+describe("SubtaskRow", () => {
+  it("toggles done through the callback and opens the parent's detail", () => {
+    const parent = task("t1");
+    const child = subtask("s1", "t1", "第一步");
+    const onToggleDone = vi.fn();
+    const onOpenDetail = vi.fn();
+
+    render(() => (
+      <SubtaskRow
+        subtask={child}
+        parent={parent}
+        onToggleDone={onToggleDone}
+        onOpenDetail={onOpenDetail}
+      />
+    ));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "完成子任务 第一步" }));
+    expect(onToggleDone).toHaveBeenCalledWith(parent, child, true);
+
+    fireEvent.click(screen.getByText("第一步"));
+    expect(onOpenDetail).toHaveBeenCalledWith(parent);
+  });
+
+  it("strikes through a done subtask", () => {
+    render(() => (
+      <SubtaskRow
+        subtask={subtask("s1", "t1", "第一步", true)}
+        parent={task("t1")}
+        onToggleDone={vi.fn()}
+        onOpenDetail={vi.fn()}
+      />
+    ));
+
+    expect(screen.getByRole("checkbox", { name: "恢复子任务 第一步" })).toBeTruthy();
+    expect(screen.getByText("第一步").className).toContain("line-through");
+  });
+
+  it("keeps the rail slot 20px wide and stretched to the row height", () => {
+    const { container } = render(() => (
+      <SubtaskRow
+        subtask={subtask("s1", "t1", "第一步")}
+        parent={task("t1")}
+        onToggleDone={vi.fn()}
+        onOpenDetail={vi.fn()}
+      />
+    ));
+
+    // jsdom has no layout engine, so height/width cannot be measured here: the
+    // class contract is the only assertable half. `w-5` (not `size-5`, which
+    // would also pin a 20px *height* and, under the row's `items-center`, clamp
+    // the rail to a 20px tick with a 36px break between rows) plus
+    // `self-stretch`, which is what makes the rail span the full 56px row.
+    const slot = (container.querySelector("[data-subtask-id]") as HTMLElement)
+      .firstElementChild as HTMLElement;
+    expect(slot.className).toContain("w-5");
+    expect(slot.className).toContain("self-stretch");
   });
 });
