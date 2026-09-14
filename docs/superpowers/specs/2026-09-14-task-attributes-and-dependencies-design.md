@@ -232,7 +232,9 @@ SELECT EXISTS(SELECT 1 FROM chain WHERE id = ?2)                 -- 依赖方
 
 `addDependency` / `removeDependency` 走既有 `optimistic()`（乐观更新 → 落库 → 回滚 + toast）。
 
-**软阻塞收敛在 hooks 里**：`completeTask` 与 `completeSubtask(…, done)` 在 `done === true` 时先查 `isBlocked`；被阻塞则**不落库**，把请求放进一个新的 `pendingBlockedConfirm` 信号并返回 `null`。AppShell 挂一个 `<BlockedConfirmHost/>`（新增 `src/app/BlockedConfirmHost.tsx`，与 `<Toaster />` 同层）渲染 `Dialog`：列出未完成前置的标题（纯文本，不做点击跳转——避免两个弹窗叠加），按钮「取消 / 仍要完成」；确认后走 `forceCompleteTask` / `forceCompleteSubtask`（hooks 内部导出，仅供该宿主使用，不进公开 API）。
+**软阻塞收敛在 hooks 里**：`completeTask` 与 `completeSubtask(…, done)` 在 `done === true` 时先查 `isBlocked`；被阻塞则**不落库**，把请求放进一个待确认信号并返回 `null`。AppShell 挂一个 `<BlockedConfirmHost/>`（`src/features/tasks/components/BlockedConfirmHost.tsx`，与 `<Toaster />` 同层）渲染 `Dialog`：列出未完成前置的标题（纯文本，不做点击跳转——避免两个弹窗叠加），按钮「取消 / 仍要完成」。
+
+**实现后修正（两处，均由评审发现）**：① 待确认请求携带 `run: () => Promise<unknown>`（确认后要执行的动作），宿主只调 `run()`、不再按 `kind` 分支——因为看板拖拽进完成列也是一条会落 `completed_at` 的完成路径，它的「确认后动作」是整个移动而不只是完成，`kind` 分支表达不了；`forceCompleteTask` / `forceCompleteSubtask` 退化为该闭包的函数体。② 宿主改为**动作成功后**才清空请求（运行期间禁用确认按钮），失败时保留 blocker 列表而不是只剩一条 toast。
 
 这样做的收益：**5 个完成入口（任务行、看板卡、详情弹窗、子任务行 ×2）零改动**——它们本来就 `void completeTask(...)`，且把 `null` 当失败处理，UI 不会错（复选框由 `completedAt`/`done` 驱动，未落库就不会勾上；确认后 store 更新，自然勾上）。
 
