@@ -385,7 +385,11 @@ git commit -m "feat: load every subtask up front so list rows can show progress"
   });
 ```
 
-若该文件顶部还没有 `waitFor`，从 `@solidjs/testing-library` 引入（其它用例已在用 `waitFor`，通常已 import）。
+该文件目前什么都不渲染，也没有从 `@solidjs/testing-library` 引入任何东西（`waitFor` 在全文件出现 0 次），所以要在顶部补一行 import：
+
+```ts
+import { waitFor } from "@solidjs/testing-library";
+```
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -423,11 +427,14 @@ git commit -m "fix: pull a new task's initial subtasks so its row shows progress
 
 **Files:**
 - Modify: `src/features/tasks/components/TaskItemRow.tsx`
+- Modify: `src/features/tasks/components/TaskListView.tsx`（**仅**把四个新 props 传进去，见 Step 3 末尾）
 - Test: `src/features/tasks/__tests__/task-views.test.tsx`（复用该文件已有的 `task()` 工厂、api mock 与 store 复位）
 
 **Interfaces:**
-- Consumes: 无（纯展示组件，数据由父级传入）
+- Consumes: `getSubtasks` from `../store`（只为 TaskListView 的过渡值）
 - Produces: `TaskItemRowProps` 新增四个字段 —— `subtaskCount: number`、`subtaskDone: number`、`expanded: boolean`、`onToggleExpand: (task: Task) => void`。Task 6 依赖这些确切名字。
+
+**为什么必须同时改 TaskListView：** 这四个字段是必填的，而 `TaskItemRow` 唯一的调用点就在 `TaskListView` 里。只加字段不改调用点，本任务的 commit 直接 typecheck 不过，本任务自己的 `InboxView` 用例也渲染不出徽章。Step 3 末尾给出一个最小过渡：传真实计数、`expanded={false}`、`onToggleExpand` 空实现——于是本任务是绿色且可独立验收的，展开行为仍完整留给 Task 6。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -541,16 +548,43 @@ import { ChevronRight, MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-sol
       </Show>
 ```
 
+`src/features/tasks/components/TaskListView.tsx`：四个字段是必填的，所以这里必须同步更新唯一的调用点，否则本任务 typecheck 不过。**只传值，不加任何展开逻辑**——拍平成行序列与展开状态是 Task 6 的事：
+
+在 store 的 import 里补 `getSubtasks`：
+
+```tsx
+import { getSubtasks, tasksState } from "../store";
+```
+
+把现有的 `<TaskItemRow ... />` 调用替换为：
+
+```tsx
+              <TaskItemRow
+                task={task}
+                now={now()}
+                subtaskCount={getSubtasks(task.id).length}
+                subtaskDone={getSubtasks(task.id).filter((child) => child.done).length}
+                expanded={false}
+                onToggleExpand={() => {}}
+                onToggleComplete={toggleComplete}
+                onOpenDetail={openDetail}
+                onEdit={openEdit}
+                onDelete={removeTask}
+              />
+```
+
+（Task 6 会把这几行换成由行数据携带的计数与真实展开状态。）
+
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm test src/features/tasks/__tests__/task-views.test.tsx`
-Expected: PASS（含新用例）
+Run: `pnpm typecheck && pnpm test src/features/tasks/__tests__/task-views.test.tsx`
+Expected: typecheck 无输出；测试 PASS（含新用例）
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /c/Mine/Ordo
-git add src/features/tasks/components/TaskItemRow.tsx src/features/tasks/__tests__/task-views.test.tsx
+git add src/features/tasks/components/TaskItemRow.tsx src/features/tasks/components/TaskListView.tsx src/features/tasks/__tests__/task-views.test.tsx
 git commit -m "feat: give task rows a disclosure control and subtask progress"
 ```
 
@@ -778,7 +812,7 @@ describe("任务列表的层级展示", () => {
     ]);
     render(() => <InboxView />);
 
-    await selectFromCombobox(/全部优先级/, "仅高");
+    await selectFromCombobox(/优先级筛选/, "仅高");
     fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
 
     // Subtasks carry no priority, so they are never filtered: a badge reading
