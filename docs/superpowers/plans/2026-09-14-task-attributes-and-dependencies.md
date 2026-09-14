@@ -2271,7 +2271,8 @@ describe("依赖与软阻塞", () => {
     expect(result).toBeNull();
     expect(api.completeTask).not.toHaveBeenCalled();
     expect(blockedRequest()?.blockers.map((blocker) => blocker.id)).toEqual(["b"]);
-    expect(blockedRequest()?.title).toBe("a");
+    // hooks.test.ts 的 task() 工厂把标题写成「任务 <id>」，不是裸 id。
+    expect(blockedRequest()?.title).toBe("任务 a");
 
     vi.mocked(api.completeTask).mockResolvedValue({ ...blocked, completedAt: "2026-09-14T10:00:00Z" });
     await hooks.forceCompleteTask("a");
@@ -2329,8 +2330,8 @@ describe("依赖与软阻塞", () => {
 
 ```tsx
 /** @vitest-environment jsdom */
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { BlockedConfirmHost } from "../components/BlockedConfirmHost";
 import { clearBlockedConfirm, requestBlockedConfirm } from "../blocked-confirm";
 import { forceCompleteTask } from "../hooks";
@@ -2345,6 +2346,9 @@ describe("BlockedConfirmHost", () => {
     // The mock's call history is shared across the two cases below.
     vi.clearAllMocks();
   });
+
+  // 对话框经 portal 渲染：不清理会让下一条用例的 getByRole 同时命中两个弹窗。
+  afterEach(cleanup);
 
   it("列出未完成前置，确认后完成并关闭", async () => {
     requestBlockedConfirm({
