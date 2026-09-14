@@ -20,8 +20,8 @@ use crate::models::{
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
-                            completed_at, repeat_rule, sort_order, created_at, updated_at, \
-                            deleted_at";
+                            completed_at, repeat_rule, complexity, sort_order, created_at, \
+                            updated_at, deleted_at";
 const TAG_COLUMNS: &str = "id, name, color, created_at, updated_at, deleted_at";
 const SUBTASK_COLUMNS: &str = "id, task_id, title, done, sort_order, created_at, updated_at, \
                                deleted_at";
@@ -131,6 +131,7 @@ fn task_from_row(row: &Row<'_>) -> Result<Task, AppError> {
         due_at: row.get("due_at")?,
         completed_at: row.get("completed_at")?,
         repeat_rule: repeat_rule_from_json(row.get("repeat_rule")?)?,
+        complexity: row.get("complexity")?,
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -231,8 +232,9 @@ pub mod tasks {
     pub fn insert(conn: &Connection, task: &Task) -> Result<(), AppError> {
         conn.execute(
             "INSERT INTO tasks (id, project_id, title, note, priority, column_id, due_at, \
-             completed_at, repeat_rule, sort_order, created_at, updated_at, deleted_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             completed_at, repeat_rule, complexity, sort_order, created_at, updated_at, \
+             deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 task.id.to_string(),
                 task.project_id.map(|id| id.to_string()),
@@ -243,6 +245,7 @@ pub mod tasks {
                 task.due_at,
                 task.completed_at,
                 repeat_rule_as_json(task.repeat_rule.as_ref())?,
+                task.complexity,
                 task.sort_order,
                 task.created_at,
                 task.updated_at,
@@ -280,8 +283,8 @@ pub mod tasks {
         let affected = conn.execute(
             "UPDATE tasks SET project_id = ?1, title = ?2, note = ?3, priority = ?4, \
              column_id = ?5, due_at = ?6, completed_at = ?7, repeat_rule = ?8, \
-             sort_order = ?9, updated_at = ?10 \
-             WHERE id = ?11 AND deleted_at IS NULL",
+             complexity = ?9, sort_order = ?10, updated_at = ?11 \
+             WHERE id = ?12 AND deleted_at IS NULL",
             params![
                 task.project_id.map(|id| id.to_string()),
                 task.title,
@@ -291,6 +294,7 @@ pub mod tasks {
                 task.due_at,
                 task.completed_at,
                 repeat_rule_as_json(task.repeat_rule.as_ref())?,
+                task.complexity,
                 task.sort_order,
                 task.updated_at,
                 task.id.to_string(),
@@ -1540,6 +1544,7 @@ mod tests {
             due_at: None,
             completed_at: None,
             repeat_rule: None,
+            complexity: None,
             sort_order: sort_order.into(),
             created_at: ts(0),
             updated_at: ts(0),

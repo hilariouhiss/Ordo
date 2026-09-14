@@ -124,6 +124,8 @@ pub struct Task {
     pub due_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
     pub repeat_rule: Option<RepeatRule>,
+    /// 1-5, or `None` when the task was never estimated.
+    pub complexity: Option<i64>,
     pub sort_order: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -356,6 +358,8 @@ pub struct NewTask {
     pub project_id: Option<Uuid>,
     pub column_id: Option<Uuid>,
     pub due_at: Option<DateTime<Utc>>,
+    /// 1-5 estimate, or `None` for an unestimated task (validated on write).
+    pub complexity: Option<i64>,
     #[serde(default)]
     pub tag_ids: Vec<Uuid>,
     #[serde(default)]
@@ -377,6 +381,10 @@ pub struct UpdateTask {
     pub column_id: Patch<Uuid>,
     #[serde(default)]
     pub due_at: Patch<DateTime<Utc>>,
+    /// Replace/clear (`Patch::Set(None)`) the 1-5 estimate; missing leaves it
+    /// unchanged.
+    #[serde(default)]
+    pub complexity: Patch<i64>,
     #[serde(default)]
     pub completed_at: Patch<DateTime<Utc>>,
     /// Replace the task's tag set; missing leaves the set unchanged.
@@ -645,6 +653,7 @@ mod tests {
             due_at: None,
             completed_at: None,
             repeat_rule: None,
+            complexity: None,
             sort_order: "n".into(),
             created_at: ts(),
             updated_at: ts(),
@@ -675,6 +684,7 @@ mod tests {
             due_at: None,
             completed_at: None,
             repeat_rule: None,
+            complexity: None,
             sort_order: "a".into(),
             created_at: ts(),
             updated_at: ts(),
@@ -687,6 +697,7 @@ mod tests {
             [
                 "columnId",
                 "completedAt",
+                "complexity",
                 "createdAt",
                 "deletedAt",
                 "dueAt",

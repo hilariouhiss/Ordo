@@ -80,6 +80,16 @@ fn validate_repeat_rule(rule: &RepeatRule) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Complexity is a 1-5 estimate or `None`; anything else is a client bug.
+fn validated_complexity(value: Option<i64>) -> Result<Option<i64>, AppError> {
+    match value {
+        Some(level) if !(1..=5).contains(&level) => {
+            Err(AppError::Validation("复杂度需在 1-5 之间".into()))
+        }
+        other => Ok(other),
+    }
+}
+
 /// Advances a due time by one recurrence period. Monthly addition clamps to
 /// the month's last day (Jan 31 + 1 month = Feb 28); the overflow fallback is
 /// unreachable for realistic dates and keeps completion non-fatal.
@@ -95,9 +105,10 @@ fn next_due(due: DateTime<Utc>, rule: &RepeatRule) -> DateTime<Utc> {
 
 /// Spawns the next instance of a completed repeating task inside the
 /// caller's transaction: one period past the task's due time, carrying over
-/// title/note/priority/project/tags/subtasks (subtasks reset to uncompleted)
-/// and the rule itself, appended to `column_id`'s scope. Repeats anchored to
-/// nothing (`due_at = None`) or paused rules complete without spawning.
+/// title/note/priority/project/complexity/tags/subtasks (subtasks reset to
+/// uncompleted) and the rule itself, appended to `column_id`'s scope. Repeats
+/// anchored to nothing (`due_at = None`) or paused rules complete without
+/// spawning.
 fn spawn_next_instance(
     conn: &Connection,
     task: &Task,
@@ -131,6 +142,7 @@ fn spawn_next_instance(
             project_id: task.project_id,
             column_id,
             due_at: Some(next_due(due, &rule)),
+            complexity: task.complexity,
             tag_ids,
             subtask_titles,
             repeat_rule: Some(rule),
@@ -283,6 +295,7 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
     let title = validated_name(&input.title)?;
     let tag_ids = dedup(input.tag_ids);
     let now = Utc::now();
+    let complexity = validated_complexity(input.complexity)?;
 
     let siblings: Vec<(Uuid, String)> = tasks::list(conn)?
         .into_iter()
@@ -308,6 +321,7 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
         due_at: input.due_at,
         completed_at: None,
         repeat_rule: input.repeat_rule,
+        complexity,
         sort_order,
         created_at: now,
         updated_at: now,
@@ -366,6 +380,9 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
     }
     if let Patch::Set(due_at) = patch.due_at {
         task.due_at = due_at;
+    }
+    if let Patch::Set(complexity) = patch.complexity {
+        task.complexity = validated_complexity(complexity)?;
     }
     if let Patch::Set(completed_at) = patch.completed_at {
         task.completed_at = completed_at;
@@ -1384,9 +1401,27 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap()
+    }
+
+    /// `NewTask` with everything unset but the title, for tests that only care
+    /// about one field: `NewTask { complexity: Some(4), ..make_new_task("x") }`.
+    fn make_new_task(title: &str) -> NewTask {
+        NewTask {
+            title: title.into(),
+            note: None,
+            priority: None,
+            project_id: None,
+            column_id: None,
+            due_at: None,
+            tag_ids: Vec::new(),
+            subtask_titles: Vec::new(),
+            repeat_rule: None,
+            complexity: None,
+        }
     }
 
     fn make_subtask(conn: &Connection, task_id: Uuid, title: &str) -> Subtask {
@@ -1445,6 +1480,7 @@ mod tests {
                 tag_ids: vec![tag.id, tag.id],
                 subtask_titles: vec!["回归测试".into(), "发布公告".into()],
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap();
@@ -1480,6 +1516,7 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap_err();
@@ -1502,6 +1539,7 @@ mod tests {
                 tag_ids: vec![Uuid::new_v4()],
                 subtask_titles: vec!["不应存在".into()],
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap_err();
@@ -1563,6 +1601,7 @@ mod tests {
                 tag_ids: vec![tag_a.id],
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap();
@@ -1581,6 +1620,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1606,6 +1646,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: Some(vec![tag_b.id]),
                 repeat_rule: Patch::Unchanged,
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1629,10 +1670,106 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap_err();
         assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn complexity_roundtrips_and_rejects_out_of_range() {
+        let conn = conn();
+        let task = create_task(
+            &conn,
+            NewTask {
+                complexity: Some(4),
+                ..make_new_task("有复杂度")
+            },
+        )
+        .unwrap();
+        assert_eq!(task.complexity, Some(4));
+        assert_eq!(
+            tasks::get(&conn, task.id).unwrap().unwrap().complexity,
+            Some(4)
+        );
+
+        // Patch semantics: missing leaves the value, explicit null clears it.
+        let renamed = update_task(
+            &conn,
+            task.id,
+            UpdateTask {
+                title: Some("改名".into()),
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Unchanged,
+                complexity: Patch::Unchanged,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            renamed.complexity,
+            Some(4),
+            "missing complexity must not clear it"
+        );
+
+        let cleared = update_task(
+            &conn,
+            task.id,
+            UpdateTask {
+                title: None,
+                note: Patch::Unchanged,
+                priority: None,
+                project_id: Patch::Unchanged,
+                column_id: Patch::Unchanged,
+                due_at: Patch::Unchanged,
+                completed_at: Patch::Unchanged,
+                tag_ids: None,
+                repeat_rule: Patch::Unchanged,
+                complexity: Patch::Set(None),
+            },
+        )
+        .unwrap();
+        assert_eq!(cleared.complexity, None);
+
+        assert_eq!(
+            update_task(
+                &conn,
+                task.id,
+                UpdateTask {
+                    title: None,
+                    note: Patch::Unchanged,
+                    priority: None,
+                    project_id: Patch::Unchanged,
+                    column_id: Patch::Unchanged,
+                    due_at: Patch::Unchanged,
+                    completed_at: Patch::Unchanged,
+                    tag_ids: None,
+                    repeat_rule: Patch::Unchanged,
+                    complexity: Patch::Set(Some(6)),
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
+        assert_eq!(
+            create_task(
+                &conn,
+                NewTask {
+                    complexity: Some(0),
+                    ..make_new_task("越界")
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
     }
 
     #[test]
@@ -1961,6 +2098,7 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap()
@@ -1980,6 +2118,7 @@ mod tests {
             due_at: None,
             completed_at: None,
             repeat_rule: None,
+            complexity: None,
             sort_order: key.into(),
             created_at: now,
             updated_at: now,
@@ -2344,6 +2483,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2482,6 +2622,7 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap()
@@ -2681,6 +2822,7 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: Some(zero_interval),
+                complexity: None,
             },
         )
         .unwrap_err();
@@ -2705,6 +2847,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Set(Some(rule)),
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2728,6 +2871,7 @@ mod tests {
                     interval: 0,
                     paused: false,
                 })),
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap_err();
@@ -2747,6 +2891,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Set(None),
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2783,6 +2928,7 @@ mod tests {
                 tag_ids: vec![tag.id],
                 subtask_titles: vec!["套新垃圾袋".into()],
                 repeat_rule: Some(rule),
+                complexity: None,
             },
         )
         .unwrap();
@@ -2862,6 +3008,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Set(Some(active_rule)),
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2883,6 +3030,7 @@ mod tests {
                 completed_at: Patch::Unchanged,
                 tag_ids: None,
                 repeat_rule: Patch::Set(Some(active_rule)),
+                complexity: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2910,6 +3058,7 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: Some(rule),
+                complexity: None,
             },
         )
         .unwrap()
@@ -2939,6 +3088,7 @@ mod tests {
                 tag_ids: Vec::new(),
                 subtask_titles: Vec::new(),
                 repeat_rule: Some(rule),
+                complexity: None,
             },
         )
         .unwrap();
@@ -3113,6 +3263,7 @@ mod tests {
                 tag_ids,
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
+                complexity: None,
             },
         )
         .unwrap()
