@@ -65,7 +65,7 @@ PRD 59–60 行已经允许子任务存在（「任务可包含多级子任务�
 
 为什么必须给空任务也建条目：`hasSubtasks(taskId)` 的实现是 `taskId in state.subtasksByTask`，详情弹窗靠它决定要不要再拉一次。批量加载之后若某一堆任务没有键，打开它们的详情就会各自白发一次 `subtask:list` —— 数据明明已经在手里了。
 
-重建而不是合并，顺带清掉了已删除任务的陈旧键。
+**注意实现上的一个反直觉点**：`setState("subtasksByTask", byTask)` 在 solid-js/store 里走的是**合并**分支（`isWrappable(prev) && isWrappable(value) && !Array.isArray(value)` → `mergeStoreNode` → 逐键 `setProperty`），所以 `byTask` 里没有的键**不会被删掉**。每个任务的值（数组）是被整体替换的，因此不存在索引合并的陈旧数据；留下的只是已删除任务的空壳键——没有任何代码遍历这些键（消费方一律按存活任务 id 取值），代价仅是内存驻留。若要真正剪掉它们，需要用 `solid-js/store` 的 `reconcile(byTask)`；本设计不需要，也就没有为此引入 diff。
 
 ### 4.3 加载
 
