@@ -168,7 +168,10 @@ export default function QuickAddWindow() {
 
   return (
     <div
-      class="flex h-screen flex-col gap-2 overflow-hidden border border-border bg-surface p-4 text-foreground"
+      // The window is frameless and sized to its content, so this element IS
+      // the window chrome: it draws its own hairline edge and fills the whole
+      // surface. `dvh`, not `vh`, so the bottom control row cannot be clipped.
+      class="flex h-dvh flex-col gap-3 overflow-hidden border border-border bg-surface p-4 text-foreground"
       onKeyDown={(event) => {
         if (event.key === "Escape") hideWindow();
       }}
@@ -196,6 +199,9 @@ export default function QuickAddWindow() {
             aria-label="任务标题"
             placeholder="要做点什么？@项目 !高 #明天"
             autofocus
+            // This one field is the entire point of the window, so it is set a
+            // tier above every other input in the app.
+            class="h-10 text-base"
             value={title()}
             onInput={(event) => setTitle(event.currentTarget.value)}
           />
@@ -264,7 +270,11 @@ export default function QuickAddWindow() {
         </TextField.Root>
       </div>
 
-      <p role="status" aria-live="polite" class="truncate text-xs text-subtle-foreground">
+      <p
+        role="status"
+        aria-live="polite"
+        class="min-h-4 truncate text-xs text-subtle-foreground"
+      >
         {preview()}
       </p>
 

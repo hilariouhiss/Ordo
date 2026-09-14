@@ -20,8 +20,9 @@ export function InboxView() {
     >
       <TaskListView
         tasks={tasks}
+        title="收件箱"
         emptyTitle="收件箱是空的"
-        emptyDescription="未归属任何项目的任务会收集在这里，点击右上角「新建任务」开始。"
+        emptyDescription="未归属任何项目的任务会收集在这里，随时可以把它们分配到项目里。"
         defaultSort="manual"
         sortOptions={[SORT_OPTIONS.manual, SORT_OPTIONS.priority, SORT_OPTIONS.due]}
       />

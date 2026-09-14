@@ -117,7 +117,7 @@ export function LineChart(props: LineChartProps) {
         </For>
 
         <Show when={props.values.length > 1}>
-          <path d={area()} fill="var(--primary)" fill-opacity="0.12" />
+          <path d={area()} fill="var(--primary)" fill-opacity="0.10" />
         </Show>
 
         <polyline
@@ -127,6 +127,9 @@ export function LineChart(props: LineChartProps) {
           stroke-width="2"
           stroke-linejoin="round"
           stroke-linecap="round"
+          /* The viewBox scales with the panel; without this the line thickens
+             with it and stops matching the 1px gridlines. */
+          vector-effect="non-scaling-stroke"
         />
 
         <For each={props.values}>
@@ -136,7 +139,7 @@ export function LineChart(props: LineChartProps) {
               cy={y(value)}
               r="2.5"
               fill="var(--primary)"
-              class="transition-opacity hover:opacity-60 motion-reduce:transition-none"
+              class="transition-opacity hover:opacity-60"
             >
               <title>
                 {props.formatKey(props.keys[index()] ?? "")} ·{" "}

@@ -91,7 +91,7 @@ export function CalendarHeatmap(props: CalendarHeatmapProps) {
                 rx="3"
                 fill={cell.level === 0 ? "var(--border)" : "var(--primary)"}
                 fill-opacity={cell.level === 0 ? "1" : String(cell.level / LEVELS)}
-                class="transition-opacity hover:opacity-60 motion-reduce:transition-none"
+                class="transition-opacity hover:opacity-60"
               >
                 <title>
                   {format(localDate(cell.day), "M月d日")} · {cell.value} 个完成

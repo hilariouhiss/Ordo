@@ -16,57 +16,102 @@
  * Raw values live on `:root` (light) and `.dark`; the `@theme inline` block
  * below re-exposes them as Tailwind color utilities while keeping the live
  * `var()` reference, so utilities always resolve against the active palette.
+ *
+ * Two rules keep this coherent — both are easy to break by accident:
+ *
+ * 1. ONE gray family. Every neutral sits on hue 265 at chroma <= 0.012. Mixing
+ *    a warm background with a cool foreground is the fastest way to make a UI
+ *    look like two design systems stapled together.
+ * 2. ONE accent. `--primary` is a deep teal, deliberately far from every
+ *    semantic hue in use (success 155, warning ~65, danger 25) so an accent
+ *    surface never reads as a status. Chroma stays low: an accent this app
+ *    paints on checkboxes, progress bars and focus rings should recede at rest.
+ *
+ * `--*-solid` / `--*-foreground` pairs are the filled-button variants; the
+ * plain tokens are tuned to pass contrast as *text* on the page background.
  */
 :root {
-  --background: oklch(0.985 0.002 95);
-  --surface: oklch(1 0 0);
-  --surface-hover: oklch(0.965 0.002 95);
+  /* Light-mode ramp. The page sits further below `--surface` than a hairline
+   * would need, because in light mode the plane difference is the only thing
+   * separating a borderless panel from the page — shadows at this size are
+   * barely perceptible. Matches the contrast the dark ramp gets for free. */
+  --background: oklch(0.968 0.003 265);
+  --sunken: oklch(0.944 0.004 265);
+  --surface: oklch(0.995 0.002 265);
+  --surface-hover: oklch(0.954 0.005 265);
   --elevated: oklch(1 0 0);
-  --foreground: oklch(0.225 0.018 270);
-  --muted-foreground: oklch(0.52 0.015 270);
-  --subtle-foreground: oklch(0.66 0.012 270);
-  --border: oklch(0.915 0.004 95);
-  --border-strong: oklch(0.85 0.006 95);
-  --primary: oklch(0.545 0.19 262);
-  --primary-hover: oklch(0.505 0.2 262);
-  --primary-foreground: oklch(0.985 0.002 95);
-  --ring: oklch(0.6 0.18 262 / 0.45);
-  --success: oklch(0.6 0.14 155);
-  --warning: oklch(0.71 0.15 80);
-  --danger: oklch(0.6 0.2 27);
-  --info: oklch(0.62 0.13 235);
-  --priority-high: oklch(0.6 0.2 27);
-  --priority-medium: oklch(0.71 0.15 80);
-  --priority-low: oklch(0.62 0.13 235);
+  --foreground: oklch(0.245 0.012 265);
+  --muted-foreground: oklch(0.475 0.012 265);
+  --subtle-foreground: oklch(0.545 0.01 265);
+  --border: oklch(0.918 0.005 265);
+  --border-strong: oklch(0.858 0.007 265);
+  --overlay: oklch(0.245 0.02 265 / 0.32);
+
+  --primary: oklch(0.47 0.088 197);
+  --primary-hover: oklch(0.42 0.09 197);
+  --primary-foreground: oklch(0.99 0.005 197);
+  --ring: oklch(0.55 0.09 197);
+
+  --success: oklch(0.53 0.12 155);
+  --warning: oklch(0.53 0.13 62);
+  --danger: oklch(0.52 0.18 25);
+  --danger-solid: oklch(0.51 0.185 25);
+  --danger-foreground: oklch(0.99 0.005 25);
+
+  --scrollbar-thumb: oklch(0.245 0.012 265 / 0.18);
+  --scrollbar-thumb-hover: oklch(0.245 0.012 265 / 0.3);
+
+  /* Elevation: tinted to the neutral hue instead of pure black, so shadows
+   * sit in the same light as the surface they fall on. */
+  --elevation-1: 0 1px 2px oklch(0.28 0.02 265 / 0.06);
+  --elevation-2:
+    0 1px 2px oklch(0.28 0.02 265 / 0.05), 0 6px 16px -6px oklch(0.28 0.02 265 / 0.12);
+  --elevation-3:
+    0 2px 6px -1px oklch(0.28 0.02 265 / 0.07), 0 20px 44px -14px oklch(0.28 0.02 265 / 0.24);
 }
 
 .dark {
-  --background: oklch(0.165 0.006 270);
-  --surface: oklch(0.205 0.008 270);
-  --surface-hover: oklch(0.24 0.01 270);
-  --elevated: oklch(0.235 0.009 270);
-  --foreground: oklch(0.935 0.005 270);
-  --muted-foreground: oklch(0.7 0.01 270);
-  --subtle-foreground: oklch(0.55 0.01 270);
-  --border: oklch(0.29 0.008 270);
-  --border-strong: oklch(0.37 0.01 270);
-  --primary: oklch(0.67 0.16 262);
-  --primary-hover: oklch(0.72 0.15 262);
-  --primary-foreground: oklch(0.15 0.01 270);
-  --ring: oklch(0.7 0.16 262 / 0.5);
-  --success: oklch(0.7 0.14 155);
-  --warning: oklch(0.78 0.14 80);
-  --danger: oklch(0.7 0.18 27);
-  --info: oklch(0.7 0.12 235);
-  --priority-high: oklch(0.7 0.18 27);
-  --priority-medium: oklch(0.78 0.14 80);
-  --priority-low: oklch(0.7 0.12 235);
+  --background: oklch(0.152 0.006 265);
+  --sunken: oklch(0.132 0.006 265);
+  --surface: oklch(0.192 0.007 265);
+  --surface-hover: oklch(0.232 0.009 265);
+  --elevated: oklch(0.238 0.009 265);
+  --foreground: oklch(0.945 0.004 265);
+  --muted-foreground: oklch(0.712 0.009 265);
+  --subtle-foreground: oklch(0.575 0.009 265);
+  --border: oklch(0.278 0.008 265);
+  --border-strong: oklch(0.355 0.01 265);
+  --overlay: oklch(0.12 0.01 265 / 0.6);
+
+  --primary: oklch(0.76 0.098 192);
+  --primary-hover: oklch(0.81 0.09 192);
+  --primary-foreground: oklch(0.17 0.02 195);
+  --ring: oklch(0.76 0.1 192);
+
+  --success: oklch(0.735 0.115 155);
+  --warning: oklch(0.79 0.125 75);
+  --danger: oklch(0.705 0.155 25);
+  --danger-solid: oklch(0.51 0.185 25);
+  --danger-foreground: oklch(0.99 0.005 25);
+
+  --scrollbar-thumb: oklch(0.945 0.004 265 / 0.16);
+  --scrollbar-thumb-hover: oklch(0.945 0.004 265 / 0.28);
+
+  /* Dark surfaces read as raised through a top inner highlight, not through
+   * a coloured shadow — black-on-black has nothing left to darken. */
+  --elevation-1: 0 1px 2px oklch(0 0 0 / 0.4);
+  --elevation-2:
+    0 1px 2px oklch(0 0 0 / 0.45), inset 0 1px 0 oklch(1 0 0 / 0.04);
+  --elevation-3:
+    0 4px 10px -2px oklch(0 0 0 / 0.5), 0 24px 48px -16px oklch(0 0 0 / 0.6),
+    inset 0 1px 0 oklch(1 0 0 / 0.06);
 }
 
 /* Expose the palette as utilities: bg-background, text-muted-foreground,
- * border-border, ring-ring, text-priority-high, ... */
+ * border-border, ring-ring, bg-sunken, ... */
 @theme inline {
   --color-background: var(--background);
+  --color-sunken: var(--sunken);
   --color-surface: var(--surface);
   --color-surface-hover: var(--surface-hover);
   --color-elevated: var(--elevated);
@@ -75,6 +120,7 @@
   --color-subtle-foreground: var(--subtle-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  --color-overlay: var(--overlay);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
@@ -82,27 +128,75 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
-  --color-info: var(--info);
-  --color-priority-high: var(--priority-high);
-  --color-priority-medium: var(--priority-medium);
-  --color-priority-low: var(--priority-low);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-foreground: var(--danger-foreground);
+
+  --shadow-sm: var(--elevation-1);
+  --shadow-md: var(--elevation-2);
+  --shadow-lg: var(--elevation-3);
 }
 
 /* Static tokens (they do not vary between themes). */
 @theme {
+  /*
+   * `system-ui` leads so Windows 11 picks up Segoe UI Variable and macOS picks
+   * up SF Pro; the CJK families behind it are what actually renders most of
+   * this UI, listed per platform in descending quality order.
+   *
+   * Deliberately not a bundled webfont: this app ships as a ~15 MB offline
+   * desktop bundle where the text is ~95% Chinese, so a Latin display face
+   * would cost weight and bytes to style the wordmark and the numerals only.
+   */
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Source Han Sans SC", "Helvetica Neue", Arial, sans-serif;
 
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /*
+   * Radius scale, and the rule for using it:
+   *   sm (6)  chips, checkboxes, inline marks
+   *   md (8)  buttons, inputs, nav rows, list rows, small cards
+   *   lg (12) panels, board columns, popovers, menus
+   *   xl (16) dialogs and other full-surface overlays
+   */
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 12px 28px -8px rgb(0 0 0 / 0.14);
+  /*
+   * Type scale, tuned for a dense desktop tool rather than a web page: the
+   * body tier sits at 13px and the headings stop well short of marketing
+   * sizes. Display tiers get negative tracking; the small tiers get a touch
+   * of positive tracking to stay legible at 11-12px.
+   */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1.45;
+  --text-2xs--letter-spacing: 0.012em;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.5;
+  --text-xs--letter-spacing: 0.006em;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.55;
+  --text-sm--letter-spacing: 0.002em;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.6;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.4;
+  --text-lg--letter-spacing: -0.008em;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.3;
+  --text-xl--letter-spacing: -0.014em;
+  --text-2xl: 1.625rem;
+  --text-2xl--line-height: 1.2;
+  --text-2xl--letter-spacing: -0.02em;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 1.15;
+  --text-3xl--letter-spacing: -0.024em;
 }
 
 @layer base {
@@ -122,10 +216,161 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Nearly every number in this app (dates, counts, durations, percentages)
+     * is read in a column, so proportional digits are never the right default
+     * here. Set once globally instead of per-component. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Orphaned words on the last line of a heading are the cheapest thing to
+   * fix and the most visible. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   ::selection {
     background-color: var(--primary);
     color: var(--primary-foreground);
+  }
+
+  /*
+   * Scrollbars. Tauri renders in WebView2 (Chromium), so the `::-webkit-*`
+   * rules are what actually paint; the standard properties cover the rest.
+   * The transparent border + `background-clip` trick insets the thumb so it
+   * reads as a floating pill rather than a full-height gutter bar.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  /*
+   * Belt and braces for the plan's reduced-motion rule. Components also carry
+   * `motion-reduce:` utilities, but this catches anything that forgets — and
+   * the entry animations below, which have no utility equivalent.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/*
+ * Entry animations for floating surfaces (dialogs, menus, popovers, toasts).
+ *
+ * Only the `scale` / `opacity` longhands are animated, never `transform`:
+ * Kobalte positions these elements with a `transform: translate(...)`, and a
+ * keyframe touching `transform` would fight it and snap the surface into
+ * place at the end. The independent `scale` property composes with it.
+ *
+ * Entry only, no exit: Kobalte's presence handling keeps an element mounted
+ * until its animation ends, so an exit animation that never fires leaves an
+ * invisible overlay swallowing every click.
+ */
+@keyframes ordo-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ordo-surface-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+@keyframes ordo-toast-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@utility animate-fade-in {
+  animation: ordo-fade-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@utility animate-surface-in {
+  animation: ordo-surface-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@utility animate-toast-in {
+  animation: ordo-toast-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/*
+ * Shimmer for skeleton loaders. The sweep is a `background-position` shift on
+ * a fixed gradient rather than a moving element, so it composites cheaply and
+ * needs no extra DOM.
+ */
+@keyframes ordo-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@utility skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-hover) 0%,
+    var(--border) 50%,
+    var(--surface-hover) 100%
+  );
+  background-size: 200% 100%;
+  animation: ordo-shimmer 1.6s ease-in-out infinite;
+}
+
+/*
+ * The one focus indicator. An `outline` rather than a `ring`: it follows the
+ * element's own border-radius and needs no `ring-offset`, which paints a gap
+ * in the *page* background colour and so looks broken on any surface that is
+ * not `bg-background` (the sidebar, a card, a menu).
+ *
+ * Applied as `focus-ring` on every focusable element in the app, which is why
+ * there is no repeated `focus-visible:ring-2 ...` string left anywhere.
+ */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }

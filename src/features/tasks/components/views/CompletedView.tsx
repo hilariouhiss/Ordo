@@ -20,6 +20,7 @@ export function CompletedView() {
     >
       <TaskListView
         tasks={tasks}
+        title="已完成"
         emptyTitle="还没有完成的任务"
         emptyDescription="完成的任务会归档在这里，取消勾选即可恢复为待办。"
         defaultSort="recent"

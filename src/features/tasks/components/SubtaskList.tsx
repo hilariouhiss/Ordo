@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { ChevronDown, ChevronUp, Trash2 } from "lucide-solid";
-import { Checkbox } from "../../../common/components";
+import { Checkbox, iconButtonClass } from "../../../common/components";
 import {
   completeSubtask,
   createSubtask,
@@ -10,9 +10,6 @@ import {
 } from "../hooks";
 import { getSubtasks } from "../store";
 import type { Subtask } from "../types";
-
-const ICON_BUTTON_CLASS =
-  "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none";
 
 export interface SubtaskListProps {
   taskId: string;
@@ -101,7 +98,10 @@ export function SubtaskList(props: SubtaskListProps) {
           aria-valuemax={100}
           aria-valuenow={progressPercent()}
         >
-          <div class="h-full rounded-full bg-primary" style={{ width: `${progressPercent()}%` }} />
+          <div
+            class="h-full w-full origin-left rounded-full bg-primary transition-transform duration-300 ease-out"
+            style={{ transform: `scaleX(${progressPercent() / 100})` }}
+          />
         </div>
       </Show>
 
@@ -109,7 +109,7 @@ export function SubtaskList(props: SubtaskListProps) {
         <For each={subtasks()}>
           {(subtask, index) => (
             <li
-              class="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-surface-hover/50"
+              class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover"
               data-subtask-id={subtask.id}
             >
               <Checkbox.Root
@@ -131,7 +131,7 @@ export function SubtaskList(props: SubtaskListProps) {
                 fallback={
                   <button
                     type="button"
-                    class="min-w-0 flex-1 truncate text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    class="min-w-0 flex-1 truncate text-left text-sm focus-ring"
                     title={subtask.title}
                     onClick={() => startEdit(subtask)}
                   >
@@ -142,7 +142,7 @@ export function SubtaskList(props: SubtaskListProps) {
                 }
               >
                 <input
-                  class="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  class="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
                   value={editValue()}
                   onInput={(event) => setEditValue(event.currentTarget.value)}
                   onBlur={() => commitEdit(subtask.id)}
@@ -156,7 +156,7 @@ export function SubtaskList(props: SubtaskListProps) {
 
               <button
                 type="button"
-                class={ICON_BUTTON_CLASS}
+                class={iconButtonClass}
                 aria-label={`上移子任务 ${subtask.title}`}
                 disabled={index() === 0}
                 onClick={() => move(subtask.id, -1)}
@@ -165,7 +165,7 @@ export function SubtaskList(props: SubtaskListProps) {
               </button>
               <button
                 type="button"
-                class={ICON_BUTTON_CLASS}
+                class={iconButtonClass}
                 aria-label={`下移子任务 ${subtask.title}`}
                 disabled={index() === subtasks().length - 1}
                 onClick={() => move(subtask.id, 1)}
@@ -174,7 +174,7 @@ export function SubtaskList(props: SubtaskListProps) {
               </button>
               <button
                 type="button"
-                class={ICON_BUTTON_CLASS}
+                class={iconButtonClass}
                 aria-label={`删除子任务 ${subtask.title}`}
                 onClick={() => void deleteSubtask(props.taskId, subtask.id)}
               >
@@ -189,7 +189,7 @@ export function SubtaskList(props: SubtaskListProps) {
         type="text"
         aria-label="添加子任务"
         placeholder="添加子任务，回车确认"
-        class="mt-2 w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        class="mt-2 h-8 w-full rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
         value={newTitle()}
         onInput={(event) => setNewTitle(event.currentTarget.value)}
         onKeyDown={(event) => {

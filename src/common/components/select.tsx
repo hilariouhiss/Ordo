@@ -50,10 +50,14 @@ function Root<T>(props: SelectRootProps<T>) {
 
 function Trigger(props: ComponentProps<typeof KSelect.Trigger>) {
   const [local, rest] = splitProps(props, ["class"]);
+  // No `w-full`: the trigger is the only child of `Root`'s flex column, so it
+  // already stretches to the root's width. Carrying it anyway is not merely
+  // redundant — Tailwind emits `.w-full` after every `.w-<n>`, so it silently
+  // beat any width a caller asked for and made fixed-width triggers impossible.
   return (
     <KSelect.Trigger
       {...rest}
-      class={`flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[invalid]:border-danger motion-reduce:transition-none ${local.class ?? ""}`}
+      class={`flex h-8 select-none items-center justify-between gap-2 rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50 data-[invalid]:border-danger focus-ring ${local.class ?? ""}`}
     />
   );
 }
@@ -73,9 +77,9 @@ function Icon(props: ComponentProps<typeof KSelect.Icon>) {
   return (
     <KSelect.Icon
       {...rest}
-      class={`flex items-center text-muted-foreground transition-transform data-[expanded]:rotate-180 motion-reduce:transition-none ${local.class ?? ""}`}
+      class={`flex items-center text-subtle-foreground transition-transform duration-200 ease-out data-[expanded]:rotate-180 ${local.class ?? ""}`}
     >
-      <ChevronDown size={16} aria-hidden="true" />
+      <ChevronDown size={14} aria-hidden="true" />
     </KSelect.Icon>
   );
 }
@@ -85,7 +89,7 @@ function Content(props: ComponentProps<typeof KSelect.Content>) {
   return (
     <KSelect.Content
       {...rest}
-      class={`z-50 max-h-64 min-w-32 overflow-y-auto rounded-md border border-border bg-elevated p-1 text-foreground shadow-lg ${local.class ?? ""}`}
+      class={`animate-surface-in z-50 max-h-64 min-w-32 overflow-y-auto rounded-lg bg-elevated p-1 text-foreground shadow-lg ${local.class ?? ""}`}
     />
   );
 }
@@ -105,19 +109,14 @@ function Item(props: ComponentProps<typeof KSelect.Item>) {
   return (
     <KSelect.Item
       {...rest}
-      class={`flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-hover data-[selected]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${local.class ?? ""}`}
+      class={`flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-hover data-[selected]:font-medium data-[selected]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${local.class ?? ""}`}
     />
   );
 }
 
 function ItemIndicator(props: ComponentProps<typeof KSelect.ItemIndicator>) {
   const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <KSelect.ItemIndicator
-      {...rest}
-      class={`text-primary ${local.class ?? ""}`}
-    />
-  );
+  return <KSelect.ItemIndicator {...rest} class={`text-primary ${local.class ?? ""}`} />;
 }
 
 function Label(props: ComponentProps<typeof KSelect.Label>) {
@@ -125,7 +124,7 @@ function Label(props: ComponentProps<typeof KSelect.Label>) {
   return (
     <KSelect.Label
       {...rest}
-      class={`text-sm font-medium text-foreground ${local.class ?? ""}`}
+      class={`text-xs font-medium text-muted-foreground ${local.class ?? ""}`}
     />
   );
 }
@@ -135,7 +134,7 @@ function Description(props: ComponentProps<typeof KSelect.Description>) {
   return (
     <KSelect.Description
       {...rest}
-      class={`text-xs text-muted-foreground ${local.class ?? ""}`}
+      class={`text-xs text-subtle-foreground ${local.class ?? ""}`}
     />
   );
 }

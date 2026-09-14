@@ -1,10 +1,14 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { ListTodo, MessageSquareText, Search } from "lucide-solid";
-import { Button, TextField } from "../../../common/components";
+import { ListTodo, MessageSquareText, Search, SearchX } from "lucide-solid";
+import { Button, EmptyState, Skeleton, TextField } from "../../../common/components";
 import { openTaskViewer } from "../../../common/stores/taskViewer";
 import { useSearchData, useSearchResults } from "../hooks";
 import { parseSnippet } from "../snippet";
 import type { SearchHit } from "../types";
+
+/** Title widths of the pending-search skeleton, cycled. Varying them stops the
+ * stack reading as a table and makes the shimmer feel like real results. */
+const SKELETON_WIDTHS = ["62%", "45%", "70%", "52%"];
 
 function HitRow(props: { hit: SearchHit; onOpen: (hit: SearchHit) => void }) {
   const label = () =>
@@ -16,7 +20,7 @@ function HitRow(props: { hit: SearchHit; onOpen: (hit: SearchHit) => void }) {
     <li>
       <button
         type="button"
-        class="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        class="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-hover focus-ring"
         aria-label={label()}
         onClick={() => props.onOpen(props.hit)}
       >
@@ -59,7 +63,7 @@ function HitSection(props: {
   return (
     <Show when={props.hits.length > 0}>
       <section aria-label={props.label}>
-        <h2 class="pb-1 pt-2 text-xs font-medium text-subtle-foreground">
+        <h2 class="pb-1 pt-3 text-2xs font-medium tracking-wide text-subtle-foreground">
           {props.label}（{props.hits.length}）
         </h2>
         <ul class="flex flex-col">
@@ -86,7 +90,7 @@ export function SearchView() {
 
   return (
     <div class="flex h-full min-h-0 flex-col">
-      <div class="border-b border-border px-6 py-3">
+      <div class="shrink-0 px-5 pb-3 pt-4">
         <TextField.Root class="relative">
           <Search
             size={16}
@@ -97,7 +101,7 @@ export function SearchView() {
             aria-label="搜索任务"
             placeholder="搜索任务标题、备注、评论…"
             autofocus
-            class="pl-9"
+            class="h-10 pl-9 text-base"
             value={input()}
             onInput={(event) => setInput(event.currentTarget.value)}
           />
@@ -107,23 +111,20 @@ export function SearchView() {
       <Show
         when={hasQuery()}
         fallback={
-          <div class="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-            <Search size={28} class="text-subtle-foreground" aria-hidden="true" />
-            <h2 class="text-base font-semibold text-foreground">全文搜索</h2>
-            <p class="max-w-sm text-sm text-muted-foreground">
-              输入关键词查找任务，范围覆盖标题、备注和评论；多个关键词需同时满足。
-            </p>
-          </div>
+          <EmptyState
+            icon={<Search size={22} />}
+            title="全文搜索"
+            description="输入关键词查找任务，范围覆盖标题、备注和评论；多个关键词需同时满足。"
+          />
         }
       >
-        <div class="min-h-0 flex-1 overflow-y-auto px-6 py-2">
+        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-2">
           <Show when={loadFailed()}>
-            <div class="mb-2 flex items-center justify-between gap-3 rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">
+            <div class="mb-2 flex items-center justify-between gap-3 rounded-lg bg-danger/12 px-3 py-2 text-danger">
               <span>任务数据加载失败，点开的结果可能无法显示详情。</span>
               <Button
-                variant="ghost"
+                variant="destructive-ghost"
                 size="sm"
-                class="h-7 px-2 text-xs text-danger hover:bg-danger/10"
                 onClick={() => void retry()}
               >
                 重试
@@ -134,25 +135,42 @@ export function SearchView() {
           <Show
             when={searching() && hits().length === 0}
             fallback={
-              <Show when={!failed()} fallback={
-                <p role="alert" class="py-6 text-center text-sm text-muted-foreground">
-                  搜索失败，请调整关键词后重试。
-                </p>
-              }>
+              <Show
+                when={!failed()}
+                fallback={
+                  <p role="alert" class="py-6 text-center text-sm text-muted-foreground">
+                    搜索失败，请调整关键词后重试。
+                  </p>
+                }
+              >
                 <Show when={hits().length === 0}>
-                  <div class="flex flex-col items-center gap-1 py-10 text-center">
-                    <h2 class="text-base font-semibold text-foreground">没有匹配的结果</h2>
-                    <p class="text-sm text-muted-foreground">
-                      换个关键词试试；少于三个字符的词也可以搜索。
-                    </p>
-                  </div>
+                  <EmptyState
+                    icon={<SearchX size={22} />}
+                    title="没有匹配的结果"
+                    description="换个关键词试试；少于三个字符的词也可以搜索。"
+                  />
                 </Show>
               </Show>
             }
           >
-            <p role="status" class="py-1 text-xs text-subtle-foreground">
-              搜索中…
-            </p>
+            {/* The single announcement for the pending state: the skeleton rows
+                below carry no text, so the status reads out as just "搜索中…". */}
+            <div role="status" class="pt-1">
+              <span class="sr-only">搜索中…</span>
+              <div aria-hidden="true" class="flex flex-col">
+                <For each={SKELETON_WIDTHS}>
+                  {(width) => (
+                    <div class="flex items-start gap-3 px-3 py-2.5">
+                      <Skeleton class="mt-0.5 size-4 shrink-0 rounded-[5px]" />
+                      <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <Skeleton class="h-3" style={{ width }} />
+                        <Skeleton class="h-2.5 w-2/5" />
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
           </Show>
 
           <HitSection label="任务" hits={taskHits()} onOpen={(hit) => openTaskViewer(hit.taskId)} />

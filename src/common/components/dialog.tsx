@@ -1,6 +1,4 @@
-import {
-  Dialog as KDialog,
-} from "@kobalte/core/dialog";
+import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { X } from "lucide-solid";
 import { splitProps, type ComponentProps } from "solid-js";
 
@@ -17,22 +15,30 @@ function Portal(props: ComponentProps<typeof KDialog.Portal>) {
   return <KDialog.Portal {...props} />;
 }
 
+/*
+ * The scrim is a tinted dark (the neutral hue, not pure black) so the dimmed
+ * page keeps its colour temperature, plus a 2px blur that separates the dialog
+ * plane from the content behind it without hiding it outright.
+ */
 function Overlay(props: ComponentProps<typeof KDialog.Overlay>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <KDialog.Overlay
       {...rest}
-      class={`fixed inset-0 z-50 bg-black/50 ${local.class ?? ""}`}
+      class={`animate-fade-in fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] ${local.class ?? ""}`}
     />
   );
 }
 
 function Content(props: ComponentProps<typeof KDialog.Content>) {
   const [local, rest] = splitProps(props, ["class"]);
+  // No border: at this elevation the shadow carries the separation, and a
+  // hairline on top of a shadow is the generic "card" look. `max-h` +
+  // `overflow-y-auto` are defaults so no dialog can grow past the viewport.
   return (
     <KDialog.Content
       {...rest}
-      class={`fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-elevated p-6 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl bg-elevated p-5 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }
@@ -42,7 +48,7 @@ function Title(props: ComponentProps<typeof KDialog.Title>) {
   return (
     <KDialog.Title
       {...rest}
-      class={`text-lg font-semibold text-foreground ${local.class ?? ""}`}
+      class={`pr-8 text-base font-semibold text-foreground ${local.class ?? ""}`}
     />
   );
 }
@@ -52,7 +58,7 @@ function Description(props: ComponentProps<typeof KDialog.Description>) {
   return (
     <KDialog.Description
       {...rest}
-      class={`text-sm text-muted-foreground ${local.class ?? ""}`}
+      class={`mt-1 text-sm text-muted-foreground ${local.class ?? ""}`}
     />
   );
 }
@@ -62,9 +68,9 @@ function CloseButton(props: ComponentProps<typeof KDialog.CloseButton>) {
   return (
     <KDialog.CloseButton
       {...rest}
-      class={`absolute right-3 top-3 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${local.class ?? ""}`}
+      class={`absolute right-2.5 top-2.5 inline-flex size-7 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground active:scale-90 focus-ring ${local.class ?? ""}`}
     >
-      <X size={16} aria-hidden="true" />
+      <X size={15} aria-hidden="true" />
     </KDialog.CloseButton>
   );
 }

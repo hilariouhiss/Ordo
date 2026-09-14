@@ -1,6 +1,4 @@
-import {
-  Popover as KPopover,
-} from "@kobalte/core/popover";
+import { Popover as KPopover } from "@kobalte/core/popover";
 import { X } from "lucide-solid";
 import { splitProps, type ComponentProps } from "solid-js";
 
@@ -22,7 +20,7 @@ function Content(props: ComponentProps<typeof KPopover.Content>) {
   return (
     <KPopover.Content
       {...rest}
-      class={`z-50 w-72 rounded-lg border border-border bg-elevated p-4 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in z-50 w-72 rounded-xl bg-elevated p-4 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }
@@ -42,7 +40,7 @@ function Description(props: ComponentProps<typeof KPopover.Description>) {
   return (
     <KPopover.Description
       {...rest}
-      class={`text-sm text-muted-foreground ${local.class ?? ""}`}
+      class={`mt-1 text-sm text-muted-foreground ${local.class ?? ""}`}
     />
   );
 }
@@ -52,7 +50,7 @@ function CloseButton(props: ComponentProps<typeof KPopover.CloseButton>) {
   return (
     <KPopover.CloseButton
       {...rest}
-      class={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${local.class ?? ""}`}
+      class={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground active:scale-90 focus-ring ${local.class ?? ""}`}
     >
       <X size={14} aria-hidden="true" />
     </KPopover.CloseButton>

@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { Pencil, Play, Square, Trash2 } from "lucide-solid";
 import { format } from "date-fns";
-import { Button } from "../../../common/components";
+import { Button, iconButtonClass } from "../../../common/components";
 import {
   createTimeEntry,
   deleteTimeEntry,
@@ -13,11 +13,12 @@ import { getTimeEntries } from "../store";
 import { formatClock, formatDuration, fromLocalInputValue, toLocalInputValue } from "../time";
 import type { TimeEntry } from "../types";
 
-const ICON_BUTTON_CLASS =
-  "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none";
-
+/*
+ * Same recipe as `text-field.tsx`'s input, so the manual-entry row lines up
+ * with the buttons and select triggers beside it.
+ */
 const INPUT_CLASS =
-  "rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring";
+  "h-8 rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring";
 
 export interface TimeTrackerProps {
   taskId: string;
@@ -160,7 +161,7 @@ export function TimeTracker(props: TimeTrackerProps) {
           {(entry) => (
             <li
               data-entry-id={entry.id}
-              class="group flex items-center gap-2 rounded-md px-1 py-1 hover:bg-surface-hover/50"
+              class="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover"
             >
               <span
                 class="w-24 shrink-0 text-xs text-subtle-foreground"
@@ -200,10 +201,10 @@ export function TimeTracker(props: TimeTrackerProps) {
               </Show>
 
               <Show when={entry.endedAt !== null && editingId() !== entry.id}>
-                <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
+                <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <button
                     type="button"
-                    class={ICON_BUTTON_CLASS}
+                    class={iconButtonClass}
                     aria-label={`编辑时长 ${formatDuration(entry.duration)}`}
                     onClick={() => startEdit(entry)}
                   >
@@ -211,7 +212,7 @@ export function TimeTracker(props: TimeTrackerProps) {
                   </button>
                   <button
                     type="button"
-                    class={ICON_BUTTON_CLASS}
+                    class={iconButtonClass}
                     aria-label={`删除时间记录 ${formatDuration(entry.duration)}`}
                     onClick={() => void deleteTimeEntry(props.taskId, entry.id)}
                   >
@@ -223,7 +224,7 @@ export function TimeTracker(props: TimeTrackerProps) {
           )}
         </For>
         <Show when={entries().length === 0}>
-          <li class="px-1 py-1 text-sm text-subtle-foreground">还没有时间记录</li>
+          <li class="px-2 py-1.5 text-sm text-subtle-foreground">还没有时间记录</li>
         </Show>
       </ul>
     </section>

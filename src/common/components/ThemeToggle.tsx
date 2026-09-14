@@ -36,6 +36,9 @@ type ThemeToggleProps = {
 /**
  * Cycles light -> dark -> system. Renders as a compact icon button by default;
  * pass `class` + `showLabel` for the sidebar nav variant.
+ *
+ * A three-way cycle rather than the usual sun/moon switch, because "follow the
+ * system" is a real third state and a two-state toggle silently drops it.
  */
 export function ThemeToggle(props: ThemeToggleProps = {}) {
   const next = () =>
@@ -44,9 +47,9 @@ export function ThemeToggle(props: ThemeToggleProps = {}) {
   return (
     <button
       type="button"
-      class={`flex items-center transition-colors ${
+      class={`flex items-center transition duration-150 ease-out active:scale-[0.97] focus-ring ${
         props.class ??
-        "size-9 justify-center rounded-md border border-border bg-surface text-foreground shadow-sm hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        "size-8 justify-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-surface-hover hover:text-foreground"
       }`}
       aria-label={`当前主题：${LABELS[themePreference()]}，点击切换`}
       title={`主题：${LABELS[themePreference()]}（点击切换）`}

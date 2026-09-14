@@ -1,12 +1,10 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { Pencil, Trash2 } from "lucide-solid";
+import { iconButtonClass } from "../../../common/components";
 import { format } from "date-fns";
 import { createComment, deleteComment, updateComment } from "../hooks";
 import { getComments } from "../store";
 import type { Comment } from "../types";
-
-const ICON_BUTTON_CLASS =
-  "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none";
 
 export interface CommentListProps {
   taskId: string;
@@ -55,13 +53,13 @@ export function CommentList(props: CommentListProps) {
       <ul class="mt-2 flex flex-col">
         <For each={comments()}>
           {(comment) => (
-            <li class="group flex items-start gap-2 rounded-md px-1 py-1 hover:bg-surface-hover/50">
+            <li class="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover">
               <Show
                 when={editingId() === comment.id}
                 fallback={
                   <button
                     type="button"
-                    class="min-w-0 flex-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    class="min-w-0 flex-1 text-left text-sm focus-ring"
                     onClick={() => startEdit(comment)}
                   >
                     <span class="block whitespace-pre-wrap break-words">{comment.body}</span>
@@ -77,7 +75,7 @@ export function CommentList(props: CommentListProps) {
               >
                 <textarea
                   aria-label="编辑评论"
-                  class="min-w-0 flex-1 resize-y rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  class="min-w-0 flex-1 resize-y rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
                   rows={2}
                   value={editValue()}
                   onInput={(event) => setEditValue(event.currentTarget.value)}
@@ -93,10 +91,10 @@ export function CommentList(props: CommentListProps) {
               </Show>
 
               <Show when={editingId() !== comment.id}>
-                <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
+                <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <button
                     type="button"
-                    class={ICON_BUTTON_CLASS}
+                    class={iconButtonClass}
                     aria-label={`编辑评论 ${comment.body}`}
                     onClick={() => startEdit(comment)}
                   >
@@ -104,7 +102,7 @@ export function CommentList(props: CommentListProps) {
                   </button>
                   <button
                     type="button"
-                    class={ICON_BUTTON_CLASS}
+                    class={iconButtonClass}
                     aria-label={`删除评论 ${comment.body}`}
                     onClick={() => void deleteComment(props.taskId, comment.id)}
                   >
@@ -116,7 +114,7 @@ export function CommentList(props: CommentListProps) {
           )}
         </For>
         <Show when={comments().length === 0}>
-          <li class="px-1 py-1 text-sm text-subtle-foreground">还没有评论</li>
+          <li class="px-2 py-1.5 text-sm text-subtle-foreground">还没有评论</li>
         </Show>
       </ul>
 
@@ -124,7 +122,7 @@ export function CommentList(props: CommentListProps) {
         type="text"
         aria-label="添加评论"
         placeholder="添加评论，回车确认"
-        class="mt-2 w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        class="mt-2 h-8 w-full rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
         value={newBody()}
         onInput={(event) => setNewBody(event.currentTarget.value)}
         onKeyDown={(event) => {

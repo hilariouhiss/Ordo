@@ -35,58 +35,63 @@ export function ProjectListView(props: { project: Project }) {
 
   return (
     <div class="flex h-full min-h-0 flex-col">
-      <header class="border-b border-border px-6 py-4">
-        <div class="flex items-start gap-3">
+      {/* No bottom border here: the tab strip directly below already draws the
+          one rule this block needs. Three stacked horizontal lines (header,
+          tabs, toolbar) was a third more chrome than the content required. */}
+      <header class="shrink-0 px-5 pb-4 pt-5">
+        <div class="flex items-start gap-3.5">
           <span
-            class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md"
+            class="flex size-10 shrink-0 items-center justify-center rounded-lg"
             style={{
               "background-color": project().color
-                ? `color-mix(in srgb, ${project().color} 15%, transparent)`
+                ? `color-mix(in srgb, ${project().color} 18%, transparent)`
                 : "var(--surface-hover)",
               color: project().color ?? "var(--muted-foreground)",
             }}
           >
-            <Dynamic component={getProjectIcon(project().icon)} size={18} />
+            <Dynamic component={getProjectIcon(project().icon)} size={20} />
           </span>
+
           <div class="min-w-0 flex-1">
-            <h2 class="truncate text-lg font-semibold text-foreground">{project().name}</h2>
+            <div class="flex min-w-0 items-center gap-2">
+              <h2 class="truncate text-lg font-semibold tracking-tight text-foreground">
+                {project().name}
+              </h2>
+              <Show when={project().status === "archived"}>
+                <span class="shrink-0 rounded-[5px] bg-surface-hover px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
+                  已归档
+                </span>
+              </Show>
+            </div>
             <Show when={project().description}>
-              <p class="mt-0.5 whitespace-pre-wrap text-sm text-muted-foreground">
+              <p class="mt-1 max-w-[68ch] whitespace-pre-wrap text-sm text-muted-foreground">
                 {project().description}
               </p>
             </Show>
             <Show when={project().dueAt}>
-              <p class="mt-1 text-xs text-muted-foreground">
+              <p class="mt-1.5 text-xs text-subtle-foreground">
                 截止：
                 {format(new Date(project().dueAt as string), "yyyy年M月d日", { locale: zhCN })}
               </p>
             </Show>
           </div>
-          <div class="flex shrink-0 gap-2">
+
+          <div class="flex shrink-0 items-center gap-1.5">
             <Button variant="secondary" size="sm" onClick={() => setEditorOpen(true)}>
-              <Pencil size={14} aria-hidden="true" />
+              <Pencil size={13} aria-hidden="true" />
               编辑
             </Button>
             <Show
               when={project().status === "archived"}
               fallback={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="text-muted-foreground hover:bg-surface-hover"
-                  onClick={() => void archiveProject(project().id)}
-                >
-                  <Archive size={14} aria-hidden="true" />
+                <Button variant="ghost" size="sm" onClick={() => void archiveProject(project().id)}>
+                  <Archive size={13} aria-hidden="true" />
                   归档
                 </Button>
               }
             >
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void restoreProject(project().id)}
-              >
-                <RotateCcw size={14} aria-hidden="true" />
+              <Button variant="secondary" size="sm" onClick={() => void restoreProject(project().id)}>
+                <RotateCcw size={13} aria-hidden="true" />
                 恢复
               </Button>
             </Show>
@@ -96,13 +101,13 @@ export function ProjectListView(props: { project: Project }) {
         <Show when={project().status === "archived"}>
           <p
             role="status"
-            class="mt-3 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted-foreground"
+            class="mt-3.5 rounded-md bg-warning/12 px-3 py-2 text-xs text-warning"
           >
             该项目已归档，不再显示在侧边栏导航中；恢复后重新出现。
           </p>
         </Show>
 
-        <div class="mt-3">
+        <div class="mt-4">
           <ProjectProgress tasks={tasks()} dueAt={project().dueAt} />
         </div>
       </header>
@@ -112,7 +117,7 @@ export function ProjectListView(props: { project: Project }) {
         onChange={(value) => setView(value as "list" | "board")}
         class="min-h-0 flex-1"
       >
-        <Tabs.List class="px-6">
+        <Tabs.List class="shrink-0 px-5">
           <Tabs.Trigger value="list">列表</Tabs.Trigger>
           <Tabs.Trigger value="board">看板</Tabs.Trigger>
           <Tabs.Indicator />
@@ -122,7 +127,7 @@ export function ProjectListView(props: { project: Project }) {
             <TaskListView
               tasks={tasks}
               emptyTitle="项目里还没有任务"
-              emptyDescription="点击右上角「新建任务」，为这个项目规划第一项工作。"
+              emptyDescription="把这项工作拆成能一项项勾掉的具体步骤，进度条就会跟着走。"
               defaultSort="manual"
               sortOptions={[
                 SORT_OPTIONS.manual,

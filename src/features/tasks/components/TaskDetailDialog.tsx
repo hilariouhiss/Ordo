@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import { Repeat } from "lucide-solid";
-import { Badge, Button, Dialog } from "../../../common/components";
+import { Badge, Button, Dialog, Skeleton } from "../../../common/components";
 import { completeTask, loadSubtasks, softDeleteTask, uncompleteTask } from "../hooks";
 import { describeRepeatRule } from "../repeat";
 import { getTag, getTask, hasSubtasks } from "../store";
@@ -20,6 +20,28 @@ export interface TaskDetailDialogProps {
   task: Task;
   /** Requests opening the editor for this task (the detail closes itself). */
   onEdit: (task: Task) => void;
+}
+
+/**
+ * Placeholder for a lazily-loaded section, shaped like the rows that are
+ * coming so the dialog keeps its final height instead of growing when the data
+ * lands.
+ *
+ * The bars carry no text, so the single `role="status"` region's `textContent`
+ * is exactly the loading label — which is also the only thing screen readers
+ * announce.
+ */
+function SectionLoading(props: { label: string }) {
+  return (
+    <div role="status" class="py-2.5">
+      <span class="sr-only">{props.label}</span>
+      <div aria-hidden="true" class="flex flex-col gap-2.5">
+        <Skeleton class="h-3.5 w-3/5" />
+        <Skeleton class="h-3.5 w-2/5" />
+        <Skeleton class="h-3.5 w-1/2" />
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -60,10 +82,7 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay />
-        <Dialog.Content
-          aria-labelledby="task-detail-title"
-          class="max-h-[85vh] max-w-lg overflow-y-auto"
-        >
+        <Dialog.Content aria-labelledby="task-detail-title" class="max-w-xl">
           <Dialog.Title id="task-detail-title">
             <span classList={{ "text-subtle-foreground line-through": completed() }}>
               {task().title}
@@ -72,32 +91,20 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
           <Dialog.Description>任务详情与子任务</Dialog.Description>
           <Dialog.CloseButton aria-label="关闭" />
 
-          <div class="mt-4 flex flex-wrap items-center gap-2">
+          <div class="mt-3.5 flex flex-wrap items-center gap-1.5">
             <Show when={priority()}>
-              {(badge) => (
-                <Badge size="sm" class={badge().class}>
-                  {badge().label}
-                </Badge>
-              )}
+              {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
             </Show>
             <Show when={task().repeatRule}>
               {(rule) => (
-                <Badge
-                  size="sm"
-                  variant="outline"
-                  class={`shrink-0 ${rule().paused ? "opacity-60" : ""}`}
-                >
+                <Badge variant="outline" class={rule().paused ? "opacity-60" : ""}>
                   <Repeat size={11} aria-hidden="true" />
                   {describeRepeatRule(rule())}
                 </Badge>
               )}
             </Show>
             <Show when={task().dueAt}>
-              <Badge
-                size="sm"
-                variant="outline"
-                class={`shrink-0 ${isOverdue(task().dueAt, now()) ? "border-danger/40 text-danger" : ""}`}
-              >
+              <Badge variant={isOverdue(task().dueAt, now()) ? "danger" : "outline"}>
                 {formatDueLabel(task().dueAt, now())}
               </Badge>
             </Show>
@@ -105,7 +112,7 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
               {(tagId) => (
                 <Show when={getTag(tagId)}>
                   {(tag) => (
-                    <Badge size="sm" variant="outline">
+                    <Badge variant="outline">
                       <span
                         class="size-1.5 rounded-full"
                         style={{ "background-color": tag().color ?? "var(--muted-foreground)" }}
@@ -119,50 +126,37 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
           </div>
 
           <Show when={task().note}>
-            <p class="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{task().note}</p>
+            <p class="mt-3.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+              {task().note}
+            </p>
           </Show>
 
-          <div class="mt-4 border-t border-border pt-4">
+          <div class="mt-5 border-t border-border pt-5">
             <Show
               when={hasSubtasks(task().id)}
-              fallback={
-                <p role="status" class="py-4 text-center text-sm text-muted-foreground">
-                  子任务加载中…
-                </p>
-              }
+              fallback={<SectionLoading label="子任务加载中…" />}
             >
               <SubtaskList taskId={task().id} />
             </Show>
           </div>
 
-          <div class="mt-4 border-t border-border pt-4">
-            <Show
-              when={hasComments(task().id)}
-              fallback={
-                <p role="status" class="py-4 text-center text-sm text-muted-foreground">
-                  评论加载中…
-                </p>
-              }
-            >
+          <div class="mt-5 border-t border-border pt-5">
+            <Show when={hasComments(task().id)} fallback={<SectionLoading label="评论加载中…" />}>
               <CommentList taskId={task().id} />
             </Show>
           </div>
 
-          <div class="mt-4 border-t border-border pt-4">
+          <div class="mt-5 border-t border-border pt-5">
             <Show
               when={hasTimeEntries(task().id)}
-              fallback={
-                <p role="status" class="py-4 text-center text-sm text-muted-foreground">
-                  时间记录加载中…
-                </p>
-              }
+              fallback={<SectionLoading label="时间记录加载中…" />}
             >
               <TimeTracker taskId={task().id} />
             </Show>
           </div>
 
-          <div class="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" class="text-danger hover:bg-danger/10" onClick={remove}>
+          <div class="mt-6 flex items-center justify-end gap-2 border-t border-border pt-4">
+            <Button variant="destructive-ghost" onClick={remove}>
               删除
             </Button>
             <Button variant="secondary" onClick={() => props.onEdit(task())}>

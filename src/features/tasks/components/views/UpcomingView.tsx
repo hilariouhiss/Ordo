@@ -30,7 +30,7 @@ export function UpcomingView() {
       onChange={(option) => setDays(Number(option?.value ?? 7))}
     >
       <Select.Label class="sr-only">时间范围</Select.Label>
-      <Select.Trigger class="h-8 w-28 px-2.5 text-xs">
+      <Select.Trigger class="w-24">
         <Select.Value>{selectedRange().label}</Select.Value>
         <Select.Icon />
       </Select.Trigger>
@@ -51,6 +51,7 @@ export function UpcomingView() {
     >
       <TaskListView
         tasks={tasks}
+        title="即将到来"
         toolbarExtra={rangeSelect}
         emptyTitle="近期没有到期任务"
         emptyDescription="未来所选范围内的到期任务会在这里排队。"

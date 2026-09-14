@@ -1,6 +1,4 @@
-import {
-  DropdownMenu as KDropdownMenu,
-} from "@kobalte/core/dropdown-menu";
+import { DropdownMenu as KDropdownMenu } from "@kobalte/core/dropdown-menu";
 import { splitProps, type ComponentProps } from "solid-js";
 
 function Root(props: ComponentProps<typeof KDropdownMenu>) {
@@ -21,7 +19,7 @@ function Content(props: ComponentProps<typeof KDropdownMenu.Content>) {
   return (
     <KDropdownMenu.Content
       {...rest}
-      class={`z-50 min-w-36 rounded-md border border-border bg-elevated p-1 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in z-50 min-w-40 rounded-lg bg-elevated p-1 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }
@@ -31,7 +29,7 @@ function Item(props: ComponentProps<typeof KDropdownMenu.Item>) {
   return (
     <KDropdownMenu.Item
       {...rest}
-      class={`flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${local.class ?? ""}`}
+      class={`flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${local.class ?? ""}`}
     />
   );
 }
@@ -46,7 +44,7 @@ function GroupLabel(props: ComponentProps<typeof KDropdownMenu.GroupLabel>) {
   return (
     <KDropdownMenu.GroupLabel
       {...rest}
-      class={`px-2 py-1.5 text-xs font-medium text-subtle-foreground ${local.class ?? ""}`}
+      class={`px-2 py-1.5 text-2xs font-medium tracking-wide text-subtle-foreground uppercase ${local.class ?? ""}`}
     />
   );
 }

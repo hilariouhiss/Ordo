@@ -80,9 +80,9 @@ backup:export|import
 
 | ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| F-01 | 设计 Token 与主题 | `src/index.css`（@theme 颜色/间距/圆角/字号/阴影 Token；深/浅色 CSS 变量）；`src/common/stores/ui.ts`（主题状态） | 深浅主题可切换且跟随系统；组件只引用 Token 不写死色值 | — | ✅ |
-| F-02 | 路由与 AppShell | `src/router.tsx`（`/today`、`/upcoming`、`/inbox`、`/completed`、`/projects/:projectId`、`/stats`、`/settings`、`/search`，`/` 重定向 `/today`，未知路径 404）；`src/app/AppShell.tsx`（侧边栏+顶栏+内容区）；路由懒加载 | 全部路由可达、未知路由有回退、`pnpm typecheck` 通过 | F-01 | ✅ |
-| F-03 | 通用组件库 | `src/common/components/`：Button/Input/Textarea/Select/Dialog/DropdownMenu/Tabs/Tooltip/Popover/Checkbox/Badge/VirtualList（自研轻量虚拟滚动） | 组件基于 Kobalte；动效仅 transform/opacity 且适配 `prefers-reduced-motion` | F-01 | ✅ |
+| F-01 | 设计 Token 与主题 | `src/index.css`（@theme 颜色/圆角/字号/阴影 Token；深/浅色 CSS 变量；全局 `focus-ring`、`skeleton`、浮层入场动画与 `prefers-reduced-motion` 兜底）；`src/common/stores/ui.ts`（主题状态） | 深浅主题可切换且跟随系统；组件只引用 Token 不写死色值；中性色同一色相、强调色与语义色不撞色；平面分层（sunken/background/surface/elevated）明度可辨 | — | ✅ |
+| F-02 | 路由与 AppShell | `src/router.tsx`（`/today`、`/upcoming`、`/inbox`、`/completed`、`/projects/:projectId`、`/stats`、`/settings`、`/search`，`/` 重定向 `/today`，未知路径 404）；`src/app/AppShell.tsx`（侧边栏+内容区；页面标题由各视图自己渲染，壳层不再单独占一条标题栏）；路由懒加载 | 全部路由可达、未知路由有回退、每个路由只有一个页面标题、`pnpm typecheck` 通过 | F-01 | ✅ |
+| F-03 | 通用组件库 | `src/common/components/`：Button/Input/Textarea/Select/Dialog/DropdownMenu/Tabs/Tooltip/Popover/Checkbox/Badge/VirtualList/Skeleton/EmptyState（自研轻量虚拟滚动）；`iconButtonClass` 是图标按钮的唯一出处 | 组件基于 Kobalte；动效仅 transform/opacity/独立 scale·translate 且由全局 `prefers-reduced-motion` 规则兜底；可点元素都有 hover 与按下反馈；焦点指示统一走 `focus-ring`；加载态用骨架屏 | F-01 | ✅ |
 | F-04 | IPC 封装与错误归一化 | `src/common/ipc/`：`invoke.ts`（类型化封装）、`commands.ts`（命令常量）、`errors.ts`（AppError→`{code,message}`） | 所有 IPC 走统一封装；错误结构一致 | — | ✅ |
 | F-05 | Schema 迁移 V2 | `src-tauri/migrations/V2__schema.sql`：projects、board_columns、tasks、subtasks、tags、task_tags、comments、time_entries、settings 建表 + 外键 + 索引；FTS5 表 `task_search`/`comment_search`（external-content）+ 同步触发器 | 迁移可在空库执行；`cargo test` 迁移用例通过；软删除/外键语义正确 | — | ✅ |
 | F-06 | 后端模型与枚举 | `src-tauri/src/models.rs`：Project/Task/Subtask/Tag/Comment/TimeEntry/BoardColumn/Setting + Priority（high/medium/low/none）、RepeatRule、ProjectStatus 枚举，serde 全序列化 | 与 V2 Schema 一一对应；serde 字段名与前端类型对齐 | F-05 | ✅ |

@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
-import { Plus } from "lucide-solid";
-import { Button, TextField } from "../../../common/components";
+import { CircleAlert, Plus } from "lucide-solid";
+import { Button, EmptyState, TextField } from "../../../common/components";
 import { TaskDetailDialog } from "../../tasks/components/TaskDetailDialog";
 import { completeTask, uncompleteTask } from "../../tasks/hooks";
 import { tasksState } from "../../tasks/store";
@@ -93,20 +93,22 @@ export function BoardView(props: { projectId: string }) {
     <Show
       when={!failed()}
       fallback={
-        <div
-          role="alert"
-          class="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-center"
-        >
-          <h2 class="text-base font-semibold text-foreground">加载失败</h2>
-          <p class="text-sm text-muted-foreground">看板数据加载失败，请重试。</p>
-          <Button variant="secondary" size="sm" onClick={() => void retry()}>
-            重试
-          </Button>
+        <div role="alert" class="flex h-full min-h-64 flex-col">
+          <EmptyState
+            icon={<CircleAlert size={22} />}
+            title="加载失败"
+            description="看板数据没能读出来，请重试。"
+            action={
+              <Button variant="secondary" onClick={() => void retry()}>
+                重试
+              </Button>
+            }
+          />
         </div>
       }
     >
-      <div class="h-full min-h-0">
-        <div class="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
+      <div class="h-full min-h-0 overflow-x-auto">
+        <div class="flex h-full min-h-0 items-stretch gap-4 p-5">
           <For each={columns()}>
             {(column) => (
               <BoardColumnView
@@ -130,7 +132,7 @@ export function BoardView(props: { projectId: string }) {
             when={!addingColumn()}
             fallback={
               <form
-                class="flex w-72 shrink-0 flex-col justify-center gap-2 rounded-lg border border-border bg-surface p-3"
+                class="flex w-72 shrink-0 flex-col gap-2 self-start rounded-xl bg-sunken p-3"
                 onSubmit={commitAddColumn}
               >
                 <TextField.Root value={newColumnName()} onChange={setNewColumnName}>
@@ -155,10 +157,10 @@ export function BoardView(props: { projectId: string }) {
           >
             <button
               type="button"
-              class="flex w-72 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              class="flex w-72 shrink-0 items-center justify-center gap-1.5 self-start rounded-xl border border-dashed border-border-strong py-3 text-sm text-muted-foreground transition duration-150 ease-out hover:border-primary hover:text-primary focus-ring"
               onClick={() => setAddingColumn(true)}
             >
-              <Plus size={14} aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
               添加列
             </button>
           </Show>

@@ -1,13 +1,12 @@
 import { For, Show, createSignal, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { Link, Outlet, useLocation } from "@tanstack/solid-router";
+import { Link, Outlet } from "@tanstack/solid-router";
 import {
   BarChart3,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
   Inbox,
-  ListTodo,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -18,7 +17,7 @@ import {
 } from "lucide-solid";
 import { listen } from "@tauri-apps/api/event";
 import { ThemeToggle } from "../common/components/ThemeToggle";
-import { Toaster } from "../common/components";
+import { Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import TaskViewer from "./TaskViewer";
@@ -43,26 +42,30 @@ type NavPath =
   | "/search"
   | "/settings";
 
-function titleFor(pathname: string): string {
-  if (pathname.startsWith("/projects/")) return "项目";
-  switch (pathname) {
-    case "/inbox":
-      return "收件箱";
-    case "/today":
-      return "今天";
-    case "/upcoming":
-      return "即将到来";
-    case "/completed":
-      return "已完成";
-    case "/stats":
-      return "统计";
-    case "/search":
-      return "搜索";
-    case "/settings":
-      return "设置";
-    default:
-      return "Ordo";
-  }
+/**
+ * The Ordo mark: three rows shortening left to right, the same shape as the
+ * favicon and as every progress bar in the app.
+ */
+function BrandMark() {
+  return (
+    <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <svg viewBox="0 0 16 16" class="size-3.5" fill="currentColor" aria-hidden="true">
+        <rect x="1" y="2.2" width="14" height="2.6" rx="1.3" />
+        <rect x="1" y="6.7" width="9.5" height="2.6" rx="1.3" opacity="0.68" />
+        <rect x="1" y="11.2" width="5" height="2.6" rx="1.3" opacity="0.38" />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * One sidebar row. `Link` and the plain buttons below share this class so the
+ * footer cluster and the nav cannot drift apart.
+ */
+function navRowClass(collapsed: boolean): string {
+  return `flex items-center gap-2.5 rounded-md text-sm transition duration-150 ease-out focus-ring ${
+    collapsed ? "size-8 justify-center" : "px-2.5 py-1.5"
+  }`;
 }
 
 function NavItem(props: {
@@ -74,10 +77,10 @@ function NavItem(props: {
   return (
     <Link
       to={props.to}
-      class="flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
-      activeProps={{ class: "bg-primary/10 font-medium text-primary" }}
-      inactiveProps={{
-        class: "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+      class={`${navRowClass(props.collapsed)} text-muted-foreground hover:bg-surface-hover hover:text-foreground`}
+      activeProps={{
+        class: `${navRowClass(props.collapsed)} bg-primary/10 font-medium text-primary`,
+        "aria-current": "page",
       }}
       title={props.label}
     >
@@ -87,8 +90,13 @@ function NavItem(props: {
   );
 }
 
+/** Section caption. No `uppercase`/`tracking`: this UI is Chinese, where both
+ * are no-ops on the glyphs and only misalign the Latin it does contain. */
+function SectionLabel(props: { children: JSX.Element }) {
+  return <p class="px-2.5 pb-1 text-xs text-subtle-foreground">{props.children}</p>;
+}
+
 export default function AppShell() {
-  const location = useLocation();
   const collapsed = () => sidebarCollapsed();
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<Project | null>(null);
@@ -110,69 +118,76 @@ export default function AppShell() {
     setEditorOpen(true);
   };
 
-  const projectLinkClass = () =>
-    "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors";
   const projectIcon = (project: Project) => (
-    <span
-      class="shrink-0"
-      style={project.color ? { color: project.color } : undefined}
-    >
+    <span class="shrink-0" style={project.color ? { color: project.color } : undefined}>
       <Dynamic component={getProjectIcon(project.icon)} size={16} />
     </span>
   );
 
   return (
-    <div class="flex h-screen overflow-hidden bg-background text-foreground">
+    <div class="flex h-dvh overflow-hidden bg-background text-foreground">
+      {/* Keyboard users otherwise tab through every nav row and every project
+          before reaching the view. */}
+      <a
+        href="#ordo-main"
+        class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-elevated focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg focus-ring"
+      >
+        跳到主内容
+      </a>
+
       <aside
         aria-label="侧边栏导航"
         class={`flex shrink-0 flex-col border-r border-border bg-surface ${
-          collapsed() ? "w-14" : "w-60"
+          collapsed() ? "w-13" : "w-56"
         }`}
       >
-        <div class="flex h-14 shrink-0 items-center gap-2.5 px-3.5">
-          <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <ListTodo size={18} aria-hidden="true" />
-          </span>
+        <div
+          class={`flex h-12 shrink-0 items-center gap-2.5 ${collapsed() ? "justify-center px-2" : "px-3"}`}
+        >
+          <BrandMark />
           <Show when={!collapsed()}>
-            <span class="text-base font-semibold tracking-tight">Ordo</span>
+            <span class="text-sm font-semibold tracking-tight">Ordo</span>
           </Show>
         </div>
 
-        <nav aria-label="搜索" class="flex flex-col gap-1 px-2 pt-3">
-          <NavItem to="/search" icon={<Search size={18} />} label="搜索" collapsed={collapsed()} />
+        {/* Search sits above the views rather than inside "任务": it is a
+            different kind of action, not a fifth list. */}
+        <nav aria-label="搜索" class="flex flex-col gap-0.5 px-2">
+          <NavItem to="/search" icon={<Search size={17} />} label="搜索" collapsed={collapsed()} />
         </nav>
 
-        <nav aria-label="任务视图" class="flex flex-col gap-1 px-2 pb-3 pt-2">
+        <nav aria-label="任务视图" class="mt-4 flex flex-col gap-0.5 px-2">
           <Show when={!collapsed()}>
-            <p class="px-3 pb-1.5 text-xs font-medium text-subtle-foreground">任务</p>
+            <SectionLabel>任务</SectionLabel>
           </Show>
-          <NavItem to="/inbox" icon={<Inbox size={18} />} label="收件箱" collapsed={collapsed()} />
-          <NavItem to="/today" icon={<Sun size={18} />} label="今天" collapsed={collapsed()} />
+          <NavItem to="/inbox" icon={<Inbox size={17} />} label="收件箱" collapsed={collapsed()} />
+          <NavItem to="/today" icon={<Sun size={17} />} label="今天" collapsed={collapsed()} />
           <NavItem
             to="/upcoming"
-            icon={<CalendarClock size={18} />}
+            icon={<CalendarClock size={17} />}
             label="即将到来"
             collapsed={collapsed()}
           />
           <NavItem
             to="/completed"
-            icon={<CheckCircle2 size={18} />}
+            icon={<CheckCircle2 size={17} />}
             label="已完成"
             collapsed={collapsed()}
           />
         </nav>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+        <div class="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           <Show
             when={!collapsed()}
-            fallback={<div class="mx-auto mb-2 w-8 border-t border-border" aria-hidden="true" />}
+            fallback={<div class="mx-auto mt-2 w-6 border-t border-border" aria-hidden="true" />}
           >
-            <div class="mb-1.5 flex items-center justify-between px-3">
-              <p class="text-xs font-medium text-subtle-foreground">项目</p>
+            <div class="flex items-center justify-between pb-1 pl-2.5 pr-0.5">
+              <p class="text-xs text-subtle-foreground">项目</p>
               <button
                 type="button"
                 aria-label="新建项目"
-                class="flex size-5 items-center justify-center rounded text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                title="新建项目"
+                class={iconButtonClass}
                 onClick={openCreateProject}
               >
                 <Plus size={14} aria-hidden="true" />
@@ -180,16 +195,16 @@ export default function AppShell() {
             </div>
           </Show>
 
-          <nav aria-label="项目列表" class="flex flex-col gap-1">
+          <nav aria-label="项目列表" class="flex flex-col gap-0.5">
             <For each={activeProjects()}>
               {(project) => (
                 <Link
                   to="/projects/$projectId"
                   params={{ projectId: project.id }}
-                  class={projectLinkClass()}
-                  activeProps={{ class: `${projectLinkClass()} bg-primary/10 font-medium text-primary` }}
-                  inactiveProps={{
-                    class: `${projectLinkClass()} text-muted-foreground hover:bg-surface-hover hover:text-foreground`,
+                  class={`${navRowClass(collapsed())} text-muted-foreground hover:bg-surface-hover hover:text-foreground`}
+                  activeProps={{
+                    class: `${navRowClass(collapsed())} bg-primary/10 font-medium text-primary`,
+                    "aria-current": "page",
                   }}
                   title={project.name}
                 >
@@ -202,37 +217,34 @@ export default function AppShell() {
             </For>
           </nav>
 
-          <Show
-            when={!collapsed() && archivedProjects().length > 0}
-            fallback={
-              <Show when={!collapsed() && activeProjects().length === 0}>
-                <p class="px-3 py-1 text-sm text-subtle-foreground">暂无项目</p>
-              </Show>
-            }
-          >
+          <Show when={!collapsed() && activeProjects().length === 0}>
+            <p class="px-2.5 py-1 text-xs text-subtle-foreground">暂无项目</p>
+          </Show>
+
+          <Show when={!collapsed() && archivedProjects().length > 0}>
             <button
               type="button"
-              class="mt-2 flex w-full items-center gap-1.5 rounded px-3 py-1 text-xs text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              class="mt-1.5 flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-muted-foreground focus-ring"
               aria-expanded={archivedOpen()}
               onClick={() => setArchivedOpen(!archivedOpen())}
             >
               <ChevronDown
                 size={12}
                 aria-hidden="true"
-                class="transition-transform motion-reduce:transition-none"
+                class="transition-transform duration-200 ease-out"
                 classList={{ "-rotate-90": !archivedOpen() }}
               />
               已归档 ({archivedProjects().length})
             </button>
             <Show when={archivedOpen()}>
-              <nav aria-label="已归档项目" class="mt-1 flex flex-col gap-1">
+              <nav aria-label="已归档项目" class="mt-0.5 flex flex-col gap-0.5">
                 <For each={archivedProjects()}>
                   {(project) => (
-                    <div class="group flex items-center gap-1 pr-1.5">
+                    <div class="group flex items-center gap-0.5">
                       <Link
                         to="/projects/$projectId"
                         params={{ projectId: project.id }}
-                        class="flex min-w-0 flex-1 items-center gap-3 rounded-md px-3 py-2 text-sm text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-muted-foreground"
+                        class="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-muted-foreground focus-ring"
                         title={project.name}
                       >
                         {projectIcon(project)}
@@ -242,7 +254,7 @@ export default function AppShell() {
                         type="button"
                         aria-label={`恢复项目 ${project.name}`}
                         title="恢复项目"
-                        class="flex size-6 shrink-0 items-center justify-center rounded text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                        class={`${iconButtonClass} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
                         onClick={() => void restoreProject(project.id)}
                       >
                         <RotateCcw size={13} aria-hidden="true" />
@@ -255,47 +267,44 @@ export default function AppShell() {
           </Show>
         </div>
 
-        <nav aria-label="其他" class="flex flex-col gap-1 border-t border-border px-2 py-3">
-          <NavItem to="/stats" icon={<BarChart3 size={18} />} label="统计" collapsed={collapsed()} />
-          <ThemeToggle
-            class="w-full gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-            showLabel={!collapsed()}
-          />
+        {/* One cluster, one divider. The collapse control lives here rather
+            than in its own bordered block: same position in both states, and
+            one less horizontal rule cutting the sidebar in half. */}
+        <nav aria-label="其他" class="flex flex-col gap-0.5 border-t border-border p-2">
+          <NavItem to="/stats" icon={<BarChart3 size={17} />} label="统计" collapsed={collapsed()} />
+          <ThemeToggle class={navRowClass(collapsed())} showLabel={!collapsed()} />
           <NavItem
             to="/settings"
-            icon={<Settings size={18} />}
+            icon={<Settings size={17} />}
             label="设置"
             collapsed={collapsed()}
           />
-        </nav>
-
-        <div class="border-t border-border p-2">
           <button
             type="button"
-            class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+            class={`${navRowClass(collapsed())} text-subtle-foreground hover:bg-surface-hover hover:text-foreground`}
             aria-label={collapsed() ? "展开侧边栏" : "收起侧边栏"}
+            title={collapsed() ? "展开侧边栏" : "收起侧边栏"}
             onClick={toggleSidebar}
           >
             <span class="shrink-0">
               {collapsed() ? (
-                <PanelLeftOpen size={18} aria-hidden="true" />
+                <PanelLeftOpen size={17} aria-hidden="true" />
               ) : (
-                <PanelLeftClose size={18} aria-hidden="true" />
+                <PanelLeftClose size={17} aria-hidden="true" />
               )}
             </span>
             <Show when={!collapsed()}>收起侧边栏</Show>
           </button>
-        </div>
+        </nav>
       </aside>
 
-      <div class="flex min-w-0 flex-1 flex-col">
-        <header class="flex h-14 shrink-0 items-center border-b border-border px-6">
-          <h1 class="text-lg font-semibold">{titleFor(location().pathname)}</h1>
-        </header>
-        <main class="min-h-0 flex-1 overflow-y-auto">
-          <Outlet />
-        </main>
-      </div>
+      {/* No shell-level header: each view renders its own, inline with its
+          toolbar. A 56px bar holding nothing but the page title, above a view
+          that already rendered the same word, cost a strip of chrome and a
+          duplicate heading on every route. */}
+      <main id="ordo-main" class="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <Outlet />
+      </main>
 
       <ProjectEditorDialog
         open={editorOpen()}

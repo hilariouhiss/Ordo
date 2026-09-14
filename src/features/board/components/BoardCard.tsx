@@ -20,6 +20,10 @@ export interface BoardCardProps {
 /**
  * One task card on the board (P-05). Dragging uses the native Drag API; the
  * card never changes layout mid-drag — it only fades while being dragged.
+ *
+ * The card is the top plane of the board's three (page, sunken column well,
+ * elevated card), so it keeps a hairline border and earns its shadow on hover
+ * rather than wearing one at rest.
  */
 export function BoardCard(props: BoardCardProps) {
   const completed = () => props.task.completedAt !== null;
@@ -36,8 +40,8 @@ export function BoardCard(props: BoardCardProps) {
         props.onDragStart(props.task);
       }}
       onDragEnd={() => props.onDragEnd()}
-      class="cursor-grab rounded-md border border-border bg-elevated p-3 shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing motion-reduce:transition-none"
-      classList={{ "opacity-50": props.dragging() }}
+      class="cursor-grab rounded-lg border border-border bg-elevated p-3 transition duration-150 ease-out hover:border-border-strong hover:shadow-md focus-ring active:cursor-grabbing"
+      classList={{ "opacity-40": props.dragging() }}
     >
       <div class="flex items-start gap-2">
         <Checkbox.Root checked={completed()} onChange={() => props.onToggleComplete(props.task)}>
@@ -50,7 +54,7 @@ export function BoardCard(props: BoardCardProps) {
         </Checkbox.Root>
         <button
           type="button"
-          class="min-w-0 flex-1 text-left text-sm text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          class="min-w-0 flex-1 rounded-sm text-left text-sm text-foreground transition-colors hover:text-primary focus-ring"
           title={props.task.title}
           onClick={() => props.onOpenDetail(props.task)}
         >
@@ -60,23 +64,17 @@ export function BoardCard(props: BoardCardProps) {
         </button>
       </div>
 
-      <Show
-        when={priority() || props.task.tagIds.length > 0 || props.task.dueAt}
-      >
-        <div class="mt-2 flex flex-wrap items-center gap-1.5">
+      <Show when={priority() || props.task.tagIds.length > 0 || props.task.dueAt}>
+        <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
           <Show when={priority()}>
-            {(badge) => (
-              <Badge size="sm" class={badge().class}>
-                {badge().label}
-              </Badge>
-            )}
+            {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
           </Show>
           {props.task.tagIds.map((tagId) => {
             const tag = getTag(tagId);
             return (
               <Show when={tag}>
                 {(tag) => (
-                  <Badge size="sm" variant="outline">
+                  <Badge variant="outline">
                     <span
                       class="size-1.5 rounded-full"
                       style={{
@@ -90,11 +88,7 @@ export function BoardCard(props: BoardCardProps) {
             );
           })}
           <Show when={props.task.dueAt}>
-            <Badge
-              size="sm"
-              variant="outline"
-              class={isOverdue(props.task.dueAt, props.now) ? "border-danger/40 text-danger" : ""}
-            >
+            <Badge variant={isOverdue(props.task.dueAt, props.now) ? "danger" : "outline"}>
               {formatDueLabel(props.task.dueAt, props.now)}
             </Badge>
           </Show>

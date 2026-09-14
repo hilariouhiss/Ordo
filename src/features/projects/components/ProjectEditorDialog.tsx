@@ -40,8 +40,15 @@ const formSchema = z.object({
 
 type FormField = "name" | "dueLocal";
 
+/*
+ * `size-7`, not the old 24px dot: a colour swatch is a click target, and at
+ * 24px a ten-colour grid becomes a pixel hunt. Square, so it sits in the same
+ * geometric family as the buttons under it. The border colour comes from the
+ * class rather than an inline style, so `hover:border-border-strong` can
+ * actually win.
+ */
 const SWATCH_CLASS =
-  "inline-flex size-6 items-center justify-center rounded-full border transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none";
+  "inline-flex size-7 items-center justify-center rounded-md border border-border transition focus-ring hover:border-border-strong active:scale-90";
 
 export interface ProjectEditorDialogProps {
   open: boolean;
@@ -142,13 +149,13 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
             </TextField.Root>
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium text-foreground">颜色</span>
+              <span class="text-xs font-medium text-muted-foreground">颜色</span>
               <div role="group" aria-label="项目颜色" class="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   aria-label="无颜色"
                   aria-pressed={color() === null}
-                  class={`${SWATCH_CLASS} border-border bg-surface text-[10px] text-muted-foreground`}
+                  class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
                   classList={{ "ring-2 ring-ring": color() === null }}
                   onClick={() => setColor(null)}
                 >
@@ -162,7 +169,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
                       aria-pressed={color() === swatch}
                       class={SWATCH_CLASS}
                       classList={{ "ring-2 ring-ring": color() === swatch }}
-                      style={{ "background-color": swatch, "border-color": "var(--border)" }}
+                      style={{ "background-color": swatch }}
                       onClick={() => setColor(swatch)}
                     >
                       <Show when={color() === swatch}>
@@ -175,7 +182,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
             </div>
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium text-foreground">图标</span>
+              <span class="text-xs font-medium text-muted-foreground">图标</span>
               <div role="group" aria-label="项目图标" class="flex flex-wrap items-center gap-1.5">
                 <For each={PROJECT_ICON_NAMES}>
                   {(iconName) => {
@@ -185,7 +192,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
                         type="button"
                         aria-label={`图标 ${iconName}`}
                         aria-pressed={icon() === iconName}
-                        class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                        class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:bg-surface-hover active:scale-90 focus-ring"
                         classList={{
                           "border-primary bg-primary/10 text-primary":
                             icon() === iconName,

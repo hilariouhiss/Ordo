@@ -1,6 +1,4 @@
-import {
-  Tabs as KTabs,
-} from "@kobalte/core/tabs";
+import { Tabs as KTabs } from "@kobalte/core/tabs";
 import { splitProps, type ComponentProps } from "solid-js";
 
 function Root(props: ComponentProps<typeof KTabs>) {
@@ -13,7 +11,7 @@ function List(props: ComponentProps<typeof KTabs.List>) {
   return (
     <KTabs.List
       {...rest}
-      class={`relative flex gap-1 border-b border-border ${local.class ?? ""}`}
+      class={`relative flex shrink-0 gap-1 border-b border-border ${local.class ?? ""}`}
     />
   );
 }
@@ -23,27 +21,28 @@ function Trigger(props: ComponentProps<typeof KTabs.Trigger>) {
   return (
     <KTabs.Trigger
       {...rest}
-      class={`px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[selected]:text-foreground motion-reduce:transition-none ${local.class ?? ""}`}
+      class={`-mb-px select-none px-3 py-2 text-sm font-medium text-muted-foreground transition duration-150 ease-out hover:text-foreground data-[selected]:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-ring ${local.class ?? ""}`}
     />
   );
 }
 
 function Content(props: ComponentProps<typeof KTabs.Content>) {
   const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <KTabs.Content
-      {...rest}
-      class={`pt-3 outline-none ${local.class ?? ""}`}
-    />
-  );
+  // No padding here on purpose: every consumer supplies its own, and a base
+  // padding would out-rank the caller's override (Tailwind resolves conflicts
+  // by source order, not by class-attribute order).
+  return <KTabs.Content {...rest} class={`outline-none ${local.class ?? ""}`} />;
 }
 
 function Indicator(props: ComponentProps<typeof KTabs.Indicator>) {
   const [local, rest] = splitProps(props, ["class"]);
+  // 2px rather than 1px: at this scale a hairline underline reads as a border
+  // rather than as the selected-state marker. The transition is on `transform`
+  // so the slide between tabs stays on the compositor.
   return (
     <KTabs.Indicator
       {...rest}
-      class={`absolute bottom-0 left-0 h-0.5 rounded-full bg-primary transition-transform motion-reduce:transition-none ${local.class ?? ""}`}
+      class={`absolute bottom-0 left-0 h-0.5 rounded-full bg-primary transition-transform duration-200 ease-out ${local.class ?? ""}`}
     />
   );
 }

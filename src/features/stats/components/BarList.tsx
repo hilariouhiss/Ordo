@@ -39,17 +39,17 @@ export function BarList(props: BarListProps) {
               >
                 {row.label}
               </span>
-              <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-hover">
+              <span class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-hover">
                 <span
                   class="block h-full w-full origin-left rounded-full bg-primary"
                   style={{ transform: `scaleX(${Math.min(1, row.value / peak())})` }}
                 />
               </span>
-              <span class="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+              <span class="w-20 shrink-0 text-right text-xs text-muted-foreground">
                 {props.formatValue(row.value)}
               </span>
               <Show when={row.hint}>
-                <span class="w-24 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">
+                <span class="w-24 shrink-0 text-right text-xs text-subtle-foreground">
                   {row.hint}
                 </span>
               </Show>

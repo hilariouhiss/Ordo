@@ -18,6 +18,9 @@ export interface ProjectProgressProps {
  * rate and the remaining count in the same tick, without a backend round
  * trip. The countdown is read at render time, like the task views' due
  * labels; the panel never runs a timer of its own.
+ *
+ * The percentage is the project's headline number, so it is set at label size
+ * beside the bar rather than tucked away at caption size.
  */
 export function ProjectProgress(props: ProjectProgressProps) {
   const total = createMemo(() => props.tasks.length);
@@ -45,10 +48,10 @@ export function ProjectProgress(props: ProjectProgressProps) {
   });
 
   return (
-    <div class="flex flex-col gap-1.5">
+    <div class="flex flex-col gap-2">
       <div class="flex items-center gap-3">
         <div
-          class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-hover"
+          class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-hover"
           role="progressbar"
           aria-label={`完成率 ${rate()}%`}
           aria-valuemin={0}
@@ -56,21 +59,31 @@ export function ProjectProgress(props: ProjectProgressProps) {
           aria-valuenow={rate()}
         >
           <div
-            class="h-full w-full origin-left rounded-full bg-primary transition-transform motion-reduce:transition-none"
+            class="h-full w-full origin-left rounded-full bg-primary transition-transform duration-300 ease-out"
             style={{ transform: `scaleX(${rate() / 100})` }}
           />
         </div>
-        <span class="shrink-0 text-xs font-medium tabular-nums text-foreground">{rate()}%</span>
+        <span class="w-10 shrink-0 text-right text-sm font-semibold text-foreground">
+          {rate()}%
+        </span>
       </div>
 
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span role="status">
           {done()} / {total()} 已完成
+        </span>
+        <span aria-hidden="true" class="text-border-strong">
+          ·
         </span>
         <span>剩余 {remaining()} 项</span>
         <Show when={due()}>
           {(deadline) => (
-            <span classList={{ "text-danger": deadline().overdue }}>{deadline().text}</span>
+            <>
+              <span aria-hidden="true" class="text-border-strong">
+                ·
+              </span>
+              <span classList={{ "text-danger": deadline().overdue }}>{deadline().text}</span>
+            </>
           )}
         </Show>
       </div>

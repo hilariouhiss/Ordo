@@ -50,9 +50,9 @@ Ordo 是 **local-first、单用户** 的桌面应用，采用三层架构：
 src/
 ├── index.tsx                     # 渲染入口：RouterProvider
 ├── router.tsx                    # 路由定义（代码式，TanStack Router）
-├── index.css                     # Tailwind 入口 + @theme 设计 Token
+├── index.css                     # Tailwind 入口 + @theme 设计 Token + 全局工具类（focus-ring / skeleton / 浮层入场动画）
 ├── app/                          # 应用装配层
-│   ├── AppShell.tsx              # 布局壳：侧边栏 + 顶栏 + 内容区（仅主窗口）
+│   ├── AppShell.tsx              # 布局壳：侧边栏 + 内容区（仅主窗口；页面标题由各视图自己渲染）
 │   ├── QuickAddWindow.tsx        # quick-add 小窗的全部内容（仅该窗口渲染，见 D-02）
 │   └── TaskViewer.tsx            # 全局任务详情/编辑弹窗（搜索命中等入口的跳转落点）
 ├── features/                     # 业务领域（按功能划分）
@@ -71,12 +71,11 @@ src/
 │   ├── tags/                     # 标签
 │   └── settings/                 # 设置（主题/自启/快捷键）
 ├── common/                       # 跨领域共享
-│   ├── components/               # 通用 UI（Button/Dialog/Dropdown…基于 Kobalte）
+│   ├── components/               # 通用 UI（Button/Dialog/Dropdown/Skeleton/EmptyState…基于 Kobalte）
 │   ├── ipc/                      # invoke 封装、命令常量、错误归一化
 │   ├── stores/                   # 全局 Store（主题、UI 状态、通知）
-│   ├── lib/                      # 工具（日期/格式化/排序）
-│   └── types/                    # 共享类型
-└── assets/
+│   └── utils/                    # 工具（日期/格式化）
+└── assets/                       # 图标等静态资源（logo.svg 同时作为 favicon）
 ```
 
 **边界规则：**
@@ -122,9 +121,25 @@ src/
 
 - 无样式原语一律用 **Kobalte**（Dialog/Dropdown/Select/Tabs/Tooltip/Popover），视觉样式由 `common/components` 二次封装统一。
 - 图标用 **Lucide**；日期用 **date-fns**；表单校验用 **Zod**。
-- **动效只允许** CSS `transform` / `opacity`，时长 150–300ms，遵循 `prefers-reduced-motion`。看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
+- **动效只允许** CSS `transform` / `opacity` / 独立的 `scale`、`translate` 属性，时长 150–300ms，遵循 `prefers-reduced-motion`。看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
+- **浮层只做入场动画，不做退场动画**。Kobalte 的 presence 会等动画结束才卸载元素，一个没触发的退场动画会留下一层看不见但吃掉所有点击的遮罩。入场动画必须写在 `scale` / `translate` 长属性上而非 `transform`：Kobalte 用 `transform: translate(...)` 定位浮层，动画里写 `transform` 会在结束时把浮层弹回原点。
+- **`prefers-reduced-motion` 由 `index.css` 的全局 `@media` 规则统一兜底**，组件里不再逐处写 `motion-reduce:transition-none`（写了也是冗余）。
 - 长列表用**虚拟滚动**，保证万级任务下 60fps。
+- **焦点指示只用 `focus-ring` 这一个工具类**（`index.css` 里定义为 `:focus-visible` 上的 2px `outline`）。用 `outline` 而不是 `ring`：outline 跟随元素自身的圆角，且不需要 `ring-offset`——offset 会用页面背景色补一圈，一旦元素不在 `bg-background` 上（侧边栏、卡片、菜单里）就会显出一圈错色。
 - **回车提交必须带 `!event.isComposing` 守卫**（`QuickAddWindow`、`SubtaskList`、`CommentList`、`TimeTracker`）。这是中文产品：输入法组词时按回车是「上屏」而不是「提交」，少了这个守卫会把半截标题写进库，或把正在编辑的内容提前提交。浏览器自带的表单隐式提交本身就不会在组词中触发，但各处都是显式 `onKeyDown` 处理回车，所以守卫得自己写。
+
+### 2.6 视觉规范（Token 层）
+
+- **一套灰**：所有中性色都在 hue 265、chroma ≤ 0.012 上取值。把暖色背景和冷色前景混在一起，是最快让界面看起来像两套设计系统拼起来的方式。
+- **一个强调色**：`--primary` 是低饱和的深青（hue ~197）。它必须离所有语义色都足够远（success 155、warning ~65、danger 25），否则强调面会被读成状态。强调色会被涂在复选框、进度条、焦点环上，所以饱和度压得很低——静止时应该往后退。
+- **平面分层**：`--sunken`（看板列这类「凹槽」）/ `--background`（页面）/ `--surface`（侧边栏、面板）/ `--elevated`（弹窗、菜单、看板卡片）四层。深色模式下 `--sunken` 比 `--background` 更深，浅色模式下更浅，两边都是「往里凹」的观感。
+- **阴影带色**：用中性色 hue 染过的半透明色，而不是纯黑低透明度，这样阴影和它落下的面处在同一光照里；深色模式的抬升主要靠 `inset` 顶部高光，因为黑压黑没有可压的余量。
+- **`--*-solid` / `--*-foreground` 成对**：成对的是填充按钮的前景/背景；单独的那个 token 是当作**文字**用的，按在页面背景上的对比度调过。不要拿 `--danger` 当按钮底色再配白字。
+- **优先级没有自己的 token**：高/中直接复用 `danger`/`warning`（原来的 `--priority-*` 存的是完全相同的值），低用中性灰。优先级走 `Badge` 的 `variant`，不靠调用方传 `class` 覆盖颜色。
+- **不要用 `class` 去覆盖原语里已有的同类工具类**。Tailwind 按 CSS 源码顺序（而非 class 属性顺序）解决同属性冲突，例如 `.text-muted-foreground` 排在 `.text-danger` 之后、`.bg-surface-hover` 排在 `.bg-danger/12` 之后、`.w-full` 排在 `.w-28` 之后——这些覆盖会静默失效并渲染出错误的颜色或宽度。需要不同外观时，给原语加一个 `variant`（或先把原语里冗余的基础类删掉，比如 `Select.Trigger` 上那个多余的 `w-full`）。
+- **圆角规则**：`sm`(6) 徽章/复选框/行内标记；`md`(8) 按钮/输入框/列表行；`lg`(12) 面板/看板列/浮层；`xl`(16) 整块弹窗。
+- **字号按桌面密度定**：正文 13px（`text-sm`）、次要信息 12px（`text-xs`）、徽章 11px（`text-2xs`）、页面标题 17px（`text-lg`）。数字全局 `font-variant-numeric: tabular-nums`——这个应用里的数字（日期、计数、时长、百分比）几乎都是按列读的，等比数字在这里从来不是对的默认值。
+- 深色/浅色主题都可切换、可跟随系统；组件只引用 Token，不写死色值。
 
 ---
 

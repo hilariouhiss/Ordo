@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
-import { Check, Plus, Tag as TagIcon } from "lucide-solid";
-import { Button, DropdownMenu, Select, VirtualList } from "../../../common/components";
+import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
+import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
 import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
 import { tasksState } from "../store";
 import type { Priority, Task } from "../types";
@@ -31,7 +31,18 @@ const PRIORITY_FILTER_OPTIONS: Array<{ value: Priority | "all"; label: string }>
   { value: "none", label: "仅无" },
 ];
 
+/*
+ * Shared look of the toolbar's filter controls, matching the select triggers
+ * beside them: same height, same border, same text tier. The three filters
+ * reading as one family is what stops the row looking assembled by accident.
+ */
+const FILTER_CLASS =
+  "flex h-8 select-none items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:text-foreground focus-ring";
+
 export interface TaskListViewProps {
+  /** Page title. Omitted where a parent header already names the view (the
+   * project detail's own header sits directly above this toolbar). */
+  title?: string;
   /** View-filtered tasks (Inbox/Today/…); filter + sort are applied here. */
   tasks: () => readonly Task[];
   emptyTitle: string;
@@ -45,9 +56,12 @@ export interface TaskListViewProps {
 }
 
 /**
- * Shared layout of the four task views (T-05): a toolbar (create button,
- * priority/tag filters, sort mode, count) above a virtualized task list,
- * with the create/edit dialog wired in.
+ * Shared layout of the four task views (T-05): one toolbar carrying the page
+ * title, the count and the filters, above a virtualized task list.
+ *
+ * The title lives here rather than in an app-level header bar so each view
+ * owns exactly one heading — the same word rendered twice, 56px apart, was
+ * the single most obvious tell that the chrome had never been revisited.
  */
 export function TaskListView(props: TaskListViewProps) {
   const [priorityFilter, setPriorityFilter] = createSignal<Priority | "all">("all");
@@ -68,6 +82,12 @@ export function TaskListView(props: TaskListViewProps) {
       tasksState.tags,
     ),
   );
+
+  const filtered = () => priorityFilter() !== "all" || tagFilter().length > 0;
+  const clearFilters = () => {
+    setPriorityFilter("all");
+    setTagFilter([]);
+  };
 
   const selectedPriority = () =>
     PRIORITY_FILTER_OPTIONS.find((option) => option.value === priorityFilter()) ??
@@ -104,37 +124,43 @@ export function TaskListView(props: TaskListViewProps) {
 
   return (
     <div class="flex h-full min-h-0 flex-col">
-      <div class="flex flex-wrap items-center gap-2 border-b border-border px-6 py-2.5">
-        {props.toolbarExtra}
+      <div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-5">
+        <Show when={props.title}>
+          {(title) => (
+            <h1 class="mr-1 shrink-0 text-base font-semibold tracking-tight">{title()}</h1>
+          )}
+        </Show>
+        <span class="shrink-0 text-xs text-subtle-foreground">{visible().length} 个任务</span>
 
-        <Select.Root
-          options={PRIORITY_FILTER_OPTIONS}
-          optionValue={(option) => option.value}
-          optionTextValue={(option) => option.label}
-          itemToString={(option) => option.label}
-          value={selectedPriority()}
-          onChange={(option) => setPriorityFilter(option?.value ?? "all")}
-        >
-          <Select.Label class="sr-only">优先级筛选</Select.Label>
-          <Select.Trigger class="h-8 w-32 px-2.5 text-xs">
-            <Select.Value>{selectedPriority().label}</Select.Value>
-            <Select.Icon />
-          </Select.Trigger>
-          <Select.Content>
-            <Select.Listbox />
-          </Select.Content>
-        </Select.Root>
+        <div class="ml-auto flex shrink-0 items-center gap-2">
+          {props.toolbarExtra}
 
-        <Show when={tasksState.tags.length > 0}>
+          <Select.Root
+            options={PRIORITY_FILTER_OPTIONS}
+            optionValue={(option) => option.value}
+            optionTextValue={(option) => option.label}
+            itemToString={(option) => option.label}
+            value={selectedPriority()}
+            onChange={(option) => setPriorityFilter(option?.value ?? "all")}
+          >
+            <Select.Label class="sr-only">优先级筛选</Select.Label>
+            <Select.Trigger class="w-28">
+              <Select.Value>{selectedPriority().label}</Select.Value>
+              <Select.Icon />
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Listbox />
+            </Select.Content>
+          </Select.Root>
+
+          {/* Always rendered, tag list or not: 管理标签 used to be its own
+              toolbar button, so with zero tags there was no way in at all. */}
           <DropdownMenu.Root>
-            <DropdownMenu.Trigger
-              aria-label="按标签筛选"
-              class="flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              <TagIcon size={14} aria-hidden="true" />
+            <DropdownMenu.Trigger aria-label="按标签筛选" class={FILTER_CLASS}>
+              <TagIcon size={13} aria-hidden="true" />
               标签
               <Show when={tagFilter().length > 0}>
-                <span class="rounded-full bg-primary/10 px-1.5 text-primary">
+                <span class="rounded-full bg-primary/15 px-1.5 text-primary">
                   {tagFilter().length}
                 </span>
               </Show>
@@ -149,75 +175,88 @@ export function TaskListView(props: TaskListViewProps) {
                     >
                       <span class="flex size-3.5 shrink-0 items-center justify-center">
                         <Show when={tagFilter().includes(tag.id)}>
-                          <Check size={14} class="text-primary" aria-hidden="true" />
+                          <Check size={13} class="text-primary" aria-hidden="true" />
                         </Show>
                       </span>
                       <span
-                        class="size-2 rounded-full"
-                        style={{ "background-color": tag.color ?? "var(--border)" }}
+                        class="size-2 shrink-0 rounded-full"
+                        style={{ "background-color": tag.color ?? "var(--border-strong)" }}
                       />
                       {tag.name}
                     </DropdownMenu.Item>
                   )}
                 </For>
+                <Show when={tasksState.tags.length > 0}>
+                  <DropdownMenu.Separator />
+                </Show>
+                <DropdownMenu.Item onSelect={() => setManagerOpen(true)}>
+                  <TagIcon size={13} aria-hidden="true" />
+                  管理标签
+                </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-        </Show>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-8 px-2.5 text-xs text-muted-foreground"
-          onClick={() => setManagerOpen(true)}
-        >
-          <TagIcon size={14} aria-hidden="true" />
-          管理标签
-        </Button>
+          <Select.Root
+            options={props.sortOptions}
+            optionValue={(option) => option.value}
+            optionTextValue={(option) => option.label}
+            itemToString={(option) => option.label}
+            value={selectedSort()}
+            onChange={(option) => setSortMode(option?.value ?? props.defaultSort)}
+          >
+            <Select.Label class="sr-only">排序方式</Select.Label>
+            <Select.Trigger class="w-28">
+              <Select.Value>{selectedSort().label}</Select.Value>
+              <Select.Icon />
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Listbox />
+            </Select.Content>
+          </Select.Root>
 
-        <Select.Root
-          options={props.sortOptions}
-          optionValue={(option) => option.value}
-          optionTextValue={(option) => option.label}
-          itemToString={(option) => option.label}
-          value={selectedSort()}
-          onChange={(option) => setSortMode(option?.value ?? props.defaultSort)}
-        >
-          <Select.Label class="sr-only">排序方式</Select.Label>
-          <Select.Trigger class="h-8 w-32 px-2.5 text-xs">
-            <Select.Value>{selectedSort().label}</Select.Value>
-            <Select.Icon />
-          </Select.Trigger>
-          <Select.Content>
-            <Select.Listbox />
-          </Select.Content>
-        </Select.Root>
-
-        <span class="ml-auto text-xs text-subtle-foreground">{visible().length} 个任务</span>
-
-        <Button size="sm" variant="secondary" onClick={openCreate}>
-          <Plus size={14} aria-hidden="true" />
-          新建任务
-        </Button>
+          {/* Hidden while the list is empty: the empty state's own button is
+              then the only way to create, so the view never shows two controls
+              with the same action. */}
+          <Show when={visible().length > 0}>
+            <Button size="sm" onClick={openCreate}>
+              <Plus size={14} aria-hidden="true" />
+              新建任务
+            </Button>
+          </Show>
+        </div>
       </div>
 
       <Show
         when={visible().length > 0}
         fallback={
-          <div class="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-            <Show
-              when={props.tasks().length === 0}
-              fallback={
-                <>
-                  <h2 class="text-base font-semibold text-foreground">没有符合筛选条件的任务</h2>
-                  <p class="text-sm text-muted-foreground">调整优先级或标签筛选后再试。</p>
-                </>
+          <Show
+            when={filtered()}
+            fallback={
+              <EmptyState
+                icon={<ListTodo size={22} />}
+                title={props.emptyTitle}
+                description={props.emptyDescription}
+                action={
+                  <Button size="sm" onClick={openCreate}>
+                    <Plus size={14} aria-hidden="true" />
+                    新建任务
+                  </Button>
+                }
+              />
+            }
+          >
+            <EmptyState
+              icon={<ListFilter size={22} />}
+              title="没有符合筛选条件的任务"
+              description="当前的优先级或标签筛选把这一组任务全部排除了。"
+              action={
+                <Button size="sm" variant="secondary" onClick={clearFilters}>
+                  清除筛选
+                </Button>
               }
-            >
-              <h2 class="text-base font-semibold text-foreground">{props.emptyTitle}</h2>
-              <p class="max-w-sm text-sm text-muted-foreground">{props.emptyDescription}</p>
-            </Show>
-          </div>
+            />
+          </Show>
         }
       >
         <VirtualList

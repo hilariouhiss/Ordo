@@ -35,8 +35,14 @@ function nameError(parsed: ReturnType<typeof nameSchema.safeParse>): string {
   return parsed.error?.issues[0]?.message ?? "标签名无效";
 }
 
+/*
+ * Shares ProjectEditorDialog's swatch recipe: 28px square chips instead of
+ * 24px dots, so a colour is a target rather than a pixel hunt. The border comes
+ * from the class rather than an inline style, so `hover:border-border-strong`
+ * is what the pointer sees.
+ */
 const SWATCH_CLASS =
-  "inline-flex size-6 items-center justify-center rounded-full border transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none";
+  "inline-flex size-7 items-center justify-center rounded-md border border-border transition focus-ring hover:border-border-strong active:scale-90";
 
 function ColorSwatches(props: {
   value: () => string | null;
@@ -49,7 +55,7 @@ function ColorSwatches(props: {
         type="button"
         aria-label="无颜色"
         aria-pressed={props.value() === null}
-        class={`${SWATCH_CLASS} border-border bg-surface text-[10px] text-muted-foreground`}
+        class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
         classList={{ "ring-2 ring-ring": props.value() === null }}
         onClick={() => props.onChange(null)}
       >
@@ -63,10 +69,7 @@ function ColorSwatches(props: {
             aria-pressed={props.value() === color}
             class={SWATCH_CLASS}
             classList={{ "ring-2 ring-ring": props.value() === color }}
-            style={{
-              "background-color": color,
-              "border-color": "var(--border)",
-            }}
+            style={{ "background-color": color }}
             onClick={() => props.onChange(color)}
           >
             <Show when={props.value() === color}>
@@ -239,9 +242,8 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
                             <Pencil size={14} aria-hidden="true" />
                           </Button>
                           <Button
-                            variant="ghost"
+                            variant="destructive-ghost"
                             size="sm"
-                            class="text-danger hover:bg-danger/10"
                             aria-label={`删除标签 ${tag.name}`}
                             onClick={() => startDelete(tag.id)}
                           >
@@ -287,7 +289,7 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
                       </div>
                     </Show>
                     <Show when={deletingId() === tag.id}>
-                      <div class="mt-2 flex items-center justify-between gap-2 rounded-md border border-danger/40 bg-danger/5 px-3 py-2">
+                      <div class="mt-2 flex items-center justify-between gap-2 rounded-lg bg-danger/10 px-3 py-2">
                         <span class="text-xs text-danger">
                           将同时从 {usageCount(tag.id)} 个任务上移除，确认删除？
                         </span>

@@ -208,7 +208,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
             </TextField.Root>
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium text-foreground">重复</span>
+              <span class="text-xs font-medium text-muted-foreground">重复</span>
               <div class="flex items-center gap-2">
                 <Select.Root
                   options={REPEAT_FREQ_OPTIONS}
@@ -219,7 +219,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                   onChange={(option) => setRepeatFreq(option?.value ?? "none")}
                 >
                   <Select.Label class="sr-only">重复规则</Select.Label>
-                  <Select.Trigger class="h-9 w-28 px-2.5 text-sm">
+                  <Select.Trigger class="w-28">
                     <Select.Value>{selectedRepeatOption().label}</Select.Value>
                     <Select.Icon />
                   </Select.Trigger>
@@ -267,23 +267,23 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
 
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-foreground">标签</span>
+                <span class="text-xs font-medium text-muted-foreground">标签</span>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-ring"
                   onClick={() => setManagerOpen(true)}
                 >
                   <Settings2 size={13} aria-hidden="true" />
                   管理标签
                 </button>
               </div>
-              <div class="flex flex-wrap gap-2">
+              <div class="flex flex-wrap gap-1.5">
                 <For each={tasksState.tags}>
                   {(tag) => (
                     <button
                       type="button"
                       aria-pressed={tagIds().includes(tag.id)}
-                      class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                      class="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors focus-ring"
                       classList={{
                         "border-primary bg-primary/10 text-primary": tagIds().includes(
                           tag.id,

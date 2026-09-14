@@ -12,7 +12,7 @@ import {
 } from "../hooks";
 import type { BackupSummary } from "../types";
 
-const PANEL_CLASS = "rounded-lg border border-border bg-surface p-4";
+const PANEL_CLASS = "rounded-xl bg-surface p-5 shadow-sm";
 
 function stamp(summary: BackupSummary): string {
   return format(new Date(summary.exportedAt), "yyyy-MM-dd HH:mm");
@@ -73,14 +73,14 @@ export function SettingsView() {
 
   return (
     <div class="flex h-full min-h-0 flex-col">
-      <div class="border-b border-border px-6 py-3">
-        <h1 class="text-sm font-medium text-foreground">设置</h1>
+      <div class="flex h-12 shrink-0 items-center border-b border-border px-5">
+        <h1 class="text-base font-semibold tracking-tight">设置</h1>
       </div>
 
-      <div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
         <section aria-label="数据备份" class={`${PANEL_CLASS} max-w-2xl`}>
-          <h2 class="text-sm font-medium text-foreground">数据备份</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
+          <h2 class="text-sm font-semibold tracking-tight text-foreground">数据备份</h2>
+          <p class="mt-1.5 text-sm text-muted-foreground">
             把项目、任务、标签、看板列、评论、时间记录与设置导出为一个 JSON
             文件；恢复会覆盖当前全部数据，无法撤销。
           </p>
@@ -96,9 +96,8 @@ export function SettingsView() {
               导出备份
             </Button>
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="sm"
-              class="text-danger hover:bg-danger/10"
               disabled={busy()}
               onClick={() => void chooseBackup()}
             >
@@ -109,14 +108,20 @@ export function SettingsView() {
 
           <Show when={exported()}>
             {(summary) => (
-              <p role="status" class="mt-3 break-all text-xs text-muted-foreground">
+              <p
+                role="status"
+                class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground"
+              >
                 已导出 {summary().counts.tasks} 个任务（{stamp(summary())}）：{summary().path}
               </p>
             )}
           </Show>
           <Show when={restored()}>
             {(summary) => (
-              <p role="status" class="mt-3 break-all text-xs text-muted-foreground">
+              <p
+                role="status"
+                class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground"
+              >
                 已从备份恢复 {summary().counts.tasks} 个任务、{summary().counts.projects} 个项目（
                 {stamp(summary())}）：{summary().path}
               </p>
@@ -124,9 +129,9 @@ export function SettingsView() {
           </Show>
         </section>
 
-        <section aria-label="启动" class={`${PANEL_CLASS} mt-4 max-w-2xl`}>
-          <h2 class="text-sm font-medium text-foreground">启动</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
+        <section aria-label="启动" class={`${PANEL_CLASS} mt-5 max-w-2xl`}>
+          <h2 class="text-sm font-semibold tracking-tight text-foreground">启动</h2>
+          <p class="mt-1.5 text-sm text-muted-foreground">
             随系统登录启动 Ordo，默认关闭。启动后应用驻留托盘，关闭主窗口不会退出。
           </p>
           <Checkbox.Root
@@ -155,7 +160,7 @@ export function SettingsView() {
             <Dialog.Description>
               这会用备份文件覆盖当前全部项目、任务、标签、看板列、评论、时间记录与设置，且无法撤销。
             </Dialog.Description>
-            <p class="mt-3 break-all rounded-md bg-surface-hover px-3 py-2 text-xs text-muted-foreground">
+            <p class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
               {pendingPath()}
             </p>
             <div class="mt-4 flex justify-end gap-2">

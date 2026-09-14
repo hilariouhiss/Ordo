@@ -1,15 +1,33 @@
 import { For, Show } from "solid-js";
 import { MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
-import { Badge, Checkbox, DropdownMenu } from "../../../common/components";
+import {
+  Badge,
+  Checkbox,
+  DropdownMenu,
+  iconButtonClass,
+  type BadgeVariant,
+} from "../../../common/components";
 import { getTag } from "../store";
 import { describeRepeatRule } from "../repeat";
 import type { Priority, Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 
-export const PRIORITY_BADGES: Record<Priority, { label: string; class: string } | null> = {
-  high: { label: "高", class: "bg-priority-high/10 text-priority-high" },
-  medium: { label: "中", class: "bg-priority-medium/10 text-priority-medium" },
-  low: { label: "低", class: "bg-priority-low/10 text-priority-low" },
+/*
+ * Priority is expressed as a Badge *variant*, never as extra colour classes
+ * passed through `class`. Tailwind resolves same-property conflicts by CSS
+ * source order, and `.bg-surface-hover` is emitted after every `bg-<tone>/12`
+ * tint — so a caller-supplied `bg-priority-high/12` silently lost, and the
+ * 高/中/低 chips rendered as grey pills with coloured text. Picking the
+ * variant makes the tone part of the base rule, where nothing can out-rank it.
+ *
+ * There are no `--priority-*` tokens: they held exactly the same values as
+ * `--danger` / `--warning`, and 低 is a de-emphasised neutral rather than a
+ * fourth hue.
+ */
+export const PRIORITY_BADGES: Record<Priority, { label: string; variant: BadgeVariant } | null> = {
+  high: { label: "高", variant: "danger" },
+  medium: { label: "中", variant: "warning" },
+  low: { label: "低", variant: "default" },
   none: null,
 };
 
@@ -31,13 +49,13 @@ export function TaskItemRow(props: TaskItemRowProps) {
 
   return (
     <div
-      class="group flex h-14 items-center gap-3 border-b border-border pl-4 pr-2"
+      // The whole row lights up on hover, not just the title: at 56px a row is
+      // a large target, and highlighting all of it is what tells the eye which
+      // row the trailing ⋯ button belongs to.
+      class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-task-id={props.task.id}
     >
-      <Checkbox.Root
-        checked={completed()}
-        onChange={() => props.onToggleComplete(props.task)}
-      >
+      <Checkbox.Root checked={completed()} onChange={() => props.onToggleComplete(props.task)}>
         <Checkbox.Input
           aria-label={completed() ? `恢复 ${props.task.title}` : `完成 ${props.task.title}`}
         />
@@ -48,7 +66,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
 
       <button
         type="button"
-        class="min-w-0 flex-1 truncate text-left text-sm text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        class="min-w-0 flex-1 truncate rounded-sm text-left text-sm text-foreground transition-colors hover:text-primary focus-ring"
         title={props.task.title}
         onClick={() => props.onOpenDetail(props.task)}
       >
@@ -63,24 +81,20 @@ export function TaskItemRow(props: TaskItemRowProps) {
             class="shrink-0 text-subtle-foreground"
             title={`重复 ${describeRepeatRule(rule())}`}
           >
-            <Repeat size={14} aria-label={`重复 ${describeRepeatRule(rule())}`} />
+            <Repeat size={13} aria-label={`重复 ${describeRepeatRule(rule())}`} />
           </span>
         )}
       </Show>
 
       <Show when={priority()}>
-        {(badge) => (
-          <Badge size="sm" class={`shrink-0 ${badge().class}`}>
-            {badge().label}
-          </Badge>
-        )}
+        {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
       </Show>
 
       <For each={props.task.tagIds}>
         {(tagId) => (
           <Show when={getTag(tagId)}>
             {(tag) => (
-              <Badge size="sm" variant="outline" class="shrink-0">
+              <Badge variant="outline">
                 <span
                   class="size-1.5 rounded-full"
                   style={{ "background-color": tag().color ?? "var(--muted-foreground)" }}
@@ -93,11 +107,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       </For>
 
       <Show when={props.task.dueAt}>
-        <Badge
-          size="sm"
-          variant="outline"
-          class={`shrink-0 ${isOverdue(props.task.dueAt, props.now) ? "border-danger/40 text-danger" : ""}`}
-        >
+        <Badge variant={isOverdue(props.task.dueAt, props.now) ? "danger" : "outline"}>
           {formatDueLabel(props.task.dueAt, props.now)}
         </Badge>
       </Show>
@@ -105,7 +115,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
           aria-label={`任务操作：${props.task.title}`}
-          class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 motion-reduce:transition-none"
+          class={`${iconButtonClass} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
         >
           <MoreHorizontal size={16} aria-hidden="true" />
         </DropdownMenu.Trigger>

@@ -23,6 +23,7 @@ export function TodayView() {
     >
       <TaskListView
         tasks={tasks}
+        title="今天"
         emptyTitle="今天没有到期任务"
         emptyDescription="今日与逾期到期的任务会集中在这里，勾选即可完成。"
         defaultSort="manual"

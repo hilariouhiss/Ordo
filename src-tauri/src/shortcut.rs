@@ -62,7 +62,9 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
 pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, QUICK_ADD_WINDOW, WebviewUrl::App("index.html".into()))
         .title("快速添加任务")
-        .inner_size(560.0, 150.0)
+        // Sized to the content: one 40px capture line, the three controls,
+        // the preview line, and the padding between them.
+        .inner_size(560.0, 164.0)
         .resizable(false)
         .decorations(false)
         .always_on_top(true)

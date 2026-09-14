@@ -1,6 +1,6 @@
 import { For, Show, createSignal } from "solid-js";
 import { CheckCircle2, MoreHorizontal, Pencil, Trash2 } from "lucide-solid";
-import { Button, DropdownMenu, TextField } from "../../../common/components";
+import { Button, DropdownMenu, TextField, iconButtonClass } from "../../../common/components";
 import type { Task } from "../../tasks/types";
 import type { BoardColumn } from "../types";
 import { BoardCard } from "./BoardCard";
@@ -27,6 +27,11 @@ export interface BoardColumnViewProps {
  * One board column (P-05): a droppable card list with an absolutely
  * positioned insertion line. The line never shifts layout (position:absolute
  * + paint-only updates), so dragging stays transform-only at frame rate.
+ *
+ * The column is a `bg-sunken` well with no border. That gives the board three
+ * readable planes — page, well, card — which a bordered box on a nearly
+ * identical background cannot: at these two lightness values a hairline was
+ * doing all the work, and every column read as a plain outlined rectangle.
  */
 export function BoardColumnView(props: BoardColumnViewProps) {
   // Insertion point while a card hovers over this column: index within the
@@ -84,9 +89,9 @@ export function BoardColumnView(props: BoardColumnViewProps) {
     <section
       aria-label={`看板列 ${props.column.name}`}
       data-column-id={props.column.id}
-      class="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-surface"
+      class="flex w-72 shrink-0 flex-col rounded-xl bg-sunken"
     >
-      <header class="flex items-center gap-2 border-b border-border px-3 py-2.5">
+      <header class="flex items-center gap-1.5 px-2.5 py-2">
         <Show
           when={!renaming()}
           fallback={
@@ -110,20 +115,18 @@ export function BoardColumnView(props: BoardColumnViewProps) {
             </form>
           }
         >
-          <span class="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          <span class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-foreground">
             {props.column.name}
           </span>
         </Show>
-        <span class="shrink-0 rounded-full bg-primary/10 px-1.5 text-xs text-primary">
-          {props.tasks().length}
-        </span>
+        <span class="shrink-0 text-xs text-subtle-foreground">{props.tasks().length}</span>
         <Show when={props.column.isDone}>
           <CheckCircle2 size={14} class="shrink-0 text-primary" aria-label="完成列" />
         </Show>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
             aria-label={`列操作：${props.column.name}`}
-            class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            class={iconButtonClass}
           >
             <MoreHorizontal size={15} aria-hidden="true" />
           </DropdownMenu.Trigger>
@@ -176,7 +179,9 @@ export function BoardColumnView(props: BoardColumnViewProps) {
           )}
         </For>
         <Show when={props.tasks().length === 0 && !insert()}>
-          <p class="px-1 py-3 text-center text-xs text-subtle-foreground">拖拽任务到这里</p>
+          <p class="rounded-lg border border-dashed border-border-strong px-2 py-4 text-center text-xs text-subtle-foreground">
+            拖拽任务到这里
+          </p>
         </Show>
         <Show when={insert()}>
           {(at) => (
