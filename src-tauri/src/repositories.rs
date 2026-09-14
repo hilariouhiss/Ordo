@@ -1658,6 +1658,22 @@ pub mod reminders {
         Ok(affected == 1)
     }
 
+    /// Records that a subtask reminder fired; same dedup contract as
+    /// [`mark_fired`], against its own marker table.
+    pub fn mark_subtask_fired(
+        conn: &Connection,
+        subtask_id: Uuid,
+        kind: ReminderKind,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "INSERT OR IGNORE INTO subtask_reminders (subtask_id, kind, sent_at) \
+             VALUES (?1, ?2, ?3)",
+            params![subtask_id.to_string(), kind_as_text(kind), at],
+        )?;
+        Ok(affected == 1)
+    }
+
     /// A live, incomplete, due-dated task within the scan window.
     pub struct ReminderCandidate {
         pub id: Uuid,
@@ -1683,6 +1699,46 @@ pub mod reminders {
                 Ok(ReminderCandidate {
                     id: parse_uuid(row.get("id")?)?,
                     title: row.get("title")?,
+                    due_at: row.get("due_at")?,
+                })
+            },
+        )
+    }
+
+    /// A live, incomplete, due-dated subtask of a live, unfinished task.
+    pub struct SubtaskReminderCandidate {
+        pub id: Uuid,
+        /// The parent task, for the notification's subject line.
+        pub task_id: Uuid,
+        pub title: String,
+        pub task_title: String,
+        pub due_at: DateTime<Utc>,
+    }
+
+    /// Subtasks whose reminders may be triggerable: not soft-deleted, not done,
+    /// `due_at` in `(cutoff, horizon]`, under a task that is itself live and
+    /// unfinished. The join is also how the parent title reaches the
+    /// notification text without a second query.
+    pub fn list_subtask_candidates(
+        conn: &Connection,
+        cutoff: DateTime<Utc>,
+        horizon: DateTime<Utc>,
+    ) -> Result<Vec<SubtaskReminderCandidate>, AppError> {
+        query_all(
+            conn,
+            "SELECT s.id, s.task_id, s.title, s.due_at, t.title AS task_title \
+             FROM subtasks s JOIN tasks t ON t.id = s.task_id \
+             WHERE s.deleted_at IS NULL AND s.done = 0 \
+               AND t.deleted_at IS NULL AND t.completed_at IS NULL \
+               AND s.due_at IS NOT NULL AND s.due_at > ?1 AND s.due_at <= ?2 \
+             ORDER BY s.due_at, s.id",
+            params![cutoff, horizon],
+            |row| {
+                Ok(SubtaskReminderCandidate {
+                    id: parse_uuid(row.get("id")?)?,
+                    task_id: parse_uuid(row.get("task_id")?)?,
+                    title: row.get("title")?,
+                    task_title: row.get("task_title")?,
                     due_at: row.get("due_at")?,
                 })
             },

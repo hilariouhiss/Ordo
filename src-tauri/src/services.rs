@@ -1458,6 +1458,18 @@ const REMINDER_KIND_LEADS: [(ReminderKind, i64); 3] = [
     (ReminderKind::Due, 0),
 ];
 
+/// The reminder kinds whose lead time has arrived for `due_at`. Once a due
+/// time has passed only the due reminder applies: catching up a stale "in 1
+/// hour" after downtime would be noise.
+fn due_kinds(now: DateTime<Utc>, due_at: DateTime<Utc>) -> Vec<ReminderKind> {
+    REMINDER_KIND_LEADS
+        .iter()
+        .filter(|(_, lead)| now >= due_at - chrono::Duration::minutes(*lead))
+        .filter(|(_, lead)| *lead == 0 || now < due_at)
+        .map(|(kind, _)| *kind)
+        .collect()
+}
+
 /// One scheduler scan (runs on the fixed interval in `scheduler.rs`, inside
 /// one transaction): fires each (task, kind) reminder whose lead time has
 /// arrived and marks it so it never fires again — markers persist across
@@ -1467,28 +1479,40 @@ const REMINDER_KIND_LEADS: [(ReminderKind, i64); 3] = [
 pub fn scan_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Reminder>, AppError> {
     let cutoff = now - chrono::Duration::hours(REMINDER_CATCHUP_HOURS);
     let horizon = now + chrono::Duration::hours(1);
-    let candidates = reminders::list_candidates(conn, cutoff, horizon)?;
 
     let tx = conn.unchecked_transaction()?;
     let mut fired = Vec::new();
-    for candidate in candidates {
-        for (kind, lead_minutes) in REMINDER_KIND_LEADS {
-            if now < candidate.due_at - chrono::Duration::minutes(lead_minutes) {
-                continue; // lead time not reached yet
-            }
-            if lead_minutes > 0 && now >= candidate.due_at {
-                continue; // already overdue: only the due reminder applies
-            }
+
+    for candidate in reminders::list_candidates(conn, cutoff, horizon)? {
+        for kind in due_kinds(now, candidate.due_at) {
             if reminders::mark_fired(&tx, candidate.id, kind, now)? {
                 fired.push(Reminder {
                     task_id: candidate.id,
                     task_title: candidate.title.clone(),
                     kind,
                     due_at: candidate.due_at,
+                    subtask_id: None,
+                    subtask_title: None,
                 });
             }
         }
     }
+
+    for candidate in reminders::list_subtask_candidates(conn, cutoff, horizon)? {
+        for kind in due_kinds(now, candidate.due_at) {
+            if reminders::mark_subtask_fired(&tx, candidate.id, kind, now)? {
+                fired.push(Reminder {
+                    task_id: candidate.task_id,
+                    task_title: candidate.task_title.clone(),
+                    kind,
+                    due_at: candidate.due_at,
+                    subtask_id: Some(candidate.id),
+                    subtask_title: Some(candidate.title.clone()),
+                });
+            }
+        }
+    }
+
     tx.commit()?;
     Ok(fired)
 }
@@ -2982,6 +3006,96 @@ mod tests {
         let fired = scan_reminders(&conn, base).unwrap();
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].kind, ReminderKind::Due);
+    }
+
+    #[test]
+    fn subtask_due_dates_fire_their_own_reminders() {
+        let conn = conn();
+        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let due = base + chrono::Duration::hours(2);
+        let task = make_due_task(&conn, "父任务", due);
+        let subtask = create_subtask(
+            &conn,
+            task.id,
+            NewSubtask {
+                title: "收集数据".into(),
+                note: None,
+                priority: None,
+                due_at: Some(due),
+                complexity: None,
+            },
+        )
+        .unwrap();
+
+        let fired = scan_reminders(&conn, due - chrono::Duration::hours(1)).unwrap();
+        // The task's own 1-hour reminder plus the subtask's.
+        assert_eq!(fired.len(), 2);
+        let subtask_hit = fired
+            .iter()
+            .find(|reminder| reminder.subtask_id == Some(subtask.id))
+            .expect("the subtask reminder must fire");
+        assert_eq!(subtask_hit.task_id, task.id, "taskId stays the parent");
+        assert_eq!(subtask_hit.task_title, "父任务");
+        assert_eq!(subtask_hit.subtask_title.as_deref(), Some("收集数据"));
+
+        // The next scan fires the *next* kind, not the 1-hour one again: the
+        // marker table dedups per (subtask, kind).
+        let later_scan = scan_reminders(&conn, due - chrono::Duration::minutes(5)).unwrap();
+        let repeats: Vec<&Reminder> = later_scan
+            .iter()
+            .filter(|reminder| reminder.subtask_id == Some(subtask.id))
+            .collect();
+        assert_eq!(repeats.len(), 1);
+        assert_eq!(repeats[0].kind, ReminderKind::Advance10m);
+        let later = base + chrono::Duration::hours(5);
+        let second = make_due_task(&conn, "第二个父任务", later);
+        let pending = create_subtask(
+            &conn,
+            second.id,
+            NewSubtask {
+                title: "写结论".into(),
+                note: None,
+                priority: None,
+                due_at: Some(later),
+                complexity: None,
+            },
+        )
+        .unwrap();
+        complete_subtask(&conn, pending.id, true).unwrap();
+        assert!(
+            scan_reminders(&conn, later - chrono::Duration::minutes(5))
+                .unwrap()
+                .iter()
+                .all(|reminder| reminder.subtask_id != Some(pending.id)),
+            "a done subtask must not remind"
+        );
+    }
+
+    #[test]
+    fn completing_the_parent_stops_its_subtask_reminders() {
+        let conn = conn();
+        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let due = base + chrono::Duration::hours(2);
+        let task = make_due_task(&conn, "父任务", due);
+        create_subtask(
+            &conn,
+            task.id,
+            NewSubtask {
+                title: "子任务".into(),
+                note: None,
+                priority: None,
+                due_at: Some(due),
+                complexity: None,
+            },
+        )
+        .unwrap();
+        complete_task(&conn, task.id).unwrap();
+
+        let fired = scan_reminders(&conn, due - chrono::Duration::hours(1)).unwrap();
+        assert!(
+            fired.iter().all(|reminder| reminder.subtask_id.is_none()),
+            "a completed parent task silences its subtasks"
+        );
     }
 
     #[test]

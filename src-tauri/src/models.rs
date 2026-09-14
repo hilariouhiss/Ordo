@@ -71,6 +71,10 @@ pub enum ReminderKind {
 
 /// A reminder the scheduler has fired, broadcast to the frontend as a
 /// `reminder:triggered` event.
+///
+/// `task_id`/`task_title` always name the owning task: for a subtask reminder
+/// that is the *parent*, so the frontend's click-to-locate can open the task
+/// it belongs to without a special case.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
@@ -78,6 +82,11 @@ pub struct Reminder {
     pub task_title: String,
     pub kind: ReminderKind,
     pub due_at: DateTime<Utc>,
+    /// Set when this reminder belongs to a subtask rather than the task.
+    #[serde(default)]
+    pub subtask_id: Option<Uuid>,
+    #[serde(default)]
+    pub subtask_title: Option<String>,
 }
 
 /// A project row (`projects`).
@@ -1025,13 +1034,22 @@ mod tests {
             task_title: "周报".into(),
             kind: ReminderKind::Advance10m,
             due_at: ts(),
+            subtask_id: None,
+            subtask_title: None,
         })
         .unwrap();
         assert_eq!(
             sorted_keys(&value),
-            ["dueAt", "kind", "taskId", "taskTitle"]
-                .map(String::from)
-                .to_vec()
+            [
+                "dueAt",
+                "kind",
+                "subtaskId",
+                "subtaskTitle",
+                "taskId",
+                "taskTitle"
+            ]
+            .map(String::from)
+            .to_vec()
         );
         assert_eq!(value["kind"], json!("advance_10m"));
         assert_eq!(

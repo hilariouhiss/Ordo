@@ -30,14 +30,16 @@ const SCAN_INTERVAL: Duration = Duration::from_secs(30);
 /// renders in the user's local timezone.
 fn notification_texts(reminder: &Reminder) -> (String, String) {
     let time = reminder.due_at.with_timezone(&Local).format("%H:%M");
+    // A subtask reminder names both levels: the task alone would be ambiguous
+    // when a task carries several dated subtasks.
+    let subject = match &reminder.subtask_title {
+        Some(subtask) => format!("{} › {}", reminder.task_title, subtask),
+        None => reminder.task_title.clone(),
+    };
     let body = match reminder.kind {
-        ReminderKind::Advance1h => {
-            format!("「{}」将于 1 小时后（{}）到期", reminder.task_title, time)
-        }
-        ReminderKind::Advance10m => {
-            format!("「{}」将于 10 分钟后（{}）到期", reminder.task_title, time)
-        }
-        ReminderKind::Due => format!("「{}」已到截止时间（{}）", reminder.task_title, time),
+        ReminderKind::Advance1h => format!("「{subject}」将于 1 小时后（{time}）到期"),
+        ReminderKind::Advance10m => format!("「{subject}」将于 10 分钟后（{time}）到期"),
+        ReminderKind::Due => format!("「{subject}」已到截止时间（{time}）"),
     };
     ("Ordo 任务提醒".to_string(), body)
 }
@@ -94,6 +96,8 @@ mod tests {
             task_title: "提交周报".into(),
             kind,
             due_at: due,
+            subtask_id: None,
+            subtask_title: None,
         };
 
         let (title, _) = notification_texts(&reminder(ReminderKind::Due));
@@ -117,5 +121,21 @@ mod tests {
             let (_, body) = notification_texts(&reminder(kind));
             assert_eq!(body, expected);
         }
+    }
+
+    #[test]
+    fn subtask_reminders_name_the_parent_and_the_subtask() {
+        let (_, body) = notification_texts(&Reminder {
+            task_id: Uuid::nil(),
+            task_title: "写周报".into(),
+            kind: ReminderKind::Due,
+            due_at: Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap(),
+            subtask_id: Some(Uuid::nil()),
+            subtask_title: Some("收集数据".into()),
+        });
+        assert!(
+            body.contains("写周报 › 收集数据"),
+            "unexpected body: {body}"
+        );
     }
 }
