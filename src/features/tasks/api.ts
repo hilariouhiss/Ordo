@@ -7,6 +7,7 @@
 import { COMMANDS, invokeCommand } from "../../common/ipc";
 import type {
   Comment,
+  Dependency,
   NewComment,
   NewSubtask,
   NewTag,
@@ -105,6 +106,23 @@ export function reorderSubtask(
   next: string | null,
 ): Promise<Subtask[]> {
   return invokeCommand(COMMANDS.subtask.reorder, { subtaskId, prev, next });
+}
+
+// --- dependency:* ------------------------------------------------------------
+
+/** Every live edge; the store derives blocked state from the full set. */
+export function listDependencies(): Promise<Dependency[]> {
+  return invokeCommand(COMMANDS.dependency.listAll);
+}
+
+/** Idempotent: an edge that already exists comes back unchanged. */
+export function addDependency(payload: Dependency): Promise<Dependency> {
+  return invokeCommand(COMMANDS.dependency.add, { payload });
+}
+
+/** Idempotent: removing an edge that is already gone is not an error. */
+export function removeDependency(payload: Dependency): Promise<void> {
+  return invokeCommand(COMMANDS.dependency.remove, { payload });
 }
 
 // --- comment:* ----------------------------------------------------------------

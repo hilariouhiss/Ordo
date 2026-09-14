@@ -42,6 +42,7 @@ export interface Task {
   dueAt: string | null;
   completedAt: string | null;
   repeatRule: RepeatRule | null;
+  complexity: number | null;
   tagIds: string[];
   sortOrder: string;
   createdAt: string;
@@ -53,6 +54,11 @@ export interface Subtask {
   id: string;
   taskId: string;
   title: string;
+  note: string | null;
+  priority: Priority;
+  dueAt: string | null;
+  /** 1–5, or `null` when never estimated. */
+  complexity: number | null;
   done: boolean;
   sortOrder: string;
   createdAt: string;
@@ -97,6 +103,7 @@ export interface NewTask {
   tagIds?: string[];
   subtaskTitles?: string[];
   repeatRule?: RepeatRule | null;
+  complexity?: number | null;
 }
 
 export interface UpdateTask {
@@ -111,6 +118,7 @@ export interface UpdateTask {
   tagIds?: string[];
   /** `null` cancels the rule; missing leaves `repeatRule` unchanged. */
   repeatRule?: RepeatRule | null;
+  complexity?: number | null;
 }
 
 export interface NewTag {
@@ -125,11 +133,19 @@ export interface UpdateTag {
 
 export interface NewSubtask {
   title: string;
+  note?: string | null;
+  priority?: Priority;
+  dueAt?: string | null;
+  complexity?: number | null;
 }
 
 export interface UpdateSubtask {
   title?: string;
   done?: boolean;
+  note?: string | null;
+  priority?: Priority;
+  dueAt?: string | null;
+  complexity?: number | null;
 }
 
 export interface NewComment {
@@ -152,4 +168,19 @@ export interface NewTimeEntry {
 export interface UpdateTimeEntry {
   startedAt?: string;
   duration?: number;
+}
+
+// --- dependency edges --------------------------------------------------------
+
+/** Which edge set a dependency lives in (`DependencyKind` on the Rust side). */
+export type DependencyKind = "task" | "subtask";
+
+/**
+ * One dependency edge: `prerequisiteId` must be finished before
+ * `dependentId` can be completed.
+ */
+export interface Dependency {
+  kind: DependencyKind;
+  dependentId: string;
+  prerequisiteId: string;
 }

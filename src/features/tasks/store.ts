@@ -8,13 +8,16 @@
  */
 
 import { createStore, produce } from "solid-js/store";
-import type { Comment, Subtask, Tag, Task, TimeEntry } from "./types";
+import { edgeEquals } from "./dependencies";
+import type { Comment, Dependency, Subtask, Tag, Task, TimeEntry } from "./types";
 
 export interface TasksState {
   /** All live tasks, ordered by `sortOrder` as returned by `task:list`. */
   tasks: Task[];
   /** All live tags, ordered by name (case-insensitive). */
   tags: Tag[];
+  /** All live dependency edges, loaded with the task list. */
+  dependencies: Dependency[];
   /** Subtask cache per task, filled on demand by `loadSubtasks`. */
   subtasksByTask: Record<string, Subtask[]>;
   /** Comment cache per task, filled on demand by `loadComments`. */
@@ -29,6 +32,7 @@ export interface TasksState {
 const [state, setState] = createStore<TasksState>({
   tasks: [],
   tags: [],
+  dependencies: [],
   subtasksByTask: {},
   commentsByTask: {},
   timeEntriesByTask: {},
@@ -82,6 +86,32 @@ export function taskIndex(id: string): number {
 
 export function setAll(tasks: Task[], tags: Tag[]): void {
   setState({ tasks, tags, loaded: true });
+}
+
+/** Replaces the whole edge set (the dependency load's own snapshot). */
+export function setDependencies(dependencies: Dependency[]): void {
+  setState("dependencies", dependencies);
+}
+
+/** Adds one edge if it is not already there (optimistic insert). */
+export function addDependencyEdge(edge: Dependency): void {
+  setState(
+    "dependencies",
+    produce((list: Dependency[]) => {
+      if (!list.some((item) => edgeEquals(item, edge))) list.push(edge);
+    }),
+  );
+}
+
+/** Removes one edge; missing edges are a no-op (optimistic delete). */
+export function removeDependencyEdge(edge: Dependency): void {
+  setState(
+    "dependencies",
+    produce((list: Dependency[]) => {
+      const index = list.findIndex((item) => edgeEquals(item, edge));
+      if (index !== -1) list.splice(index, 1);
+    }),
+  );
 }
 
 export function upsertTask(task: Task): void {
@@ -300,6 +330,7 @@ export function resetTasksStore(): void {
   setState({
     tasks: [],
     tags: [],
+    dependencies: [],
     subtasksByTask: {},
     commentsByTask: {},
     timeEntriesByTask: {},

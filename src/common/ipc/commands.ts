@@ -22,6 +22,11 @@ export const COMMANDS = {
     delete: "subtask:delete",
     reorder: "subtask:reorder",
   },
+  dependency: {
+    listAll: "dependency:listAll",
+    add: "dependency:add",
+    remove: "dependency:remove",
+  },
   tag: {
     list: "tag:list",
     create: "tag:create",

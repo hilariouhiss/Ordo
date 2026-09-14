@@ -24,6 +24,7 @@ function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
     dueAt: null,
     completedAt: null,
     repeatRule: null,
+    complexity: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-01-10T10:00:00Z",

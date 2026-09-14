@@ -68,17 +68,20 @@ function missingEntity(what: string): null {
 
 // --- loading -----------------------------------------------------------------
 
-/** Loads all tasks (with tagIds), tags and every subtask; returns success. */
+/** Loads all tasks (with tagIds), tags, every subtask and every dependency
+ * edge; returns success. */
 export async function loadAll(): Promise<boolean> {
   try {
-    const [tasks, tags, subtasks] = await Promise.all([
+    const [tasks, tags, subtasks, dependencies] = await Promise.all([
       api.listTasks(),
       api.listTags(),
       api.listSubtasksAll(),
+      api.listDependencies(),
     ]);
-    // Both calls are fed by this load's own snapshot.
+    // All three calls are fed by this load's own snapshot.
     store.setAll(tasks, tags);
     store.setSubtasksAll(subtasks, tasks.map((task) => task.id));
+    store.setDependencies(dependencies);
     return true;
   } catch (error) {
     reportFailure(error);
@@ -138,6 +141,7 @@ export function createTask(input: NewTask): Promise<Task | null> {
     dueAt: input.dueAt ?? null,
     completedAt: null,
     repeatRule: null,
+    complexity: input.complexity ?? null,
     tagIds: input.tagIds ? [...input.tagIds] : [],
     // Backend assigns the real key; "\uffff" keeps the temp entry last when
     // a view re-sorts by sortOrder.
@@ -333,6 +337,10 @@ export function createSubtask(taskId: string, input: NewSubtask): Promise<Subtas
     id: tempId,
     taskId,
     title,
+    note: input.note ?? null,
+    priority: input.priority ?? "none",
+    dueAt: input.dueAt ?? null,
+    complexity: input.complexity ?? null,
     done: false,
     sortOrder: "\uffff",
     createdAt: now,
@@ -349,7 +357,9 @@ export function createSubtask(taskId: string, input: NewSubtask): Promise<Subtas
       if (cached) store.removeSubtask(taskId, tempId);
     },
     async () => {
-      const created = await api.createSubtask(taskId, { title });
+      // `...input` carries the optional attributes the optimistic row above
+      // already shows; dropping them here would make the reconcile undo them.
+      const created = await api.createSubtask(taskId, { ...input, title });
       if (cached) {
         store.removeSubtask(taskId, tempId);
         store.upsertSubtask(taskId, created);
