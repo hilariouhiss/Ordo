@@ -2999,7 +2999,7 @@ describe("阻塞标记", () => {
     store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
 
     render(() => <InboxView />);
-    fireEvent.click(screen.getByRole("button", { name: "展开 a 的子任务" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
     expect(screen.getByText("阻塞中")).toBeTruthy();
     store.setDependencies([]);
   });
