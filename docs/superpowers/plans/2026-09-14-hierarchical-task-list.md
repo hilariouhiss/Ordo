@@ -941,6 +941,12 @@ Expected: 全绿，尤其是 `task-views.test.tsx` 里那条「virtualizes: 10k 
 │   │   ├── components/           # TaskItemRow / SubtaskRow / TaskListView / 编辑器 / 看板卡
 ```
 
+同一文件约 179 行的 IPC 命令清单还缺 Task 1 新增的命令（Task 1 的 brief 只覆盖了 IMPLEMENTATION_PLAN 的那一行），一并补上：
+
+```markdown
+  subtask:list, subtask:listAll, subtask:create, subtask:update, subtask:complete, subtask:delete, subtask:reorder
+```
+
 - [ ] **Step 7: 最终验证**
 
 Run: `pnpm typecheck && pnpm test && pnpm build`
