@@ -1797,7 +1797,8 @@ describe("dependency derivations", () => {
   const tasks = [task("A"), task("B", "2026-09-14T10:00:00Z"), task("C"), task("D")];
 
   it("lists the unfinished prerequisites only", () => {
-    const done = completionSet(tasks, {});
+    // 空集：本用例问的是「前置全部未完成」，下一个用例才覆盖已完成的前置。
+    const done = new Set<string>();
     expect(blockersOf(index, done, "task", "A")).toEqual(["B", "D"]);
     expect(blockersOf(index, done, "task", "B")).toEqual(["C"]);
     expect(isBlocked(index, done, "task", "A")).toBe(true);
@@ -1819,7 +1820,7 @@ describe("dependency derivations", () => {
   it("detects the edges that would close a cycle", () => {
     expect(wouldCycle(index, "task", "C", "A")).toBe(true);
     expect(wouldCycle(index, "task", "A", "A")).toBe(true);
-    expect(wouldCycle(index, "task", "B", "A")).toBe(false);
+    expect(wouldCycle(index, "task", "A", "B")).toBe(false);
     expect(wouldCycle(index, "task", "A", "E")).toBe(false);
   });
 
