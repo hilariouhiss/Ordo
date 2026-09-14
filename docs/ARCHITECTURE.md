@@ -57,7 +57,7 @@ src/
 │   └── TaskViewer.tsx            # 全局任务详情/编辑弹窗（搜索命中等入口的跳转落点）
 ├── features/                     # 业务领域（按功能划分）
 │   ├── tasks/                    # 任务
-│   │   ├── components/           # TaskItem / TaskList / 编辑器 / 看板卡
+│   │   ├── components/           # TaskItemRow / SubtaskRow / TaskListView / 编辑器 / 看板卡
 │   │   ├── store.ts              # 任务内存 Store（Solid createStore）
 │   │   ├── api.ts                # 类型化 IPC 调用
 │   │   ├── hooks.ts              # 领域 hooks（创建/完成/拖拽）
@@ -176,7 +176,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
 
   ```
   task:list, task:create, task:update, task:complete, task:softDelete, task:restore
-  subtask:list, subtask:create, subtask:update, subtask:complete, subtask:delete, subtask:reorder
+  subtask:list, subtask:listAll, subtask:create, subtask:update, subtask:complete, subtask:delete, subtask:reorder
   tag:list, tag:create, tag:update, tag:delete
   project:list, project:create, project:update, project:archive, project:restore
   board:listColumns, board:addColumn, board:updateColumn, board:deleteColumn, board:moveTask

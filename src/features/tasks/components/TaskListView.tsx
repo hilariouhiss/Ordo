@@ -1,10 +1,11 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
-import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
+import { completeSubtask, completeTask, softDeleteTask, uncompleteTask } from "../hooks";
 import { getSubtasks, tasksState } from "../store";
-import type { Priority, Task } from "../types";
+import type { Priority, Subtask, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
+import { SubtaskRow } from "./SubtaskRow";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskItemRow } from "./TaskItemRow";
@@ -12,6 +13,15 @@ import { TagManagerDialog } from "./TagManagerDialog";
 
 /** Must match the row height in `TaskItemRow` (VirtualList v1 is fixed-height). */
 const ROW_HEIGHT = 56;
+
+/**
+ * One rendered line. The tree is flattened into this, so every row keeps the
+ * same 56px height the virtualizer assumes — teaching `VirtualList` to measure
+ * variable rows would mean rewriting a primitive four other views depend on.
+ */
+type ListRow =
+  | { kind: "task"; task: Task; subtaskCount: number; subtaskDone: number }
+  | { kind: "subtask"; task: Task; subtask: Subtask };
 
 export type SortOption = { value: SortMode; label: string };
 
@@ -82,6 +92,36 @@ export function TaskListView(props: TaskListViewProps) {
       tasksState.tags,
     ),
   );
+
+  /** Expanded task ids. Local only: the subtasks are already in the store, so
+   * expanding never hits the backend. */
+  const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
+
+  // After `visible`, not before it: Solid runs a memo's body eagerly as it is
+  // created, so reading `visible` from above its own `const` is a TDZ crash.
+  const rows = createMemo<ListRow[]>(() =>
+    visible().flatMap((task) => {
+      const children = getSubtasks(task.id);
+      const done = children.filter((child) => child.done).length;
+      const head: ListRow = {
+        kind: "task",
+        task,
+        subtaskCount: children.length,
+        subtaskDone: done,
+      };
+      if (children.length === 0 || !expanded()[task.id]) return [head];
+      // The return annotation is load-bearing too: without it the literal's
+      // `kind` widens to `string` and the array stops being a `ListRow[]`.
+      return [head, ...children.map((subtask): ListRow => ({ kind: "subtask", task, subtask }))];
+    }),
+  );
+
+  const toggleExpand = (task: Task) =>
+    setExpanded((current) => ({ ...current, [task.id]: !current[task.id] }));
+
+  const toggleSubtask = (task: Task, subtask: Subtask, done: boolean) => {
+    void completeSubtask(task.id, subtask.id, done);
+  };
 
   const filtered = () => priorityFilter() !== "all" || tagFilter().length > 0;
   const clearFilters = () => {
@@ -261,24 +301,33 @@ export function TaskListView(props: TaskListViewProps) {
       >
         <VirtualList
           class="min-h-0 flex-1 overflow-y-auto"
-          items={visible()}
+          items={rows()}
           itemHeight={ROW_HEIGHT}
-          getKey={(task) => task.id}
+          getKey={(row) => (row.kind === "task" ? row.task.id : row.subtask.id)}
         >
-          {(task) => (
-            <TaskItemRow
-              task={task}
-              now={now()}
-              subtaskCount={getSubtasks(task.id).length}
-              subtaskDone={getSubtasks(task.id).filter((child) => child.done).length}
-              expanded={false}
-              onToggleExpand={() => {}}
-              onToggleComplete={toggleComplete}
-              onOpenDetail={openDetail}
-              onEdit={openEdit}
-              onDelete={removeTask}
-            />
-          )}
+          {(row) =>
+            row.kind === "task" ? (
+              <TaskItemRow
+                task={row.task}
+                now={now()}
+                subtaskCount={row.subtaskCount}
+                subtaskDone={row.subtaskDone}
+                expanded={Boolean(expanded()[row.task.id])}
+                onToggleExpand={toggleExpand}
+                onToggleComplete={toggleComplete}
+                onOpenDetail={openDetail}
+                onEdit={openEdit}
+                onDelete={removeTask}
+              />
+            ) : (
+              <SubtaskRow
+                subtask={row.subtask}
+                parent={row.task}
+                onToggleDone={toggleSubtask}
+                onOpenDetail={openDetail}
+              />
+            )
+          }
         </VirtualList>
       </Show>
 

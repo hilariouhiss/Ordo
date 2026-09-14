@@ -491,3 +491,77 @@ describe("SubtaskRow", () => {
     expect(slot.className).toContain("self-stretch");
   });
 });
+
+describe("任务列表的层级展示", () => {
+  function seedWithSubtasks() {
+    store.setAll([task("t1"), task("t2")], []);
+    store.setSubtasks("t1", [
+      subtask("s1", "t1", "收集意见", true),
+      subtask("s2", "t1", "定稿", false),
+    ]);
+    store.setSubtasks("t2", []);
+  }
+
+  it("starts collapsed and hides the children", async () => {
+    seedWithSubtasks();
+    render(() => <InboxView />);
+
+    expect(await screen.findByText("任务 t1")).toBeTruthy();
+    expect(screen.queryByText("收集意见")).toBeNull();
+    expect(screen.getByText("1/2")).toBeTruthy();
+  });
+
+  it("expands to list children in sort order and collapses again", async () => {
+    seedWithSubtasks();
+    render(() => <InboxView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+    expect(screen.getByText("收集意见")).toBeTruthy();
+    expect(screen.getByText("定稿")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "收起 任务 t1 的子任务" }));
+    expect(screen.queryByText("收集意见")).toBeNull();
+  });
+
+  it("completes a subtask optimistically and moves the parent's badge", async () => {
+    seedWithSubtasks();
+    vi.mocked(api.completeSubtask).mockResolvedValue(
+      subtask("s2", "t1", "定稿", true),
+    );
+    render(() => <InboxView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "完成子任务 定稿" }));
+
+    await waitFor(() => expect(api.completeSubtask).toHaveBeenCalledWith("s2", true));
+    await waitFor(() => expect(screen.getByText("2/2")).toBeTruthy());
+  });
+
+  it("opens the parent's detail when a subtask title is clicked", async () => {
+    seedWithSubtasks();
+    render(() => <InboxView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+    fireEvent.click(screen.getByText("收集意见"));
+
+    expect(await screen.findByText("任务详情与子任务")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "任务 t1" })).toBeTruthy();
+  });
+
+  it("keeps every child of an expanded task while a filter is active", async () => {
+    store.setAll([task("t1", { priority: "high" })], []);
+    store.setSubtasks("t1", [
+      subtask("s1", "t1", "收集意见"),
+      subtask("s2", "t1", "定稿"),
+    ]);
+    render(() => <InboxView />);
+
+    await selectFromCombobox(/优先级筛选/, "仅高");
+    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+
+    // Subtasks carry no priority, so they are never filtered: a badge reading
+    // 0/2 above a single visible row would be lying.
+    expect(screen.getByText("收集意见")).toBeTruthy();
+    expect(screen.getByText("定稿")).toBeTruthy();
+  });
+});
