@@ -137,7 +137,7 @@ SELECT d.subtask_id, d.depends_on FROM subtask_dependencies d
 
 依赖边是用户数据，必须进备份：
 
-- `BackupData` 加 `#[serde(default)] dependencies: Vec<Dependency>`（一个数组带 `kind`，覆盖两张表），`BackupCounts` 同步加字段
+- `BackupData` 加 `#[serde(default)] dependencies: Vec<Dependency>`（一个数组带 `kind`，覆盖两张表）。**不加 `BackupCounts` 字段**：依赖边不是用户可见实体，设置页的「恢复了 N 个任务、M 个项目」不需要多一个数字
 - `BACKUP_VERSION` 升到 `2`：新备份含有旧版本读不懂的数据，旧版本导入时应当明确拒绝，而不是静默丢掉依赖
 - `backup::export_all` 读两张边表；`backup::replace_all` 的 `DELETE FROM` 清单与插入阶段都要带上它们
 - `BackupData` 的文档注释里那句「`task_reminders` stays out」补上 `subtask_reminders`
