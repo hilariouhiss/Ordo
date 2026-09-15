@@ -189,7 +189,7 @@ namespace:list | create | update | archive | restore
 - 分组折叠状态放 `AppShell` 的本地 signal（与现有 `archivedOpen` 一样），不落库。
 - 分组行：颜色/图标 + 名称 + 项目数；`chevron` 是独立按钮（`aria-expanded`），名字是 `Link`。行上不放「⋯」菜单——重命名与归档都在命名空间页里做，侧边栏只负责导航（与项目行今天的行为一致）。
 - 分组行上的项目数是**该组的 active 项目数**（`projectsInNamespace(id).length`），与命名空间页的项目行数一致。
-- 折叠态（侧边栏收起）下不显示分组行，与今天「收起时只给一条分隔线」的处理一致。
+- 折叠态（侧边栏收起）下分组行退化为只有图标的行——与今天的项目行一致；「已归档」区在收起态不显示（今天的既有行为）。
 
 **(b) 命名空间页 `/namespaces/$namespaceId`**（新路由，懒加载，照 `ProjectDetailView` 的加载/兜底）
 

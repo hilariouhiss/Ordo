@@ -997,7 +997,7 @@ git commit -m "feat: add namespace CRUD behind its own command group"
 
 ```rust
     #[test]
-    fn project_writes_reject_an_unknown_or_archived_namespace() {
+    fn project_writes_reject_an_unknown_or_deleted_namespace() {
         let conn = conn();
         let ghost = Uuid::new_v4();
 
@@ -1098,6 +1098,8 @@ git commit -m "feat: add namespace CRUD behind its own command group"
 
 Run: `cd src-tauri && cargo test project_writes_reject`
 Expected: FAIL —— 前两次断言拿到的是空 `Err`（无校验时 `create_project` 会直接命中外键约束报 `database`）或断言不等
+
+注：这条用例**只**覆盖「不存在」与「已软删」两种失败。往**已归档**命名空间里放项目是允许的（§5.5：归档命名空间仍持有它的项目，恢复项目时也要能放回去），所以它不在这条用例的失败清单里。
 
 - [ ] **Step 3: 加校验**
 
@@ -2171,16 +2173,17 @@ git commit -m "feat: add the namespace data layer and project grouping derivatio
 
 **Files:**
 - Create: `src/common/icons.ts` 与 `src/common/colors.ts`（分别从 `src/features/projects/icons.ts`、`ProjectEditorDialog` 的 `PROJECT_COLORS` 迁移并通用化命名）
+- Create: `src/common/components/palette-picker.tsx`（色板与图标选择器；两个编辑器共用，避免把同一段网格 markup 抄两遍）
 - Delete: `src/features/projects/icons.ts`
-- Modify: `src/app/AppShell.tsx`、`src/features/projects/components/ProjectEditorDialog.tsx`、`src/features/projects/components/ProjectListView.tsx`（换 import 路径与函数名）
+- Modify: `src/common/components/index.ts`（导出选择器）、`src/app/AppShell.tsx`、`src/features/projects/components/ProjectEditorDialog.tsx`、`src/features/projects/components/ProjectListView.tsx`（换 import 路径与函数名）
 - Create: `src/features/namespaces/components/NamespaceEditorDialog.tsx`
-- Modify: `src/features/projects/components/ProjectEditorDialog.tsx`（命名空间 `Select` + `defaultNamespaceId` 入参）
+- Modify: `src/features/projects/components/ProjectEditorDialog.tsx`（改用共用选择器 + 命名空间 `Select` + `defaultNamespaceId` 入参）
 - Modify: `src/features/projects/__tests__/project-editor-dialog.test.tsx`（初始化 namespaces store + 断言 payload）
 - Create: `src/features/namespaces/__tests__/namespace-editor-dialog.test.tsx`
 
 **Interfaces:**
 - Consumes: Task 5 的 `activeNamespaces`、`getNamespace`、`hooks`；`text-field`、`dialog`、`select`、`button`（`common/components`）
-- Produces: `common/icons.ts` 导出 `ICONS` / `ICON_NAMES` / `getIcon(name)`；`common/colors.ts` 导出 `COLORS`；`ProjectEditorDialog` 新增可选 prop `defaultNamespaceId?: string | null` 并在提交载荷里带 `namespaceId`；`NamespaceEditorDialog`（props: `open`、`onOpenChange`、`namespace?`）
+- Produces: `common/icons.ts` 导出 `ICONS` / `ICON_NAMES` / `getIcon(name)`；`common/colors.ts` 导出 `COLORS`；`common/components/palette-picker.tsx` 导出 `ColorSwatches` 与 `IconPicker`（props: `{ value: string | null; onChange: (value: string | null) => void; label: string }`）并经 `common/components/index.ts` 转发；`ProjectEditorDialog` 新增可选 prop `defaultNamespaceId?: string | null` 并在提交载荷里带 `namespaceId`；`NamespaceEditorDialog`（props: `open`、`onOpenChange`、`namespace?`）
 
 - [ ] **Step 1: 把图标表与调色板下沉到 `common/`**
 
@@ -2201,7 +2204,122 @@ git mv src/features/projects/icons.ts src/common/icons.ts
 Run: `pnpm typecheck && pnpm test`
 Expected: 零错误；测试全绿（这次搬迁不改行为）
 
-- [ ] **Step 2: 写失败的编辑器测试**
+- [ ] **Step 2: 把色板/图标选择器抽成共用组件**
+
+两个编辑器都要「一排颜色方块 + 一排图标按钮」，原样抄一遍就是 60 多行 markup 的重复。创建 `src/common/components/palette-picker.tsx`：
+
+```tsx
+import { For, Show } from "solid-js";
+import { Check } from "lucide-solid";
+import { COLORS } from "../colors";
+import { ICON_NAMES, getIcon } from "../icons";
+
+/**
+ * The palette controls shared by the project and namespace editors.
+ *
+ * A colour swatch is a click target, so it is `size-7` — at 24px a ten-colour
+ * grid becomes a pixel hunt. Square, so it sits in the same geometric family
+ * as the buttons under it. The border colour comes from the class rather than
+ * an inline style, so `hover:border-border-strong` can actually win.
+ */
+const SWATCH_CLASS =
+  "inline-flex size-7 items-center justify-center rounded-md border border-border transition focus-ring hover:border-border-strong active:scale-90";
+
+export interface PalettePickerProps {
+  value: string | null;
+  onChange: (value: string | null) => void;
+  /** Accessible name of the swatch/icon group, e.g. 「项目颜色」. */
+  label: string;
+}
+
+export function ColorSwatches(props: PalettePickerProps) {
+  return (
+    <div class="flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-muted-foreground">颜色</span>
+      <div role="group" aria-label={props.label} class="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          aria-label="无颜色"
+          aria-pressed={props.value === null}
+          class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
+          classList={{ "ring-2 ring-ring": props.value === null }}
+          onClick={() => props.onChange(null)}
+        >
+          无
+        </button>
+        <For each={COLORS}>
+          {(swatch) => (
+            <button
+              type="button"
+              aria-label={`颜色 ${swatch}`}
+              aria-pressed={props.value === swatch}
+              class={SWATCH_CLASS}
+              classList={{ "ring-2 ring-ring": props.value === swatch }}
+              style={{ "background-color": swatch }}
+              onClick={() => props.onChange(swatch)}
+            >
+              <Show when={props.value === swatch}>
+                <Check size={13} class="text-white mix-blend-difference" aria-hidden="true" />
+              </Show>
+            </button>
+          )}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+export function IconPicker(props: PalettePickerProps) {
+  return (
+    <div class="flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-muted-foreground">图标</span>
+      <div role="group" aria-label={props.label} class="flex flex-wrap items-center gap-1.5">
+        <For each={ICON_NAMES}>
+          {(iconName) => {
+            const Icon = getIcon(iconName);
+            return (
+              <button
+                type="button"
+                aria-label={`图标 ${iconName}`}
+                aria-pressed={props.value === iconName}
+                class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:bg-surface-hover active:scale-90 focus-ring"
+                classList={{
+                  "border-primary bg-primary/10 text-primary": props.value === iconName,
+                }}
+                onClick={() => props.onChange(iconName)}
+              >
+                <Icon size={15} />
+              </button>
+            );
+          }}
+        </For>
+      </div>
+    </div>
+  );
+}
+```
+
+在 `src/common/components/index.ts` 加：
+
+```ts
+export {
+  ColorSwatches,
+  IconPicker,
+  type PalettePickerProps,
+} from "./palette-picker";
+```
+
+`ProjectEditorDialog.tsx` 里删掉本地的 `SWATCH_CLASS`、颜色网格与图标网格三块 markup，改成（`color`/`icon` 信号保持不变，`Check` 与 `For` 若不再用到就从 import 里删掉，`noUnusedLocals` 会点名）：
+
+```tsx
+            <ColorSwatches value={color()} onChange={setColor} label="项目颜色" />
+            <IconPicker value={icon()} onChange={setIcon} label="项目图标" />
+```
+
+Run: `pnpm test src/features/projects/__tests__/project-editor-dialog.test.tsx && pnpm typecheck`
+Expected: 既有断言（`颜色 #3b82f6`、`图标 rocket` 的 `aria-pressed`）全部照旧通过；typecheck 零输出
+
+- [ ] **Step 3: 写失败的编辑器测试**
 
 在 `src/features/projects/__tests__/project-editor-dialog.test.tsx` 里，顶部补 namespaces store 的初始化（`import { resetNamespacesStore, setAll as setNamespaces } from "../../namespaces/store";` 与 `import type { Namespace } from "../../namespaces/types";`），`beforeEach` 加 `resetNamespacesStore();`，并新增两条测试：
 
@@ -2275,14 +2393,14 @@ function namespaceFixture(
 }
 ```
 
-既有的 `projectFixture` 补 `namespaceId: null,`；既有那几条 `expect(hooks.createProject).toHaveBeenCalledWith({...})` / `toHaveBeenCalledWith("p9", {...})` 的期望对象补 `namespaceId: null`（或 `existing.namespaceId`），因为提交载荷现在总是带这个字段。
+既有的那几条 `expect(hooks.createProject).toHaveBeenCalledWith({...})` / `toHaveBeenCalledWith("p9", {...})` 的期望对象补 `namespaceId: null`（或 `existing.namespaceId`），因为提交载荷现在总是带这个字段。（`projectFixture` 里的 `namespaceId: null` 已在 Task 5 补过，这里不要重复添加。）
 
-- [ ] **Step 3: 跑测试确认失败**
+- [ ] **Step 4: 跑测试确认失败**
 
 Run: `pnpm test src/features/projects/__tests__/project-editor-dialog.test.tsx`
 Expected: FAIL —— 找不到可访问名「命名空间」的控件
 
-- [ ] **Step 4: 给项目编辑器加命名空间选择**
+- [ ] **Step 5: 给项目编辑器加命名空间选择**
 
 `src/features/projects/components/ProjectEditorDialog.tsx`：
 
@@ -2383,12 +2501,12 @@ type NamespaceOption = { id: string | null; name: string };
             </Select.Root>
 ```
 
-- [ ] **Step 5: 跑编辑器测试**
+- [ ] **Step 6: 跑编辑器测试**
 
 Run: `pnpm test src/features/projects/__tests__/project-editor-dialog.test.tsx`
 Expected: 全绿
 
-- [ ] **Step 6: 写失败的命名空间编辑器测试**
+- [ ] **Step 7: 写失败的命名空间编辑器测试**
 
 创建 `src/features/namespaces/__tests__/namespace-editor-dialog.test.tsx`：
 
@@ -2504,17 +2622,20 @@ describe("NamespaceEditorDialog", () => {
 });
 ```
 
-- [ ] **Step 7: 写命名空间编辑器**
+- [ ] **Step 8: 写命名空间编辑器**
 
-创建 `src/features/namespaces/components/NamespaceEditorDialog.tsx`（与 `ProjectEditorDialog` 同构，去掉截止日期；颜色用 `common/colors.ts` 的 `COLORS`，图标用 `common/icons.ts` 的 `ICON_NAMES`/`getIcon`）：
+创建 `src/features/namespaces/components/NamespaceEditorDialog.tsx`（与 `ProjectEditorDialog` 同构，去掉截止日期；颜色与图标走共用的 `ColorSwatches` / `IconPicker`）：
 
 ```tsx
-import { For, Show, createEffect, createSignal, on } from "solid-js";
-import { Check } from "lucide-solid";
+import { createEffect, createSignal, on } from "solid-js";
 import { z } from "zod";
-import { Button, Dialog, TextField } from "../../../common/components";
-import { COLORS } from "../../../common/colors";
-import { ICON_NAMES, getIcon } from "../../../common/icons";
+import {
+  Button,
+  ColorSwatches,
+  Dialog,
+  IconPicker,
+  TextField,
+} from "../../../common/components";
 import { createNamespace, updateNamespace } from "../hooks";
 import type { Namespace } from "../types";
 
@@ -2528,9 +2649,6 @@ import type { Namespace } from "../types";
 const formSchema = z.object({
   name: z.string().trim().min(1, "命名空间名不能为空"),
 });
-
-const SWATCH_CLASS =
-  "inline-flex size-7 items-center justify-center rounded-md border border-border transition focus-ring hover:border-border-strong active:scale-90";
 
 export interface NamespaceEditorDialogProps {
   open: boolean;
@@ -2621,63 +2739,8 @@ export function NamespaceEditorDialog(props: NamespaceEditorDialogProps) {
               <TextField.TextArea placeholder="这组项目的共同点（可选）" />
             </TextField.Root>
 
-            <div class="flex flex-col gap-1.5">
-              <span class="text-xs font-medium text-muted-foreground">颜色</span>
-              <div role="group" aria-label="命名空间颜色" class="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  aria-label="无颜色"
-                  aria-pressed={color() === null}
-                  class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
-                  classList={{ "ring-2 ring-ring": color() === null }}
-                  onClick={() => setColor(null)}
-                >
-                  无
-                </button>
-                <For each={COLORS}>
-                  {(swatch) => (
-                    <button
-                      type="button"
-                      aria-label={`颜色 ${swatch}`}
-                      aria-pressed={color() === swatch}
-                      class={SWATCH_CLASS}
-                      classList={{ "ring-2 ring-ring": color() === swatch }}
-                      style={{ "background-color": swatch }}
-                      onClick={() => setColor(swatch)}
-                    >
-                      <Show when={color() === swatch}>
-                        <Check size={13} class="text-white mix-blend-difference" aria-hidden="true" />
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-1.5">
-              <span class="text-xs font-medium text-muted-foreground">图标</span>
-              <div role="group" aria-label="命名空间图标" class="flex flex-wrap items-center gap-1.5">
-                <For each={ICON_NAMES}>
-                  {(iconName) => {
-                    const Icon = getIcon(iconName);
-                    return (
-                      <button
-                        type="button"
-                        aria-label={`图标 ${iconName}`}
-                        aria-pressed={icon() === iconName}
-                        class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:bg-surface-hover active:scale-90 focus-ring"
-                        classList={{
-                          "border-primary bg-primary/10 text-primary": icon() === iconName,
-                        }}
-                        onClick={() => setIcon(iconName)}
-                      >
-                        <Icon size={15} />
-                      </button>
-                    );
-                  }}
-                </For>
-              </div>
-            </div>
+            <ColorSwatches value={color()} onChange={setColor} label="命名空间颜色" />
+            <IconPicker value={icon()} onChange={setIcon} label="命名空间图标" />
 
             <div class="mt-2 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => props.onOpenChange(false)}>
@@ -2695,12 +2758,12 @@ export function NamespaceEditorDialog(props: NamespaceEditorDialogProps) {
 }
 ```
 
-- [ ] **Step 8: 跑测试**
+- [ ] **Step 9: 跑测试**
 
 Run: `pnpm test src/features/namespaces src/features/projects && pnpm typecheck`
 Expected: 全绿；typecheck 零输出
 
-- [ ] **Step 9: 文档同步 + 提交**
+- [ ] **Step 10: 文档同步 + 提交**
 
 `docs/superpowers/specs/2026-09-15-namespaces-design.md` §6.4(c) 的第一条改成（把「各存活命名空间」这一句补全，说明被编辑项目自己的归档命名空间也在选项里）：
 
@@ -2709,7 +2772,7 @@ Expected: 全绿；typecheck 零输出
 ```
 
 ```bash
-git add src/common/icons.ts src/common/colors.ts src/features/projects src/features/namespaces docs/superpowers/specs/2026-09-15-namespaces-design.md
+git add src/common/icons.ts src/common/colors.ts src/common/components src/features/projects src/features/namespaces docs/superpowers/specs/2026-09-15-namespaces-design.md
 git commit -m "feat: pick a namespace when editing a project, and edit namespaces"
 ```
 
