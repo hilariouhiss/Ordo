@@ -1,10 +1,17 @@
-import { For, Show, createEffect, createSignal, on } from "solid-js";
-import { Check } from "lucide-solid";
+import { createEffect, createSignal, on } from "solid-js";
 import { z } from "zod";
-import { Button, Dialog, TextField } from "../../../common/components";
+import {
+  Button,
+  ColorSwatches,
+  Dialog,
+  IconPicker,
+  Select,
+  TextField,
+} from "../../../common/components";
 import { isoToLocalDateValue, localDateValueToIso } from "../../../common/utils/datetime";
+import { activeNamespaces, getNamespace } from "../../namespaces/store";
+import type { Namespace } from "../../namespaces/types";
 import { createProject, updateProject } from "../hooks";
-import { PROJECT_ICON_NAMES, getProjectIcon } from "../icons";
 import type { Project } from "../types";
 
 /**
@@ -13,20 +20,6 @@ import type { Project } from "../types";
  * optimistic hooks; the dialog closes only on success — failures keep the
  * form open and surface a notification (handled by the hooks).
  */
-
-/** Preset palette (PRD: projects carry an optional colour); `null` = no colour. */
-export const PROJECT_COLORS = [
-  "#ef4444",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#14b8a6",
-  "#3b82f6",
-  "#6366f1",
-  "#a855f7",
-  "#ec4899",
-  "#78716c",
-] as const;
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "项目名不能为空"),
@@ -40,21 +33,18 @@ const formSchema = z.object({
 
 type FormField = "name" | "dueLocal";
 
-/*
- * `size-7`, not the old 24px dot: a colour swatch is a click target, and at
- * 24px a ten-colour grid becomes a pixel hunt. Square, so it sits in the same
- * geometric family as the buttons under it. The border colour comes from the
- * class rather than an inline style, so `hover:border-border-strong` can
- * actually win.
- */
-const SWATCH_CLASS =
-  "inline-flex size-7 items-center justify-center rounded-md border border-border transition focus-ring hover:border-border-strong active:scale-90";
+/** Sentinel for "no namespace": a real string, never `""`. */
+const NOT_FILED = "none";
+
+type NamespaceOption = { id: string | null; name: string };
 
 export interface ProjectEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Project to edit; omit to create a new one. */
   project?: Project;
+  /** Namespace preselected for a new project (ignored when editing). */
+  defaultNamespaceId?: string | null;
 }
 
 export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
@@ -62,9 +52,34 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
   const [description, setDescription] = createSignal("");
   const [color, setColor] = createSignal<string | null>(null);
   const [icon, setIcon] = createSignal<string | null>(null);
+  const [namespaceId, setNamespaceId] = createSignal<string | null>(null);
   const [dueLocal, setDueLocal] = createSignal("");
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
+
+  // The project's own namespace stays in the list even after it is archived:
+  // leaving it out would make the Select fall back to "不归属" and rewrite the
+  // field on the next save, silently unfiling a project the user only renamed.
+  const namespaceOptions = (): NamespaceOption[] => {
+    const current = props.project?.namespaceId
+      ? getNamespace(props.project.namespaceId)
+      : undefined;
+    const archived: NamespaceOption[] =
+      current?.status === "archived"
+        ? [{ id: current.id, name: `${current.name}（已归档）` }]
+        : [];
+    return [
+      { id: null, name: "不归属" },
+      ...archived,
+      ...activeNamespaces().map((namespace: Namespace) => ({
+        id: namespace.id,
+        name: namespace.name,
+      })),
+    ];
+  };
+
+  const selectedNamespace = (): NamespaceOption =>
+    namespaceOptions().find((option) => option.id === namespaceId()) ?? namespaceOptions()[0];
 
   // Re-seed the form whenever the dialog (re)opens or switches project.
   createEffect(
@@ -76,6 +91,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         setDescription(project?.description ?? "");
         setColor(project?.color ?? null);
         setIcon(project?.icon ?? null);
+        setNamespaceId(project ? project.namespaceId : (props.defaultNamespaceId ?? null));
         setDueLocal(isoToLocalDateValue(project?.dueAt ?? null));
         setErrors({});
         setSubmitting(false);
@@ -105,6 +121,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         description: descriptionValue,
         color: color(),
         icon: icon(),
+        namespaceId: namespaceId(),
         dueAt: localDateValueToIso(parsed.data.dueLocal),
       };
       const result = props.project
@@ -148,64 +165,33 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
               <TextField.TextArea placeholder="项目目标与背景（可选）" />
             </TextField.Root>
 
-            <div class="flex flex-col gap-1.5">
-              <span class="text-xs font-medium text-muted-foreground">颜色</span>
-              <div role="group" aria-label="项目颜色" class="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  aria-label="无颜色"
-                  aria-pressed={color() === null}
-                  class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
-                  classList={{ "ring-2 ring-ring": color() === null }}
-                  onClick={() => setColor(null)}
-                >
-                  无
-                </button>
-                <For each={PROJECT_COLORS}>
-                  {(swatch) => (
-                    <button
-                      type="button"
-                      aria-label={`颜色 ${swatch}`}
-                      aria-pressed={color() === swatch}
-                      class={SWATCH_CLASS}
-                      classList={{ "ring-2 ring-ring": color() === swatch }}
-                      style={{ "background-color": swatch }}
-                      onClick={() => setColor(swatch)}
-                    >
-                      <Show when={color() === swatch}>
-                        <Check size={13} class="text-white mix-blend-difference" aria-hidden="true" />
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
+            <ColorSwatches value={color()} onChange={setColor} label="项目颜色" />
+            <IconPicker value={icon()} onChange={setIcon} label="项目图标" />
 
-            <div class="flex flex-col gap-1.5">
-              <span class="text-xs font-medium text-muted-foreground">图标</span>
-              <div role="group" aria-label="项目图标" class="flex flex-wrap items-center gap-1.5">
-                <For each={PROJECT_ICON_NAMES}>
-                  {(iconName) => {
-                    const Icon = getProjectIcon(iconName);
-                    return (
-                      <button
-                        type="button"
-                        aria-label={`图标 ${iconName}`}
-                        aria-pressed={icon() === iconName}
-                        class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:bg-surface-hover active:scale-90 focus-ring"
-                        classList={{
-                          "border-primary bg-primary/10 text-primary":
-                            icon() === iconName,
-                        }}
-                        onClick={() => setIcon(iconName)}
-                      >
-                        <Icon size={15} />
-                      </button>
-                    );
-                  }}
-                </For>
-              </div>
-            </div>
+            <Select.Root
+              options={namespaceOptions()}
+              optionValue={(option) => option.id ?? NOT_FILED}
+              optionTextValue={(option) => option.name}
+              itemToString={(option) => option.name}
+              value={selectedNamespace()}
+              onChange={(option) => {
+                const id = option?.id ?? null;
+                // Kobalte fires this once on mount with the initial value, so
+                // only a real change counts as a pick — same guard as the
+                // quick-add window's selects.
+                if (id === namespaceId()) return;
+                setNamespaceId(id);
+              }}
+            >
+              <Select.Label>命名空间</Select.Label>
+              <Select.Trigger>
+                <Select.Value>{selectedNamespace().name}</Select.Value>
+                <Select.Icon />
+              </Select.Trigger>
+              <Select.Content>
+                <Select.Listbox />
+              </Select.Content>
+            </Select.Root>
 
             <TextField.Root
               value={dueLocal()}

@@ -20,10 +20,10 @@ import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
+import { getIcon } from "../common/icons";
 import TaskViewer from "./TaskViewer";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
 import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
-import { getProjectIcon } from "../features/projects/icons";
 import {
   activeProjects,
   archivedProjects,
@@ -123,7 +123,7 @@ export default function AppShell() {
 
   const projectIcon = (project: Project) => (
     <span class="shrink-0" style={project.color ? { color: project.color } : undefined}>
-      <Dynamic component={getProjectIcon(project.icon)} size={16} />
+      <Dynamic component={getIcon(project.icon)} size={16} />
     </span>
   );
 

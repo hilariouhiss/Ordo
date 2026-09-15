@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import { isoToLocalDateValue } from "../../../common/utils/datetime";
+import { resetNamespacesStore, setAll as setNamespaces } from "../../namespaces/store";
+import type { Namespace } from "../../namespaces/types";
 import { ProjectEditorDialog } from "../components/ProjectEditorDialog";
 import * as hooks from "../hooks";
 import * as store from "../store";
@@ -31,6 +33,25 @@ function projectFixture(id: string, overrides: Partial<Project> = {}): Project {
   };
 }
 
+function namespaceFixture(
+  id: string,
+  name: string,
+  status: "active" | "archived" = "active",
+): Namespace {
+  return {
+    id,
+    name,
+    description: null,
+    color: null,
+    icon: null,
+    status,
+    sortOrder: "n",
+    createdAt: "2026-09-15T10:00:00Z",
+    updatedAt: "2026-09-15T10:00:00Z",
+    deletedAt: null,
+  };
+}
+
 function renderDialog(project?: Project) {
   const onOpenChange = vi.fn();
   render(() => (
@@ -42,6 +63,7 @@ function renderDialog(project?: Project) {
 beforeEach(() => {
   vi.clearAllMocks();
   store.resetProjectsStore();
+  resetNamespacesStore();
 });
 
 afterEach(cleanup);
@@ -60,6 +82,7 @@ describe("ProjectEditorDialog", () => {
       description: null,
       color: null,
       icon: null,
+      namespaceId: null,
       dueAt: null,
     });
   });
@@ -135,6 +158,7 @@ describe("ProjectEditorDialog", () => {
       description: "说明",
       color: "#ef4444",
       icon: "rocket",
+      namespaceId: existing.namespaceId,
       dueAt: existing.dueAt,
     });
   });
@@ -148,5 +172,65 @@ describe("ProjectEditorDialog", () => {
 
     await waitFor(() => expect(hooks.createProject).toHaveBeenCalledTimes(1));
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("files a new project into a picked namespace", async () => {
+    setNamespaces([namespaceFixture("ns1", "工作"), namespaceFixture("ns2", "学习")]);
+    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
+    // Select.Label names the trigger via aria-labelledby; Kobalte opens on
+    // pointerdown (same helper shape as quick-add-window.test.tsx).
+    fireEvent.pointerDown(screen.getByRole("button", { name: /命名空间/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "学习" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(vi.mocked(hooks.createProject).mock.calls[0]?.[0]?.namespaceId).toBe("ns2");
+  });
+
+  it("submits the project's current namespace untouched", async () => {
+    setNamespaces([namespaceFixture("ns1", "工作")]);
+    const existing = projectFixture("p9", { namespaceId: "ns1" });
+    vi.mocked(hooks.updateProject).mockResolvedValue(existing);
+    renderDialog(existing);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(hooks.updateProject).toHaveBeenCalled());
+    expect(vi.mocked(hooks.updateProject).mock.calls[0]?.[1]?.namespaceId).toBe("ns1");
+  });
+
+  it("keeps an archived namespace selectable instead of silently unfiling", async () => {
+    // The project lives in a namespace that is no longer in the navigation;
+    // dropping it from the options would rewrite the field on save.
+    setNamespaces([namespaceFixture("ns1", "工作", "archived")]);
+    const existing = projectFixture("p9", { namespaceId: "ns1" });
+    vi.mocked(hooks.updateProject).mockResolvedValue(existing);
+    renderDialog(existing);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /命名空间/ }));
+    expect(await screen.findByRole("option", { name: "工作（已归档）" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(hooks.updateProject).toHaveBeenCalled());
+    expect(vi.mocked(hooks.updateProject).mock.calls[0]?.[1]?.namespaceId).toBe("ns1");
+  });
+
+  it("preselects the namespace a new project is created from", async () => {
+    setNamespaces([namespaceFixture("ns2", "学习")]);
+    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
+    const onOpenChange = vi.fn();
+    render(() => (
+      <ProjectEditorDialog open={true} onOpenChange={onOpenChange} defaultNamespaceId="ns2" />
+    ));
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(vi.mocked(hooks.createProject).mock.calls[0]?.[0]?.namespaceId).toBe("ns2");
   });
 });

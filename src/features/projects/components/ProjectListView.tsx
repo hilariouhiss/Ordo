@@ -4,11 +4,11 @@ import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { Archive, Pencil, RotateCcw } from "lucide-solid";
 import { Button, Tabs } from "../../../common/components";
+import { getIcon } from "../../../common/icons";
 import { tasksState } from "../../tasks/store";
 import { SORT_OPTIONS, TaskListView } from "../../tasks/components/TaskListView";
 import { BoardView } from "../../board/components/BoardView";
 import { archiveProject, restoreProject } from "../hooks";
-import { getProjectIcon } from "../icons";
 import { getProject } from "../store";
 import type { Project } from "../types";
 import { ProjectEditorDialog } from "./ProjectEditorDialog";
@@ -49,7 +49,7 @@ export function ProjectListView(props: { project: Project }) {
               color: project().color ?? "var(--muted-foreground)",
             }}
           >
-            <Dynamic component={getProjectIcon(project().icon)} size={20} />
+            <Dynamic component={getIcon(project().icon)} size={20} />
           </span>
 
           <div class="min-w-0 flex-1">

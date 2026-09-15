@@ -10,6 +10,11 @@ export { Checkbox } from "./checkbox";
 export { Dialog } from "./dialog";
 export { DropdownMenu } from "./dropdown-menu";
 export { EmptyState, type EmptyStateProps } from "./empty-state";
+export {
+  ColorSwatches,
+  IconPicker,
+  type PalettePickerProps,
+} from "./palette-picker";
 export { Popover } from "./popover";
 export { Select, type SelectRootProps } from "./select";
 export { Skeleton, SkeletonRows, type SkeletonProps, type SkeletonRowsProps } from "./skeleton";

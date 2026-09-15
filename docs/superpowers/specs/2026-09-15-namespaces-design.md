@@ -204,8 +204,8 @@ namespace:list | create | update | archive | restore
 
 **(c) 编辑器**
 
-- `ProjectEditorDialog` 增加「命名空间」`Select`：选项 = 「不归属」+ 各存活命名空间。用真哨兵 `"none"` 而不是 `""`，并忽略与当前值相同的 `onChange`（Kobalte 挂载时会带初值触发一次）。
-- 新增 `NamespaceEditorDialog`：名称（必填，Zod）、描述、颜色（复用 `PROJECT_COLORS`）、图标（复用 `projects/icons.ts` 的 `PROJECT_ICON_NAMES`）。与项目编辑器同构，去掉截止日期。
+- `ProjectEditorDialog` 增加「命名空间」`Select`：选项 = 「不归属」+ 各存活命名空间，**外加被编辑项目自己的命名空间（即使它已归档，带「（已归档）」后缀）**——把它从选项里去掉会让 Select 回落到「不归属」，一次改名保存就把项目悄悄移出了原命名空间。用真哨兵 `"none"` 而不是 `""`，并忽略与当前值相同的 `onChange`（Kobalte 挂载时会带初值触发一次）。
+- 新增 `NamespaceEditorDialog`：名称（必填，Zod）、描述、颜色（复用 `common/colors.ts` 的 `COLORS`）、图标（复用 `common/icons.ts` 的 `ICON_NAMES`）；两份表与 `common/components` 的 `ColorSwatches` / `IconPicker` 都由项目编辑器共用。与项目编辑器同构，去掉截止日期。
 
 ### 6.5 明确不变的部分
 
