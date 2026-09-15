@@ -326,6 +326,13 @@ mod tests {
             )
             .unwrap();
         assert_eq!(parent.as_deref(), Some("t1"));
+        // A NULL here would resurrect the deleted child in the UI.
+        let deleted: Option<String> = conn
+            .query_row("SELECT deleted_at FROM tasks WHERE id = 's3'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(deleted.as_deref(), Some("2026-01-04T00:00:00Z"));
 
         // A child follows its parent's project; a child never lands on a board.
         let (project, column): (Option<String>, Option<String>) = conn
