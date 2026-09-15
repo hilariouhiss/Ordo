@@ -330,6 +330,28 @@ pub mod tasks {
         Ok(affected)
     }
 
+    /// Moves every child of `parent_id` onto `project_id`; returns the count.
+    ///
+    /// Covers soft-deleted children too: a child is restored through its
+    /// parent, so one left behind here would come back into a project its
+    /// parent has already left.
+    pub fn set_children_project(
+        conn: &Connection,
+        parent_id: Uuid,
+        project_id: Option<Uuid>,
+        at: DateTime<Utc>,
+    ) -> Result<usize, AppError> {
+        let affected = conn.execute(
+            "UPDATE tasks SET project_id = ?1, updated_at = ?2 WHERE parent_task_id = ?3",
+            params![
+                project_id.map(|id| id.to_string()),
+                at,
+                parent_id.to_string()
+            ],
+        )?;
+        Ok(affected)
+    }
+
     /// Full-row update; returns false when the task is missing or soft-deleted.
     pub fn update(conn: &Connection, task: &Task) -> Result<bool, AppError> {
         let affected = conn.execute(

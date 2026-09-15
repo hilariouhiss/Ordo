@@ -400,4 +400,59 @@ mod tests {
             .unwrap();
         assert_eq!(hits, 1, "a migrated child must be findable through search");
     }
+
+    /// The pre-V7 shape that leaves an orphan behind: a live subtask under a
+    /// task that was already soft-deleted before V7 ran.
+    fn v6_connection_with_a_live_subtask_under_a_deleted_task() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        embedded::migrations::runner()
+            .set_target(refinery::Target::Version(6))
+            .run(&mut conn)
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO projects (id, name, status, sort_order, created_at, updated_at) \
+                 VALUES ('p1', '网站改版', 'active', 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+                        ('p2', '日常', 'active', 'b', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+             INSERT INTO tasks (id, project_id, title, priority, sort_order, created_at, updated_at, deleted_at) \
+                 VALUES ('t1', 'p1', '写周报', 'none', 'a', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
+             INSERT INTO tasks (id, project_id, title, priority, sort_order, created_at, updated_at) \
+                 VALUES ('t2', 'p2', '还活着的', 'none', 'b', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+             INSERT INTO subtasks (id, task_id, title, done, sort_order, created_at, updated_at) \
+                 VALUES ('s1', 't1', '孤儿', 0, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+                        ('s2', 't2', '正常的子任务', 0, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn v8_takes_a_live_child_of_a_deleted_parent_down_with_it() {
+        let mut conn = v6_connection_with_a_live_subtask_under_a_deleted_task();
+        embedded::migrations::runner().run(&mut conn).unwrap();
+
+        // The child wears the parent's own stamp, so a restore of the parent
+        // brings both back at the same instant.
+        let orphan: Option<String> = conn
+            .query_row("SELECT deleted_at FROM tasks WHERE id = 's1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(orphan.as_deref(), Some("2026-01-02T00:00:00Z"));
+
+        // A child of a live parent is not touched: V8 cleans up orphans, it
+        // does not cascade deletes on its own.
+        let healthy: Option<String> = conn
+            .query_row("SELECT deleted_at FROM tasks WHERE id = 's2'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(healthy, None);
+        let parent: Option<String> = conn
+            .query_row("SELECT deleted_at FROM tasks WHERE id = 't2'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(parent, None);
+    }
 }

@@ -481,20 +481,29 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
             None => task.parent_task_id = None,
         }
     }
-    // A parent's project change takes its children with it, or they would be
-    // filed in the old project while pointing at a parent in the new one.
+    // The parent's project is the authority: a task that ends up with a parent
+    // lives in that parent's project, so an explicit `projectId` in the same
+    // patch is ignored rather than written and immediately contradicted — the
+    // same rule `create_task` applies, where the parent wins over
+    // `input.project_id` too.
+    let moves_children = task.parent_task_id.is_none() && matches!(patch.project_id, Patch::Set(_));
     if let Patch::Set(project_id) = patch.project_id {
-        task.project_id = project_id;
-        for child in tasks::list_by_parent(conn, id)? {
-            let mut moved = child;
-            moved.project_id = project_id;
-            moved.updated_at = Utc::now();
-            tasks::update(conn, &moved)?;
+        if task.parent_task_id.is_none() {
+            task.project_id = project_id;
         }
     }
     task.updated_at = Utc::now();
+    let now = task.updated_at;
 
     let tx = conn.unchecked_transaction()?;
+    // A parent's project change takes its children with it, or they would be
+    // filed in the old project while pointing at a parent in the new one. It
+    // runs inside the parent's own transaction: a patch rejected further down
+    // (a stale tag id, say) must not leave the children moved and the parent
+    // behind.
+    if moves_children {
+        tasks::set_children_project(&tx, id, task.project_id, now)?;
+    }
     if !tasks::update(&tx, &task)? {
         return Err(not_found("任务", id));
     }
@@ -547,9 +556,20 @@ pub fn restore_task(conn: &Connection, id: Uuid) -> Result<Task, AppError> {
     if !tasks::restore(&tx, id, now)? {
         return Err(not_found("任务", id));
     }
+    let task = tasks::get(&tx, id)?.ok_or_else(|| not_found("任务", id))?;
+    // A live child under a soft-deleted parent is an orphan: it shows up in
+    // `task:list` and fires reminders while its parent stays hidden. The parent
+    // comes back first; returning here rolls the restore back.
+    if let Some(parent_id) = task.parent_task_id {
+        if tasks::get(&tx, parent_id)?.is_none() {
+            return Err(AppError::Validation(
+                "父任务还在回收站，先恢复父任务再恢复子任务".into(),
+            ));
+        }
+    }
     tasks::set_children_deleted(&tx, id, now, false)?;
     tx.commit()?;
-    tasks::get(conn, id)?.ok_or_else(|| not_found("任务", id))
+    Ok(task)
 }
 
 // ---------------------------------------------------------------------------
@@ -961,6 +981,13 @@ pub fn move_task(
         .collect();
 
     let previous_column = moved.column_id;
+    // A card dropped on another project's board takes its children with it, so
+    // none of them is left pointing at a parent in another project. Same
+    // transaction as the parent's own write; a drag inside one board leaves the
+    // children untouched.
+    if moved.project_id != Some(column.project_id) {
+        tasks::set_children_project(&tx, task_id, Some(column.project_id), now)?;
+    }
     moved.project_id = Some(column.project_id);
     moved.column_id = Some(column_id);
     let mut entered_done = false;
@@ -2165,6 +2192,37 @@ mod tests {
     // --- sibling scope and the board ------------------------------------------
 
     #[test]
+    fn reorder_task_moves_within_a_top_level_column() {
+        let conn = conn();
+        let project = make_project(&conn, "排序项目");
+        let todo = first_column(&conn, project.id);
+        let a = make_column_task(&conn, &todo, "A");
+        let b = make_column_task(&conn, &todo, "B");
+        let c = make_column_task(&conn, &todo, "C");
+        // A column-less task is a sibling of the inbox, not of these cards.
+        let loose = make_task(&conn, "随手记");
+
+        // Move C to the front of the column: prev = None, next = A's key.
+        let ordered = reorder_task(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
+
+        let titles: Vec<&str> = ordered.iter().map(|task| task.title.as_str()).collect();
+        assert_eq!(titles, ["C", "A", "B"]);
+        assert_eq!(
+            ordered
+                .iter()
+                .find(|task| task.id == b.id)
+                .unwrap()
+                .sort_order,
+            b.sort_order,
+            "an untouched sibling keeps its key"
+        );
+        assert!(
+            !ordered.iter().any(|task| task.id == loose.id),
+            "the top-level scope is one column, not every root task"
+        );
+    }
+
+    #[test]
     fn a_new_top_level_task_does_not_join_the_children_s_key_range() {
         let conn = conn();
         let parent = make_task(&conn, "写周报");
@@ -2390,7 +2448,139 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_rejected_patch_leaves_the_children_with_their_parent() {
+        let conn = conn();
+        let (first, second) = (make_project(&conn, "A"), make_project(&conn, "B"));
+        let parent = make_task_in(&conn, Some(first.id), Vec::new(), "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        // The stale tag id fails validation *after* the project write: the
+        // children follow inside the parent's own transaction, so the whole
+        // patch rolls back instead of leaving them in the new project alone.
+        let error = update_task(
+            &conn,
+            parent.id,
+            UpdateTask {
+                project_id: Patch::Set(Some(second.id)),
+                tag_ids: Some(vec![Uuid::new_v4()]),
+                ..no_patch()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "not_found");
+
+        assert_eq!(
+            tasks::get(&conn, parent.id).unwrap().unwrap().project_id,
+            Some(first.id),
+            "the parent stays where the rejected patch found it"
+        );
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().project_id,
+            Some(first.id),
+            "and no child may be moved on its own"
+        );
+    }
+
+    #[test]
+    fn a_child_deleted_on_its_own_still_follows_the_parent_s_project_move() {
+        let conn = conn();
+        let (first, second) = (make_project(&conn, "A"), make_project(&conn, "B"));
+        let parent = make_task_in(&conn, Some(first.id), Vec::new(), "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+        soft_delete_task(&conn, child.id).unwrap();
+
+        update_task(
+            &conn,
+            parent.id,
+            UpdateTask {
+                project_id: Patch::Set(Some(second.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        // The parent's project is the only one a child can come back into.
+        let back = restore_task(&conn, child.id).unwrap();
+        assert_eq!(back.project_id, Some(second.id));
+    }
+
+    #[test]
+    fn an_explicit_project_next_to_a_new_parent_is_ignored() {
+        let conn = conn();
+        let (first, second) = (make_project(&conn, "A"), make_project(&conn, "B"));
+        let parent = make_task_in(&conn, Some(second.id), Vec::new(), "父任务");
+        let child = make_task_in(&conn, Some(first.id), Vec::new(), "被拖的");
+
+        let moved = update_task(
+            &conn,
+            child.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(parent.id)),
+                project_id: Patch::Set(Some(first.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(moved.parent_task_id, Some(parent.id));
+        assert_eq!(
+            moved.project_id,
+            Some(second.id),
+            "the parent's project wins: a child is never filed outside its parent"
+        );
+        assert_eq!(moved.column_id, None);
+    }
+
+    #[test]
+    fn restoring_a_child_of_a_deleted_parent_is_rejected() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+        soft_delete_task(&conn, parent.id).unwrap();
+
+        let error = restore_task(&conn, child.id).unwrap_err();
+
+        assert_eq!(error.code(), "validation");
+        assert!(
+            tasks::get(&conn, child.id).unwrap().is_none(),
+            "the rejected restore is rolled back, so no orphan is left live"
+        );
+
+        restore_task(&conn, parent.id).unwrap();
+        assert!(tasks::get(&conn, child.id).unwrap().is_some());
+    }
+
     // --- subtasks as child tasks ----------------------------------------------
+
+    // --- subtasks as child tasks ----------------------------------------------
+
+    #[test]
+    fn move_task_takes_the_children_to_the_new_project() {
+        let conn = conn();
+        let (first, second) = (make_project(&conn, "A"), make_project(&conn, "B"));
+        let home = first_column(&conn, first.id);
+        let target = first_column(&conn, second.id);
+        let anchor = make_column_task(&conn, &target, "锚点");
+        let parent = make_column_task(&conn, &home, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        let moved = move_task(
+            &conn,
+            parent.id,
+            target.id,
+            Some(anchor.sort_order.clone()),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(moved.project_id, Some(second.id));
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().project_id,
+            Some(second.id),
+            "a child must not be stranded in the project the parent left"
+        );
+    }
 
     #[test]
     fn subtask_crud_appends_in_order_and_toggles_done() {
