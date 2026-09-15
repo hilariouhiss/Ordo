@@ -1334,7 +1334,13 @@ pub const BACKUP_VERSION: u32 = 3;
 
 - [ ] **Step 4: 导出/导入**
 
-`src-tauri/src/repositories.rs` 的 `backup::export_all`，把 `Ok(BackupData {` 的第一行改成：
+先把命名空间模块里被内联了三遍的列清单抽成常量（放在文件顶部 `*_COLUMNS` 那一组里，与 `PROJECT_COLUMNS` 并列）：
+
+```rust
+const NAMESPACE_COLUMNS: &str = "id, name, description, color, icon, status, sort_order,                                 created_at, updated_at, deleted_at";
+```
+
+再让 `pub mod namespaces` 的 `insert` / `get` / `list` 三处都引用它（`get`/`list` 的 SELECT 列清单、`insert` 的列清单），然后改 `backup::export_all`，把 `Ok(BackupData {` 的第一行改成：
 
 ```rust
         Ok(BackupData {
