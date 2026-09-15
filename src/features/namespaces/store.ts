@@ -62,7 +62,11 @@ export function isNamespaceArchived(id: string): boolean {
   return getNamespace(id)?.status === "archived";
 }
 
-/** Active projects filed under a live namespace, by `sortOrder`. */
+/** Active projects that carry this `namespaceId`, in the project store's order
+ * (which follows the backend's `sort_order`).
+ *
+ * Callers pass an id they resolved from the store — this filter checks neither
+ * that the namespace exists nor that it is live. */
 export function projectsInNamespace(namespaceId: string): Project[] {
   return projectsState.projects.filter(
     (project) => project.namespaceId === namespaceId && project.status === "active",

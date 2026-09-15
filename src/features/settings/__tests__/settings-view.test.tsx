@@ -24,6 +24,7 @@ vi.mock("../api", () => ({
 
 vi.mock("../../tasks/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
 vi.mock("../../projects/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
+vi.mock("../../namespaces/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
 
 function summary(overrides: Partial<BackupSummary> = {}): BackupSummary {
   return {
@@ -86,6 +87,7 @@ describe("SettingsView backup", () => {
     vi.mocked(api.importBackup).mockResolvedValue(summary());
     const tasks = await import("../../tasks/hooks");
     const projects = await import("../../projects/hooks");
+    const namespaces = await import("../../namespaces/hooks");
 
     render(() => <SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: "从备份恢复" }));
@@ -98,7 +100,11 @@ describe("SettingsView backup", () => {
     await waitFor(() => expect(api.importBackup).toHaveBeenCalledWith("C:\\backups\\from-disk.json"));
     await waitFor(() => expect(tasks.loadAll).toHaveBeenCalled());
     await waitFor(() => expect(projects.loadAll).toHaveBeenCalled());
-    expect(notifications()[0]?.message).toContain("已从备份恢复 12 个任务");
+    // The namespace store gates the other loads (`loaded`), so a restore that
+    // skipped it would keep resolving the restored projects against the names
+    // the previous machine had.
+    await waitFor(() => expect(namespaces.loadAll).toHaveBeenCalled());
+    expect(notifications()[0]?.message).toContain("已从备份恢复 12 个任务、2 个项目、1 个命名空间");
   });
 
   it("surfaces a failed import and keeps the data as it was", async () => {
@@ -127,6 +133,7 @@ describe("SettingsView backup", () => {
 
     expect(await screen.findByText(/from-disk\.json/)).toBeTruthy();
     expect(screen.getByText(/2 个项目/)).toBeTruthy();
+    expect(screen.getByText(/1 个命名空间/)).toBeTruthy();
   });
 });
 

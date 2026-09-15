@@ -122,7 +122,8 @@ export function SettingsView() {
                 role="status"
                 class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground"
               >
-                已从备份恢复 {summary().counts.tasks} 个任务、{summary().counts.projects} 个项目（
+                已从备份恢复 {summary().counts.tasks} 个任务、{summary().counts.projects} 个项目、
+                {summary().counts.namespaces} 个命名空间（
                 {stamp(summary())}）：{summary().path}
               </p>
             )}

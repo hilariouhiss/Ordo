@@ -2872,6 +2872,27 @@ mod tests {
         .unwrap();
         assert_eq!(filed.namespace_id, Some(live.id));
 
+        // Archiving is a state, not a deletion: filing into an archived
+        // namespace stays legal (its page offers 「新建项目」 with that
+        // namespace preselected), so `validate_namespace_ref` must not grow an
+        // `status = 'active'` predicate.
+        let archived = archive_namespace(&conn, live.id).unwrap();
+        assert_eq!(archived.status, ProjectStatus::Archived);
+        let refiled = update_project(
+            &conn,
+            project.id,
+            UpdateProject {
+                name: None,
+                description: Patch::Unchanged,
+                color: Patch::Unchanged,
+                icon: Patch::Unchanged,
+                namespace_id: Patch::Set(Some(live.id)),
+                due_at: Patch::Unchanged,
+            },
+        )
+        .unwrap();
+        assert_eq!(refiled.namespace_id, Some(live.id));
+
         let cleared = update_project(
             &conn,
             project.id,

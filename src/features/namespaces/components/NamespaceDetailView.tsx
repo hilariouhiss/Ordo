@@ -23,10 +23,12 @@ export function NamespaceDetailView() {
 
   async function retry(): Promise<void> {
     setFailed(false);
-    // Projects carry the membership, so the group cannot render without them.
-    if (!projectsState.loaded) void loadProjects();
-    const ok = await loadNamespaces();
-    setFailed(!ok);
+    // Projects carry the membership, so the group cannot render without them —
+    // and a projects-only failure has to reach `failed` too, or the view shows
+    // an empty group with no way to retry.
+    const projects = projectsState.loaded ? Promise.resolve(true) : loadProjects();
+    const [namespacesOk, projectsOk] = await Promise.all([loadNamespaces(), projects]);
+    setFailed(!namespacesOk || !projectsOk);
   }
 
   const namespace = () => getNamespace(params().namespaceId);

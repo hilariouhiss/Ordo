@@ -143,28 +143,37 @@ function NamespaceRow(props: {
   count: number;
   onToggle: () => void;
 }) {
+  // Collapsed, the nested nav never renders, so the chevron would toggle
+  // nothing — and `flex-1 min-w-0` inside the 36px rail leaves the `Link` a
+  // ~6px basis that squeezes the icon. The row then keeps the project rows'
+  // plain `size-8 justify-center` geometry.
+  const linkClass = () =>
+    props.collapsed ? navRowClass(true) : `${navRowClass(false)} min-w-0 flex-1`;
+
   return (
     <div class="flex items-center gap-0.5">
-      <button
-        type="button"
-        aria-expanded={props.open}
-        aria-label={`${props.open ? "收起" : "展开"}命名空间 ${props.namespace.name}`}
-        class={iconButtonClass}
-        onClick={props.onToggle}
-      >
-        <ChevronDown
-          size={12}
-          aria-hidden="true"
-          class="transition-transform duration-200 ease-out"
-          classList={{ "-rotate-90": !props.open }}
-        />
-      </button>
+      <Show when={!props.collapsed}>
+        <button
+          type="button"
+          aria-expanded={props.open}
+          aria-label={`${props.open ? "收起" : "展开"}命名空间 ${props.namespace.name}`}
+          class={iconButtonClass}
+          onClick={props.onToggle}
+        >
+          <ChevronDown
+            size={12}
+            aria-hidden="true"
+            class="transition-transform duration-200 ease-out"
+            classList={{ "-rotate-90": !props.open }}
+          />
+        </button>
+      </Show>
       <Link
         to="/namespaces/$namespaceId"
         params={{ namespaceId: props.namespace.id }}
-        class={`${navRowClass(props.collapsed)} min-w-0 flex-1 text-muted-foreground hover:bg-surface-hover hover:text-foreground`}
+        class={`${linkClass()} text-muted-foreground hover:bg-surface-hover hover:text-foreground`}
         activeProps={{
-          class: `${navRowClass(props.collapsed)} min-w-0 flex-1 bg-primary/10 font-medium text-primary`,
+          class: `${linkClass()} bg-primary/10 font-medium text-primary`,
           "aria-current": "page",
         }}
         title={props.namespace.name}

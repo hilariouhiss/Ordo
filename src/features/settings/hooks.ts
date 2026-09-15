@@ -14,6 +14,7 @@ import { format } from "date-fns";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { normalizeError } from "../../common/ipc";
 import { pushError, pushInfo } from "../../common/stores/notifications";
+import { loadAll as loadNamespaces } from "../namespaces/hooks";
 import { loadAll as loadProjects } from "../projects/hooks";
 import { loadAll as loadTasks } from "../tasks/hooks";
 import * as api from "./api";
@@ -76,9 +77,12 @@ export async function runImport(path: string): Promise<BackupSummary | null> {
   try {
     const summary = await api.importBackup(path);
     pushInfo(
-      `已从备份恢复 ${summary.counts.tasks} 个任务、${summary.counts.projects} 个项目`,
+      `已从备份恢复 ${summary.counts.tasks} 个任务、${summary.counts.projects} 个项目、${summary.counts.namespaces} 个命名空间`,
     );
-    await Promise.all([loadTasks(), loadProjects()]);
+    // Every store a restore replaces has to come back: the namespace store
+    // gates the other loads (`loaded`), so a stale one would keep resolving
+    // restored projects against the previous machine's namespaces.
+    await Promise.all([loadTasks(), loadProjects(), loadNamespaces()]);
     return summary;
   } catch (error) {
     return reportFailure(error);

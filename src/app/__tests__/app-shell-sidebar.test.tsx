@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/solid-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
+import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
 import * as namespacesApi from "../../features/namespaces/api";
 import { resetNamespacesStore } from "../../features/namespaces/store";
 import type { Namespace } from "../../features/namespaces/types";
@@ -172,5 +173,28 @@ describe("AppShell sidebar", () => {
 
     await screen.findByText("杂事");
     expect(screen.queryByRole("navigation", { name: "命名空间列表" })).toBeNull();
+  });
+
+  it("drops the namespace chevron in the collapsed rail", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([]);
+    renderShell();
+
+    await screen.findByRole("button", { name: "收起命名空间 工作" });
+    toggleSidebar();
+
+    // Collapsed there is no nested nav to open, so the toggle is dead weight —
+    // and the row is the icon alone, with the project rows' `size-8` geometry
+    // rather than a `flex-1` basis that would squeeze it to a few pixels.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /命名空间 工作/ })).toBeNull(),
+    );
+    expect(screen.getByRole("link", { name: "工作" }).getAttribute("class")).not.toContain(
+      "flex-1",
+    );
+
+    // The collapse signal is module-level: leave it expanded for later tests.
+    toggleSidebar();
+    await waitFor(() => expect(sidebarCollapsed()).toBe(false));
   });
 });
