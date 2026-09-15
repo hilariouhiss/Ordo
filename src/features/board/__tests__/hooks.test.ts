@@ -276,9 +276,7 @@ describe("moveTaskToColumn 的软阻塞", () => {
   function seedBlockedMove() {
     store.setColumns("proj-1", [column("todo"), column("done", { isDone: true, position: "o" })]);
     tasksStore.setAll([task("t1"), task("prereq")], []);
-    tasksStore.setDependencies([
-      { kind: "task", dependentId: "t1", prerequisiteId: "prereq" },
-    ]);
+    tasksStore.setDependencies([{ dependentId: "t1", prerequisiteId: "prereq" }]);
   }
 
   it("拖进完成列先停请求，确认后完整重放一次移动", async () => {
@@ -292,7 +290,7 @@ describe("moveTaskToColumn 的软阻塞", () => {
     expect(moved).toBeNull();
     expect(api.moveTask).not.toHaveBeenCalled();
     const pending = blockedRequest();
-    expect(pending).toMatchObject({ kind: "task", id: "t1", title: "任务 t1" });
+    expect(pending).toMatchObject({ id: "t1", title: "任务 t1" });
     expect(pending?.blockers.map((blocker) => blocker.id)).toEqual(["prereq"]);
     // Nothing moved yet: the card is still in its own column.
     expect(tasksStore.getTask("t1")?.columnId).toBeNull();
@@ -327,9 +325,7 @@ describe("moveTaskToColumn 的软阻塞", () => {
       [task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z" }), task("prereq")],
       [],
     );
-    tasksStore.setDependencies([
-      { kind: "task", dependentId: "t1", prerequisiteId: "prereq" },
-    ]);
+    tasksStore.setDependencies([{ dependentId: "t1", prerequisiteId: "prereq" }]);
     vi.mocked(api.moveTask).mockResolvedValue(
       task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z", sortOrder: "o" }),
     );

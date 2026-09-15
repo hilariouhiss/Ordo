@@ -4,6 +4,11 @@ import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/sol
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
 import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
+import { beginDrag } from "../../common/stores/drag";
+import {
+  clearNotifications,
+  notifications,
+} from "../../common/stores/notifications";
 import * as namespacesApi from "../../features/namespaces/api";
 import { resetNamespacesStore } from "../../features/namespaces/store";
 import type { Namespace } from "../../features/namespaces/types";
@@ -124,6 +129,7 @@ beforeEach(() => {
   resetProjectsStore();
   resetNamespacesStore();
   resetTasksStore();
+  clearNotifications();
 });
 
 afterEach(cleanup);
@@ -272,7 +278,45 @@ describe("AppShell sidebar", () => {
     );
   });
 
-  // R7b: 任务行拖到侧边栏项目行 = 把任务移进该项目。
+  // R7b/§9.4: 任务行拖到侧边栏项目行 = 移进该项目，同时脱离父任务 —— 因为用户
+  // 以为只是换了项目，所以落地后要说一句。
+  it("unfiles a dragged child task when it lands on a project row", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    vi.mocked(tasksApi.updateTask).mockResolvedValue(task("t1", { projectId: "p1" }));
+    renderShell();
+
+    const target = await screen.findByRole("link", { name: "杂事" });
+    setTasks([task("t1", { parentTaskId: "p9" })], []);
+
+    // The child stands alone in 今天 (its parent is not in the view), and a
+    // child row has no drag source of its own in the rendering layer — so the
+    // drag is started from the shared store. What is under test is the
+    // sidebar's drop target, not the row that began the drag.
+    const row = (await waitFor(() => {
+      const element = document.querySelector('[data-subtask-id="t1"]');
+      if (!element) throw new Error("task row not rendered yet");
+      return element;
+    })) as HTMLElement;
+    expect(row).toBeTruthy();
+    beginDrag(new Event("dragstart") as DragEvent, { kind: "task", id: "t1" });
+
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+
+    await waitFor(() =>
+      expect(tasksApi.updateTask).toHaveBeenCalledWith("t1", {
+        projectId: "p1",
+        parentTaskId: null,
+      }),
+    );
+
+    await waitFor(() => expect(notifications()).toHaveLength(1));
+    expect(notifications()[0]?.message).toContain("移出父任务");
+  });
+
+  // R7b: 任务行拖到侧边栏项目行 = 把任务移进该项目。顶层任务没有父子关系可断，
+  // 所以这一路不发通知。
   it("moves a dragged task into the project row it is dropped on", async () => {
     vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
@@ -293,8 +337,12 @@ describe("AppShell sidebar", () => {
     fireEvent.drop(target);
 
     await waitFor(() =>
-      expect(tasksApi.updateTask).toHaveBeenCalledWith("t1", { projectId: "p1" }),
+      expect(tasksApi.updateTask).toHaveBeenCalledWith("t1", {
+        projectId: "p1",
+        parentTaskId: null,
+      }),
     );
+    expect(notifications()).toHaveLength(0);
   });
 
   it("ignores a drop that carries nothing we started", async () => {

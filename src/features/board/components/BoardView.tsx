@@ -45,7 +45,11 @@ export function BoardView(props: { projectId: string }) {
   const columns = () => getColumns(props.projectId);
   const tasksOf = (columnId: string) =>
     sortTasks(
-      tasksState.tasks.filter((task) => task.columnId === columnId),
+      // §8.4: a lane holds top-level tasks only. A child has no `columnId` of
+      // its own — it lives inside its parent, which is where its progress shows.
+      tasksState.tasks.filter(
+        (task) => task.parentTaskId === null && task.columnId === columnId,
+      ),
       "manual",
     );
 

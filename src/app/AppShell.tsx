@@ -20,6 +20,7 @@ import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
 import { beginDrag, draggedId, endDrag } from "../common/stores/drag";
+import { pushInfo } from "../common/stores/notifications";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import { getIcon } from "../common/icons";
 import TaskViewer from "./TaskViewer";
@@ -138,7 +139,9 @@ function CreateHeader(props: { label: string; onCreate: () => void; class?: stri
 /** One project row. `muted` is the archived variant: dimmer text, same layout.
  *
  * It is both a drag source (R7a: file it under another namespace) and a drop
- * target (R7b: drop a task here to move it into this project). */
+ * target (R7b/§9.4: drop a task here to move it into this project *and* out of
+ * whatever parent it had — the user only asked for the project, so the broken
+ * parent link gets announced). */
 function ProjectLink(props: { project: Project; collapsed: boolean; muted?: boolean }) {
   const [taskOver, setTaskOver] = createSignal(false);
 
@@ -155,7 +158,10 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
       onDragEnd={endDrag}
       onDragOver={(event) => {
         const id = taskId(event);
-        if (!id || getTask(id)?.projectId === props.project.id) return;
+        const current = id ? getTask(id) : undefined;
+        // Already here *and* already top-level: the drop would write nothing.
+        if (!current || (current.projectId === props.project.id && current.parentTaskId === null))
+          return;
         // preventDefault is what makes this element a drop target at all.
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -168,8 +174,18 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
         if (!id) return;
         event.preventDefault();
         endDrag();
-        if (getTask(id)?.projectId === props.project.id) return;
-        void updateTask(id, { projectId: props.project.id });
+        const dragged = getTask(id);
+        if (!dragged || (dragged.projectId === props.project.id && dragged.parentTaskId === null))
+          return;
+        const wasChild = dragged.parentTaskId !== null;
+        // §9.4: a project row means "this project, top level" — landing a child
+        // here breaks its parent link too, so say so.
+        void updateTask(id, { projectId: props.project.id, parentTaskId: null }).then(
+          (saved) => {
+            if (saved && wasChild)
+              pushInfo(`「${saved.title}」已移出父任务并归入「${props.project.name}」`);
+          },
+        );
       }}
       class={`${navRowClass(props.collapsed)} min-w-0 flex-1 ${
         props.muted

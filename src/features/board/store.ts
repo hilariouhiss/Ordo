@@ -1,7 +1,8 @@
 /**
  * Board store (module-level `createStore`, mirroring the other domain
  * stores). Column lists are cached per project and loaded on demand when a
- * board view mounts — like the task store's `subtasksByTask` cache.
+ * board view mounts — like the task store's per-task comment and time-entry
+ * caches, which fill on demand and are read straight from the component.
  *
  * Mutators below are the data layer's plumbing — components change state
  * through `hooks.ts`, never directly.

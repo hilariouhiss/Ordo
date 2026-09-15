@@ -1,6 +1,6 @@
-import { Show } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import { Badge, Checkbox } from "../../../common/components";
-import { getTag } from "../../tasks/store";
+import { childrenOf, getTag } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import { formatDueLabel, isOverdue } from "../../tasks/view-filters";
 import { PRIORITY_BADGES } from "../../tasks/components/TaskItemRow";
@@ -28,6 +28,12 @@ export interface BoardCardProps {
 export function BoardCard(props: BoardCardProps) {
   const completed = () => props.task.completedAt !== null;
   const priority = () => PRIORITY_BADGES[props.task.priority];
+  // §8.4: a card stays the top-level entry point for its own work, so a parent
+  // shows how far its children got instead of the board listing them.
+  const children = createMemo(() => childrenOf(props.task.id));
+  const childDone = createMemo(
+    () => children().filter((child) => child.completedAt !== null).length,
+  );
 
   return (
     <div
@@ -64,8 +70,29 @@ export function BoardCard(props: BoardCardProps) {
         </button>
       </div>
 
-      <Show when={priority() || props.task.tagIds.length > 0 || props.task.dueAt}>
+      <Show
+        when={
+          children().length > 0 ||
+          priority() ||
+          props.task.tagIds.length > 0 ||
+          props.task.dueAt
+        }
+      >
         <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <Show when={children().length > 0}>
+            {/* Same split as the list row's badge: the digits are the sighted
+                label, the sentence behind them is what gets announced — a bare
+                `0/1` has no context read aloud, and `aria-label` cannot give a
+                generic span one. */}
+            <Badge>
+              <span aria-hidden="true">
+                {childDone()}/{children().length} 个子任务
+              </span>
+              <span class="sr-only">
+                子任务 {childDone()}/{children().length} 已完成
+              </span>
+            </Badge>
+          </Show>
           <Show when={priority()}>
             {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
           </Show>

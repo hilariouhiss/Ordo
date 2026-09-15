@@ -126,7 +126,8 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
           <p class="pb-2 text-xs text-subtle-foreground">
             {projects().length} 个项目 · 汇总进度
           </p>
-          <ProjectProgress tasks={tasks()} />
+          {/* §8.5: only top-level tasks, here and on each project card below. */}
+          <ProjectProgress tasks={tasks().filter((task) => task.parentTaskId === null)} />
         </div>
       </header>
 
@@ -172,7 +173,11 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
                       {project.name}
                     </Link>
                     <div class="mt-1.5">
-                      <ProjectProgress tasks={tasksOf(project.id)} />
+                      <ProjectProgress
+                        tasks={tasksOf(project.id).filter(
+                          (task) => task.parentTaskId === null,
+                        )}
+                      />
                     </div>
                   </div>
 

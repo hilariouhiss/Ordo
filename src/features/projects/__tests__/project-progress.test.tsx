@@ -72,6 +72,21 @@ describe("ProjectProgress", () => {
     expect(screen.queryByText(/截止|逾期/)).toBeNull();
   });
 
+  // §8.5: the panel counts whatever slice it is handed, children included —
+  // "only top-level" is the *caller's* filter (`ProjectListView` /
+  // `NamespaceProjectsView` pass `tasks.filter((task) => task.parentTaskId ===
+  // null)`). Pinned here so the rule cannot silently move into this component
+  // and double up with the call sites.
+  it("counts the slice it is handed, children included", () => {
+    render(() => (
+      <ProjectProgress
+        tasks={[task("t1", false), { ...task("c1", false), parentTaskId: "t1" }]}
+      />
+    ));
+
+    expect(screen.getByText("0 / 2 已完成")).toBeTruthy();
+  });
+
   it("moves the bar as tasks are completed", () => {
     const [tasks, setTasks] = createSignal([task("t1", false), task("t2", false)]);
     render(() => <ProjectProgress tasks={tasks()} />);

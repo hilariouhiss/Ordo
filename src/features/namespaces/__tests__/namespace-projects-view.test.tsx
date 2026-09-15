@@ -109,6 +109,18 @@ describe("NamespaceProjectsView", () => {
     expect(screen.getByText("1 / 3 已完成")).toBeTruthy();
   });
 
+  // §8.5: both the group summary and each project card count top-level tasks —
+  // a child is a step inside its parent, not a second piece of work.
+  it("leaves child tasks out of the summary and the project cards", () => {
+    projectsStore.setAll([project("p1")]);
+    setTasks([task("t1", "p1", true), { ...task("c1", "p1"), parentTaskId: "t1" }], []);
+
+    render(() => <NamespaceProjectsView namespace={namespaceFixture()} />);
+
+    // The summary and the card each report the same single top-level task.
+    expect(screen.getAllByText("1 / 1 已完成")).toHaveLength(2);
+  });
+
   it("shows the empty state and creates a project inside the namespace", async () => {
     render(() => <NamespaceProjectsView namespace={namespaceFixture()} />);
 

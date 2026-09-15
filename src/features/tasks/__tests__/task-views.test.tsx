@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
+import { beginDrag } from "../../../common/stores/drag";
 import * as api from "../api";
 import * as hooks from "../hooks";
 import * as store from "../store";
@@ -822,5 +823,81 @@ describe("完成后的行不再戴阻塞标记", () => {
     expect(screen.queryByText("阻塞中")).toBeNull();
 
     store.setDependencies([]);
+  });
+});
+
+/*
+ * R7c: a task row is a drop target. Landing on it files the dragged task under
+ * that row; the row lights up only when the write would be legal, because a
+ * highlight that the service then refuses is a lie.
+ */
+describe("任务行的落点", () => {
+  /** The row of a task, as the drop handler sees it. */
+  const rowOf = (id: string) =>
+    document.querySelector(`[data-task-id="${id}"]`) as HTMLElement;
+
+  it("files a dragged task under the row it is dropped on", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(0, 12) }),
+        task("t2", { title: "收集数据", dueAt: iso(0, 13) }),
+      ],
+      [],
+    );
+    vi.mocked(api.updateTask).mockResolvedValue(task("t2", { parentTaskId: "p1" }));
+    render(() => <TodayView />);
+
+    const source = rowOf("t2");
+    const target = rowOf("p1");
+
+    fireEvent.dragStart(source);
+    fireEvent.dragOver(target);
+    // The legal target takes the highlight; that is what makes the drop
+    // predictable before the button comes up.
+    expect(target.className).toContain("ring-1");
+
+    fireEvent.drop(target);
+
+    await waitFor(() =>
+      expect(api.updateTask).toHaveBeenCalledWith("t2", { parentTaskId: "p1" }),
+    );
+    // The parent's project is the authority (`update_task` derives it), so the
+    // patch carries nothing else.
+    expect(vi.mocked(api.updateTask).mock.calls[0][1]).toEqual({ parentTaskId: "p1" });
+  });
+
+  it("refuses every drop the single-level rules reject", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "有子任务的", dueAt: iso(0, 12) }),
+        task("c1", { title: "它的孩子", parentTaskId: "p1", dueAt: iso(0, 13) }),
+        task("t2", { title: "被拖的", dueAt: iso(0, 14) }),
+      ],
+      [],
+    );
+    vi.mocked(api.updateTask).mockResolvedValue(task("t2"));
+    render(() => <TodayView />);
+
+    // Onto itself: nothing to do.
+    fireEvent.dragStart(rowOf("t2"));
+    fireEvent.drop(rowOf("t2"));
+
+    // A task that already has children can never become a child itself — and
+    // the row it hovers must not light up for it either.
+    fireEvent.dragStart(rowOf("p1"));
+    fireEvent.dragOver(rowOf("t2"));
+    expect(rowOf("t2").className).not.toContain("ring-1");
+    fireEvent.drop(rowOf("t2"));
+
+    // A child row is not a drop target at all: a parent may not have a parent.
+    fireEvent.dragStart(rowOf("t2"));
+    fireEvent.drop(document.querySelector('[data-subtask-id="c1"]') as HTMLElement);
+
+    // A drag carrying something other than a task (a project row, an OS file)
+    // never lands here.
+    beginDrag(new Event("dragstart") as DragEvent, { kind: "project", id: "p1" });
+    fireEvent.drop(rowOf("t2"));
+
+    expect(api.updateTask).not.toHaveBeenCalled();
   });
 });

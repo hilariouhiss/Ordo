@@ -22,7 +22,6 @@ vi.mock("../../tasks/hooks", () => ({
   completeTask: vi.fn(),
   uncompleteTask: vi.fn(),
   softDeleteTask: vi.fn(),
-  loadSubtasks: vi.fn(),
 }));
 
 function column(id: string, overrides: Partial<BoardColumn> = {}): BoardColumn {
@@ -101,6 +100,23 @@ describe("BoardView", () => {
     expect(screen.queryByText("任务 inbox")).toBeNull();
     // The done column is flagged.
     expect(screen.getByLabelText("完成列")).toBeTruthy();
+  });
+
+  it("renders only top-level tasks as cards and badges their children", () => {
+    renderBoard();
+    tasksStore.setAll(
+      [
+        task("t1", { columnId: "c1" }),
+        // The child carries the parent's column on purpose: the board must drop
+        // it because of `parentTaskId`, not because it happens to have none.
+        task("c1-child", { parentTaskId: "t1", columnId: "c1", title: "子任务" }),
+      ],
+      [],
+    );
+
+    expect(document.querySelector('[data-task-id="t1"]')).toBeTruthy();
+    expect(document.querySelector('[data-task-id="c1-child"]')).toBeNull();
+    expect(screen.getByText("0/1 个子任务")).toBeTruthy();
   });
 
   it("quick-completes a card through the checkbox", () => {

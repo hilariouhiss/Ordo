@@ -719,6 +719,25 @@ describe("任务详情的依赖区", () => {
     fireEvent.input(search(), { target: { value: "发" } });
     expect(offered("发布")).toBeNull();
   });
+
+  it("offers only top-level tasks as prerequisites", async () => {
+    store.setAll(
+      [
+        taskFixture("t1"),
+        taskFixture("top", { title: "顶层候选" }),
+        taskFixture("child", { title: "子任务候选", parentTaskId: "top" }),
+      ],
+      [],
+    );
+    renderDetail(taskFixture("t1"));
+
+    fireEvent.input(await screen.findByPlaceholderText("输入任务标题以添加前置"), {
+      target: { value: "候选" },
+    });
+
+    expect(await screen.findByText("顶层候选")).toBeTruthy();
+    expect(screen.queryByText("子任务候选")).toBeNull();
+  });
 });
 
 describe("子任务行的依赖是普通任务依赖", () => {

@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
-import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
+import { completeTask, softDeleteTask, uncompleteTask, updateTask } from "../hooks";
 import { blockersOf, buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
 import { getTask, tasksState } from "../store";
 import type { Priority, Task } from "../types";
@@ -269,6 +269,13 @@ export function TaskListView(props: TaskListViewProps) {
     void softDeleteTask(task.id);
   };
 
+  /** R7c: a task dropped on a row is filed under it. The row already refused
+   * the drops that could not be legal, so this only writes — the parent's
+   * project comes along server-side. */
+  const dropOnTask = (draggedId: string, target: Task) => {
+    void updateTask(draggedId, { parentTaskId: target.id });
+  };
+
   return (
     <div class="flex h-full min-h-0 flex-col">
       <div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-5">
@@ -433,6 +440,7 @@ export function TaskListView(props: TaskListViewProps) {
                 onOpenDetail={openDetail}
                 onEdit={openEdit}
                 onDelete={removeTask}
+                onDropTask={dropOnTask}
               />
             ) : (
               <SubtaskRow

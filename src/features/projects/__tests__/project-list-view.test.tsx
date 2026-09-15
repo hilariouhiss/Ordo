@@ -124,6 +124,25 @@ describe("ProjectListView", () => {
     expect(screen.queryByText("任务 other")).toBeNull();
   });
 
+  // §8.5: the header counts top-level tasks only — a child is a step inside its
+  // parent, and counting both would report the same work twice.
+  it("leaves child tasks out of the completion rate", () => {
+    renderView();
+    tasksStore.setAll(
+      [
+        task("t1", { completedAt: "2026-09-09T10:00:00Z" }),
+        task("t2"),
+        task("child", { parentTaskId: "t2" }),
+      ],
+      [],
+    );
+
+    expect(screen.getByText("1 / 2 已完成")).toBeTruthy();
+    expect(
+      screen.getByRole("progressbar", { name: "完成率 50%" }).getAttribute("aria-valuenow"),
+    ).toBe("50");
+  });
+
   it("updates the completion rate live when a task is checked", async () => {
     renderView();
     tasksStore.setAll([task("t1"), task("t2")], []);

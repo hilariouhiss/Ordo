@@ -3,7 +3,7 @@ import { X } from "lucide-solid";
 import { iconButtonClass } from "../../../common/components";
 import { addDependency, removeDependency } from "../hooks";
 import { buildIndex, completionSet, liveSet, successorsOf, wouldCycle } from "../dependencies";
-import { getTask, tasksState } from "../store";
+import { getTask, tasksState, topLevelTasks } from "../store";
 
 export interface TaskDependenciesProps {
   taskId: string;
@@ -33,7 +33,9 @@ export function TaskDependencies(props: TaskDependenciesProps) {
     const term = query().trim().toLowerCase();
     if (!term) return [];
     const taken = new Set(prerequisites());
-    return tasksState.tasks
+    // §7.4: a prerequisite is a top-level task. A child is a step inside its
+    // parent, and it would read as a second name for the same piece of work.
+    return topLevelTasks()
       .filter((task) => task.id !== props.taskId && !taken.has(task.id))
       .filter((task) => task.title.toLowerCase().includes(term))
       .filter((task) => !wouldCycle(index(), props.taskId, task.id))

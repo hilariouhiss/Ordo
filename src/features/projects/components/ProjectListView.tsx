@@ -100,7 +100,10 @@ export function ProjectListView(props: { project: Project }) {
         </Show>
 
         <div class="mt-4">
-          <ProjectProgress tasks={tasks()} />
+          {/* §8.5: the panel counts the slice it is handed, so the
+              top-level-only filter happens here — a child is a step inside its
+              parent, and counting both would report the same work twice. */}
+          <ProjectProgress tasks={tasks().filter((task) => task.parentTaskId === null)} />
         </div>
       </header>
 

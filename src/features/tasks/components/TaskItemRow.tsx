@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { ChevronRight, Lock, MoreHorizontal, Pencil, Repeat, Trash2 } from "lucide-solid";
 import {
   Badge,
@@ -7,8 +7,9 @@ import {
   iconButtonClass,
   type BadgeVariant,
 } from "../../../common/components";
-import { beginDrag, endDrag } from "../../../common/stores/drag";
+import { beginDrag, draggedId, endDrag } from "../../../common/stores/drag";
 import { getTag } from "../store";
+import { canAcceptChild } from "../hierarchy";
 import { describeRepeatRule } from "../repeat";
 import type { Priority, Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
@@ -51,6 +52,9 @@ export interface TaskItemRowProps {
   onOpenDetail: (task: Task) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
+  /** R7c: a task dragged onto this row becomes its child. The row refuses the
+   * drops the single-level rules reject — the caller writes, the row decides. */
+  onDropTask?: (draggedId: string, target: Task) => void;
 }
 
 /** One task row inside the virtualized views; its `h-14` height and 20px
@@ -58,6 +62,8 @@ export interface TaskItemRowProps {
 export function TaskItemRow(props: TaskItemRowProps) {
   const completed = () => props.task.completedAt !== null;
   const priority = () => PRIORITY_BADGES[props.task.priority];
+  /** A legal child drop is pending over this row. */
+  const [childOver, setChildOver] = createSignal(false);
 
   return (
     <div
@@ -66,13 +72,36 @@ export function TaskItemRow(props: TaskItemRowProps) {
       // row the trailing ⋯ button belongs to.
       class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-task-id={props.task.id}
+      // The drop highlight is a ring, not a border: a border would change the
+      // row's box and shove the 56px rhythm the virtualizer assumes.
+      classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": childOver() }}
       // R7b: the row is the drag source for "move this task to another
       // project" — the sidebar's project rows are the drop targets. Touch
       // input already needs the platform's own long-press before a drag
       // starts, which is exactly the behaviour we want there.
+      //
+      // R7c: the row is also a drop target — a task dropped here is filed
+      // under it, when the hierarchy rules allow that.
       draggable={true}
       onDragStart={(event) => beginDrag(event, { kind: "task", id: props.task.id })}
       onDragEnd={endDrag}
+      onDragOver={(event) => {
+        const dragged = draggedId(event, "task");
+        if (!dragged || !props.onDropTask || !canAcceptChild(dragged, props.task)) return;
+        // preventDefault is what makes this element a drop target at all.
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        setChildOver(true);
+      }}
+      onDragLeave={() => setChildOver(false)}
+      onDrop={(event) => {
+        const dragged = draggedId(event, "task");
+        setChildOver(false);
+        if (!dragged || !props.onDropTask || !canAcceptChild(dragged, props.task)) return;
+        event.preventDefault();
+        endDrag();
+        props.onDropTask(dragged, props.task);
+      }}
     >
       <Show
         when={props.subtaskCount > 0}
