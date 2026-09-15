@@ -342,18 +342,24 @@ const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id,
     #[test]
     fn project_namespace_id_round_trips_and_clears() {
         let conn = conn();
+        // A real namespace row, because the FK is enforced (same reason the
+        // task/column fixtures above use `Uuid::new_v4()`).
+        let namespace_id = Uuid::new_v4();
         conn.execute(
             "INSERT INTO namespaces (id, name, status, sort_order, created_at, updated_at) \
-             VALUES ('ns-1', '工作', 'active', 'a', ?1, ?1)",
-            params![ts(0)],
+             VALUES (?1, '工作', 'active', 'a', ?2, ?2)",
+            params![namespace_id.to_string(), ts(0)],
         )
         .unwrap();
 
         let mut project = sample_project("n");
-        project.namespace_id = Some(Uuid::parse_str("ns-1").unwrap());
+        project.namespace_id = Some(namespace_id);
         projects::insert(&conn, &project).unwrap();
         assert_eq!(
-            projects::get(&conn, project.id).unwrap().unwrap().namespace_id,
+            projects::get(&conn, project.id)
+                .unwrap()
+                .unwrap()
+                .namespace_id,
             project.namespace_id
         );
 
@@ -361,7 +367,10 @@ const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id,
         moved_out.namespace_id = None;
         assert!(projects::update(&conn, &moved_out).unwrap());
         assert_eq!(
-            projects::get(&conn, project.id).unwrap().unwrap().namespace_id,
+            projects::get(&conn, project.id)
+                .unwrap()
+                .unwrap()
+                .namespace_id,
             None,
             "an explicit NULL moves the project back to the root list"
         );
@@ -518,6 +527,8 @@ git commit -m "feat: add the namespaces table and a nullable project namespace"
         assert!(namespaces::set_status(&conn, namespace.id, ProjectStatus::Active, ts(20)).unwrap());
     }
 ```
+
+这条用例的 id 必须是**真正的 UUID**：`uuid` 只接受 32/36/38/45 字符的写法，计划初稿里写死的 `'ns-1'` 会让 `Uuid::parse_str` 直接 `Err`，而且外键也匹配不上（写入时绑的是同一个 `Uuid::to_string()`）。落地版本用的是 `Uuid::new_v4()`，与仓库里既有的 task/column 夹具同一个理由（`repositories.rs:1857`）。
 
 `mod tests` 顶部的 `use super::*;` 已经带进 `Namespace`（`repositories.rs` 的 `use crate::models::{...}` 需要加上它，见 Step 3）。
 
