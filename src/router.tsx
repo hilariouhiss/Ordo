@@ -77,6 +77,15 @@ const projectDetailRoute = createRoute({
   ),
 });
 
+const namespaceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/namespaces/$namespaceId",
+  component: lazyRouteComponent(
+    () => import("./features/namespaces/components/NamespaceDetailView"),
+    "NamespaceDetailView",
+  ),
+});
+
 const statsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/stats",
@@ -111,6 +120,7 @@ const routeTree = rootRoute.addChildren([
   upcomingRoute,
   completedRoute,
   projectDetailRoute,
+  namespaceDetailRoute,
   statsRoute,
   searchRoute,
   settingsRoute,

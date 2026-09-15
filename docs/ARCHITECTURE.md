@@ -68,6 +68,8 @@ src/
 │   │   ├── quick-add-parse.ts    # 快捷输入语法解析（@项目 / !优先级 / #日期）
 │   │   └── types.ts              # 任务领域类型（与后端 serde 对齐）
 │   ├── projects/                 # 项目
+│   ├── namespaces/               # 命名空间（项目分组 + 组内汇总）
+│   │   └── components/           # NamespaceProjectsView / NamespaceDetailView
 │   ├── board/                    # 看板（列 + 拖拽）
 │   ├── stats/                    # 统计展示
 │   ├── search/                   # 全文搜索
@@ -125,6 +127,7 @@ src/
 - 顶层布局：根路由的 `component` 为 `AppShell`（侧边栏导航 + 顶栏 + 内容区），子路由经懒加载挂载各视图：
   - `/today` 今天、`/upcoming` 即将到来、`/inbox` 收件箱、`/completed` 已完成
   - `/projects/:projectId` 项目详情（列表/看板/进度切换）
+  - `/namespaces/:namespaceId` 命名空间页（组内项目 + 汇总进度）
   - `/stats` 统计、`/settings` 设置、`/search` 搜索
 - 视图切换仅切换路由，数据仍来自领域 store（无需按路由重取）。
 
