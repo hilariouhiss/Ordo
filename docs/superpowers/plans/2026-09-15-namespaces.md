@@ -1171,6 +1171,7 @@ git commit -m "feat: validate the namespace a project is filed under"
 - Modify: `src-tauri/src/repositories.rs`（`backup::export_all`、`backup::replace_all`）
 - Modify: `src-tauri/src/services.rs`（`BACKUP_VERSION`；备份测试 + `seed_everything`）
 - Modify: `src/features/settings/types.ts`（`BackupCounts` 镜像加 `namespaces`）
+- Modify: `src/features/settings/__tests__/settings-view.test.tsx`（该文件里的 `BackupCounts` 字面量要补 `namespaces: 1,`，否则 `pnpm typecheck` 直接 TS2741 失败——镜像字段是必填的）
 - Modify: `docs/ARCHITECTURE.md`（§4.2 备份段落）
 
 **Interfaces:**
@@ -1304,7 +1305,7 @@ git commit -m "feat: validate the namespace a project is filed under"
 - [ ] **Step 2: 跑测试确认失败**
 
 Run: `cd src-tauri && cargo test -- backup_carries_namespaces version_two_backups import_refuses_a_project`（同 Task 2：多个过滤器要跟在 `--` 之后）
-Expected: FAIL —— `backup_carries_namespaces_and_refiles_projects` 报断言不等（导入后命名空间列表为空）；`version_two_backups_import_with_every_project_ungrouped` 甚至可能在 `document.version > BACKUP_VERSION` 处通过，但 `imported[0].namespace_id` 断言前就已因字段缺失而失败；`import_refuses_a_project_filed_under_a_missing_namespace` 现在**会成功导入**（悬空外键未被外键约束挡住前，项目先落库），`assert!(import_backup(...).is_err())` 因此失败
+Expected: 只有 `backup_carries_namespaces_and_refiles_projects` 会 FAIL（导入时外键违约，报错行比预想的还早一步：命名空间根本没进文档）。另外两条在 Task 1 落地后**就已经通过**——`Project.namespace_id` 那时已带 `#[serde(default)]`、外键也已生效——它们是回归钉子而不是新功能的 RED；实施时用变异验证过它们的咬合力（删掉 `#[serde(default)]` 两条版本测试都会以 `missing field namespaces` 失败；把插入顺序换回来则 `backup_carries_namespaces_and_refiles_projects` 以 `FOREIGN KEY constraint failed` 失败）
 
 - [ ] **Step 3: 模型与版本号**
 
