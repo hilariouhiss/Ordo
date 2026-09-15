@@ -22,17 +22,16 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, DependencyKind, Namespace,
-    NewBoardColumn, NewComment, NewNamespace, NewProject, NewSubtask, NewTag, NewTask,
-    NewTimeEntry, Patch, Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind,
-    RepeatFreq, RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags,
-    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
-    UpdateComment, UpdateNamespace, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
-    UpdateTimeEntry,
+    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewBoardColumn,
+    NewComment, NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project,
+    ProjectProgress, ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit,
+    SearchHitKind, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry,
+    TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment, UpdateNamespace, UpdateProject,
+    UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
     backup, board_columns, comments, dependencies, namespaces, projects, reminders, search, stats,
-    subtasks, tags, task_tags, tasks, time_entries,
+    tags, task_tags, tasks, time_entries,
 };
 use crate::sort;
 
@@ -107,10 +106,10 @@ fn next_due(due: DateTime<Utc>, rule: &RepeatRule) -> DateTime<Utc> {
 /// Spawns the next instance of a completed repeating task inside the
 /// caller's transaction: one period past the task's due time, carrying over
 /// title/note/priority/project/complexity/tags and the rule itself, appended
-/// to `column_id`'s scope. Subtasks are copied with their attributes but
-/// reset to uncompleted, their due dates advanced by the same period. Repeats
-/// anchored to nothing (`due_at = None`) or paused rules complete without
-/// spawning.
+/// to `column_id`'s scope. Subtasks are copied as child task rows with their
+/// attributes but reset to uncompleted, their due dates advanced by the same
+/// period. Repeats anchored to nothing (`due_at = None`) or paused rules
+/// complete without spawning.
 fn spawn_next_instance(
     conn: &Connection,
     task: &Task,
@@ -135,7 +134,7 @@ fn spawn_next_instance(
     // period as the parent (a copy whose date stayed put would be born
     // overdue). Dependency edges are deliberately NOT inherited: they would
     // point at the previous instance's rows.
-    let originals = subtasks::list_by_task(conn, task.id)?;
+    let originals = tasks::list_by_parent(conn, task.id)?;
 
     let spawned = create_task_in_tx(
         conn,
@@ -150,6 +149,9 @@ fn spawn_next_instance(
             tag_ids,
             subtask_titles: Vec::new(),
             repeat_rule: Some(rule),
+            // §9.5: a repeating subtask's next instance is still a child of the
+            // same parent.
+            parent_task_id: task.parent_task_id,
         },
     )?;
 
@@ -159,17 +161,20 @@ fn spawn_next_instance(
             None => sort::first(),
             Some(last) => sort::after(last)?,
         };
-        subtasks::insert(
+        tasks::insert(
             conn,
-            &Subtask {
+            &Task {
                 id: Uuid::new_v4(),
-                task_id: spawned.id,
+                project_id: spawned.project_id,
                 title: original.title,
                 note: original.note,
                 priority: original.priority,
+                column_id: None,
                 due_at: original.due_at.map(|date| next_due(date, &rule)),
+                completed_at: None,
+                repeat_rule: original.repeat_rule,
                 complexity: original.complexity,
-                done: false,
+                parent_task_id: Some(spawned.id),
                 sort_order: key.clone(),
                 created_at: spawned.created_at,
                 updated_at: spawned.created_at,
@@ -327,11 +332,39 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
     let now = Utc::now();
     let complexity = validated_complexity(input.complexity)?;
 
-    let siblings: Vec<(Uuid, String)> = tasks::list(conn)?
-        .into_iter()
-        .filter(|t| t.column_id == input.column_id)
-        .map(|t| (t.id, t.sort_order))
-        .collect();
+    let parent = match input.parent_task_id {
+        Some(parent_id) => Some(validate_parent(conn, parent_id)?),
+        None => None,
+    };
+    // A child lives inside its parent: same project, never on a board.
+    let project_id = parent
+        .as_ref()
+        .map(|task| task.project_id)
+        .unwrap_or(input.project_id);
+    let column_id = if parent.is_some() {
+        None
+    } else {
+        input.column_id
+    };
+
+    // `sort_order` is one global key sequence, but "the siblings" means two
+    // different sets: a child appends after its parent's other children, a
+    // top-level task after the tasks of its column. The second filter needs
+    // `parent_task_id IS NULL` because a child's `column_id` is NULL — without
+    // it, a new column-less task would append into the children's key range.
+    let all = tasks::list(conn)?;
+    let siblings: Vec<(Uuid, String)> = match input.parent_task_id {
+        Some(parent_id) => all
+            .into_iter()
+            .filter(|t| t.parent_task_id == Some(parent_id))
+            .map(|t| (t.id, t.sort_order))
+            .collect(),
+        None => all
+            .into_iter()
+            .filter(|t| t.column_id == column_id && t.parent_task_id.is_none())
+            .map(|t| (t.id, t.sort_order))
+            .collect(),
+    };
     let (sort_order, rebalanced) = append_key(&siblings)?;
 
     validate_tag_ids(conn, &tag_ids)?;
@@ -343,15 +376,16 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
 
     let task = Task {
         id: Uuid::new_v4(),
-        project_id: input.project_id,
+        project_id,
         title,
         note: input.note,
         priority: input.priority.unwrap_or(Priority::None),
-        column_id: input.column_id,
+        column_id,
         due_at: input.due_at,
         completed_at: None,
         repeat_rule: input.repeat_rule,
         complexity,
+        parent_task_id: input.parent_task_id,
         sort_order,
         created_at: now,
         updated_at: now,
@@ -360,26 +394,30 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
     tasks::insert(conn, &task)?;
     task_tags::set_task_tags(conn, task.id, &tag_ids)?;
 
-    // Initial subtasks get a plain first()/after() chain: an editor never
-    // creates enough of them to hit the length threshold, and later appends
-    // through `create_subtask` rebalance anyway.
+    // `subtaskTitles` still means "also create these subtasks": each becomes a
+    // child task under the one being created. They get a plain first()/after()
+    // chain — an editor never creates enough of them to hit the length
+    // threshold, and later appends through the task path rebalance anyway.
     let mut last_key: Option<String> = None;
     for raw_title in &input.subtask_titles {
         let key = match &last_key {
             None => sort::first(),
             Some(last) => sort::after(last)?,
         };
-        subtasks::insert(
+        tasks::insert(
             conn,
-            &Subtask {
+            &Task {
                 id: Uuid::new_v4(),
-                task_id: task.id,
+                project_id,
                 title: validated_name(raw_title)?,
                 note: None,
                 priority: Priority::None,
+                column_id: None,
                 due_at: None,
+                completed_at: None,
+                repeat_rule: None,
                 complexity: None,
-                done: false,
+                parent_task_id: Some(task.id),
                 sort_order: key.clone(),
                 created_at: now,
                 updated_at: now,
@@ -406,9 +444,6 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
     if let Some(priority) = patch.priority {
         task.priority = priority;
     }
-    if let Patch::Set(project_id) = patch.project_id {
-        task.project_id = project_id;
-    }
     if let Patch::Set(column_id) = patch.column_id {
         task.column_id = column_id;
     }
@@ -426,6 +461,36 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
             validate_repeat_rule(rule)?;
         }
         task.repeat_rule = repeat_rule;
+    }
+    if let Patch::Set(parent_task_id) = patch.parent_task_id {
+        match parent_task_id {
+            Some(parent_id) => {
+                if parent_id == id {
+                    return Err(AppError::Validation("任务不能以自己为父任务".into()));
+                }
+                let parent = validate_parent(conn, parent_id)?;
+                if !tasks::list_by_parent(conn, id)?.is_empty() {
+                    return Err(AppError::Validation(
+                        "该任务还有子任务，不能变成别人的子任务".into(),
+                    ));
+                }
+                task.parent_task_id = Some(parent_id);
+                task.project_id = parent.project_id;
+                task.column_id = None;
+            }
+            None => task.parent_task_id = None,
+        }
+    }
+    // A parent's project change takes its children with it, or they would be
+    // filed in the old project while pointing at a parent in the new one.
+    if let Patch::Set(project_id) = patch.project_id {
+        task.project_id = project_id;
+        for child in tasks::list_by_parent(conn, id)? {
+            let mut moved = child;
+            moved.project_id = project_id;
+            moved.updated_at = Utc::now();
+            tasks::update(conn, &moved)?;
+        }
     }
     task.updated_at = Utc::now();
 
@@ -464,16 +529,26 @@ pub fn complete_task(conn: &Connection, id: Uuid) -> Result<Task, AppError> {
 }
 
 pub fn soft_delete_task(conn: &Connection, id: Uuid) -> Result<(), AppError> {
-    if !tasks::soft_delete(conn, id, Utc::now())? {
+    let now = Utc::now();
+    let tx = conn.unchecked_transaction()?;
+    if !tasks::soft_delete(&tx, id, now)? {
         return Err(not_found("任务", id));
     }
+    // Children exist only through their parent (§9.2): leaving them live would
+    // produce orphan rows, and restoring the parent could not bring them back.
+    tasks::set_children_deleted(&tx, id, now, true)?;
+    tx.commit()?;
     Ok(())
 }
 
 pub fn restore_task(conn: &Connection, id: Uuid) -> Result<Task, AppError> {
-    if !tasks::restore(conn, id, Utc::now())? {
+    let now = Utc::now();
+    let tx = conn.unchecked_transaction()?;
+    if !tasks::restore(&tx, id, now)? {
         return Err(not_found("任务", id));
     }
+    tasks::set_children_deleted(&tx, id, now, false)?;
+    tx.commit()?;
     tasks::get(conn, id)?.ok_or_else(|| not_found("任务", id))
 }
 
@@ -531,143 +606,54 @@ pub fn delete_tag(conn: &Connection, id: Uuid) -> Result<(), AppError> {
 }
 
 // ---------------------------------------------------------------------------
-// Subtasks
+// Task hierarchy
 // ---------------------------------------------------------------------------
 
-pub fn list_subtasks(conn: &Connection, task_id: Uuid) -> Result<Vec<Subtask>, AppError> {
-    subtasks::list_by_task(conn, task_id)
+/// The one-level rule: `parent_id` must be a live task that is itself a
+/// top-level task. Returns the parent row so callers can inherit its project.
+fn validate_parent(conn: &Connection, parent_id: Uuid) -> Result<Task, AppError> {
+    let parent = tasks::get(conn, parent_id)?.ok_or_else(|| not_found("父任务", parent_id))?;
+    if parent.parent_task_id.is_some() {
+        return Err(AppError::Validation(
+            "子任务下不能再挂子任务：层级只有一层".into(),
+        ));
+    }
+    Ok(parent)
 }
 
-/// Every live subtask, across every live task.
+/// Moves a task between its siblings: `prev`/`next` are the sort keys of the
+/// rows surrounding the target slot (either may be omitted at the list ends).
+/// Returns the sibling set in its new authoritative order, because other rows'
+/// keys change whenever a rebalance kicks in.
 ///
-/// The hierarchical task list has to know which rows have children, and how
-/// many are done, before any of them is expanded. `task:list` carries no
-/// subtask data and `subtask:list` is per task, so without this the list would
-/// need one round trip per row.
-pub fn list_all_subtasks(conn: &Connection) -> Result<Vec<Subtask>, AppError> {
-    subtasks::list_all(conn)
-}
-
-pub fn create_subtask(
-    conn: &Connection,
-    task_id: Uuid,
-    input: NewSubtask,
-) -> Result<Subtask, AppError> {
-    if tasks::get(conn, task_id)?.is_none() {
-        return Err(not_found("任务", task_id));
-    }
-    let title = validated_name(&input.title)?;
-    let complexity = validated_complexity(input.complexity)?;
-    let now = Utc::now();
-    let siblings: Vec<(Uuid, String)> = subtasks::list_by_task(conn, task_id)?
-        .into_iter()
-        .map(|s| (s.id, s.sort_order))
-        .collect();
-    let (sort_order, rebalanced) = append_key(&siblings)?;
-
-    let tx = conn.unchecked_transaction()?;
-    for (id, key) in &rebalanced {
-        if !subtasks::set_sort_order(&tx, *id, key, now)? {
-            return Err(not_found("子任务", *id));
-        }
-    }
-    let subtask = Subtask {
-        id: Uuid::new_v4(),
-        task_id,
-        title,
-        note: input.note,
-        priority: input.priority.unwrap_or(Priority::None),
-        due_at: input.due_at,
-        complexity,
-        done: false,
-        sort_order,
-        created_at: now,
-        updated_at: now,
-        deleted_at: None,
-    };
-    subtasks::insert(&tx, &subtask)?;
-    tx.commit()?;
-    Ok(subtask)
-}
-
-pub fn update_subtask(
-    conn: &Connection,
-    id: Uuid,
-    patch: UpdateSubtask,
-) -> Result<Subtask, AppError> {
-    let mut subtask = subtasks::get(conn, id)?.ok_or_else(|| not_found("子任务", id))?;
-    if let Some(title) = &patch.title {
-        subtask.title = validated_name(title)?;
-    }
-    if let Some(done) = patch.done {
-        subtask.done = done;
-    }
-    if let Patch::Set(note) = patch.note {
-        subtask.note = note;
-    }
-    if let Some(priority) = patch.priority {
-        subtask.priority = priority;
-    }
-    if let Patch::Set(due_at) = patch.due_at {
-        subtask.due_at = due_at;
-    }
-    if let Patch::Set(complexity) = patch.complexity {
-        subtask.complexity = validated_complexity(complexity)?;
-    }
-    subtask.updated_at = Utc::now();
-    if !subtasks::update(conn, &subtask)? {
-        return Err(not_found("子任务", id));
-    }
-    Ok(subtask)
-}
-
-/// Checks or unchecks a subtask (`done: false` un-completes it).
-pub fn complete_subtask(conn: &Connection, id: Uuid, done: bool) -> Result<Subtask, AppError> {
-    update_subtask(
-        conn,
-        id,
-        UpdateSubtask {
-            title: None,
-            done: Some(done),
-            note: Patch::Unchanged,
-            priority: None,
-            due_at: Patch::Unchanged,
-            complexity: Patch::Unchanged,
-        },
-    )
-}
-
-pub fn delete_subtask(conn: &Connection, id: Uuid) -> Result<(), AppError> {
-    if !subtasks::soft_delete(conn, id, Utc::now())? {
-        return Err(not_found("子任务", id));
-    }
-    Ok(())
-}
-
-/// Moves a subtask between its neighbours: `prev`/`next` are the sort keys of
-/// the items surrounding the target slot (either may be omitted at the list
-/// ends). Returns the task's full subtask list in its new authoritative
-/// order, because other rows' keys change whenever a rebalance kicks in.
-pub fn reorder_subtask(
+/// The sibling scope follows the hierarchy: a child moves among its parent's
+/// other children, a top-level task among the tasks of its own column.
+pub fn reorder_task(
     conn: &Connection,
     id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Vec<Subtask>, AppError> {
-    let moved = subtasks::get(conn, id)?.ok_or_else(|| not_found("子任务", id))?;
+) -> Result<Vec<Task>, AppError> {
+    let moved = tasks::get(conn, id)?.ok_or_else(|| not_found("任务", id))?;
 
     let now = Utc::now();
     let tx = conn.unchecked_transaction()?;
-    let siblings: Vec<(Uuid, String)> = subtasks::list_by_task(&tx, moved.task_id)?
-        .into_iter()
-        .filter(|s| s.id != id)
-        .map(|s| (s.id, s.sort_order))
-        .collect();
+    let siblings: Vec<(Uuid, String)> = match moved.parent_task_id {
+        Some(parent_id) => tasks::list_by_parent(&tx, parent_id)?,
+        None => tasks::list(&tx)?
+            .into_iter()
+            .filter(|t| t.column_id == moved.column_id && t.parent_task_id.is_none())
+            .collect(),
+    }
+    .into_iter()
+    .filter(|t| t.id != id)
+    .map(|t| (t.id, t.sort_order))
+    .collect();
 
     match resolve_slot(&siblings, prev, next)? {
         Slot::Key(key) => {
-            if !subtasks::set_sort_order(&tx, id, &key, now)? {
-                return Err(not_found("子任务", id));
+            if !tasks::set_sort_order(&tx, id, &key, now)? {
+                return Err(not_found("任务", id));
             }
         }
         Slot::Rebalance(target) => {
@@ -675,14 +661,23 @@ pub fn reorder_subtask(
             ordered.insert(target.min(ordered.len()), (id, moved.sort_order.clone()));
             let fresh = sort::spread(ordered.len());
             for ((sibling_id, _), key) in ordered.iter().zip(fresh) {
-                if !subtasks::set_sort_order(&tx, *sibling_id, &key, now)? {
-                    return Err(not_found("子任务", *sibling_id));
+                if !tasks::set_sort_order(&tx, *sibling_id, &key, now)? {
+                    return Err(not_found("任务", *sibling_id));
                 }
             }
         }
     }
     tx.commit()?;
-    subtasks::list_by_task(conn, moved.task_id)
+
+    let mut list = match moved.parent_task_id {
+        Some(parent_id) => tasks::list_by_parent(conn, parent_id)?,
+        None => tasks::list(conn)?
+            .into_iter()
+            .filter(|t| t.column_id == moved.column_id && t.parent_task_id.is_none())
+            .collect(),
+    };
+    list.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
+    Ok(list)
 }
 
 // ---------------------------------------------------------------------------
@@ -697,54 +692,38 @@ pub fn list_dependencies(conn: &Connection) -> Result<Vec<Dependency>, AppError>
 /// Adds `dependent → prerequisite` after validating it. Idempotent: adding an
 /// edge that already exists returns it unchanged.
 pub fn add_dependency(conn: &Connection, input: Dependency) -> Result<Dependency, AppError> {
-    validate_dependency(conn, input.kind, input.dependent_id, input.prerequisite_id)?;
-    dependencies::insert(
-        conn,
-        input.kind,
-        input.dependent_id,
-        input.prerequisite_id,
-        Utc::now(),
-    )?;
+    validate_dependency(conn, input.dependent_id, input.prerequisite_id)?;
+    dependencies::insert(conn, input.dependent_id, input.prerequisite_id, Utc::now())?;
     Ok(input)
 }
 
 pub fn remove_dependency(conn: &Connection, input: Dependency) -> Result<(), AppError> {
-    dependencies::remove(conn, input.kind, input.dependent_id, input.prerequisite_id)
+    dependencies::remove(conn, input.dependent_id, input.prerequisite_id)
 }
 
-/// The four rules an edge must satisfy: both endpoints live, subtask edges
-/// inside one parent task, no self-reference, and no cycles. The frontend also
-/// filters cyclic candidates out of its picker, but that is a convenience —
-/// this check is the authority.
+/// The rules an edge must satisfy: both endpoints live tasks, no
+/// self-reference, and no cycles. Both endpoints must also share a parent
+/// task — `NULL` counts as a value, so two top-level tasks share it. The
+/// frontend also filters cyclic candidates out of its picker, but that is a
+/// convenience — this check is the authority.
 fn validate_dependency(
     conn: &Connection,
-    kind: DependencyKind,
     dependent_id: Uuid,
     prerequisite_id: Uuid,
 ) -> Result<(), AppError> {
     if dependent_id == prerequisite_id {
         return Err(AppError::Validation("不能依赖自身".into()));
     }
-    match kind {
-        DependencyKind::Task => {
-            if tasks::get(conn, dependent_id)?.is_none() {
-                return Err(not_found("任务", dependent_id));
-            }
-            if tasks::get(conn, prerequisite_id)?.is_none() {
-                return Err(not_found("任务", prerequisite_id));
-            }
-        }
-        DependencyKind::Subtask => {
-            let dependent = subtasks::get(conn, dependent_id)?
-                .ok_or_else(|| not_found("子任务", dependent_id))?;
-            let prerequisite = subtasks::get(conn, prerequisite_id)?
-                .ok_or_else(|| not_found("子任务", prerequisite_id))?;
-            if dependent.task_id != prerequisite.task_id {
-                return Err(AppError::Validation("子任务依赖需在同一个任务内".into()));
-            }
-        }
+    let dependent =
+        tasks::get(conn, dependent_id)?.ok_or_else(|| not_found("任务", dependent_id))?;
+    let prerequisite =
+        tasks::get(conn, prerequisite_id)?.ok_or_else(|| not_found("任务", prerequisite_id))?;
+    if dependent.parent_task_id != prerequisite.parent_task_id {
+        return Err(AppError::Validation(
+            "依赖需在同一个父任务下（顶层任务之间也算同一层）".into(),
+        ));
     }
-    if dependencies::creates_cycle(conn, kind, dependent_id, prerequisite_id)? {
+    if dependencies::creates_cycle(conn, dependent_id, prerequisite_id)? {
         return Err(AppError::Validation("会形成循环依赖".into()));
     }
     Ok(())
@@ -961,14 +940,23 @@ pub fn move_task(
     next: Option<String>,
 ) -> Result<Task, AppError> {
     let mut moved = tasks::get(conn, task_id)?.ok_or_else(|| not_found("任务", task_id))?;
+    // A child follows its parent's project and is archived with it; it never
+    // lands on a board of its own (§9.4).
+    if moved.parent_task_id.is_some() {
+        return Err(AppError::Validation(
+            "子任务不能移到看板列：它随父任务归档，不上看板".into(),
+        ));
+    }
     let column =
         board_columns::get(conn, column_id)?.ok_or_else(|| not_found("看板列", column_id))?;
 
     let now = Utc::now();
     let tx = conn.unchecked_transaction()?;
+    // `parent_task_id IS NULL` is load-bearing: a migrated child may still
+    // carry a `column_id`, and it must not join the column's key sequence.
     let siblings: Vec<(Uuid, String)> = tasks::list(&tx)?
         .into_iter()
-        .filter(|t| t.column_id == Some(column_id) && t.id != task_id)
+        .filter(|t| t.column_id == Some(column_id) && t.parent_task_id.is_none() && t.id != task_id)
         .map(|t| (t.id, t.sort_order))
         .collect();
 
@@ -1326,10 +1314,11 @@ pub fn time_distribution(
 
 /// Format marker written into every backup document.
 pub const BACKUP_FORMAT: &str = "ordo.backup";
-/// Generation of the backup format. Bumped to 3 when namespaces joined the
-/// document: an older build reading a v3 file would file every project at the
-/// root, so `import_backup` refuses anything newer than this value.
-pub const BACKUP_VERSION: u32 = 3;
+/// Generation of the backup format. Bumped to 4 when subtasks became child
+/// tasks (R7c): an older build reading a v4 file would not know what
+/// `parentTaskId` means and would show every child at the top level, so
+/// `import_backup` refuses anything newer than this value.
+pub const BACKUP_VERSION: u32 = 4;
 
 /// Writes every table to `path` as one JSON backup document.
 pub fn export_backup(conn: &Connection, path: &Path) -> Result<BackupSummary, AppError> {
@@ -1583,6 +1572,11 @@ fn due_kinds(now: DateTime<Utc>, due_at: DateTime<Utc>) -> Vec<ReminderKind> {
 /// scans and app restarts. Once a task is overdue only the due reminder
 /// fires; catching up a stale "in 1 hour" after downtime would be noise.
 /// Tasks due more than [`REMINDER_CATCHUP_HOURS`] ago are skipped entirely.
+///
+/// One round over `tasks` covers the whole tree: a subtask is a task row, so
+/// it reminds on its own due time — even when its parent is completed. A
+/// soft-deleted parent takes its children out of the scan by cascading the
+/// delete, not by a second query.
 pub fn scan_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Reminder>, AppError> {
     let cutoff = now - chrono::Duration::hours(REMINDER_CATCHUP_HOURS);
     let horizon = now + chrono::Duration::hours(1);
@@ -1598,23 +1592,6 @@ pub fn scan_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Remin
                     task_title: candidate.title.clone(),
                     kind,
                     due_at: candidate.due_at,
-                    subtask_id: None,
-                    subtask_title: None,
-                });
-            }
-        }
-    }
-
-    for candidate in reminders::list_subtask_candidates(conn, cutoff, horizon)? {
-        for kind in due_kinds(now, candidate.due_at) {
-            if reminders::mark_subtask_fired(&tx, candidate.id, kind, now)? {
-                fired.push(Reminder {
-                    task_id: candidate.task_id,
-                    task_title: candidate.task_title.clone(),
-                    kind,
-                    due_at: candidate.due_at,
-                    subtask_id: Some(candidate.id),
-                    subtask_title: Some(candidate.title.clone()),
                 });
             }
         }
@@ -1629,8 +1606,7 @@ mod tests {
     use super::*;
     use crate::db;
     use crate::models::{
-        NewSubtask, NewTag, NewTask, StatsGranularity, TimeGroupBy, TimePoint, TimeShare,
-        UpdateTask,
+        NewTag, NewTask, StatsGranularity, TimeGroupBy, TimePoint, TimeShare, UpdateTask,
     };
     use chrono::TimeZone;
     use rusqlite::params;
@@ -1654,6 +1630,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap()
@@ -1673,19 +1650,17 @@ mod tests {
             subtask_titles: Vec::new(),
             repeat_rule: None,
             complexity: None,
+            parent_task_id: None,
         }
     }
 
-    fn make_subtask(conn: &Connection, task_id: Uuid, title: &str) -> Subtask {
-        create_subtask(
+    /// Creates a child of `parent` through the public path.
+    fn make_child(conn: &Connection, parent: &Task, title: &str) -> Task {
+        create_task(
             conn,
-            task_id,
-            NewSubtask {
-                title: title.into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
+            NewTask {
+                parent_task_id: Some(parent.id),
+                ..make_new_task(title)
             },
         )
         .unwrap()
@@ -1693,9 +1668,8 @@ mod tests {
 
     /// One dependency edge, `dependent → prerequisite` (the prerequisite must
     /// be finished first).
-    fn dependency(kind: DependencyKind, dependent_id: Uuid, prerequisite_id: Uuid) -> Dependency {
+    fn dependency(dependent_id: Uuid, prerequisite_id: Uuid) -> Dependency {
         Dependency {
-            kind,
             dependent_id,
             prerequisite_id,
         }
@@ -1747,6 +1721,7 @@ mod tests {
                 subtask_titles: vec!["回归测试".into(), "发布公告".into()],
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap();
@@ -1755,16 +1730,21 @@ mod tests {
         let linked = task_tags::list_tags_for_task(&conn, task.id).unwrap();
         assert_eq!(linked.len(), 1, "duplicate tag ids are deduped");
 
-        let subtasks = subtasks::list_by_task(&conn, task.id).unwrap();
+        let subtasks = tasks::list_by_parent(&conn, task.id).unwrap();
         let titles: Vec<&str> = subtasks.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, vec!["回归测试", "发布公告"]);
         assert!(subtasks[0].sort_order < subtasks[1].sort_order);
 
-        // `task:list` carries each task's tag associations.
+        // `task:list` carries each task's tag associations, children included:
+        // the tree is derived from `parentTaskId` on the frontend.
         let listed = list_tasks(&conn).unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].task.title, "上线检查");
-        assert_eq!(listed[0].tag_ids, vec![tag.id]);
+        assert_eq!(listed.len(), 3, "the task plus its two children");
+        let parent = listed
+            .iter()
+            .find(|entry| entry.task.id == task.id)
+            .expect("the parent is listed");
+        assert_eq!(parent.task.title, "上线检查");
+        assert_eq!(parent.tag_ids, vec![tag.id]);
     }
 
     #[test]
@@ -1783,6 +1763,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap_err();
@@ -1806,15 +1787,16 @@ mod tests {
                 subtask_titles: vec!["不应存在".into()],
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap_err();
         assert_eq!(err.code(), "not_found");
 
-        // Neither the task nor its subtask survived.
+        // Neither the task nor its child survived.
         assert_eq!(tasks::list(&conn).unwrap().len(), 1);
         for task in tasks::list(&conn).unwrap() {
-            assert!(subtasks::list_by_task(&conn, task.id).unwrap().is_empty());
+            assert!(tasks::list_by_parent(&conn, task.id).unwrap().is_empty());
         }
     }
 
@@ -1868,6 +1850,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap();
@@ -1887,6 +1870,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1913,6 +1897,7 @@ mod tests {
                 tag_ids: Some(vec![tag_b.id]),
                 repeat_rule: Patch::Unchanged,
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1937,6 +1922,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap_err();
@@ -1975,6 +1961,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -1998,6 +1985,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
                 complexity: Patch::Set(None),
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2018,6 +2006,7 @@ mod tests {
                     tag_ids: None,
                     repeat_rule: Patch::Unchanged,
                     complexity: Patch::Set(Some(6)),
+                    parent_task_id: Patch::Unchanged,
                 },
             )
             .unwrap_err()
@@ -2113,37 +2102,333 @@ mod tests {
     }
 
     #[test]
+    fn creating_a_child_records_its_parent_and_inherits_the_project() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+        let mut parent = make_new_task("写周报");
+        parent.project_id = Some(project.id);
+        parent.column_id = Some(first_column(&conn, project.id).id);
+        let parent = create_task(&conn, parent).unwrap();
+
+        let child = make_child(&conn, &parent, "收集数据");
+
+        assert_eq!(child.parent_task_id, Some(parent.id));
+        assert_eq!(
+            child.project_id,
+            Some(project.id),
+            "a child follows its parent"
+        );
+        assert_eq!(child.column_id, None, "a child never lands on a board");
+        assert_eq!(child.repeat_rule, None);
+    }
+
+    #[test]
+    fn creating_a_child_records_its_parent_and_stays_off_the_board() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+
+        let child = make_child(&conn, &parent, "收集数据");
+
+        assert_eq!(child.parent_task_id, Some(parent.id));
+        assert_eq!(child.column_id, None, "a child never lands on a board");
+        assert_eq!(child.repeat_rule, None);
+        assert_eq!(
+            child.project_id, parent.project_id,
+            "a child follows its parent"
+        );
+    }
+
+    #[test]
+    fn reorder_task_moves_within_the_siblings() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let first = make_child(&conn, &parent, "一");
+        let second = make_child(&conn, &parent, "二");
+        let third = make_child(&conn, &parent, "三");
+
+        // Move the third before the first: prev = None, next = first's key.
+        let ordered = reorder_task(&conn, third.id, None, Some(first.sort_order.clone())).unwrap();
+
+        let titles: Vec<&str> = ordered.iter().map(|task| task.title.as_str()).collect();
+        assert_eq!(titles, ["三", "一", "二"]);
+        assert_eq!(
+            ordered
+                .iter()
+                .find(|task| task.id == second.id)
+                .unwrap()
+                .sort_order,
+            second.sort_order,
+            "an untouched sibling keeps its key"
+        );
+    }
+
+    // --- sibling scope and the board ------------------------------------------
+
+    #[test]
+    fn a_new_top_level_task_does_not_join_the_children_s_key_range() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        // Column-less top-level task: without `parent_task_id IS NULL` its
+        // append would land inside the children's key range.
+        let loose = make_task(&conn, "随手记");
+
+        assert!(
+            loose.sort_order > child.sort_order,
+            "a top-level task appends after the top-level scale, not the children's"
+        );
+        let siblings = tasks::list_by_parent(&conn, parent.id).unwrap();
+        assert_eq!(siblings.len(), 1, "the new task is not one of the children");
+    }
+
+    #[test]
+    fn creating_a_child_appends_after_its_siblings_only() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let other = make_task(&conn, "别的任务");
+        let first = make_child(&conn, &parent, "一");
+        let second = make_child(&conn, &parent, "二");
+
+        assert!(second.sort_order > first.sort_order);
+        let siblings = tasks::list_by_parent(&conn, parent.id).unwrap();
+        let ids: Vec<Uuid> = siblings.iter().map(|task| task.id).collect();
+        assert_eq!(ids, [first.id, second.id], "only this parent's children");
+        assert!(!ids.contains(&other.id));
+    }
+
+    #[test]
+    fn move_task_rejects_a_child() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+        let column = first_column(&conn, project.id);
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        let error = move_task(&conn, child.id, column.id, None, None).unwrap_err();
+
+        assert_eq!(error.code(), "validation");
+    }
+
+    // --- hierarchy rules ------------------------------------------------------
+
+    /// `UpdateTask` with every field "unchanged", so a test can patch one:
+    /// `UpdateTask { parent_task_id: Patch::Set(Some(id)), ..no_patch() }`.
+    /// `UpdateTask` has no `Default` derive (the `Patch` variants carry the
+    /// intent), so the literal has to be spelled out once, here.
+    fn no_patch() -> UpdateTask {
+        UpdateTask {
+            title: None,
+            note: Patch::Unchanged,
+            priority: None,
+            project_id: Patch::Unchanged,
+            column_id: Patch::Unchanged,
+            due_at: Patch::Unchanged,
+            complexity: Patch::Unchanged,
+            completed_at: Patch::Unchanged,
+            tag_ids: None,
+            repeat_rule: Patch::Unchanged,
+            parent_task_id: Patch::Unchanged,
+        }
+    }
+
+    #[test]
+    fn a_parent_must_be_a_live_top_level_task() {
+        let conn = conn();
+        let grandparent = make_task(&conn, "顶层");
+        let parent = make_child(&conn, &grandparent, "中间的");
+        let loose = make_task(&conn, "孤儿");
+
+        let nested = create_task(
+            &conn,
+            NewTask {
+                parent_task_id: Some(parent.id),
+                ..make_new_task("第三层")
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            nested.code(),
+            "validation",
+            "the hierarchy is one level deep"
+        );
+
+        soft_delete_task(&conn, loose.id).unwrap();
+        let gone = create_task(
+            &conn,
+            NewTask {
+                parent_task_id: Some(loose.id),
+                ..make_new_task("挂在已删任务下")
+            },
+        )
+        .unwrap_err();
+        assert_eq!(gone.code(), "not_found");
+    }
+
+    #[test]
+    fn a_task_cannot_become_its_own_parent() {
+        let conn = conn();
+        let task = make_task(&conn, "写周报");
+
+        let error = update_task(
+            &conn,
+            task.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(task.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), "validation");
+    }
+
+    #[test]
+    fn a_task_with_children_cannot_become_a_child() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        make_child(&conn, &parent, "收集数据");
+        let target = make_task(&conn, "别的任务");
+
+        let error = update_task(
+            &conn,
+            parent.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(target.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.code(),
+            "validation",
+            "one level means a parent has no parent"
+        );
+    }
+
+    #[test]
+    fn re_parenting_a_task_moves_it_into_the_new_parent_s_project() {
+        let conn = conn();
+        let (first_project, second_project) = (make_project(&conn, "A"), make_project(&conn, "B"));
+        let target = make_task_in(&conn, Some(second_project.id), Vec::new(), "目标任务");
+        let mut loose = make_new_task("被拖的");
+        loose.project_id = Some(first_project.id);
+        let loose = create_task(&conn, loose).unwrap();
+
+        let moved = update_task(
+            &conn,
+            loose.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(target.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(moved.parent_task_id, Some(target.id));
+        assert_eq!(
+            moved.project_id,
+            Some(second_project.id),
+            "a child follows its parent"
+        );
+        assert_eq!(moved.column_id, None);
+    }
+
+    #[test]
+    fn completing_a_parent_leaves_its_children_open() {
+        // §9.1: completion does not cascade — a child has its own state and its
+        // own place in the views.
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        complete_task(&conn, parent.id).unwrap();
+
+        let reloaded = tasks::get(&conn, child.id).unwrap().unwrap();
+        assert_eq!(reloaded.completed_at, None);
+        assert_eq!(reloaded.parent_task_id, Some(parent.id));
+    }
+
+    #[test]
+    fn soft_deleting_and_restoring_a_parent_takes_its_children_along() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let first = make_child(&conn, &parent, "一");
+        let second = make_child(&conn, &parent, "二");
+
+        soft_delete_task(&conn, parent.id).unwrap();
+        assert!(tasks::get(&conn, first.id).unwrap().is_none());
+        assert!(tasks::get(&conn, second.id).unwrap().is_none());
+
+        restore_task(&conn, parent.id).unwrap();
+        assert!(tasks::get(&conn, first.id).unwrap().is_some());
+        assert!(tasks::get(&conn, second.id).unwrap().is_some());
+    }
+
+    #[test]
+    fn moving_a_parent_to_another_project_moves_its_children() {
+        let conn = conn();
+        let (first, second) = (make_project(&conn, "A"), make_project(&conn, "B"));
+        let parent = make_task_in(&conn, Some(first.id), Vec::new(), "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        update_task(
+            &conn,
+            parent.id,
+            UpdateTask {
+                project_id: Patch::Set(Some(second.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().project_id,
+            Some(second.id),
+            "a child must not be left behind in the old project"
+        );
+    }
+
+    // --- subtasks as child tasks ----------------------------------------------
+
+    #[test]
     fn subtask_crud_appends_in_order_and_toggles_done() {
         let conn = conn();
         let task = make_task(&conn, "父任务");
-        let first = make_subtask(&conn, task.id, "一");
-        let second = make_subtask(&conn, task.id, "二");
-        let third = make_subtask(&conn, task.id, "三");
-        let list = subtasks::list_by_task(&conn, task.id).unwrap();
+        let first = make_child(&conn, &task, "一");
+        let second = make_child(&conn, &task, "二");
+        let third = make_child(&conn, &task, "三");
+        let list = tasks::list_by_parent(&conn, task.id).unwrap();
         let keys: Vec<&str> = list.iter().map(|s| s.sort_order.as_str()).collect();
         assert_eq!(keys, vec!["n", "o", "p"]);
 
-        let done = complete_subtask(&conn, second.id, true).unwrap();
-        assert!(done.done);
-        let undone = complete_subtask(&conn, second.id, false).unwrap();
-        assert!(!undone.done);
+        // "done" for a child is `completed_at`, exactly like any other task.
+        let done = complete_task(&conn, second.id).unwrap();
+        assert!(done.completed_at.is_some());
+        let undone = update_task(
+            &conn,
+            second.id,
+            UpdateTask {
+                completed_at: Patch::Set(None),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+        assert!(undone.completed_at.is_none());
 
-        delete_subtask(&conn, third.id).unwrap();
-        assert_eq!(subtasks::list_by_task(&conn, task.id).unwrap().len(), 2);
+        soft_delete_task(&conn, third.id).unwrap();
+        assert_eq!(tasks::list_by_parent(&conn, task.id).unwrap().len(), 2);
         assert_eq!(
-            delete_subtask(&conn, third.id).unwrap_err().code(),
+            soft_delete_task(&conn, third.id).unwrap_err().code(),
             "not_found"
         );
 
-        let err = create_subtask(
+        let err = create_task(
             &conn,
-            Uuid::new_v4(),
-            NewSubtask {
-                title: "孤儿".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
+            NewTask {
+                parent_task_id: Some(Uuid::new_v4()),
+                ..make_new_task("孤儿")
             },
         )
         .unwrap_err();
@@ -2157,15 +2442,15 @@ mod tests {
         let task = make_task(&conn, "父任务");
         let due = Utc.with_ymd_and_hms(2026, 9, 20, 9, 0, 0).unwrap();
 
-        let subtask = create_subtask(
+        let subtask = create_task(
             &conn,
-            task.id,
-            NewSubtask {
-                title: "收集数据".into(),
+            NewTask {
                 note: Some("先拉近三个月".into()),
                 priority: Some(Priority::High),
                 due_at: Some(due),
                 complexity: Some(2),
+                parent_task_id: Some(task.id),
+                ..make_new_task("收集数据")
             },
         )
         .unwrap();
@@ -2175,16 +2460,12 @@ mod tests {
         assert_eq!(subtask.complexity, Some(2));
 
         // Missing fields stay, explicit null clears (same Patch rules as tasks).
-        let renamed = update_subtask(
+        let renamed = update_task(
             &conn,
             subtask.id,
-            UpdateSubtask {
+            UpdateTask {
                 title: Some("收集数据 v2".into()),
-                done: None,
-                note: Patch::Unchanged,
-                priority: None,
-                due_at: Patch::Unchanged,
-                complexity: Patch::Unchanged,
+                ..no_patch()
             },
         )
         .unwrap();
@@ -2192,16 +2473,14 @@ mod tests {
         assert_eq!(renamed.note.as_deref(), Some("先拉近三个月"));
         assert_eq!(renamed.complexity, Some(2));
 
-        let cleared = update_subtask(
+        let cleared = update_task(
             &conn,
             subtask.id,
-            UpdateSubtask {
-                title: None,
-                done: None,
+            UpdateTask {
                 note: Patch::Set(None),
-                priority: None,
                 due_at: Patch::Set(None),
                 complexity: Patch::Set(None),
+                ..no_patch()
             },
         )
         .unwrap();
@@ -2211,16 +2490,12 @@ mod tests {
         assert_eq!(cleared.priority, Priority::High, "priority is not nullable");
 
         assert_eq!(
-            update_subtask(
+            update_task(
                 &conn,
                 subtask.id,
-                UpdateSubtask {
-                    title: None,
-                    done: None,
-                    note: Patch::Unchanged,
-                    priority: None,
-                    due_at: Patch::Unchanged,
+                UpdateTask {
                     complexity: Patch::Set(Some(9)),
+                    ..no_patch()
                 },
             )
             .unwrap_err()
@@ -2228,134 +2503,35 @@ mod tests {
             "validation"
         );
 
-        // A subtask created through the bare-title path takes the defaults.
-        let plain = create_subtask(
-            &conn,
-            task.id,
-            NewSubtask {
-                title: "默认值".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
-            },
-        )
-        .unwrap();
+        // A child created through the bare-title path takes the defaults.
+        let plain = make_child(&conn, &task, "默认值");
         assert_eq!(plain.priority, Priority::None);
         assert_eq!(plain.complexity, None);
-    }
-
-    #[test]
-    fn list_all_subtasks_spans_tasks_and_skips_deleted_parents() {
-        let conn = conn();
-        let first = make_task(&conn, "第一个");
-        let second = make_task(&conn, "第二个");
-
-        let a = create_subtask(
-            &conn,
-            first.id,
-            NewSubtask {
-                title: "a".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
-            },
-        )
-        .unwrap();
-        let b = create_subtask(
-            &conn,
-            first.id,
-            NewSubtask {
-                title: "b".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
-            },
-        )
-        .unwrap();
-        let c = create_subtask(
-            &conn,
-            second.id,
-            NewSubtask {
-                title: "c".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
-            },
-        )
-        .unwrap();
-
-        // Soft-deleting a task does not cascade to its subtasks, so the query
-        // has to exclude them by looking at the parent.
-        let doomed = make_task(&conn, "要删的任务");
-        create_subtask(
-            &conn,
-            doomed.id,
-            NewSubtask {
-                title: "陪葬".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
-            },
-        )
-        .unwrap();
-        soft_delete_task(&conn, doomed.id).unwrap();
-
-        let all = list_all_subtasks(&conn).unwrap();
-
-        // Assert per parent, not on one global sequence: the query orders by
-        // `task_id`, which is a UUID, so the two tasks' blocks can arrive in
-        // either order.
-        let titles_of = |task_id: Uuid| -> Vec<String> {
-            all.iter()
-                .filter(|s| s.task_id == task_id)
-                .map(|s| s.title.clone())
-                .collect()
-        };
-        assert_eq!(titles_of(first.id), vec!["a", "b"]);
-        assert_eq!(titles_of(second.id), vec!["c"]);
-        assert_eq!(
-            all.len(),
-            3,
-            "the deleted task's subtask must not be returned"
-        );
-
-        // A soft-deleted subtask disappears too.
-        delete_subtask(&conn, b.id).unwrap();
-        let after = list_all_subtasks(&conn).unwrap();
-        assert_eq!(after.len(), 2);
-        assert!(!after.iter().any(|s| s.id == b.id));
-        assert!(after.iter().any(|s| s.id == c.id));
-        assert!(after.iter().any(|s| s.id == a.id));
     }
 
     #[test]
     fn reorder_subtask_moves_within_the_list() {
         let conn = conn();
         let task = make_task(&conn, "排序");
-        let a = make_subtask(&conn, task.id, "A");
-        let b = make_subtask(&conn, task.id, "B");
-        let c = make_subtask(&conn, task.id, "C");
-        fn titles(list: &[Subtask]) -> Vec<&str> {
+        let a = make_child(&conn, &task, "A");
+        let b = make_child(&conn, &task, "B");
+        let c = make_child(&conn, &task, "C");
+        fn titles(list: &[Task]) -> Vec<&str> {
             list.iter().map(|s| s.title.as_str()).collect()
         }
 
         // Move C to the front (before A).
-        let moved = reorder_subtask(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
+        let moved = reorder_task(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
         assert_eq!(titles(&moved), vec!["C", "A", "B"]);
 
         // Move A to the end (after B) — a one-sided move whose derived
         // next-neighbour is gone, so the key extends past B.
-        let moved = reorder_subtask(&conn, a.id, Some(b.sort_order.clone()), None).unwrap();
+        let moved = reorder_task(&conn, a.id, Some(b.sort_order.clone()), None).unwrap();
         assert_eq!(titles(&moved), vec!["C", "B", "A"]);
 
         // Move C into the middle (after B, before A): the derived pair is
         // tight, so a plain `after(B)` could have collided with A's key.
-        let moved = reorder_subtask(&conn, c.id, Some(b.sort_order.clone()), None).unwrap();
+        let moved = reorder_task(&conn, c.id, Some(b.sort_order.clone()), None).unwrap();
         assert_eq!(titles(&moved), vec!["B", "C", "A"]);
         assert!(
             moved.windows(2).all(|w| w[0].sort_order < w[1].sort_order),
@@ -2367,20 +2543,20 @@ mod tests {
     fn reorder_subtask_rejects_bad_input() {
         let conn = conn();
         let task = make_task(&conn, "校验");
-        let a = make_subtask(&conn, task.id, "A");
+        let a = make_child(&conn, &task, "A");
 
         assert_eq!(
-            reorder_subtask(&conn, a.id, None, None).unwrap_err().code(),
+            reorder_task(&conn, a.id, None, None).unwrap_err().code(),
             "validation"
         );
         assert_eq!(
-            reorder_subtask(&conn, a.id, Some("1x".into()), None)
+            reorder_task(&conn, a.id, Some("1x".into()), None)
                 .unwrap_err()
                 .code(),
             "validation"
         );
         assert_eq!(
-            reorder_subtask(&conn, a.id, Some("z".into()), Some("a".into()))
+            reorder_task(&conn, a.id, Some("z".into()), Some("a".into()))
                 .unwrap_err()
                 .code(),
             "validation"
@@ -2392,40 +2568,21 @@ mod tests {
         let conn = conn();
         let task = make_task(&conn, "耗尽");
         // Neighbours so close that no key fits between them.
-        let a = Subtask {
+        let child = |title: &str, key: &str| Task {
             id: Uuid::new_v4(),
-            task_id: task.id,
-            title: "A".into(),
-            note: None,
-            priority: Priority::None,
-            due_at: None,
-            complexity: None,
-            done: false,
-            sort_order: "a".into(),
-            created_at: task.created_at,
-            updated_at: task.created_at,
-            deleted_at: None,
+            title: title.into(),
+            parent_task_id: Some(task.id),
+            sort_order: key.into(),
+            ..task.clone()
         };
-        let b = Subtask {
-            id: Uuid::new_v4(),
-            task_id: task.id,
-            title: "B".into(),
-            note: None,
-            priority: Priority::None,
-            due_at: None,
-            complexity: None,
-            done: false,
-            sort_order: "aa".into(),
-            created_at: task.created_at,
-            updated_at: task.created_at,
-            deleted_at: None,
-        };
-        let c = make_subtask(&conn, task.id, "C"); // appended normally
-        subtasks::insert(&conn, &a).unwrap();
-        subtasks::insert(&conn, &b).unwrap();
+        let a = child("A", "a");
+        let b = child("B", "aa");
+        let c = make_child(&conn, &task, "C"); // appended normally
+        tasks::insert(&conn, &a).unwrap();
+        tasks::insert(&conn, &b).unwrap();
 
         // between("a", "aa") is exhausted -> the list is rekeyed.
-        let moved = reorder_subtask(&conn, c.id, Some("a".into()), Some("aa".into())).unwrap();
+        let moved = reorder_task(&conn, c.id, Some("a".into()), Some("aa".into())).unwrap();
         let titles: Vec<&str> = moved.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, vec!["A", "C", "B"]);
         assert!(
@@ -2443,24 +2600,16 @@ mod tests {
     fn appending_past_the_length_threshold_rebalances_siblings() {
         let conn = conn();
         let task = make_task(&conn, "超长");
-        let bloated = Subtask {
+        let bloated = Task {
             id: Uuid::new_v4(),
-            task_id: task.id,
-            title: "旧键".into(),
-            note: None,
-            priority: Priority::None,
-            due_at: None,
-            complexity: None,
-            done: false,
+            parent_task_id: Some(task.id),
             sort_order: "z".repeat(MAX_SORT_KEY_LEN + 4),
-            created_at: task.created_at,
-            updated_at: task.created_at,
-            deleted_at: None,
+            ..task.clone()
         };
-        subtasks::insert(&conn, &bloated).unwrap();
+        tasks::insert(&conn, &bloated).unwrap();
 
-        let appended = make_subtask(&conn, task.id, "新键");
-        let all = subtasks::list_by_task(&conn, task.id).unwrap();
+        let appended = make_child(&conn, &task, "新键");
+        let all = tasks::list_by_parent(&conn, task.id).unwrap();
         assert_eq!(all.len(), 2);
         assert!(
             all.iter().map(|s| s.sort_order.len()).max().unwrap() <= 2,
@@ -2525,6 +2674,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap()
@@ -2545,6 +2695,7 @@ mod tests {
             completed_at: None,
             repeat_rule: None,
             complexity: None,
+            parent_task_id: None,
             sort_order: key.into(),
             created_at: now,
             updated_at: now,
@@ -3038,6 +3189,28 @@ mod tests {
         let keys = column_task_keys(&conn, todo.id);
         assert!(keys.windows(2).all(|w| w[0] < w[1]), "keys stay ordered");
         assert_eq!(keys.len(), 3);
+
+        // A child carrying a leftover `column_id` (only raw SQL can produce
+        // one) must stay out of the column's key sequence: `move_task`'s
+        // sibling filter needs `parent_task_id IS NULL` for exactly this row.
+        let parent = make_column_task(&conn, &todo, "父");
+        let child = make_child(&conn, &parent, "子");
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1 WHERE id = ?2",
+            params![todo.id.to_string(), child.id.to_string()],
+        )
+        .unwrap();
+
+        let moved = move_task(&conn, c.id, todo.id, Some(b.sort_order.clone()), None).unwrap();
+        assert!(
+            moved.sort_order > b.sort_order,
+            "the moved card ignores the stray child's key"
+        );
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().sort_order,
+            child.sort_order,
+            "the child's key is never rebalanced by a column move"
+        );
     }
 
     #[test]
@@ -3147,6 +3320,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Unchanged,
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -3286,6 +3460,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap()
@@ -3366,93 +3541,77 @@ mod tests {
     }
 
     #[test]
-    fn subtask_due_dates_fire_their_own_reminders() {
+    fn child_due_dates_fire_their_own_reminders() {
         let conn = conn();
-        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
-        let due = base + chrono::Duration::hours(2);
-        let task = make_due_task(&conn, "父任务", due);
-        let subtask = create_subtask(
+        let parent = make_task(&conn, "写周报");
+        let due = Utc.with_ymd_and_hms(2026, 9, 9, 12, 0, 0).unwrap();
+        let child = create_task(
             &conn,
-            task.id,
-            NewSubtask {
-                title: "收集数据".into(),
-                note: None,
-                priority: None,
+            NewTask {
+                parent_task_id: Some(parent.id),
                 due_at: Some(due),
-                complexity: None,
+                ..make_new_task("收集数据")
             },
         )
         .unwrap();
 
-        let fired = scan_reminders(&conn, due - chrono::Duration::hours(1)).unwrap();
-        // The task's own 1-hour reminder plus the subtask's.
-        assert_eq!(fired.len(), 2);
-        let subtask_hit = fired
-            .iter()
-            .find(|reminder| reminder.subtask_id == Some(subtask.id))
-            .expect("the subtask reminder must fire");
-        assert_eq!(subtask_hit.task_id, task.id, "taskId stays the parent");
-        assert_eq!(subtask_hit.task_title, "父任务");
-        assert_eq!(subtask_hit.subtask_title.as_deref(), Some("收集数据"));
+        let fired = scan_reminders(&conn, due - chrono::Duration::minutes(60)).unwrap();
 
-        // The next scan fires the *next* kind, not the 1-hour one again: the
-        // marker table dedups per (subtask, kind).
-        let later_scan = scan_reminders(&conn, due - chrono::Duration::minutes(5)).unwrap();
-        let repeats: Vec<&Reminder> = later_scan
+        let mine = fired
             .iter()
-            .filter(|reminder| reminder.subtask_id == Some(subtask.id))
-            .collect();
-        assert_eq!(repeats.len(), 1);
-        assert_eq!(repeats[0].kind, ReminderKind::Advance10m);
-        let later = base + chrono::Duration::hours(5);
-        let second = make_due_task(&conn, "第二个父任务", later);
-        let pending = create_subtask(
+            .find(|reminder| reminder.task_id == child.id)
+            .unwrap();
+        assert_eq!(
+            mine.task_title, "收集数据",
+            "the reminder names the child itself"
+        );
+        assert!(fired.iter().all(|reminder| reminder.task_id != parent.id));
+    }
+
+    #[test]
+    fn completing_the_parent_no_longer_silences_its_children() {
+        // Replaces `completing_the_parent_stops_its_subtask_reminders` (§9.3).
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let due = Utc.with_ymd_and_hms(2026, 9, 9, 12, 0, 0).unwrap();
+        let child = create_task(
             &conn,
-            second.id,
-            NewSubtask {
-                title: "写结论".into(),
-                note: None,
-                priority: None,
-                due_at: Some(later),
-                complexity: None,
+            NewTask {
+                parent_task_id: Some(parent.id),
+                due_at: Some(due),
+                ..make_new_task("收集数据")
             },
         )
         .unwrap();
-        complete_subtask(&conn, pending.id, true).unwrap();
+
+        complete_task(&conn, parent.id).unwrap();
+        let fired = scan_reminders(&conn, due - chrono::Duration::minutes(60)).unwrap();
+
         assert!(
-            scan_reminders(&conn, later - chrono::Duration::minutes(5))
-                .unwrap()
-                .iter()
-                .all(|reminder| reminder.subtask_id != Some(pending.id)),
-            "a done subtask must not remind"
+            fired.iter().any(|reminder| reminder.task_id == child.id),
+            "a child keeps its own schedule (§9.3)"
         );
     }
 
     #[test]
-    fn completing_the_parent_stops_its_subtask_reminders() {
+    fn a_soft_deleted_parent_takes_its_children_out_of_the_scan() {
         let conn = conn();
-        let base = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
-        let due = base + chrono::Duration::hours(2);
-        let task = make_due_task(&conn, "父任务", due);
-        create_subtask(
+        let parent = make_task(&conn, "写周报");
+        let due = Utc.with_ymd_and_hms(2026, 9, 9, 12, 0, 0).unwrap();
+        let child = create_task(
             &conn,
-            task.id,
-            NewSubtask {
-                title: "子任务".into(),
-                note: None,
-                priority: None,
+            NewTask {
+                parent_task_id: Some(parent.id),
                 due_at: Some(due),
-                complexity: None,
+                ..make_new_task("收集数据")
             },
         )
         .unwrap();
-        complete_task(&conn, task.id).unwrap();
 
-        let fired = scan_reminders(&conn, due - chrono::Duration::hours(1)).unwrap();
-        assert!(
-            fired.iter().all(|reminder| reminder.subtask_id.is_none()),
-            "a completed parent task silences its subtasks"
-        );
+        soft_delete_task(&conn, parent.id).unwrap();
+        let fired = scan_reminders(&conn, due - chrono::Duration::minutes(60)).unwrap();
+
+        assert!(fired.iter().all(|reminder| reminder.task_id != child.id));
     }
 
     #[test]
@@ -3576,6 +3735,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: Some(zero_interval),
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap_err();
@@ -3601,6 +3761,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Set(Some(rule)),
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -3625,6 +3786,7 @@ mod tests {
                     paused: false,
                 })),
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap_err();
@@ -3645,6 +3807,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Set(None),
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -3682,6 +3845,7 @@ mod tests {
                 subtask_titles: vec!["套新垃圾袋".into()],
                 repeat_rule: Some(rule),
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap();
@@ -3690,8 +3854,16 @@ mod tests {
         assert!(completed.completed_at.is_some());
 
         // The next instance carries everything over, uncompleted and due one
-        // period later, placed after the completed original.
-        let listed = tasks::list(&conn).unwrap();
+        // period later, placed after the completed original. Only top-level
+        // rows count here: the copied child is a task row of its own.
+        let top_level = |conn: &Connection| -> Vec<Task> {
+            tasks::list(conn)
+                .unwrap()
+                .into_iter()
+                .filter(|task| task.parent_task_id.is_none())
+                .collect()
+        };
+        let listed = top_level(&conn);
         assert_eq!(listed.len(), 2);
         let next = &listed[1];
         assert_eq!(next.title, "倒垃圾");
@@ -3706,15 +3878,15 @@ mod tests {
             .map(|tag| tag.id)
             .collect();
         assert_eq!(next_tag_ids, vec![tag.id]);
-        let next_subtasks = subtasks::list_by_task(&conn, next.id).unwrap();
+        let next_subtasks = tasks::list_by_parent(&conn, next.id).unwrap();
         assert_eq!(next_subtasks.len(), 1);
-        assert!(!next_subtasks[0].done);
+        assert_eq!(next_subtasks[0].completed_at, None);
         assert_eq!(next_subtasks[0].title, "套新垃圾袋");
 
         // Completing the instance spawns the following one; every completed
         // generation stays completed (original + first instance).
         complete_task(&conn, next.id).unwrap();
-        let listed = tasks::list(&conn).unwrap();
+        let listed = top_level(&conn);
         assert_eq!(listed.len(), 3);
         assert_eq!(listed[2].due_at, Some(due + chrono::Duration::days(2)));
         assert_eq!(completed_task_count(&conn), 2);
@@ -3738,19 +3910,19 @@ mod tests {
             },
         )
         .unwrap();
-        let subtask = create_subtask(
+        let subtask = create_task(
             &conn,
-            task.id,
-            NewSubtask {
-                title: "整理指标".into(),
+            NewTask {
                 note: Some("看漏斗".into()),
                 priority: Some(Priority::Low),
                 due_at: Some(due),
                 complexity: Some(3),
+                parent_task_id: Some(task.id),
+                ..make_new_task("整理指标")
             },
         )
         .unwrap();
-        complete_subtask(&conn, subtask.id, true).unwrap();
+        complete_task(&conn, subtask.id).unwrap();
 
         let next = complete_task(&conn, task.id).unwrap();
         assert!(next.completed_at.is_some());
@@ -3758,7 +3930,9 @@ mod tests {
         let spawned = list_tasks(&conn)
             .unwrap()
             .into_iter()
-            .find(|candidate| candidate.task.id != task.id)
+            .find(|candidate| {
+                candidate.task.parent_task_id.is_none() && candidate.task.id != task.id
+            })
             .expect("the repeat instance must exist")
             .task;
         assert_eq!(
@@ -3766,12 +3940,19 @@ mod tests {
             Some(4),
             "a repeat instance keeps the task's complexity"
         );
-        let copied = list_subtasks(&conn, spawned.id).unwrap();
+        assert_eq!(
+            spawned.parent_task_id, task.parent_task_id,
+            "§9.5: a repeat instance inherits its parent link"
+        );
+        let copied = tasks::list_by_parent(&conn, spawned.id).unwrap();
         assert_eq!(copied.len(), 1);
         assert_eq!(copied[0].note.as_deref(), Some("看漏斗"));
         assert_eq!(copied[0].priority, Priority::Low);
         assert_eq!(copied[0].complexity, Some(3));
-        assert!(!copied[0].done, "a fresh instance starts uncompleted");
+        assert_eq!(
+            copied[0].completed_at, None,
+            "a fresh instance starts uncompleted"
+        );
         assert_eq!(
             copied[0].due_at,
             Some(due + chrono::Duration::weeks(1)),
@@ -3821,6 +4002,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Set(Some(active_rule)),
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -3843,6 +4025,7 @@ mod tests {
                 tag_ids: None,
                 repeat_rule: Patch::Set(Some(active_rule)),
                 complexity: Patch::Unchanged,
+                parent_task_id: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -3871,6 +4054,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: Some(rule),
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap()
@@ -3901,6 +4085,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: Some(rule),
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap();
@@ -4076,6 +4261,7 @@ mod tests {
                 subtask_titles: Vec::new(),
                 repeat_rule: None,
                 complexity: None,
+                parent_task_id: None,
             },
         )
         .unwrap()
@@ -4482,18 +4668,18 @@ mod tests {
             params![column.id.to_string(), at(30, 9), task.id.to_string()],
         )
         .unwrap();
-        create_subtask(
+        let child = create_task(
             conn,
-            task.id,
-            NewSubtask {
-                title: "第一步".into(),
-                note: None,
-                priority: None,
-                due_at: None,
-                complexity: None,
+            NewTask {
+                parent_task_id: Some(task.id),
+                ..make_new_task("第一步")
             },
         )
         .unwrap();
+        // The child follows the parent's project; the task above gets its
+        // `column_id` by raw SQL, so mirror that on the child's parent link
+        // only — a child never lands on a board.
+        assert_eq!(child.column_id, None);
         create_comment(
             conn,
             task.id,
@@ -4537,22 +4723,30 @@ mod tests {
                 exported.counts.time_entries,
                 exported.counts.settings,
             ),
-            (1, 1, 3, 2, 1, 1, 1, 1, 1)
+            // `tasks` counts every task row (children included), `subtasks`
+            // only the child rows among them.
+            (1, 1, 3, 3, 1, 1, 1, 1, 1)
         );
 
         // Restoring into a database that never saw the data reproduces it all,
         // soft-deleted rows included.
         let restored = db::test_conn();
         let summary = import_backup(&restored, &path).unwrap();
-        assert_eq!(summary.counts.tasks, 2);
+        assert_eq!(summary.counts.tasks, 3);
+        assert_eq!(summary.counts.subtasks, 1);
         assert_eq!(summary.exported_at, exported.exported_at);
-        let after = backup::export_all(&restored).unwrap();
-        assert_eq!(after, before, "every table survives a backup round trip");
+        let mut after = backup::export_all(&restored).unwrap();
+        let mut expected = before.clone();
+        // The importer writes parents before children, so `tasks` comes back in
+        // a different array order; compare by content, not by rowid order.
+        after.tasks.sort_by_key(|task| task.id);
+        expected.tasks.sort_by_key(|task| task.id);
+        assert_eq!(after, expected, "every table survives a backup round trip");
         assert_eq!(
             tasks::get(&restored, task.id).unwrap().unwrap().priority,
             Priority::High
         );
-        assert_eq!(subtasks::list_by_task(&restored, task.id).unwrap().len(), 1);
+        assert_eq!(tasks::list_by_parent(&restored, task.id).unwrap().len(), 1);
         assert_eq!(list_comments(&restored, task.id).unwrap().len(), 1);
         assert_eq!(list_time_entries(&restored, task.id).unwrap().len(), 1);
         assert_eq!(
@@ -4578,8 +4772,10 @@ mod tests {
         // and therefore stays out of the live list.
         make_task(&restored, "导入之后新增的");
         import_backup(&restored, &path).unwrap();
-        assert_eq!(tasks::list(&restored).unwrap().len(), 1);
-        assert_eq!(backup::export_all(&restored).unwrap().tasks.len(), 2);
+        // Live rows: the task and its child. The soft-deleted row stayed
+        // deleted, so the restore brought back nothing extra.
+        assert_eq!(tasks::list(&restored).unwrap().len(), 2);
+        assert_eq!(backup::export_all(&restored).unwrap().tasks.len(), 3);
         assert_eq!(
             projects::get(&restored, before.projects[0].id)
                 .unwrap()
@@ -4596,42 +4792,36 @@ mod tests {
         let conn = conn();
         let a = make_task(&conn, "A");
         let b = make_task(&conn, "B");
-        let first = make_subtask(&conn, a.id, "1");
-        let second = make_subtask(&conn, a.id, "2");
-        add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
-        add_dependency(
-            &conn,
-            dependency(DependencyKind::Subtask, first.id, second.id),
-        )
-        .unwrap();
+        let first = make_child(&conn, &a, "1");
+        let second = make_child(&conn, &a, "2");
+        add_dependency(&conn, dependency(a.id, b.id)).unwrap();
+        add_dependency(&conn, dependency(first.id, second.id)).unwrap();
 
         let path = backup_path();
         export_backup(&conn, &path).unwrap();
 
         // Wiping the edges (rather than the whole database) keeps this test
         // focused: the import has to restore them from the document.
-        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
-        remove_dependency(
-            &conn,
-            dependency(DependencyKind::Subtask, first.id, second.id),
-        )
-        .unwrap();
+        remove_dependency(&conn, dependency(a.id, b.id)).unwrap();
+        remove_dependency(&conn, dependency(first.id, second.id)).unwrap();
         assert!(list_dependencies(&conn).unwrap().is_empty());
 
         import_backup(&conn, &path).unwrap();
         let restored = list_dependencies(&conn).unwrap();
         assert_eq!(restored.len(), 2);
+        // Both edge sets of V4 are one set now: top-level tasks and children
+        // travel through the same table.
         assert!(restored
             .iter()
-            .any(|edge| edge.kind == DependencyKind::Task));
+            .any(|edge| edge.dependent_id == a.id && edge.prerequisite_id == b.id));
         assert!(restored
             .iter()
-            .any(|edge| edge.kind == DependencyKind::Subtask));
+            .any(|edge| edge.dependent_id == first.id && edge.prerequisite_id == second.id));
 
         // A second import replaces rather than merges — the edge tables
         // included, so an edge added after the restore does not survive it.
         let extra = make_task(&conn, "C");
-        add_dependency(&conn, dependency(DependencyKind::Task, a.id, extra.id)).unwrap();
+        add_dependency(&conn, dependency(a.id, extra.id)).unwrap();
         import_backup(&conn, &path).unwrap();
         assert_eq!(list_dependencies(&conn).unwrap().len(), 2);
 
@@ -4641,7 +4831,7 @@ mod tests {
         soft_delete_task(&conn, b.id).unwrap();
         assert_eq!(list_dependencies(&conn).unwrap().len(), 1);
         export_backup(&conn, &path).unwrap();
-        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        remove_dependency(&conn, dependency(a.id, b.id)).unwrap();
         import_backup(&conn, &path).unwrap();
 
         // Restoring the endpoint brings the relation back, which only works
@@ -4798,23 +4988,31 @@ mod tests {
         let path = backup_path();
         export_backup(&conn, &path).unwrap();
 
-        // A backup written before subtasks carried attributes: the four keys
-        // are simply absent from the document.
+        // Rebuild a pre-V7 document from the export: the child row moves back
+        // out of `tasks` into `subtasks`, with the four attribute columns V4
+        // introduced simply absent — exactly what an old file looks like.
         let mut document: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let subtasks = document["data"]["subtasks"].as_array_mut().unwrap();
-        assert_eq!(subtasks.len(), 1);
-        for subtask in subtasks {
-            let object = subtask.as_object_mut().unwrap();
-            for key in ["note", "priority", "dueAt", "complexity"] {
-                assert!(object.remove(key).is_some(), "{key} was in the export");
-            }
+        let tasks = document["data"]["tasks"].as_array_mut().unwrap();
+        let child_index = tasks
+            .iter()
+            .position(|task| !task["parentTaskId"].is_null())
+            .expect("the export carries the child as a task row");
+        let mut legacy = tasks.remove(child_index);
+        let object = legacy.as_object_mut().unwrap();
+        let parent_id = object
+            .remove("parentTaskId")
+            .expect("the child's parent link");
+        object.insert("taskId".into(), parent_id);
+        for key in ["note", "priority", "dueAt", "complexity"] {
+            assert!(object.remove(key).is_some(), "{key} was in the export");
         }
+        document["data"]["subtasks"] = serde_json::json!([legacy]);
         std::fs::write(&path, serde_json::to_string(&document).unwrap()).unwrap();
 
         let restored = db::test_conn();
         import_backup(&restored, &path).unwrap();
-        let imported = subtasks::list_by_task(&restored, task.id).unwrap();
+        let imported = tasks::list_by_parent(&restored, task.id).unwrap();
         assert_eq!(imported.len(), 1);
         assert_eq!(
             imported[0].priority,
@@ -4823,6 +5021,10 @@ mod tests {
         );
         assert_eq!(imported[0].note, None);
         assert_eq!(imported[0].complexity, None);
+        assert_eq!(
+            imported[0].completed_at, None,
+            "an absent `done` means not done"
+        );
 
         std::fs::remove_file(&path).unwrap();
     }
@@ -4875,10 +5077,10 @@ mod tests {
         let a = make_task(&conn, "A");
         let b = make_task(&conn, "B");
 
-        let edge = add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        let edge = add_dependency(&conn, dependency(a.id, b.id)).unwrap();
         assert_eq!(edge.prerequisite_id, b.id);
         // Adding the same edge twice is a no-op, not an error.
-        add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        add_dependency(&conn, dependency(a.id, b.id)).unwrap();
         assert_eq!(list_dependencies(&conn).unwrap().len(), 1);
 
         // Soft-deleting the prerequisite hides the edge (A is no longer blocked)
@@ -4889,8 +5091,8 @@ mod tests {
         assert_eq!(list_dependencies(&conn).unwrap().len(), 1);
 
         // Removing is idempotent too.
-        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
-        remove_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
+        remove_dependency(&conn, dependency(a.id, b.id)).unwrap();
+        remove_dependency(&conn, dependency(a.id, b.id)).unwrap();
         assert!(list_dependencies(&conn).unwrap().is_empty());
     }
 
@@ -4902,59 +5104,48 @@ mod tests {
         let c = make_task(&conn, "C");
 
         // A → B → C, then C → A would close a three-node cycle.
-        add_dependency(&conn, dependency(DependencyKind::Task, a.id, b.id)).unwrap();
-        add_dependency(&conn, dependency(DependencyKind::Task, b.id, c.id)).unwrap();
+        add_dependency(&conn, dependency(a.id, b.id)).unwrap();
+        add_dependency(&conn, dependency(b.id, c.id)).unwrap();
         assert_eq!(
-            add_dependency(&conn, dependency(DependencyKind::Task, c.id, a.id))
+            add_dependency(&conn, dependency(c.id, a.id))
                 .unwrap_err()
                 .code(),
             "validation"
         );
         assert_eq!(
-            add_dependency(&conn, dependency(DependencyKind::Task, a.id, a.id))
+            add_dependency(&conn, dependency(a.id, a.id))
                 .unwrap_err()
                 .code(),
             "validation"
         );
         assert_eq!(
-            add_dependency(
-                &conn,
-                dependency(DependencyKind::Task, a.id, Uuid::new_v4())
-            )
-            .unwrap_err()
-            .code(),
+            add_dependency(&conn, dependency(a.id, Uuid::new_v4()))
+                .unwrap_err()
+                .code(),
             "not_found"
         );
 
-        // Subtask edges must stay inside one parent task.
+        // Both endpoints must share a parent task; `NULL` counts as a value,
+        // so the three top-level tasks above are already one sibling set.
         let other = make_task(&conn, "D");
-        let first = make_subtask(&conn, a.id, "1");
-        let second = make_subtask(&conn, a.id, "2");
-        let foreign = make_subtask(&conn, other.id, "x");
-        add_dependency(
-            &conn,
-            dependency(DependencyKind::Subtask, first.id, second.id),
-        )
-        .unwrap();
+        let first = make_child(&conn, &a, "1");
+        let second = make_child(&conn, &a, "2");
+        let foreign = make_child(&conn, &other, "x");
+        add_dependency(&conn, dependency(first.id, second.id)).unwrap();
         assert_eq!(
-            add_dependency(
-                &conn,
-                dependency(DependencyKind::Subtask, first.id, foreign.id)
-            )
-            .unwrap_err()
-            .code(),
-            "validation"
+            add_dependency(&conn, dependency(first.id, foreign.id))
+                .unwrap_err()
+                .code(),
+            "validation",
+            "children of different parents are not siblings"
         );
-        // A subtask edge does not leak into the task graph.
+        // A child edge and a top-level edge are the same kind of row now:
+        // A → B, B → C and first → second.
         assert_eq!(list_dependencies(&conn).unwrap().len(), 3);
-        assert_eq!(
-            list_dependencies(&conn)
-                .unwrap()
-                .iter()
-                .filter(|edge| edge.kind == DependencyKind::Subtask)
-                .count(),
-            1
-        );
+        assert!(list_dependencies(&conn)
+            .unwrap()
+            .iter()
+            .any(|edge| edge.dependent_id == first.id && edge.prerequisite_id == second.id));
     }
 
     #[test]
@@ -4976,20 +5167,12 @@ mod tests {
         .unwrap();
         let prerequisite = make_task(&conn, "准备数据");
 
-        add_dependency(
-            &conn,
-            dependency(DependencyKind::Task, repeating.id, prerequisite.id),
-        )
-        .unwrap();
-        // A subtask edge too: a copied subtask would otherwise drag an edge
-        // along that points at the previous instance's rows.
-        let first = make_subtask(&conn, repeating.id, "1");
-        let second = make_subtask(&conn, repeating.id, "2");
-        add_dependency(
-            &conn,
-            dependency(DependencyKind::Subtask, first.id, second.id),
-        )
-        .unwrap();
+        add_dependency(&conn, dependency(repeating.id, prerequisite.id)).unwrap();
+        // A child edge too: a copied child would otherwise drag an edge along
+        // that points at the previous instance's rows.
+        let first = make_child(&conn, &repeating, "1");
+        let second = make_child(&conn, &repeating, "2");
+        add_dependency(&conn, dependency(first.id, second.id)).unwrap();
 
         complete_task(&conn, repeating.id).unwrap();
 
@@ -5004,12 +5187,12 @@ mod tests {
             .task;
         let mut instance = vec![spawned.id];
         instance.extend(
-            list_subtasks(&conn, spawned.id)
+            tasks::list_by_parent(&conn, spawned.id)
                 .unwrap()
                 .iter()
-                .map(|subtask| subtask.id),
+                .map(|child| child.id),
         );
-        assert_eq!(instance.len(), 3, "the instance carries both subtasks");
+        assert_eq!(instance.len(), 3, "the instance carries both children");
 
         let edges = list_dependencies(&conn).unwrap();
         assert!(

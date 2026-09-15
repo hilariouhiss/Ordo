@@ -15,16 +15,14 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, Dependency, DependencyKind, Namespace, Priority, Project, ProjectStatus,
-    ReminderKind, RepeatRule, Setting, Subtask, Tag, Task, TimeEntry,
+    BoardColumn, Comment, Dependency, Namespace, Priority, Project, ProjectStatus, ReminderKind,
+    RepeatRule, Setting, Tag, Task, TimeEntry,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
-                            completed_at, repeat_rule, complexity, sort_order, created_at, \
-                            updated_at, deleted_at";
+                            completed_at, repeat_rule, complexity, parent_task_id, sort_order, \
+                            created_at, updated_at, deleted_at";
 const TAG_COLUMNS: &str = "id, name, color, created_at, updated_at, deleted_at";
-const SUBTASK_COLUMNS: &str = "id, task_id, title, note, priority, due_at, complexity, done, \
-                               sort_order, created_at, updated_at, deleted_at";
 const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id, status, \
                                sort_order, created_at, updated_at, deleted_at";
 const NAMESPACE_COLUMNS: &str = "id, name, description, color, icon, status, sort_order, \
@@ -134,6 +132,10 @@ fn task_from_row(row: &Row<'_>) -> Result<Task, AppError> {
         completed_at: row.get("completed_at")?,
         repeat_rule: repeat_rule_from_json(row.get("repeat_rule")?)?,
         complexity: row.get("complexity")?,
+        parent_task_id: row
+            .get::<_, Option<String>>("parent_task_id")?
+            .map(parse_uuid)
+            .transpose()?,
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -146,24 +148,6 @@ fn tag_from_row(row: &Row<'_>) -> Result<Tag, AppError> {
         id: parse_uuid(row.get("id")?)?,
         name: row.get("name")?,
         color: row.get("color")?,
-        created_at: row.get("created_at")?,
-        updated_at: row.get("updated_at")?,
-        deleted_at: row.get("deleted_at")?,
-    })
-}
-
-fn subtask_from_row(row: &Row<'_>) -> Result<Subtask, AppError> {
-    let priority_text: String = row.get("priority")?;
-    Ok(Subtask {
-        id: parse_uuid(row.get("id")?)?,
-        task_id: parse_uuid(row.get("task_id")?)?,
-        title: row.get("title")?,
-        note: row.get("note")?,
-        priority: priority_from_text(&priority_text)?,
-        due_at: row.get("due_at")?,
-        complexity: row.get("complexity")?,
-        done: row.get("done")?,
-        sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         deleted_at: row.get("deleted_at")?,
@@ -258,9 +242,9 @@ pub mod tasks {
     pub fn insert(conn: &Connection, task: &Task) -> Result<(), AppError> {
         conn.execute(
             "INSERT INTO tasks (id, project_id, title, note, priority, column_id, due_at, \
-             completed_at, repeat_rule, complexity, sort_order, created_at, updated_at, \
-             deleted_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             completed_at, repeat_rule, complexity, parent_task_id, sort_order, created_at, \
+             updated_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 task.id.to_string(),
                 task.project_id.map(|id| id.to_string()),
@@ -272,6 +256,7 @@ pub mod tasks {
                 task.completed_at,
                 repeat_rule_as_json(task.repeat_rule.as_ref())?,
                 task.complexity,
+                task.parent_task_id.map(|id| id.to_string()),
                 task.sort_order,
                 task.created_at,
                 task.updated_at,
@@ -304,13 +289,54 @@ pub mod tasks {
         )
     }
 
+    /// A parent's children in `sort_order`; live rows only.
+    pub fn list_by_parent(conn: &Connection, parent_id: Uuid) -> Result<Vec<Task>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {TASK_COLUMNS} FROM tasks \
+                 WHERE parent_task_id = ?1 AND deleted_at IS NULL \
+                 ORDER BY sort_order, created_at, id"
+            ),
+            params![parent_id.to_string()],
+            task_from_row,
+        )
+    }
+
+    /// Soft-deletes or restores every child of `parent_id`; returns the count.
+    ///
+    /// Keyed on the transition (`deleted`) rather than a timestamp: a child is
+    /// only reachable through its parent, so restoring the parent brings back
+    /// every child the delete hid — including one deleted on its own first.
+    pub fn set_children_deleted(
+        conn: &Connection,
+        parent_id: Uuid,
+        at: DateTime<Utc>,
+        deleted: bool,
+    ) -> Result<usize, AppError> {
+        let affected = if deleted {
+            conn.execute(
+                "UPDATE tasks SET deleted_at = ?1, updated_at = ?1 \
+                 WHERE parent_task_id = ?2 AND deleted_at IS NULL",
+                params![at, parent_id.to_string()],
+            )?
+        } else {
+            conn.execute(
+                "UPDATE tasks SET deleted_at = NULL, updated_at = ?1 \
+                 WHERE parent_task_id = ?2 AND deleted_at IS NOT NULL",
+                params![at, parent_id.to_string()],
+            )?
+        };
+        Ok(affected)
+    }
+
     /// Full-row update; returns false when the task is missing or soft-deleted.
     pub fn update(conn: &Connection, task: &Task) -> Result<bool, AppError> {
         let affected = conn.execute(
             "UPDATE tasks SET project_id = ?1, title = ?2, note = ?3, priority = ?4, \
              column_id = ?5, due_at = ?6, completed_at = ?7, repeat_rule = ?8, \
-             complexity = ?9, sort_order = ?10, updated_at = ?11 \
-             WHERE id = ?12 AND deleted_at IS NULL",
+             complexity = ?9, parent_task_id = ?10, sort_order = ?11, updated_at = ?12 \
+             WHERE id = ?13 AND deleted_at IS NULL",
             params![
                 task.project_id.map(|id| id.to_string()),
                 task.title,
@@ -321,6 +347,7 @@ pub mod tasks {
                 task.completed_at,
                 repeat_rule_as_json(task.repeat_rule.as_ref())?,
                 task.complexity,
+                task.parent_task_id.map(|id| id.to_string()),
                 task.sort_order,
                 task.updated_at,
                 task.id.to_string(),
@@ -446,127 +473,6 @@ pub mod tags {
             "UPDATE tags SET deleted_at = ?1, updated_at = ?1 \
              WHERE id = ?2 AND deleted_at IS NULL",
             params![at, id.to_string()],
-        )?;
-        Ok(affected == 1)
-    }
-}
-
-/// Subtask CRUD (`subtasks` table), always scoped to a parent task.
-pub mod subtasks {
-    use super::*;
-
-    pub fn insert(conn: &Connection, subtask: &Subtask) -> Result<(), AppError> {
-        conn.execute(
-            "INSERT INTO subtasks (id, task_id, title, note, priority, due_at, complexity, done, \
-             sort_order, created_at, updated_at, deleted_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                subtask.id.to_string(),
-                subtask.task_id.to_string(),
-                subtask.title,
-                subtask.note,
-                priority_as_text(subtask.priority),
-                subtask.due_at,
-                subtask.complexity,
-                subtask.done,
-                subtask.sort_order,
-                subtask.created_at,
-                subtask.updated_at,
-                subtask.deleted_at,
-            ],
-        )?;
-        Ok(())
-    }
-
-    pub fn get(conn: &Connection, id: Uuid) -> Result<Option<Subtask>, AppError> {
-        query_one(
-            conn,
-            &format!("SELECT {SUBTASK_COLUMNS} FROM subtasks WHERE id = ?1 AND deleted_at IS NULL"),
-            params![id.to_string()],
-            subtask_from_row,
-        )
-    }
-
-    /// Non-deleted subtasks of one task, ordered by `sort_order`.
-    pub fn list_by_task(conn: &Connection, task_id: Uuid) -> Result<Vec<Subtask>, AppError> {
-        query_all(
-            conn,
-            &format!(
-                "SELECT {SUBTASK_COLUMNS} FROM subtasks \
-                 WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY sort_order, created_at, id"
-            ),
-            params![task_id.to_string()],
-            subtask_from_row,
-        )
-    }
-
-    /// Every live subtask of every live task, for the eager load behind the
-    /// hierarchical task list.
-    ///
-    /// `IN (SELECT ...)` rather than `JOIN tasks`: `SUBTASK_COLUMNS` has no
-    /// table prefix, so a join would make its `id` and `deleted_at` ambiguous
-    /// against `tasks` and force a second, prefixed copy of the column list.
-    /// `tasks.id` is the primary key, so the subquery is an index lookup.
-    ///
-    /// The parent check is load-bearing: `soft_delete_task` does not cascade,
-    /// so without it a deleted task's subtasks would ride along in every load
-    /// forever, growing without bound as tasks are deleted.
-    pub fn list_all(conn: &Connection) -> Result<Vec<Subtask>, AppError> {
-        query_all(
-            conn,
-            &format!(
-                "SELECT {SUBTASK_COLUMNS} FROM subtasks \
-                 WHERE deleted_at IS NULL \
-                   AND task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
-                 ORDER BY task_id, sort_order, created_at, id"
-            ),
-            &[],
-            subtask_from_row,
-        )
-    }
-
-    /// Full-row update; returns false when the subtask is missing or
-    /// soft-deleted.
-    pub fn update(conn: &Connection, subtask: &Subtask) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "UPDATE subtasks SET title = ?1, note = ?2, priority = ?3, due_at = ?4, \
-             complexity = ?5, done = ?6, sort_order = ?7, updated_at = ?8 \
-             WHERE id = ?9 AND deleted_at IS NULL",
-            params![
-                subtask.title,
-                subtask.note,
-                priority_as_text(subtask.priority),
-                subtask.due_at,
-                subtask.complexity,
-                subtask.done,
-                subtask.sort_order,
-                subtask.updated_at,
-                subtask.id.to_string(),
-            ],
-        )?;
-        Ok(affected == 1)
-    }
-
-    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "UPDATE subtasks SET deleted_at = ?1, updated_at = ?1 \
-             WHERE id = ?2 AND deleted_at IS NULL",
-            params![at, id.to_string()],
-        )?;
-        Ok(affected == 1)
-    }
-
-    /// Targeted `sort_order` write used by service-level rebalances.
-    pub fn set_sort_order(
-        conn: &Connection,
-        id: Uuid,
-        sort_order: &str,
-        at: DateTime<Utc>,
-    ) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "UPDATE subtasks SET sort_order = ?1, updated_at = ?2 \
-             WHERE id = ?3 AND deleted_at IS NULL",
-            params![sort_order, at, id.to_string()],
         )?;
         Ok(affected == 1)
     }
@@ -1511,7 +1417,10 @@ pub mod backup {
             )?,
             tags: all_rows(conn, "tags", TAG_COLUMNS, tag_from_row)?,
             tasks: all_rows(conn, "tasks", TASK_COLUMNS, task_from_row)?,
-            subtasks: all_rows(conn, "subtasks", SUBTASK_COLUMNS, subtask_from_row)?,
+            // Written empty on purpose: children are already in `tasks`. The
+            // field survives only so pre-V7 documents still have somewhere to
+            // land on import (R7c).
+            subtasks: Vec::new(),
             task_tags: query_all(
                 conn,
                 "SELECT task_id, tag_id FROM task_tags ORDER BY task_id, tag_id",
@@ -1550,10 +1459,8 @@ pub mod backup {
     pub fn replace_all(conn: &Connection, data: &BackupData) -> Result<(), AppError> {
         for table in [
             "task_dependencies",
-            "subtask_dependencies",
             "task_tags",
             "comments",
-            "subtasks",
             "time_entries",
             "tasks",
             "board_columns",
@@ -1578,21 +1485,54 @@ pub mod backup {
         for tag in &data.tags {
             tags::insert(conn, tag)?;
         }
-        for task in &data.tasks {
+        // Parents first: `tasks.parent_task_id` references `tasks`, so a child
+        // inserted before its parent fails the foreign key.
+        for task in data
+            .tasks
+            .iter()
+            .filter(|task| task.parent_task_id.is_none())
+        {
             tasks::insert(conn, task)?;
         }
-        for subtask in &data.subtasks {
-            subtasks::insert(conn, subtask)?;
+        for task in data
+            .tasks
+            .iter()
+            .filter(|task| task.parent_task_id.is_some())
+        {
+            tasks::insert(conn, task)?;
+        }
+        // Pre-V7 documents carried subtasks in their own array; they are child
+        // task rows now. Same mapping as the V7 migration, minus the SQL.
+        for legacy in &data.subtasks {
+            let project_id = data
+                .tasks
+                .iter()
+                .find(|task| task.id == legacy.task_id)
+                .and_then(|parent| parent.project_id);
+            tasks::insert(
+                conn,
+                &Task {
+                    id: legacy.id,
+                    project_id,
+                    title: legacy.title.clone(),
+                    note: legacy.note.clone(),
+                    priority: legacy.priority,
+                    column_id: None,
+                    due_at: legacy.due_at,
+                    completed_at: legacy.done.then_some(legacy.updated_at),
+                    repeat_rule: None,
+                    complexity: legacy.complexity,
+                    parent_task_id: Some(legacy.task_id),
+                    sort_order: legacy.sort_order.clone(),
+                    created_at: legacy.created_at,
+                    updated_at: legacy.updated_at,
+                    deleted_at: legacy.deleted_at,
+                },
+            )?;
         }
         // Edges go in last: their foreign keys need both endpoints to exist.
         for edge in &data.dependencies {
-            dependencies::insert(
-                conn,
-                edge.kind,
-                edge.dependent_id,
-                edge.prerequisite_id,
-                Utc::now(),
-            )?;
+            dependencies::insert(conn, edge.dependent_id, edge.prerequisite_id, Utc::now())?;
         }
         {
             let mut statement =
@@ -1617,33 +1557,16 @@ pub mod backup {
     }
 }
 
-/// Dependency edges (`task_dependencies` / `subtask_dependencies`).
+/// Dependency edges (`task_dependencies`).
 ///
-/// The two tables have the same shape, so the table and column names are
-/// resolved from the kind and interpolated into otherwise identical SQL — both
-/// values are compile-time constants, never user input.
+/// Both endpoints are task ids: subtasks became tasks in V7, so the task and
+/// subtask graphs are one graph and one table.
 pub mod dependencies {
     use super::*;
 
-    fn edge_table(kind: DependencyKind) -> (&'static str, &'static str) {
-        match kind {
-            DependencyKind::Task => ("task_dependencies", "task_id"),
-            DependencyKind::Subtask => ("subtask_dependencies", "subtask_id"),
-        }
-    }
-
-    fn task_edge(row: &Row<'_>) -> Result<Dependency, AppError> {
+    fn edge_from_row(row: &Row<'_>) -> Result<Dependency, AppError> {
         Ok(Dependency {
-            kind: DependencyKind::Task,
             dependent_id: parse_uuid(row.get("task_id")?)?,
-            prerequisite_id: parse_uuid(row.get("depends_on")?)?,
-        })
-    }
-
-    fn subtask_edge(row: &Row<'_>) -> Result<Dependency, AppError> {
-        Ok(Dependency {
-            kind: DependencyKind::Subtask,
-            dependent_id: parse_uuid(row.get("subtask_id")?)?,
             prerequisite_id: parse_uuid(row.get("depends_on")?)?,
         })
     }
@@ -1652,17 +1575,12 @@ pub mod dependencies {
     /// (the composite primary key dedups via `INSERT OR IGNORE`).
     pub fn insert(
         conn: &Connection,
-        kind: DependencyKind,
         dependent_id: Uuid,
         prerequisite_id: Uuid,
         at: DateTime<Utc>,
     ) -> Result<(), AppError> {
-        let (table, column) = edge_table(kind);
         conn.execute(
-            &format!(
-                "INSERT OR IGNORE INTO {table} ({column}, depends_on, created_at) \
-                 VALUES (?1, ?2, ?3)"
-            ),
+            "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on, created_at)              VALUES (?1, ?2, ?3)",
             params![dependent_id.to_string(), prerequisite_id.to_string(), at],
         )?;
         Ok(())
@@ -1672,13 +1590,11 @@ pub mod dependencies {
     /// idempotent like the client's optimistic update assumes.
     pub fn remove(
         conn: &Connection,
-        kind: DependencyKind,
         dependent_id: Uuid,
         prerequisite_id: Uuid,
     ) -> Result<(), AppError> {
-        let (table, column) = edge_table(kind);
         conn.execute(
-            &format!("DELETE FROM {table} WHERE {column} = ?1 AND depends_on = ?2"),
+            "DELETE FROM task_dependencies WHERE task_id = ?1 AND depends_on = ?2",
             params![dependent_id.to_string(), prerequisite_id.to_string()],
         )?;
         Ok(())
@@ -1692,21 +1608,12 @@ pub mod dependencies {
     /// the walk if a cycle ever reached the table by another route.
     pub fn creates_cycle(
         conn: &Connection,
-        kind: DependencyKind,
         dependent_id: Uuid,
         prerequisite_id: Uuid,
     ) -> Result<bool, AppError> {
-        let (table, column) = edge_table(kind);
-        let sql = format!(
-            "WITH RECURSIVE chain(id) AS ( \
-                 SELECT ?1 \
-                 UNION \
-                 SELECT d.depends_on FROM {table} d JOIN chain ON d.{column} = chain.id \
-             ) SELECT EXISTS(SELECT 1 FROM chain WHERE id = ?2)"
-        );
         query_one(
             conn,
-            &sql,
+            "WITH RECURSIVE chain(id) AS (                  SELECT ?1                  UNION                  SELECT d.depends_on FROM task_dependencies d JOIN chain ON d.task_id = chain.id              ) SELECT EXISTS(SELECT 1 FROM chain WHERE id = ?2)",
             params![prerequisite_id.to_string(), dependent_id.to_string()],
             |row| Ok(row.get::<_, bool>(0)?),
         )
@@ -1718,46 +1625,23 @@ pub mod dependencies {
     /// deleted, so deleting a prerequisite unblocks its dependents and
     /// restoring it brings the relation back.
     pub fn list_live(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
-        let mut edges = query_all(
+        query_all(
             conn,
-            "SELECT task_id, depends_on FROM task_dependencies d \
-             WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
-               AND depends_on IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
-             ORDER BY task_id, depends_on",
+            "SELECT task_id, depends_on FROM task_dependencies d              WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL)                AND depends_on IN (SELECT id FROM tasks WHERE deleted_at IS NULL)              ORDER BY task_id, depends_on",
             &[],
-            task_edge,
-        )?;
-        edges.extend(query_all(
-            conn,
-            "SELECT subtask_id, depends_on FROM subtask_dependencies d \
-             WHERE subtask_id IN (SELECT id FROM subtasks WHERE deleted_at IS NULL) \
-               AND depends_on IN (SELECT id FROM subtasks WHERE deleted_at IS NULL) \
-               AND subtask_id IN (SELECT s.id FROM subtasks s JOIN tasks t ON t.id = s.task_id \
-                                   WHERE t.deleted_at IS NULL) \
-             ORDER BY subtask_id, depends_on",
-            &[],
-            subtask_edge,
-        )?);
-        Ok(edges)
+            edge_from_row,
+        )
     }
 
     /// Every edge, soft-deleted endpoints included: a backup is a copy of the
     /// database, not a view of it.
     pub fn list_all(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
-        let mut edges = query_all(
+        query_all(
             conn,
             "SELECT task_id, depends_on FROM task_dependencies ORDER BY task_id, depends_on",
             &[],
-            task_edge,
-        )?;
-        edges.extend(query_all(
-            conn,
-            "SELECT subtask_id, depends_on FROM subtask_dependencies \
-             ORDER BY subtask_id, depends_on",
-            &[],
-            subtask_edge,
-        )?);
-        Ok(edges)
+            edge_from_row,
+        )
     }
 }
 
@@ -1790,22 +1674,6 @@ pub mod reminders {
         Ok(affected == 1)
     }
 
-    /// Records that a subtask reminder fired; same dedup contract as
-    /// [`mark_fired`], against its own marker table.
-    pub fn mark_subtask_fired(
-        conn: &Connection,
-        subtask_id: Uuid,
-        kind: ReminderKind,
-        at: DateTime<Utc>,
-    ) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "INSERT OR IGNORE INTO subtask_reminders (subtask_id, kind, sent_at) \
-             VALUES (?1, ?2, ?3)",
-            params![subtask_id.to_string(), kind_as_text(kind), at],
-        )?;
-        Ok(affected == 1)
-    }
-
     /// A live, incomplete, due-dated task within the scan window.
     pub struct ReminderCandidate {
         pub id: Uuid,
@@ -1815,6 +1683,10 @@ pub mod reminders {
 
     /// Tasks whose reminders may be triggerable: not soft-deleted, not
     /// completed, `due_at` in `(cutoff, horizon]`, ordered by due time.
+    ///
+    /// One scan over `tasks` covers the whole tree: a subtask is a task row
+    /// with its own `due_at` and `completed_at`, and it keeps its own schedule
+    /// even when its parent is already completed (R7c §9.3).
     pub fn list_candidates(
         conn: &Connection,
         cutoff: DateTime<Utc>,
@@ -1836,53 +1708,13 @@ pub mod reminders {
             },
         )
     }
-
-    /// A live, incomplete, due-dated subtask of a live, unfinished task.
-    pub struct SubtaskReminderCandidate {
-        pub id: Uuid,
-        /// The parent task, for the notification's subject line.
-        pub task_id: Uuid,
-        pub title: String,
-        pub task_title: String,
-        pub due_at: DateTime<Utc>,
-    }
-
-    /// Subtasks whose reminders may be triggerable: not soft-deleted, not done,
-    /// `due_at` in `(cutoff, horizon]`, under a task that is itself live and
-    /// unfinished. The join is also how the parent title reaches the
-    /// notification text without a second query.
-    pub fn list_subtask_candidates(
-        conn: &Connection,
-        cutoff: DateTime<Utc>,
-        horizon: DateTime<Utc>,
-    ) -> Result<Vec<SubtaskReminderCandidate>, AppError> {
-        query_all(
-            conn,
-            "SELECT s.id, s.task_id, s.title, s.due_at, t.title AS task_title \
-             FROM subtasks s JOIN tasks t ON t.id = s.task_id \
-             WHERE s.deleted_at IS NULL AND s.done = 0 \
-               AND t.deleted_at IS NULL AND t.completed_at IS NULL \
-               AND s.due_at IS NOT NULL AND s.due_at > ?1 AND s.due_at <= ?2 \
-             ORDER BY s.due_at, s.id",
-            params![cutoff, horizon],
-            |row| {
-                Ok(SubtaskReminderCandidate {
-                    id: parse_uuid(row.get("id")?)?,
-                    task_id: parse_uuid(row.get("task_id")?)?,
-                    title: row.get("title")?,
-                    task_title: row.get("task_title")?,
-                    due_at: row.get("due_at")?,
-                })
-            },
-        )
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db;
-    use crate::models::RepeatFreq;
+    use crate::models::{BackupData, LegacySubtask, RepeatFreq};
     use chrono::TimeZone;
 
     fn conn() -> Connection {
@@ -1905,6 +1737,7 @@ mod tests {
             completed_at: None,
             repeat_rule: None,
             complexity: None,
+            parent_task_id: None,
             sort_order: sort_order.into(),
             created_at: ts(0),
             updated_at: ts(0),
@@ -1923,20 +1756,11 @@ mod tests {
         }
     }
 
-    fn sample_subtask(task_id: Uuid, sort_order: &str) -> Subtask {
-        Subtask {
-            id: Uuid::new_v4(),
-            task_id,
-            title: "收集数据".into(),
-            note: None,
-            priority: Priority::None,
-            due_at: None,
-            complexity: None,
-            done: false,
-            sort_order: sort_order.into(),
-            created_at: ts(0),
-            updated_at: ts(0),
-            deleted_at: None,
+    /// A child row: same shape as any task, filed under `parent_id`.
+    fn sample_child(parent_id: Uuid, sort_order: &str) -> Task {
+        Task {
+            parent_task_id: Some(parent_id),
+            ..sample_task(sort_order)
         }
     }
 
@@ -2101,6 +1925,168 @@ mod tests {
     }
 
     #[test]
+    fn task_parent_id_round_trips_and_clears() {
+        let conn = conn();
+        let parent = sample_task("a");
+        tasks::insert(&conn, &parent).unwrap();
+
+        let mut child = sample_task("b");
+        child.parent_task_id = Some(parent.id);
+        tasks::insert(&conn, &child).unwrap();
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().parent_task_id,
+            Some(parent.id)
+        );
+
+        child.parent_task_id = None;
+        assert!(tasks::update(&conn, &child).unwrap());
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().parent_task_id,
+            None,
+            "clearing the parent promotes the task back to the top level"
+        );
+    }
+
+    #[test]
+    fn list_by_parent_returns_only_that_parent_s_children_in_order() {
+        let conn = conn();
+        let parent = sample_task("a");
+        tasks::insert(&conn, &parent).unwrap();
+        let other = sample_task("a");
+        tasks::insert(&conn, &other).unwrap();
+
+        for (id, key, parent_id) in [
+            ("c1", "b", Some(parent.id)),
+            ("c2", "c", Some(parent.id)),
+            ("c3", "a", Some(other.id)),
+            ("c4", "a", None),
+        ] {
+            let mut task = sample_task(key);
+            task.id = Uuid::new_v4();
+            task.title = id.into();
+            task.parent_task_id = parent_id;
+            tasks::insert(&conn, &task).unwrap();
+        }
+
+        let children = tasks::list_by_parent(&conn, parent.id).unwrap();
+        let titles: Vec<&str> = children.iter().map(|task| task.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["c1", "c2"],
+            "sorted by sort_order, one parent only"
+        );
+    }
+
+    #[test]
+    fn set_children_deleted_cascades_and_restores_only_its_children() {
+        let conn = conn();
+        let parent = sample_task("a");
+        let other = sample_task("a");
+        tasks::insert(&conn, &parent).unwrap();
+        tasks::insert(&conn, &other).unwrap();
+        let child = sample_child(parent.id, "a");
+        let stranger = sample_child(other.id, "a");
+        tasks::insert(&conn, &child).unwrap();
+        tasks::insert(&conn, &stranger).unwrap();
+
+        assert_eq!(
+            tasks::set_children_deleted(&conn, parent.id, ts(5), true).unwrap(),
+            1
+        );
+        assert_eq!(tasks::get(&conn, child.id).unwrap(), None);
+        assert!(tasks::get(&conn, stranger.id).unwrap().is_some());
+        // Deleting twice is a no-op: only live rows transition.
+        assert_eq!(
+            tasks::set_children_deleted(&conn, parent.id, ts(6), true).unwrap(),
+            0
+        );
+
+        assert_eq!(
+            tasks::set_children_deleted(&conn, parent.id, ts(7), false).unwrap(),
+            1
+        );
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().updated_at,
+            ts(7)
+        );
+    }
+
+    #[test]
+    fn backup_import_inserts_parents_before_children() {
+        let parent = sample_task("a");
+        let mut child = sample_task("b");
+        child.parent_task_id = Some(parent.id);
+
+        // Children first in the document: a naive `for task in &data.tasks`
+        // would hit the self-referencing foreign key and fail the whole import.
+        let data = BackupData {
+            tasks: vec![child.clone(), parent.clone()],
+            ..BackupData::default()
+        };
+        // The parent row must exist for the child's FK, so import into a fresh
+        // schema rather than the one the fixtures above live in.
+        let fresh = db::test_conn();
+        super::backup::replace_all(&fresh, &data).unwrap();
+
+        assert_eq!(tasks::get(&fresh, parent.id).unwrap().unwrap(), parent);
+        assert_eq!(
+            tasks::get(&fresh, child.id)
+                .unwrap()
+                .unwrap()
+                .parent_task_id,
+            Some(parent.id)
+        );
+    }
+
+    #[test]
+    fn backup_import_maps_legacy_subtasks_onto_child_tasks() {
+        let parent = sample_task("a");
+        let legacy = LegacySubtask {
+            id: Uuid::new_v4(),
+            task_id: parent.id,
+            title: "收集数据".into(),
+            note: Some("从三个人那里收".into()),
+            priority: Priority::High,
+            due_at: None,
+            complexity: Some(2),
+            done: true,
+            sort_order: "a".into(),
+            created_at: ts(0),
+            updated_at: ts(30),
+            deleted_at: None,
+        };
+        let data = BackupData {
+            tasks: vec![parent.clone()],
+            subtasks: vec![legacy.clone()],
+            ..BackupData::default()
+        };
+
+        let fresh = db::test_conn();
+        super::backup::replace_all(&fresh, &data).unwrap();
+
+        let moved = tasks::get(&fresh, legacy.id).unwrap().unwrap();
+        assert_eq!(moved.parent_task_id, Some(parent.id));
+        assert_eq!(
+            moved.project_id, parent.project_id,
+            "a child follows its parent"
+        );
+        assert_eq!(moved.priority, Priority::High);
+        assert_eq!(moved.complexity, Some(2));
+        assert_eq!(moved.note.as_deref(), Some("从三个人那里收"));
+        assert_eq!(
+            moved.completed_at,
+            Some(legacy.updated_at),
+            "done = true lands as the row's last write time"
+        );
+        assert_eq!(
+            fresh
+                .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
     fn subtasks_are_scoped_to_their_task_and_ordered() {
         let conn = conn();
         let task_1 = sample_task("n");
@@ -2108,32 +2094,31 @@ mod tests {
         tasks::insert(&conn, &task_1).unwrap();
         tasks::insert(&conn, &task_2).unwrap();
 
-        let mid = sample_subtask(task_1.id, "n");
-        let first = sample_subtask(task_1.id, "a");
-        let other_task = sample_subtask(task_2.id, "n");
-        for subtask in [&mid, &first, &other_task] {
-            subtasks::insert(&conn, subtask).unwrap();
+        let mid = sample_child(task_1.id, "n");
+        let first = sample_child(task_1.id, "a");
+        let other_task = sample_child(task_2.id, "n");
+        for task in [&mid, &first, &other_task] {
+            tasks::insert(&conn, task).unwrap();
         }
 
         assert_eq!(
-            subtasks::list_by_task(&conn, task_1.id).unwrap(),
+            tasks::list_by_parent(&conn, task_1.id).unwrap(),
             vec![first.clone(), mid.clone()]
         );
         assert_eq!(
-            subtasks::list_by_task(&conn, task_2.id).unwrap(),
+            tasks::list_by_parent(&conn, task_2.id).unwrap(),
             vec![other_task]
         );
 
         let mut edited = first.clone();
-        edited.done = true;
         edited.title = "收集全部数据".into();
         edited.updated_at = ts(2);
-        assert!(subtasks::update(&conn, &edited).unwrap());
-        assert_eq!(subtasks::get(&conn, first.id).unwrap().unwrap(), edited);
+        assert!(tasks::update(&conn, &edited).unwrap());
+        assert_eq!(tasks::get(&conn, first.id).unwrap().unwrap(), edited);
 
-        assert!(subtasks::soft_delete(&conn, mid.id, ts(3)).unwrap());
+        assert!(tasks::soft_delete(&conn, mid.id, ts(3)).unwrap());
         assert_eq!(
-            subtasks::list_by_task(&conn, task_1.id).unwrap(),
+            tasks::list_by_parent(&conn, task_1.id).unwrap(),
             vec![edited]
         );
     }

@@ -72,9 +72,9 @@ pub enum ReminderKind {
 /// A reminder the scheduler has fired, broadcast to the frontend as a
 /// `reminder:triggered` event.
 ///
-/// `task_id`/`task_title` always name the owning task: for a subtask reminder
-/// that is the *parent*, so the frontend's click-to-locate can open the task
-/// it belongs to without a special case.
+/// `task_id`/`task_title` name the task the reminder belongs to. A subtask is
+/// a task of its own (R7c), so a child's reminder names the child — no second
+/// level to carry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
@@ -82,11 +82,6 @@ pub struct Reminder {
     pub task_title: String,
     pub kind: ReminderKind,
     pub due_at: DateTime<Utc>,
-    /// Set when this reminder belongs to a subtask rather than the task.
-    #[serde(default)]
-    pub subtask_id: Option<Uuid>,
-    #[serde(default)]
-    pub subtask_title: Option<String>,
 }
 
 /// A project row (`projects`).
@@ -148,7 +143,8 @@ pub struct BoardColumn {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
-/// A task row (`tasks`).
+/// A task row (`tasks`). A task with `parent_task_id` set is a subtask; the
+/// hierarchy is one level deep, which the service layer enforces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
@@ -163,38 +159,53 @@ pub struct Task {
     pub repeat_rule: Option<RepeatRule>,
     /// 1-5, or `None` when the task was never estimated.
     pub complexity: Option<i64>,
+    /// Parent task, or `None` for a top-level task.
+    ///
+    /// `default` is load-bearing: a backup written before V7 has no
+    /// `parentTaskId` key at all, and without it the whole document fails to
+    /// parse (`subtasks.priority` set the precedent).
+    #[serde(default)]
+    pub parent_task_id: Option<Uuid>,
     pub sort_order: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
-/// Deserialization fallback for [`Subtask::priority`] in documents written
-/// before subtasks had a priority: the `subtasks.priority` column defaults to
-/// `'none'`, so an absent key means the same thing as the column default.
+/// Deserialization fallback for [`LegacySubtask::priority`] in documents
+/// written before subtasks had a priority: the `subtasks.priority` column
+/// defaulted to `'none'`, so an absent key means the same thing.
 fn legacy_subtask_priority() -> Priority {
     Priority::None
 }
 
-/// A subtask row (`subtasks`).
+/// A subtask row as it appeared in `subtasks` before V7 — **only** a read
+/// shape for old backup documents. Live data has no such thing any more: a
+/// subtask is a [`Task`] with a parent (R7c).
+///
+/// `Serialize` is here only because [`BackupData`] carries the array and
+/// serializes as a whole; an export writes it empty.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Subtask {
+pub struct LegacySubtask {
     pub id: Uuid,
     pub task_id: Uuid,
     pub title: String,
-    /// Free-form description; `None` when unset.
+    #[serde(default)]
     pub note: Option<String>,
-    /// Missing from backups exported before this column existed.
+    /// Missing from backups exported before V4.
     #[serde(default = "legacy_subtask_priority")]
     pub priority: Priority,
+    #[serde(default)]
     pub due_at: Option<DateTime<Utc>>,
-    /// 1-5, or `None` when never estimated.
+    #[serde(default)]
     pub complexity: Option<i64>,
+    #[serde(default)]
     pub done: bool,
     pub sort_order: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
@@ -247,22 +258,13 @@ pub struct Setting {
 
 // --- dependency edges --------------------------------------------------------
 
-/// Which edge table a dependency lives in — tasks depend on tasks, subtasks on
-/// their siblings inside one parent task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DependencyKind {
-    Task,
-    Subtask,
-}
-
 /// One dependency edge: `prerequisite_id` must be finished before
-/// `dependent_id` can be completed. The reverse relation ("who is waiting for
-/// me") is read off the same rows, never stored twice.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// `dependent_id` can be completed. Both endpoints are task ids — subtasks are
+/// tasks now, so the two edge sets of V4 are one set. The reverse relation
+/// ("who is waiting for me") is read off the same rows, never stored twice.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Dependency {
-    pub kind: DependencyKind,
     pub dependent_id: Uuid,
     pub prerequisite_id: Uuid,
 }
@@ -282,9 +284,8 @@ pub struct TaskTagLink {
 ///
 /// Soft-deleted rows are included on purpose: a backup is a copy of the
 /// database, not a view of it — `dependencies` therefore carries edges whose
-/// endpoints are soft-deleted too. `task_reminders` and `subtask_reminders`
-/// stay out: those markers only dedup notifications and are rebuilt by the
-/// scheduler.
+/// endpoints are soft-deleted too. `task_reminders` stays out: those markers
+/// only dedup notifications and are rebuilt by the scheduler.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupData {
@@ -301,8 +302,10 @@ pub struct BackupData {
     pub tags: Vec<Tag>,
     #[serde(default)]
     pub tasks: Vec<Task>,
+    /// Subtasks as they were written before V7. Export never fills this in any
+    /// more; import maps a non-empty array onto child task rows (R7c).
     #[serde(default)]
-    pub subtasks: Vec<Subtask>,
+    pub subtasks: Vec<LegacySubtask>,
     #[serde(default)]
     pub task_tags: Vec<TaskTagLink>,
     #[serde(default)]
@@ -332,13 +335,21 @@ pub struct BackupCounts {
 
 impl BackupData {
     /// Tallies of this payload, for the export/import confirmation.
+    ///
+    /// `tasks` counts every task row (children included, as a backup stores
+    /// them); `subtasks` counts the child rows among them, so the settings
+    /// page keeps reporting the same two numbers as before R7c.
     pub fn counts(&self) -> BackupCounts {
         BackupCounts {
             namespaces: self.namespaces.len(),
             projects: self.projects.len(),
             board_columns: self.board_columns.len(),
             tasks: self.tasks.len(),
-            subtasks: self.subtasks.len(),
+            subtasks: self
+                .tasks
+                .iter()
+                .filter(|task| task.parent_task_id.is_some())
+                .count(),
             tags: self.tags.len(),
             comments: self.comments.len(),
             time_entries: self.time_entries.len(),
@@ -451,6 +462,9 @@ pub struct NewTask {
     pub subtask_titles: Vec<String>,
     #[serde(default)]
     pub repeat_rule: Option<RepeatRule>,
+    /// Parent task for a subtask; `None` (or absent) = top-level task.
+    #[serde(default)]
+    pub parent_task_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -478,6 +492,10 @@ pub struct UpdateTask {
     /// unchanged.
     #[serde(default)]
     pub repeat_rule: Patch<RepeatRule>,
+    /// `Patch::Set(Some(id))` files the task under `id`; `Patch::Set(None)`
+    /// promotes it back to the top level.
+    #[serde(default)]
+    pub parent_task_id: Patch<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -493,30 +511,6 @@ pub struct UpdateTag {
     pub name: Option<String>,
     #[serde(default)]
     pub color: Patch<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NewSubtask {
-    pub title: String,
-    pub note: Option<String>,
-    pub priority: Option<Priority>,
-    pub due_at: Option<DateTime<Utc>>,
-    pub complexity: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateSubtask {
-    pub title: Option<String>,
-    pub done: Option<bool>,
-    #[serde(default)]
-    pub note: Patch<String>,
-    pub priority: Option<Priority>,
-    #[serde(default)]
-    pub due_at: Patch<DateTime<Utc>>,
-    #[serde(default)]
-    pub complexity: Patch<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -746,13 +740,20 @@ mod tests {
         assert_eq!(missing.note, Patch::Unchanged);
         assert_eq!(missing.tag_ids, None);
         assert_eq!(missing.repeat_rule, Patch::Unchanged);
+        assert_eq!(missing.parent_task_id, Patch::Unchanged);
 
-        let explicit_null: UpdateTask =
-            serde_json::from_value(json!({ "note": null, "tagIds": [], "repeatRule": null }))
-                .unwrap();
+        let explicit_null: UpdateTask = serde_json::from_value(
+            json!({ "note": null, "tagIds": [], "repeatRule": null, "parentTaskId": null }),
+        )
+        .unwrap();
         assert_eq!(explicit_null.note, Patch::Set(None));
         assert_eq!(explicit_null.tag_ids, Some(Vec::new()));
         assert_eq!(explicit_null.repeat_rule, Patch::Set(None));
+        assert_eq!(
+            explicit_null.parent_task_id,
+            Patch::Set(None),
+            "an explicit null promotes the task back to the top level"
+        );
         assert_eq!(explicit_null.due_at, Patch::Unchanged);
 
         let new_task: NewTask = serde_json::from_value(json!({ "title": "任务" })).unwrap();
@@ -760,6 +761,7 @@ mod tests {
         assert!(new_task.subtask_titles.is_empty());
         assert_eq!(new_task.priority, None);
         assert_eq!(new_task.repeat_rule, None);
+        assert_eq!(new_task.parent_task_id, None);
     }
 
     #[test]
@@ -775,6 +777,7 @@ mod tests {
             completed_at: None,
             repeat_rule: None,
             complexity: None,
+            parent_task_id: None,
             sort_order: "n".into(),
             created_at: ts(),
             updated_at: ts(),
@@ -806,6 +809,7 @@ mod tests {
             completed_at: None,
             repeat_rule: None,
             complexity: None,
+            parent_task_id: None,
             sort_order: "a".into(),
             created_at: ts(),
             updated_at: ts(),
@@ -824,6 +828,7 @@ mod tests {
                 "dueAt",
                 "id",
                 "note",
+                "parentTaskId",
                 "priority",
                 "projectId",
                 "repeatRule",
@@ -839,6 +844,7 @@ mod tests {
         // Optional columns keep a stable shape by serializing to null.
         assert_eq!(value["projectId"], json!(null));
         assert_eq!(value["repeatRule"], json!(null));
+        assert_eq!(value["parentTaskId"], json!(null));
     }
 
     #[test]
@@ -911,17 +917,22 @@ mod tests {
         assert_eq!(value["isDone"], json!(false));
     }
 
+    /// A subtask is a task with a parent (R7c): the wire shape is the task one,
+    /// `parentTaskId` included, and the UI keeps calling it a 子任务.
     #[test]
     fn subtask_fields_serialize_as_camel_case() {
-        let subtask = Subtask {
+        let subtask = Task {
             id: Uuid::nil(),
-            task_id: Uuid::nil(),
+            project_id: None,
             title: "收集数据".into(),
             note: Some("先拉近三个月".into()),
             priority: Priority::High,
+            column_id: None,
             due_at: Some(ts()),
+            completed_at: None,
+            repeat_rule: None,
             complexity: Some(2),
-            done: false,
+            parent_task_id: Some(Uuid::nil()),
             sort_order: "a".into(),
             created_at: ts(),
             updated_at: ts(),
@@ -929,24 +940,13 @@ mod tests {
         };
 
         let value = serde_json::to_value(&subtask).unwrap();
+        assert_eq!(value["parentTaskId"], json!(Uuid::nil().to_string()));
+        assert_eq!(value["priority"], json!("high"));
+        assert_eq!(value["complexity"], json!(2));
         assert_eq!(
-            sorted_keys(&value),
-            [
-                "complexity",
-                "createdAt",
-                "deletedAt",
-                "done",
-                "dueAt",
-                "id",
-                "note",
-                "priority",
-                "sortOrder",
-                "taskId",
-                "title",
-                "updatedAt",
-            ]
-            .map(String::from)
-            .to_vec()
+            serde_json::from_value::<Task>(value).unwrap(),
+            subtask,
+            "the round trip keeps the parent link"
         );
     }
 
@@ -1094,22 +1094,13 @@ mod tests {
             task_title: "周报".into(),
             kind: ReminderKind::Advance10m,
             due_at: ts(),
-            subtask_id: None,
-            subtask_title: None,
         })
         .unwrap();
         assert_eq!(
             sorted_keys(&value),
-            [
-                "dueAt",
-                "kind",
-                "subtaskId",
-                "subtaskTitle",
-                "taskId",
-                "taskTitle"
-            ]
-            .map(String::from)
-            .to_vec()
+            ["dueAt", "kind", "taskId", "taskTitle"]
+                .map(String::from)
+                .to_vec()
         );
         assert_eq!(value["kind"], json!("advance_10m"));
         assert_eq!(

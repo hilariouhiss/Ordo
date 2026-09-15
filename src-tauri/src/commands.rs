@@ -16,10 +16,10 @@ use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
     BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewBoardColumn, NewComment,
-    NewNamespace, NewProject, NewSubtask, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress,
-    SearchHit, Subtask, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery,
-    TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment, UpdateNamespace,
-    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
+    NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit,
+    Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint,
+    TrendQuery, UpdateBoardColumn, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag,
+    UpdateTask, UpdateTimeEntry,
 };
 use crate::services;
 
@@ -76,6 +76,20 @@ pub fn task_restore(db: State<'_, Db>, task_id: Uuid) -> Result<Task, AppError> 
     with_conn(&db, |conn| services::restore_task(conn, task_id))
 }
 
+/// Moves a task between its siblings (`prev`/`next` are the neighbours' sort
+/// keys, either omitted at the ends); returns the sibling set in new order.
+#[tauri::command(rename = "task:reorder")]
+pub fn task_reorder(
+    db: State<'_, Db>,
+    task_id: Uuid,
+    prev: Option<String>,
+    next: Option<String>,
+) -> Result<Vec<Task>, AppError> {
+    with_conn(&db, |conn| {
+        services::reorder_task(conn, task_id, prev, next)
+    })
+}
+
 // --- tag:* -----------------------------------------------------------------
 
 #[tauri::command(rename = "tag:list")]
@@ -96,68 +110,6 @@ pub fn tag_update(db: State<'_, Db>, tag_id: Uuid, payload: UpdateTag) -> Result
 #[tauri::command(rename = "tag:delete")]
 pub fn tag_delete(db: State<'_, Db>, tag_id: Uuid) -> Result<(), AppError> {
     with_conn(&db, |conn| services::delete_tag(conn, tag_id))
-}
-
-// --- subtask:* -------------------------------------------------------------
-
-#[tauri::command(rename = "subtask:list")]
-pub fn subtask_list(db: State<'_, Db>, task_id: Uuid) -> Result<Vec<Subtask>, AppError> {
-    with_conn(&db, |conn| services::list_subtasks(conn, task_id))
-}
-
-#[tauri::command(rename = "subtask:listAll")]
-pub fn subtask_list_all(db: State<'_, Db>) -> Result<Vec<Subtask>, AppError> {
-    with_conn(&db, services::list_all_subtasks)
-}
-
-#[tauri::command(rename = "subtask:create")]
-pub fn subtask_create(
-    db: State<'_, Db>,
-    task_id: Uuid,
-    payload: NewSubtask,
-) -> Result<Subtask, AppError> {
-    with_conn(&db, |conn| services::create_subtask(conn, task_id, payload))
-}
-
-#[tauri::command(rename = "subtask:update")]
-pub fn subtask_update(
-    db: State<'_, Db>,
-    subtask_id: Uuid,
-    payload: UpdateSubtask,
-) -> Result<Subtask, AppError> {
-    with_conn(&db, |conn| {
-        services::update_subtask(conn, subtask_id, payload)
-    })
-}
-
-#[tauri::command(rename = "subtask:complete")]
-pub fn subtask_complete(
-    db: State<'_, Db>,
-    subtask_id: Uuid,
-    done: bool,
-) -> Result<Subtask, AppError> {
-    with_conn(&db, |conn| {
-        services::complete_subtask(conn, subtask_id, done)
-    })
-}
-
-#[tauri::command(rename = "subtask:delete")]
-pub fn subtask_delete(db: State<'_, Db>, subtask_id: Uuid) -> Result<(), AppError> {
-    with_conn(&db, |conn| services::delete_subtask(conn, subtask_id))
-}
-
-/// `prev`/`next` are the sort keys surrounding the target slot (either may be
-/// omitted at the ends); returns the task's full subtask list in new order.
-#[tauri::command(rename = "subtask:reorder")]
-pub fn subtask_reorder(
-    db: State<'_, Db>,
-    subtask_id: Uuid,
-    prev: Option<String>,
-    next: Option<String>,
-) -> Result<Vec<Subtask>, AppError> {
-    with_conn(&db, |conn| {
-        services::reorder_subtask(conn, subtask_id, prev, next)
-    })
 }
 
 // --- dependency:* ----------------------------------------------------------
