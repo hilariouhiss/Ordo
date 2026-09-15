@@ -289,6 +289,8 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 > 注册在 Rust 侧而非 webview：窗口藏在托盘、最小化或从未聚焦时都能触发，且不经过 IPC——因此**不需要** `global-shortcut:*` capability（但快捷窗要隐藏自己、要调 `task:create`，capabilities 的 `windows` 必须同时列出 `main` 与 `quick-add`，并保留 `core:window:allow-hide`；这些名字由 tauri-build 在编译期校验，写错会构建失败）。`Shortcut` 的相等比较包含自增 id，所以 handler 必须与注册时**同一个实例**比较：`quick_add_shortcut()` 用 `OnceLock` 记忆化。快捷键被其他应用占用时只记日志、不影响启动。
 >
 > **开机自启（D-04）**：`tauri-plugin-autostart` 在 `lib.rs` 注册（`Builder::new().build()`，默认用 LaunchAgent 写 macOS 登录项；Windows 写 HKCU Run 注册表、Linux 写 XDG autostart），API 由**前端**经 `@tauri-apps/plugin-autostart` 绑定调用，因此需要 capability `autostart:default`（含 `allow-enable`/`allow-disable`/`allow-is-enabled`）。设置页「启动」面板的 `开机自启` 开关是 OS 登录项列表的**视图**而不是我们存的值：挂载时读 `isEnabled()`，写入后再回读一次，只有回读成功才更新开关——失败的写（如无权限）走统一错误通知并让开关停在原处，界面不会声称一个 OS 并未接受的状态。**默认关闭**由「代码里没有任何地方主动 enable」保证：登录项列表为空即 off，无需在 `settings` 表里再存一份开关状态（避免与 OS 真实状态分叉）。已知取舍：自启拉起的是正常可见的主窗口（未注册 `--hidden` 启动参数）；若日后要静默入托盘，再在 setup 阶段解析 argv 并隐藏窗口。
+>
+> **归属校验（`project:create` / `project:update`）**：非空 `namespaceId` 必须解析到一个未软删的命名空间，否则返回 `not_found`；`null` 即不归属，永远允许。校验在服务层（`validate_namespace_ref`），可空外键只是兜底——它挡得住不存在的 id，但说不清「已软删」与「不存在」的差别。
 
 ---
 

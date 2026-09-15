@@ -763,6 +763,7 @@ pub fn list_projects(conn: &Connection) -> Result<Vec<Project>, AppError> {
 /// last existing project.
 pub fn create_project(conn: &Connection, input: NewProject) -> Result<Project, AppError> {
     let name = validated_name(&input.name)?;
+    validate_namespace_ref(conn, input.namespace_id)?;
     let now = Utc::now();
     let siblings: Vec<(Uuid, String)> = projects::list(conn)?
         .into_iter()
@@ -837,7 +838,7 @@ pub fn update_project(
         project.icon = icon;
     }
     if let Patch::Set(namespace_id) = patch.namespace_id {
-        // Existence is checked in Task 3; this task only carries the value.
+        validate_namespace_ref(conn, namespace_id)?;
         project.namespace_id = namespace_id;
     }
     if let Patch::Set(due_at) = patch.due_at {
@@ -1119,6 +1120,15 @@ pub fn archive_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppEr
 
 pub fn restore_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppError> {
     set_namespace_status(conn, id, ProjectStatus::Active)
+}
+
+/// Rejects a `namespaceId` that does not resolve to a live namespace. `None`
+/// (the root list) is always fine; clearing is never blocked.
+fn validate_namespace_ref(conn: &Connection, id: Option<Uuid>) -> Result<(), AppError> {
+    match id {
+        Some(id) if namespaces::get(conn, id)?.is_none() => Err(not_found("命名空间", id)),
+        _ => Ok(()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2779,6 +2789,103 @@ mod tests {
             Some(namespace.id),
             "the filing survives"
         );
+    }
+
+    #[test]
+    fn project_writes_reject_an_unknown_or_deleted_namespace() {
+        let conn = conn();
+        let ghost = Uuid::new_v4();
+
+        let created = create_project(
+            &conn,
+            NewProject {
+                name: "孤儿项目".into(),
+                description: None,
+                color: None,
+                icon: None,
+                namespace_id: Some(ghost),
+                due_at: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(created.code(), "not_found");
+
+        let project = make_project(&conn, "网站改版");
+        assert_eq!(
+            update_project(
+                &conn,
+                project.id,
+                UpdateProject {
+                    name: None,
+                    description: Patch::Unchanged,
+                    color: Patch::Unchanged,
+                    icon: Patch::Unchanged,
+                    namespace_id: Patch::Set(Some(ghost)),
+                    due_at: Patch::Unchanged,
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "not_found"
+        );
+
+        // A soft-deleted namespace is gone as far as project writes care.
+        let namespace = make_namespace(&conn, "工作");
+        conn.execute(
+            "UPDATE namespaces SET deleted_at = '2026-09-15T00:00:00Z' WHERE id = ?1",
+            params![namespace.id.to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            update_project(
+                &conn,
+                project.id,
+                UpdateProject {
+                    name: None,
+                    description: Patch::Unchanged,
+                    color: Patch::Unchanged,
+                    icon: Patch::Unchanged,
+                    namespace_id: Patch::Set(Some(namespace.id)),
+                    due_at: Patch::Unchanged,
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "not_found"
+        );
+
+        // Clearing the field is always allowed, and filing into a live
+        // namespace works.
+        let live = make_namespace(&conn, "学习");
+        let filed = update_project(
+            &conn,
+            project.id,
+            UpdateProject {
+                name: None,
+                description: Patch::Unchanged,
+                color: Patch::Unchanged,
+                icon: Patch::Unchanged,
+                namespace_id: Patch::Set(Some(live.id)),
+                due_at: Patch::Unchanged,
+            },
+        )
+        .unwrap();
+        assert_eq!(filed.namespace_id, Some(live.id));
+
+        let cleared = update_project(
+            &conn,
+            project.id,
+            UpdateProject {
+                name: None,
+                description: Patch::Unchanged,
+                color: Patch::Unchanged,
+                icon: Patch::Unchanged,
+                namespace_id: Patch::Set(None),
+                due_at: Patch::Unchanged,
+            },
+        )
+        .unwrap();
+        assert_eq!(cleared.namespace_id, None);
     }
 
     #[test]
