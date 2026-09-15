@@ -9,6 +9,7 @@ function project(id: string, overrides: Partial<Project> = {}): Project {
     description: null,
     color: null,
     icon: null,
+    namespaceId: null,
     dueAt: null,
     status: "active",
     sortOrder: "n",

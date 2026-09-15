@@ -47,6 +47,7 @@ function projectFixture(id: string, overrides: Partial<Project> = {}): Project {
     description: "项目说明",
     color: "#3b82f6",
     icon: "rocket",
+    namespaceId: null,
     dueAt: "2026-12-31T15:59:59.000Z",
     status: "active",
     sortOrder: "n",

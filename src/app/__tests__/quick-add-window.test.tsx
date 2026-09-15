@@ -59,6 +59,7 @@ function projectFixture(id: string, name: string): Project {
     description: null,
     color: null,
     icon: null,
+    namespaceId: null,
     dueAt: null,
     status: "active",
     sortOrder: id,
