@@ -69,7 +69,7 @@ src/
 │   │   └── types.ts              # 任务领域类型（与后端 serde 对齐）
 │   ├── projects/                 # 项目
 │   ├── namespaces/               # 命名空间（项目分组 + 组内汇总）
-│   │   └── components/           # NamespaceProjectsView / NamespaceDetailView
+│   │   └── components/           # NamespaceEditorDialog / NamespaceProjectsView / NamespaceDetailView
 │   ├── board/                    # 看板（列 + 拖拽）
 │   ├── stats/                    # 统计展示
 │   ├── search/                   # 全文搜索
@@ -120,6 +120,8 @@ src/
 - **reconcile 策略**：后端返回的实体（带 `updated_at`）作为权威值覆盖本地对应项，避免本地乐观值长期漂移。
 - **冲突处理**：单用户 + 本地，冲突概率极低；以「后端最后写入为准」即可，无需复杂 CRDT。
 - **错误归一化**：`common/ipc` 把后端 `AppError` 转成前端统一的 `{ code, message }`，组件层只消费这一形态。
+
+**命名空间分组是派生量**：侧边栏与命名空间页都从 store 派生——`projectsInNamespace(id)`（存活命名空间下的 active 项目）、`ungroupedProjects()`（未归属 + 命名空间已消失的孤儿）、`archivedLooseProjects()` / `archivedProjectsOf(id)`（已归档区的平铺与嵌套口径）。判定归属用**存活命名空间集合**而不是 `namespaceId` 是否为空，所以命名空间被删掉时它的项目回落为「未归属」显示在根级，而不是从导航里消失。每个项目只出现在一处：分组行、根级平铺、已归档平铺、或已归档分组，四者互斥。
 
 ### 2.4 路由
 

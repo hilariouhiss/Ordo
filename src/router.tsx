@@ -113,7 +113,7 @@ const settingsRoute = createRoute({
   ),
 });
 
-const routeTree = rootRoute.addChildren([
+export const routeTree = rootRoute.addChildren([
   indexRoute,
   inboxRoute,
   todayRoute,
