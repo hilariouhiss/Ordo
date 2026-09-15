@@ -160,8 +160,8 @@ export function TaskListView(props: TaskListViewProps) {
   });
 
   /** What is actually on screen under a parent: the user's own toggle or rule
-   * A's auto-open. The disclosure control reads this, not the bare signal, or
-   * it announces 展开/`aria-expanded=false` above children the user can see. */
+   * A's auto-open. A row rule A holds open carries no disclosure control at all
+   * (`TaskItemRow` hides it), so this drives the chevron and the child rows. */
   const isOpen = (id: string) => Boolean(expanded()[id]) || autoOpen().has(id);
 
   // After `visible`, not before it: Solid runs a memo's body eagerly as it is
@@ -435,6 +435,7 @@ export function TaskListView(props: TaskListViewProps) {
                 blocked={row.blockerCount > 0}
                 blockerCount={row.blockerCount}
                 expanded={isOpen(row.task.id)}
+                autoExpanded={autoOpen().has(row.task.id)}
                 onToggleExpand={toggleExpand}
                 onToggleComplete={toggleComplete}
                 onOpenDetail={openDetail}

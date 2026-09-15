@@ -379,6 +379,28 @@ describe("TaskEditorDialog", () => {
     );
   });
 
+  it("locks the parent picker on a task that has children, in the service's words", async () => {
+    const parent = taskFixture("t1", { title: "写周报" });
+    store.setAll(
+      [
+        parent,
+        taskFixture("p2", { title: "读论文" }),
+        taskFixture("c1", { title: "收集数据", parentTaskId: "t1" }),
+      ],
+      [],
+    );
+    renderDialog(parent);
+
+    // `tasks::has_children` refuses this write, so the picker must not offer a
+    // target the save would reject — it goes out of action and says why, in the
+    // same words the rejected write would use.
+    const trigger = screen.getByRole("button", { name: /父任务/ });
+    expect(trigger.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByText("该任务还有子任务（含回收站中的），不能变成别人的子任务"),
+    ).toBeTruthy();
+  });
+
   it("keeps the dialog open when the backend rejects the write", async () => {
     vi.mocked(hooks.createTask).mockResolvedValue(null);
     const { onOpenChange } = renderDialog();

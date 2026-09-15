@@ -1648,7 +1648,8 @@ pub mod dependencies {
         at: DateTime<Utc>,
     ) -> Result<(), AppError> {
         conn.execute(
-            "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on, created_at)              VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on, created_at) \
+             VALUES (?1, ?2, ?3)",
             params![dependent_id.to_string(), prerequisite_id.to_string(), at],
         )?;
         Ok(())
@@ -1681,7 +1682,12 @@ pub mod dependencies {
     ) -> Result<bool, AppError> {
         query_one(
             conn,
-            "WITH RECURSIVE chain(id) AS (                  SELECT ?1                  UNION                  SELECT d.depends_on FROM task_dependencies d JOIN chain ON d.task_id = chain.id              ) SELECT EXISTS(SELECT 1 FROM chain WHERE id = ?2)",
+            "WITH RECURSIVE chain(id) AS ( \
+                 SELECT ?1 \
+                 UNION \
+                 SELECT d.depends_on FROM task_dependencies d \
+                 JOIN chain ON d.task_id = chain.id \
+             ) SELECT EXISTS(SELECT 1 FROM chain WHERE id = ?2)",
             params![prerequisite_id.to_string(), dependent_id.to_string()],
             |row| Ok(row.get::<_, bool>(0)?),
         )
@@ -1695,7 +1701,10 @@ pub mod dependencies {
     pub fn list_live(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
         query_all(
             conn,
-            "SELECT task_id, depends_on FROM task_dependencies d              WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL)                AND depends_on IN (SELECT id FROM tasks WHERE deleted_at IS NULL)              ORDER BY task_id, depends_on",
+            "SELECT task_id, depends_on FROM task_dependencies d \
+             WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
+               AND depends_on IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
+             ORDER BY task_id, depends_on",
             &[],
             edge_from_row,
         )

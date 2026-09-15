@@ -410,18 +410,25 @@ describe("任务行的子任务展开位", () => {
   it("shows a disclosure control and a done/total badge when the task has children", async () => {
     store.setAll(
       [
-        task("t1", { sortOrder: "a" }),
-        task("s1", { title: "第一步", parentTaskId: "t1", sortOrder: "a", completedAt: iso(0, 10) }),
-        task("s2", { title: "第二步", parentTaskId: "t1", sortOrder: "b" }),
-        task("s3", { title: "第三步", parentTaskId: "t1", sortOrder: "c" }),
+        task("t1", { title: "写周报", dueAt: iso(0, 12), sortOrder: "a" }),
+        task("s1", {
+          title: "第一步",
+          parentTaskId: "t1",
+          dueAt: iso(1, 9),
+          sortOrder: "a",
+          completedAt: iso(0, 10),
+        }),
+        task("s2", { title: "第二步", parentTaskId: "t1", dueAt: iso(1, 10), sortOrder: "b" }),
+        task("s3", { title: "第三步", parentTaskId: "t1", dueAt: iso(1, 11), sortOrder: "c" }),
       ],
       [],
     );
 
-    render(() => <InboxView />);
+    render(() => <TodayView />);
 
-    // s2/s3 are 收件箱 rows of their own, so rule A leaves t1 open (收起).
-    expect(await screen.findByRole("button", { name: /任务 t1 的子任务/ })).toBeTruthy();
+    // The children are due tomorrow, so 今天 holds the parent alone: rule A does
+    // not open it, and the disclosure is the row's own control.
+    expect(await screen.findByRole("button", { name: "展开 写周报 的子任务" })).toBeTruthy();
     expect(screen.getByText("1/3")).toBeTruthy();
   });
 
@@ -433,6 +440,30 @@ describe("任务行的子任务展开位", () => {
     expect(await screen.findByText("任务 t1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /的子任务/ })).toBeNull();
     expect(screen.queryByText(/^\d+\/\d+$/)).toBeNull();
+  });
+
+  it("renders no disclosure control on a row rule A already opened", async () => {
+    store.setAll(
+      [
+        task("t1", { title: "写周报", sortOrder: "a" }),
+        task("s1", { title: "第一步", parentTaskId: "t1", sortOrder: "a" }),
+      ],
+      [],
+    );
+
+    render(() => <InboxView />);
+
+    // s1 is an 收件箱 row of its own, so rule A leaves t1 open. A 收起 there
+    // could not fold anything away — it only flips the local signal while
+    // `isOpen` ORs the auto-open back in — so the row must not claim the action.
+    expect(await screen.findByText("第一步")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /写周报 的子任务/ })).toBeNull();
+    // The 20px slot stays (a bare span, not the button), so the checkbox below
+    // stays in the column every other row shares.
+    const slot = (document.querySelector('[data-task-id="t1"]') as HTMLElement)
+      .firstElementChild as Element;
+    expect(slot.tagName).toBe("SPAN");
+    expect(slot.className).toContain("size-5");
   });
 });
 
@@ -558,13 +589,9 @@ describe("任务列表的层级展示", () => {
     // each title appears exactly once.
     expect(await screen.findAllByText("收集数据")).toHaveLength(1);
     expect(screen.getAllByText("收集数据")[0].closest("[data-subtask-id]")).toBeTruthy();
-    // And the parent's disclosure agrees with what is on screen: it is open,
-    // so it must not announce 展开/aria-expanded=false over visible children.
-    expect(
-      screen
-        .getByRole("button", { name: "收起 写周报 的子任务" })
-        .getAttribute("aria-expanded"),
-    ).toBe("true");
+    // And the row carries no disclosure control at all: rule A is what has it
+    // open, so 收起 there could not close anything.
+    expect(screen.queryByRole("button", { name: "收起 写周报 的子任务" })).toBeNull();
   });
 
   it("keeps a child whose parent is missing as a prefixed top-level row", async () => {
@@ -606,16 +633,16 @@ describe("任务列表的层级展示", () => {
     expect(screen.getByText("收集数据").closest("[data-subtask-id]")).toBeTruthy();
   });
 
-  it("counts top-level rows only, so expanding never changes the number", async () => {
+  it("counts the rows the view listed, not the top-level ones", async () => {
     seedHierarchy();
     render(() => <TodayView />);
 
-    // p1 + p2 are top-level; c1 rides under p1 and is not counted. c1 matched
-    // 今天 itself, so rule A already has p1 open — the control reads 收起. The
-    // number is a count of rows, open or closed.
+    // The number is `visible()`: p1 + p2 are rows of the view, c1 rides under
+    // p1 as its context and is not a row of its own, so it is not counted. The
+    // count therefore holds still when a disclosure opens (§8.7) — p1 is
+    // already open here because 今天 matched c1 itself.
     expect(await screen.findByText("2 个任务")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "收起 写周报 的子任务" }));
-    expect(screen.getByText("2 个任务")).toBeTruthy();
+    expect(screen.getByText("收集数据")).toBeTruthy();
   });
 
   it("counts a standalone child row as the row it is", async () => {
@@ -763,7 +790,7 @@ describe("阻塞标记", () => {
     store.setDependencies([]);
   });
 
-  it("展开后未完成前置的子任务行也带标记", () => {
+  it("规则 A 打开的子任务行也带标记", () => {
     store.setAll(
       [
         task("a", { sortOrder: "a" }),
@@ -776,7 +803,10 @@ describe("阻塞标记", () => {
     store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     render(() => <InboxView />);
-    expect(screen.getByRole("button", { name: /任务 a 的子任务/ })).toBeTruthy();
+    // Both children are 收件箱 rows themselves, so rule A has the parent open
+    // and the marked child row is on screen without a click.
+    expect(screen.getByText("一")).toBeTruthy();
+    expect(screen.getByText("二")).toBeTruthy();
     expect(screen.getByText("阻塞中")).toBeTruthy();
     store.setDependencies([]);
   });

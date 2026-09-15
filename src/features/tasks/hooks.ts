@@ -272,8 +272,16 @@ export function softDeleteTask(taskId: string): Promise<boolean | null> {
   const current = store.getTask(taskId);
   if (!current) return Promise.resolve(missingEntity("任务"));
   const snapshot: Task = { ...current };
-  const index = store.taskIndex(taskId);
   const children = store.childrenOf(taskId);
+  // Each removed row together with the slot it left. `state.tasks` is kept in
+  // `sortOrder` (that array order is what `topLevelTasks` hands out as the
+  // manual order), so the rollback re-inserts rather than appends — and in
+  // ascending index order, or a row clamped to the shortened array's end would
+  // land after rows it used to precede.
+  const removed = [
+    { index: store.taskIndex(taskId), task: snapshot },
+    ...children.map((task) => ({ index: store.taskIndex(task.id), task })),
+  ].sort((a, b) => a.index - b.index);
 
   return optimistic(
     () => {
@@ -281,8 +289,7 @@ export function softDeleteTask(taskId: string): Promise<boolean | null> {
       for (const child of children) store.removeTask(child.id);
     },
     () => {
-      store.insertTaskAt(index, snapshot);
-      for (const child of children) store.upsertTask(child);
+      for (const { index, task } of removed) store.insertTaskAt(index, task);
     },
     async () => {
       await api.softDeleteTask(taskId);

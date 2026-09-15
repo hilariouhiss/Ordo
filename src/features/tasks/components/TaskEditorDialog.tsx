@@ -21,7 +21,8 @@ import {
 } from "../complexity";
 import { PRIORITY_OPTIONS } from "../priority";
 import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
-import { getTag, getTask, tasksState } from "../store";
+import { canAcceptChild } from "../hierarchy";
+import { getTag, getTask, hasChildren, tasksState } from "../store";
 import type { Priority, RepeatFreq, RepeatRule, Task } from "../types";
 import { TagManagerDialog } from "./TagManagerDialog";
 
@@ -100,13 +101,33 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
    * one level, so a child can never be a parent), minus the task being edited —
    * a task is not its own parent. The sentinel keeps the picker able to say
    * 「顶层任务」, which is what `null` means.
+   *
+   * An existing task is answered by `canAcceptChild`, the same rule the drop
+   * target applies, so the picker never offers a write the service refuses. Its
+   * current parent stays listed although moving there is a no-op: the picker is
+   * seeded with it, and dropping it would paint 「顶层任务」 over a row that still
+   * points at it. A task that does not exist yet has no children and no parent
+   * to collide with, so for it only the top-level rule above applies.
    */
-  const parentOptions = createMemo(() => [
-    NO_PARENT,
-    ...tasksState.tasks
-      .filter((item) => item.parentTaskId === null && item.id !== props.task?.id)
-      .map((item) => ({ id: item.id as string | null, name: item.title })),
-  ]);
+  const parentOptions = createMemo(() => {
+    const editing = props.task;
+    return [
+      NO_PARENT,
+      ...tasksState.tasks
+        .filter(
+          (item) =>
+            item.parentTaskId === null &&
+            (item.id === editing?.parentTaskId ||
+              editing === undefined ||
+              canAcceptChild(editing.id, item)),
+        )
+        .map((item) => ({ id: item.id as string | null, name: item.title })),
+    ];
+  });
+  /** `tasks::has_children` refuses a task that has children (recycle bin
+   * included) as someone else's child, so the picker goes out of action rather
+   * than offering targets the save would reject. */
+  const parentLocked = () => props.task !== undefined && hasChildren(props.task.id);
   const selectedParent = () =>
     parentOptions().find((option) => option.id === parentId()) ?? NO_PARENT;
 
@@ -233,6 +254,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
 
             <Select.Root
               options={parentOptions()}
+              disabled={parentLocked()}
               optionValue={(option) => option.id ?? "none"}
               optionTextValue={(option) => option.name}
               itemToString={(option) => option.name}
@@ -253,6 +275,13 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               <Select.Content>
                 <Select.Listbox />
               </Select.Content>
+              {/* The service's own wording for this refusal, so a locked picker
+                  explains itself in the words a rejected save would use. */}
+              <Show when={parentLocked()}>
+                <Select.Description>
+                  该任务还有子任务（含回收站中的），不能变成别人的子任务
+                </Select.Description>
+              </Show>
             </Select.Root>
 
             <Select.Root

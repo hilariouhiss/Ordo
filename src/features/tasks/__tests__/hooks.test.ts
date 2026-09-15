@@ -428,6 +428,19 @@ describe("层级", () => {
     expect(store.getTask("c1")).toBeUndefined();
   });
 
+  it("a failed parent delete puts every row back in the slot it left", async () => {
+    store.setAll([task("c1", { parentTaskId: "p1" }), task("x1"), task("p1")], []);
+    vi.mocked(api.softDeleteTask).mockRejectedValue(appError("db", "删除失败"));
+
+    const result = await hooks.softDeleteTask("p1");
+
+    expect(result).toBeNull();
+    // `state.tasks` is the manual order (`sortOrder` as `task:list` returned
+    // it), so the rollback restores it row for row: appending the children
+    // would reshuffle the list on a delete that never happened.
+    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["c1", "x1", "p1"]);
+  });
+
   it("restoring a parent re-reads the list so its children come back too", async () => {
     // `restoreTask` is not optimistic — it waits for the authoritative row.
     // The server restores the children in the same transaction, but the single

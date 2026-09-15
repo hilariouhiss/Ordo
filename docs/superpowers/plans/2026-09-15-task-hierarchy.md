@@ -939,7 +939,7 @@ Expected: FAIL —— 先是一串编译错误（`NewTask` 没有 `parent_task_i
 
 `services.rs`：删 `list_subtasks`（537）、`list_all_subtasks`（547）、`create_subtask`（551）、`update_subtask`（593）、`complete_subtask`（625）、`delete_subtask`（640）、`reorder_subtask`（651）与「Subtasks」小节标题。
 
-`create_task_in_tx`（324）里，同级集合按「有没有父任务」分岔 —— **这是本次最容易漏的地方**，`sort_order` 的键空间是全表唯一，但「同级」的判定完全不同：
+`create_task_in_tx`（324）里，同级集合按「有没有父任务」分岔 —— **这是本次最容易漏的地方**，`sort_order` 的键是按同级范围生成的（同一同级集合内唯一，跨范围重复是正常的），但「同级」的判定完全不同：
 
 ```rust
     // `sort_order` is one global key sequence, but "the siblings" means two

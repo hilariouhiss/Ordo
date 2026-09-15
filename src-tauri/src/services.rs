@@ -347,11 +347,13 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
         input.column_id
     };
 
-    // `sort_order` is one global key sequence, but "the siblings" means two
-    // different sets: a child appends after its parent's other children, a
-    // top-level task after the tasks of its column. The second filter needs
-    // `parent_task_id IS NULL` because a child's `column_id` is NULL — without
-    // it, a new column-less task would append into the children's key range.
+    // `sort_order` keys are per sibling scope, not one global sequence: a child
+    // and a column-less top-level task both start at `first()`. "The siblings"
+    // therefore means two different sets — a child appends after its parent's
+    // other children, a top-level task after the tasks of its column. The second
+    // filter needs `parent_task_id IS NULL` because a child's `column_id` is
+    // NULL — without it, a new column-less task would append into the children's
+    // key range.
     let all = tasks::list(conn)?;
     let siblings: Vec<(Uuid, String)> = match input.parent_task_id {
         Some(parent_id) => all
@@ -462,6 +464,7 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
         }
         task.repeat_rule = repeat_rule;
     }
+    let previous_parent = task.parent_task_id;
     if let Patch::Set(parent_task_id) = patch.parent_task_id {
         match parent_task_id {
             Some(parent_id) => {
@@ -496,6 +499,13 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
             task.project_id = project_id;
         }
     }
+    // A task that moved into another sibling scope leaves its old key behind,
+    // where it means nothing: sort keys are per-scope (see `create_task_in_tx`),
+    // so the old key would slot the row arbitrarily among its new siblings — or
+    // tie with one of them. Re-key it by appending after the last sibling of the
+    // list it joined, exactly like a fresh create.
+    let reparented = task.parent_task_id != previous_parent;
+
     task.updated_at = Utc::now();
     let now = task.updated_at;
 
@@ -507,6 +517,26 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
     // behind.
     if moves_children {
         tasks::set_children_project(&tx, id, task.project_id, now)?;
+    }
+    if reparented {
+        let siblings: Vec<(Uuid, String)> = match task.parent_task_id {
+            Some(parent_id) => tasks::list_by_parent(&tx, parent_id)?,
+            None => tasks::list(&tx)?
+                .into_iter()
+                .filter(|t| t.column_id == task.column_id && t.parent_task_id.is_none())
+                .collect(),
+        }
+        .into_iter()
+        .filter(|t| t.id != id)
+        .map(|t| (t.id, t.sort_order))
+        .collect();
+        let (sort_order, rebalanced) = append_key(&siblings)?;
+        for (sibling_id, key) in &rebalanced {
+            if !tasks::set_sort_order(&tx, *sibling_id, key, now)? {
+                return Err(not_found("任务", *sibling_id));
+            }
+        }
+        task.sort_order = sort_order;
     }
     if !tasks::update(&tx, &task)? {
         return Err(not_found("任务", id));
@@ -2145,28 +2175,16 @@ mod tests {
 
         assert_eq!(child.parent_task_id, Some(parent.id));
         assert_eq!(
-            child.project_id,
-            Some(project.id),
-            "a child follows its parent"
-        );
-        assert_eq!(child.column_id, None, "a child never lands on a board");
-        assert_eq!(child.repeat_rule, None);
-    }
-
-    #[test]
-    fn creating_a_child_records_its_parent_and_stays_off_the_board() {
-        let conn = conn();
-        let parent = make_task(&conn, "写周报");
-
-        let child = make_child(&conn, &parent, "收集数据");
-
-        assert_eq!(child.parent_task_id, Some(parent.id));
-        assert_eq!(child.column_id, None, "a child never lands on a board");
-        assert_eq!(child.repeat_rule, None);
-        assert_eq!(
             child.project_id, parent.project_id,
             "a child follows its parent"
         );
+        assert_eq!(
+            child.project_id,
+            Some(project.id),
+            "the parent's own project"
+        );
+        assert_eq!(child.column_id, None, "a child never lands on a board");
+        assert_eq!(child.repeat_rule, None);
     }
 
     #[test]
@@ -2447,6 +2465,72 @@ mod tests {
     }
 
     #[test]
+    fn re_parenting_re_keys_the_task_at_the_end_of_its_new_siblings() {
+        // Keys are per sibling scope (`create_task_in_tx`), so the key a task
+        // carries out of its old list means nothing in the new one: kept as-is
+        // it would slot the row in arbitrarily, or tie with a sibling.
+        let conn = conn();
+        let (old_parent, new_parent) = (make_task(&conn, "甲"), make_task(&conn, "乙"));
+        let moved = make_child(&conn, &old_parent, "搬走的");
+        let first_anchor = make_child(&conn, &new_parent, "锚点一");
+        make_child(&conn, &new_parent, "锚点二");
+        make_child(&conn, &new_parent, "锚点三");
+
+        // Each is the first row of its own list, so the two keys are equal.
+        assert_eq!(moved.sort_order, first_anchor.sort_order);
+
+        let moved = update_task(
+            &conn,
+            moved.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(new_parent.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        let siblings = tasks::list_by_parent(&conn, new_parent.id).unwrap();
+        let titles: Vec<&str> = siblings.iter().map(|task| task.title.as_str()).collect();
+        assert_eq!(titles, ["锚点一", "锚点二", "锚点三", "搬走的"]);
+        assert!(
+            siblings
+                .iter()
+                .all(|task| task.id == moved.id || task.sort_order < moved.sort_order),
+            "the re-keyed task sorts after every sibling it joined"
+        );
+    }
+
+    #[test]
+    fn promoting_a_child_back_to_the_top_level_appends_it_last_there() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let other = make_task(&conn, "第一条");
+        let child = make_child(&conn, &parent, "被提出的");
+
+        let promoted = update_task(
+            &conn,
+            child.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(None),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(promoted.parent_task_id, None);
+        let top_level: Vec<Task> = tasks::list(&conn)
+            .unwrap()
+            .into_iter()
+            .filter(|task| task.parent_task_id.is_none())
+            .collect();
+        assert_eq!(top_level.last().map(|task| task.id), Some(promoted.id));
+        assert!(
+            other.sort_order < promoted.sort_order,
+            "the promoted task is re-keyed after the top-level list, not left on the key it had as a child"
+        );
+    }
+
+    #[test]
     fn completing_a_parent_leaves_its_children_open() {
         // §9.1: completion does not cascade — a child has its own state and its
         // own place in the views.
@@ -2603,8 +2687,6 @@ mod tests {
         restore_task(&conn, parent.id).unwrap();
         assert!(tasks::get(&conn, child.id).unwrap().is_some());
     }
-
-    // --- subtasks as child tasks ----------------------------------------------
 
     // --- subtasks as child tasks ----------------------------------------------
 

@@ -113,7 +113,7 @@ DROP TABLE subtasks;
 - **id 全部保留**：依赖边与提醒标记靠 id 对齐，改 id 就得额外维护映射表。
 - **`JOIN tasks t`**：子任务的父任务一定是行内存在的任务（FK 保证），孤儿行不会出现；万一将来出现，`JOIN` 会让它被跳过而不是插入一条 `parent_task_id` 指向不存在行的记录。
 - **FTS 自动跟进**：INSERT INTO `tasks` 会触发 `tasks_ai`，搬迁的子任务直接进入搜索索引，无需手工 `'rebuild'`。这正是选择不重建表的附带收益。
-- **`sort_order` 不重排**：沿用子任务原来的键，父任务下兄弟的相对顺序不变（键在整个 `tasks` 表里唯一即可，不需要按父分段）。
+- **`sort_order` 不重排**：沿用子任务原来的键，父任务下兄弟的相对顺序不变（键按**同级范围**生成，只需在同一同级集合内唯一：一个父任务下的第一个子任务和一条无列的顶层任务都会拿到 `n`，跨范围重复是正常的）。
 - **删表顺序**：三张子任务表之间没有相互引用，但 `subtask_dependencies` / `subtask_reminders` 必须在 `subtasks` 之前删（它们引用 `subtasks(id)`）。
 - **`db.rs` 的表清单**：删掉 `subtasks` / `subtask_dependencies` / `subtask_reminders` 三项，并补一条 `idx_tasks_parent` 的断言；`db.rs:197` 的 `v4_adds_attributes_and_dependency_tables` 直接对 `subtasks` 跑裸 SQL，也要改写或删除。
 - **`tasks::list` 是不过滤的全表查询**（`repositories.rs:288-300`，`WHERE deleted_at IS NULL ORDER BY sort_order, created_at, id`）。合并后子任务会**自动**流进 `task:list`、看板候选、收件箱/今天等视图与 FTS —— 这正是我们要的（§7.2 让前端拿到全量），但服务层里凡是「拿同级任务算排序键/取看板候选」的地方都必须补上 `parent_task_id IS NULL`（见 §6.3），否则子任务会混进顶层同级集合。
@@ -163,7 +163,7 @@ DROP TABLE subtasks;
 
 - `TASK_COLUMNS` 增 `parent_task_id`；`SUBTASK_COLUMNS` 与 `pub mod subtasks` 删除。
 - `tasks::insert` / `update` / `from_row` / `list` 加列；新增 `list_by_parent`（若服务层需要按父查询；`list` 已返回全量，多数场景不需要）。
-- `sort_order` 作用域：键仍是一个全表唯一的字典序序列，但"同级"的判定由服务层按 `parent_task_id` / `column_id` 决定（见 §6.3）。**不**引入每父独立的键空间——那会带来第二套键耗尽重排逻辑，收益为零；前端按"同一父任务下的兄弟"直接按 `sortOrder` 排即可。
+- `sort_order` 作用域：键是**按同级集合生成**的字典序序列——同一同级集合内唯一，跨集合重复（甚至全表重复）都正常，"同级"由服务层按 `parent_task_id` / `column_id` 决定（见 §6.3），**不**引入每父独立的键空间（那会带来第二套键耗尽重排逻辑，收益为零）；前端按"同一父任务下的兄弟"直接按 `sortOrder` 排即可。因此**换父任务必须重新取键**：`update_task` 改 `parent_task_id` 时把该任务追加到新同级列表末尾（键耗尽时同事务内局部重排），否则它会带着旧范围的键插进新兄弟之间，位置随机甚至并列（§6.3）。
 - 依赖仓储合并成一张表；查询边的存活谓词不再需要"两端同父"的额外条件（层级已在业务层保证）。
 
 ### 6.5 提醒（`scheduler.rs` / `services.rs`）
@@ -328,6 +328,7 @@ DROP TABLE subtasks;
 - **迁移（Rust）**：新库跑 V1→V7 后，`subtasks` 不存在、`tasks.parent_task_id` 存在、索引与外键生效；把"有子任务的库"（V6 状态）跑 V7，断言：子任务行数守恒、id 不变、`done=1` 变成非空 `completed_at`、依赖边与新任务 id 对得上、提醒标记未丢（不重发）、**FTS 触发器重建后新任务可被搜到**。
 - **服务层（Rust）**：单层校验（父任务有父 → `validation`）、自引用拒绝、有子任务的任务不能再被挂到别人下面、改父任务项目时子任务跟随、软删/恢复的级联、`reorder_task` 的键重排与耗尽路径、看板拒绝子任务、统计只数顶层。
 - **必须保住的既有契约**（改了就是回归）：`task-views.test.tsx` 的 20px 引导槽位（`w-5` + `self-stretch`、不得带 `h-*`/`size-*`）与「4 行 = 224px、每行恰好一个 `h-14`、展开槽位 `size-5` vs 引导槽位 `w-5`」；`blocked-confirm.test.tsx` 的 `BlockedRequest` 形状（含 `parentId`）；`dependencies.test.ts` 的成环检测。
+- **实施修订（`BlockedRequest`）**：实现里 `kind` 与 `parentId` 两个字段被删掉了（`blocked-confirm.ts:21-28`），因为没有任何读取方——上一条要保住的因此收窄为：一条「前置尚未完成」的确认弹窗，以及点「仍要完成」之后重放同一个动作，两者由 `blocked-confirm.test.tsx` 钉住。
 - **前端**：`childrenOf` / `topLevelTasks` 派生；`TaskListView` 的规则 A（父在同视图 → 子行内分组；父不在 → 子带前缀出现在顶层）；规则 A 下的筛选规则（§8.6：行内分组的子任务不被筛掉，顶层独立出现的子任务被筛掉）；工具条计数只数顶层（§8.7）；拖放到任务行/项目行的三种落点与不可落判定；`hasChildren` 徽标；提醒事件不再有父子两段式；依赖索引单集合。
 - 沿用并更新：`task-views.test.tsx` 的行高/槽位契约、`task-detail-dialog.test.tsx`、`dependencies.test.ts`、`reminders.test.ts`、`board-view.test.tsx`、`settings-view.test.tsx`（备份计数文案）。
 - **存量 Rust 测试的处置**（共 126 条，其中 33 条提到子任务、23 条是实质断言，10 条只带 `subtaskTitles: []` / `subtaskId: null` 之类的字段初始化）：

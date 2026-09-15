@@ -46,6 +46,11 @@ export interface TaskItemRowProps {
   /** How many prerequisites are still unfinished. */
   blockerCount: number;
   expanded: boolean;
+  /** Rule A already opened this row (`TaskListView.autoOpen`): the children are
+   * on screen because the view matched one of them, not because the user asked,
+   * so the row drops its disclosure control instead of offering 收起 that
+   * cannot fold anything away. */
+  autoExpanded: boolean;
   onToggleExpand: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   /** Clicking the title opens the task detail (subtasks live there). */
@@ -104,7 +109,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       }}
     >
       <Show
-        when={props.subtaskCount > 0}
+        when={props.subtaskCount > 0 && !props.autoExpanded}
         fallback={<span class="size-5 shrink-0" aria-hidden="true" />}
       >
         <button
