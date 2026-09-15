@@ -374,3 +374,19 @@
     outline-offset: 2px;
   }
 }
+
+/*
+ * Child-list indent (R1) — one rule for every list that renders its children
+ * inline under a parent row: the child's content sits 20px right of the
+ * parent's, with a 1px guide on the centre line of that band.
+ *
+ * The task list expresses the same rule with a row-shaped gutter (`SubtaskRow`:
+ * `w-5` slot + centred line), because those rows are virtualized and the guide
+ * has to be drawn per row rather than by a container border. Keep the two in
+ * step: 20px step, guide on the mid-line, `border-strong` for the line.
+ */
+@utility child-indent {
+  margin-left: 20px;
+  border-left: 1px solid var(--color-border-strong);
+  padding-left: 9px;
+}

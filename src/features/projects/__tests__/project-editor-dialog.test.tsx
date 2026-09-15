@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import { COLORS } from "../../../common/colors";
 import { isoToLocalDateValue } from "../../../common/utils/datetime";
+import { createNamespace } from "../../namespaces/hooks";
 import { resetNamespacesStore, setAll as setNamespaces } from "../../namespaces/store";
 import type { Namespace } from "../../namespaces/types";
 import { ProjectEditorDialog } from "../components/ProjectEditorDialog";
@@ -14,6 +15,11 @@ import type { Project } from "../types";
 vi.mock("../hooks", () => ({
   createProject: vi.fn(),
   updateProject: vi.fn(),
+}));
+
+// R5: 弹窗里的「＋ 新建命名空间…」走命名空间域的创建收口。
+vi.mock("../../namespaces/hooks", () => ({
+  createNamespace: vi.fn(),
 }));
 
 function projectFixture(id: string, overrides: Partial<Project> = {}): Project {
@@ -205,6 +211,59 @@ describe("ProjectEditorDialog", () => {
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(vi.mocked(hooks.createProject).mock.calls[0]?.[0]?.namespaceId).toBe("ns2");
+  });
+
+  it("files a new project into a namespace created from the same dialog", async () => {
+    vi.mocked(createNamespace).mockResolvedValue(namespaceFixture("ns-new", "新组"));
+    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /命名空间/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "＋ 新建命名空间…" }));
+
+    // The name field only exists once that option is picked.
+    fireEvent.input(await screen.findByLabelText("命名空间名称"), {
+      target: { value: "  新组  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(createNamespace).toHaveBeenCalledWith({ name: "新组" });
+    expect(vi.mocked(hooks.createProject).mock.calls[0]?.[0]?.namespaceId).toBe("ns-new");
+  });
+
+  it("skips both writes when the new namespace has no name", async () => {
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /命名空间/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "＋ 新建命名空间…" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(await screen.findByText("命名空间名不能为空")).toBeTruthy();
+    expect(createNamespace).not.toHaveBeenCalled();
+    expect(hooks.createProject).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("stops at a failed namespace write instead of creating a half-filed project", async () => {
+    vi.mocked(createNamespace).mockResolvedValue(null);
+    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /命名空间/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "＋ 新建命名空间…" }));
+    fireEvent.input(await screen.findByLabelText("命名空间名称"), { target: { value: "新组" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    // The namespace hook already notified + rolled back. Filing the project
+    // under a namespace that does not exist would be worse than stopping here:
+    // the dialog stays open, so the retry is one click away.
+    await waitFor(() => expect(createNamespace).toHaveBeenCalledTimes(1));
+    expect(hooks.createProject).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it("submits the project's current namespace untouched", async () => {

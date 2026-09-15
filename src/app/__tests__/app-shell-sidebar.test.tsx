@@ -129,6 +129,10 @@ describe("AppShell sidebar", () => {
     expect(group.textContent).toContain("移动端");
     expect(group.textContent).not.toContain("读论文");
     expect(group.textContent).not.toContain("杂事");
+    // R1: the nested nav takes the one shared indent token, not a hand-rolled
+    // margin/border/padding trio that could drift from the task list's step.
+    expect(group.className).toContain("child-indent");
+    expect(group.className).not.toContain("ml-3.5");
 
     // Unfiled projects stay in the flat root list, exactly as before.
     const root = screen.getByRole("navigation", { name: "项目列表" });

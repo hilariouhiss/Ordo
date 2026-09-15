@@ -23,6 +23,10 @@ export interface SubtaskRowProps {
  * the row's `items-center` that clamps the rail to a 20px tick with a 36px
  * break between rows instead of a continuous guide. Once the checkboxes
  * align, that guide line is what makes the nesting readable.
+ *
+ * This is the row-shaped form of the app-wide child indent (R1): 20px step,
+ * guide on the mid-line, `border-strong` for the line — the same rule the
+ * sidebar groups get from the `child-indent` utility in `index.css`.
  */
 export function SubtaskRow(props: SubtaskRowProps) {
   return (

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on } from "solid-js";
+import { Show, createEffect, createSignal, on } from "solid-js";
 import { z } from "zod";
 import {
   Button,
@@ -10,6 +10,7 @@ import {
 } from "../../../common/components";
 import { isoToLocalDateValue, localDateValueToIso } from "../../../common/utils/datetime";
 import { randomColor } from "../../../common/colors";
+import { createNamespace } from "../../namespaces/hooks";
 import { activeNamespaces, getNamespace } from "../../namespaces/store";
 import type { Namespace } from "../../namespaces/types";
 import { createProject, updateProject } from "../hooks";
@@ -32,10 +33,13 @@ const formSchema = z.object({
     ),
 });
 
-type FormField = "name" | "dueLocal";
+type FormField = "name" | "dueLocal" | "namespaceName";
 
 /** Sentinel for "no namespace": a real string, never `""`. */
 const NOT_FILED = "none";
+
+/** Sentinel for the "create one right here" option (R5). */
+const NEW_NAMESPACE = "__new__";
 
 type NamespaceOption = { id: string | null; name: string };
 
@@ -54,9 +58,14 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
   const [color, setColor] = createSignal<string | null>(null);
   const [icon, setIcon] = createSignal<string | null>(null);
   const [namespaceId, setNamespaceId] = createSignal<string | null>(null);
+  /** Name typed for the inline 新建命名空间 option (R5). */
+  const [newNamespaceName, setNewNamespaceName] = createSignal("");
   const [dueLocal, setDueLocal] = createSignal("");
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
+
+  /** Whether the Select currently points at "create a namespace here". */
+  const creatingNamespace = () => namespaceId() === NEW_NAMESPACE;
 
   // The namespace this dialog will submit: the edited project's own, or the
   // preset for a new one. It mirrors the re-seed below on purpose — one
@@ -87,6 +96,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         id: namespace.id,
         name: namespace.name,
       })),
+      { id: NEW_NAMESPACE, name: "＋ 新建命名空间…" },
     ];
   };
 
@@ -104,6 +114,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         setColor(project ? project.color : randomColor());
         setIcon(project?.icon ?? null);
         setNamespaceId(project ? project.namespaceId : (props.defaultNamespaceId ?? null));
+        setNewNamespaceName("");
         setDueLocal(isoToLocalDateValue(project?.dueAt ?? null));
         setErrors({});
         setSubmitting(false);
@@ -123,17 +134,31 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
       setErrors(next);
       return;
     }
+    if (creatingNamespace() && !newNamespaceName().trim()) {
+      setErrors({ namespaceName: "命名空间名不能为空" });
+      return;
+    }
 
     setErrors({});
     setSubmitting(true);
     try {
+      // R5: 选了「＋ 新建命名空间…」就先建命名空间。建好立刻把它选成当前值，
+      // 于是重试只会重发项目那一步，不会重复建命名空间；失败时表单留在原地。
+      let targetNamespaceId = namespaceId() === NEW_NAMESPACE ? null : namespaceId();
+      if (creatingNamespace()) {
+        const created = await createNamespace({ name: newNamespaceName().trim() });
+        if (!created) return;
+        targetNamespaceId = created.id;
+        setNamespaceId(created.id);
+      }
+
       const descriptionValue = description().trim() ? description().trim() : null;
       const payload = {
         name: parsed.data.name,
         description: descriptionValue,
         color: color(),
         icon: icon(),
-        namespaceId: namespaceId(),
+        namespaceId: targetNamespaceId,
         dueAt: localDateValueToIso(parsed.data.dueLocal),
       };
       const result = props.project
@@ -204,6 +229,22 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
                 <Select.Listbox />
               </Select.Content>
             </Select.Root>
+
+            {/* R5: 就地给新命名空间起名，提交时先建它再建项目。 */}
+            <Show when={creatingNamespace()}>
+              <TextField.Root
+                value={newNamespaceName()}
+                onChange={(value) => {
+                  setNewNamespaceName(value);
+                  if (errors().namespaceName) setErrors({ ...errors(), namespaceName: undefined });
+                }}
+                validationState={errors().namespaceName ? "invalid" : "valid"}
+              >
+                <TextField.Label>命名空间名称</TextField.Label>
+                <TextField.Input placeholder="例如：工作" />
+                <TextField.ErrorMessage>{errors().namespaceName ?? ""}</TextField.ErrorMessage>
+              </TextField.Root>
+            </Show>
 
             <TextField.Root
               value={dueLocal()}

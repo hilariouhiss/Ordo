@@ -339,7 +339,7 @@ export default function AppShell() {
                     <Show when={!collapsed() && groupOpen(namespace.id)}>
                       <nav
                         aria-label={`${namespace.name} 的项目`}
-                        class="ml-3.5 flex flex-col gap-0.5 border-l border-border pl-1.5"
+                        class="child-indent flex flex-col gap-0.5"
                       >
                         <For each={projectsInNamespace(namespace.id)}>
                           {(project) => <ProjectLink project={project} collapsed={collapsed()} />}
@@ -403,7 +403,7 @@ export default function AppShell() {
                       <Show when={groupOpen(namespace.id)}>
                         <nav
                           aria-label={`${namespace.name} 的项目`}
-                          class="ml-3.5 flex flex-col gap-0.5 border-l border-border pl-1.5"
+                          class="child-indent flex flex-col gap-0.5"
                         >
                           <For each={archivedProjectsOf(namespace.id)}>
                             {(project) => (
