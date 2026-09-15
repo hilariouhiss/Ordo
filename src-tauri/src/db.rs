@@ -39,6 +39,7 @@ pub(crate) fn test_conn() -> Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::params;
 
     fn migrated_connection() -> Connection {
         test_conn()
@@ -68,7 +69,6 @@ mod tests {
             "projects",
             "board_columns",
             "tasks",
-            "subtasks",
             "tags",
             "task_tags",
             "comments",
@@ -78,8 +78,7 @@ mod tests {
             "comment_search",
             "task_reminders",
             "task_dependencies",
-            "subtask_dependencies",
-            "subtask_reminders",
+            "idx_tasks_parent",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
@@ -196,81 +195,44 @@ mod tests {
     #[test]
     fn v4_adds_attributes_and_dependency_tables() {
         let conn = migrated_connection();
-        let stamp = "2026-01-01T00:00:00Z";
-        let insert_task = |id: &str, complexity: Option<i64>| {
-            conn.execute(
-                "INSERT INTO tasks (id, title, priority, sort_order, created_at, updated_at, complexity) \
-                 VALUES (?1, 'T', 'none', 'a', ?2, ?2, ?3)",
-                rusqlite::params![id, stamp, complexity],
-            )
-        };
-        insert_task("t1", Some(3)).unwrap();
-        insert_task("t2", None).unwrap();
-        assert!(
-            insert_task("t3", Some(6)).is_err(),
-            "complexity 6 must be rejected"
-        );
-        assert!(
-            insert_task("t4", Some(0)).is_err(),
-            "complexity 0 must be rejected"
-        );
 
-        // A subtask written without the new column takes the documented defaults.
+        // A task written without the new column takes the documented default.
         conn.execute(
-            "INSERT INTO subtasks (id, task_id, title, sort_order, created_at, updated_at) \
-             VALUES ('s1', 't1', 'S', 'a', ?1, ?1)",
-            rusqlite::params![stamp],
+            "INSERT INTO tasks (id, title, priority, sort_order, created_at, updated_at) \
+             VALUES ('t1', '写周报', 'none', 'a', ?1, ?1)",
+            params!["2026-09-09T10:00:00Z"],
         )
         .unwrap();
-        let (priority, note, due, complexity): (
-            String,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-        ) = conn
-            .query_row(
-                "SELECT priority, note, due_at, complexity FROM subtasks WHERE id = 's1'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
+        let complexity: Option<i64> = conn
+            .query_row("SELECT complexity FROM tasks WHERE id = 't1'", [], |row| {
+                row.get(0)
+            })
             .unwrap();
-        assert_eq!(priority, "none");
-        assert_eq!(note, None);
-        assert_eq!(due, None);
-        assert_eq!(complexity, None);
+        assert_eq!(complexity, None, "complexity starts unestimated");
 
-        let insert_edge = |dependent: &str, prerequisite: &str| {
+        // The CHECK is real: 6 is not a valid estimate.
+        assert!(conn
+            .execute("UPDATE tasks SET complexity = 6 WHERE id = 't1'", [])
+            .is_err());
+
+        // The edge table survived V7 as the only edge table, and its
+        // self-reference CHECK still rejects a task depending on itself.
+        // (Both endpoints exist, so the rejection can only come from the CHECK.)
+        conn.execute(
+            "INSERT INTO tasks (id, title, priority, sort_order, created_at, updated_at) \
+             VALUES ('t2', '第二条', 'none', 'b', ?1, ?1)",
+            params!["2026-09-09T10:00:00Z"],
+        )
+        .unwrap();
+        assert!(
             conn.execute(
                 "INSERT INTO task_dependencies (task_id, depends_on, created_at) \
-                 VALUES (?1, ?2, ?3)",
-                rusqlite::params![dependent, prerequisite, stamp],
+                 VALUES ('t1', 't1', '2026-09-09T10:00:00Z')",
+                [],
             )
-        };
-        insert_edge("t1", "t2").unwrap();
-        assert!(
-            insert_edge("t1", "t2").is_err(),
-            "duplicate edge must be rejected"
+            .is_err(),
+            "an edge may not point at itself"
         );
-        assert!(
-            insert_edge("t1", "t1").is_err(),
-            "self-dependency must be rejected"
-        );
-        assert!(
-            insert_edge("t1", "missing").is_err(),
-            "unknown endpoint must be rejected"
-        );
-
-        conn.execute(
-            "INSERT INTO subtask_dependencies (subtask_id, depends_on, created_at) \
-             VALUES ('s1', 's1', ?1)",
-            rusqlite::params![stamp],
-        )
-        .expect_err("self-dependency must be rejected");
-        conn.execute(
-            "INSERT INTO subtask_reminders (subtask_id, kind, sent_at) VALUES ('s1', 'due', ?1)",
-            rusqlite::params![stamp],
-        )
-        .unwrap();
     }
 
     #[test]
@@ -299,5 +261,136 @@ mod tests {
             )
             .unwrap();
         assert_eq!(namespace_id, None);
+    }
+
+    /// A V6 database with subtasks in it — the state a user's install is in
+    /// right before this change ships.
+    fn v6_connection_with_subtasks() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        embedded::migrations::runner()
+            .set_target(refinery::Target::Version(6))
+            .run(&mut conn)
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO projects (id, name, status, sort_order, created_at, updated_at) \
+                 VALUES ('p1', '网站改版', 'active', 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+             INSERT INTO tasks (id, project_id, title, priority, sort_order, created_at, updated_at) \
+                 VALUES ('t1', 'p1', '写周报', 'none', 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+             INSERT INTO subtasks (id, task_id, title, done, sort_order, created_at, updated_at) \
+                 VALUES ('s1', 't1', '收集数据', 1, 'a', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z'),
+                        ('s2', 't1', '汇总',     0, 'b', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
+             INSERT INTO subtasks (id, task_id, title, done, sort_order, created_at, updated_at, deleted_at) \
+                 VALUES ('s3', 't1', '删掉的', 0, 'c', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z', '2026-01-04T00:00:00Z');
+             INSERT INTO subtask_dependencies (subtask_id, depends_on, created_at) \
+                 VALUES ('s2', 's1', '2026-01-02T00:00:00Z');
+             INSERT INTO subtask_reminders (subtask_id, kind, sent_at) \
+                 VALUES ('s1', 'due', '2026-01-03T00:00:00Z');",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn v7_moves_subtasks_into_the_task_tree() {
+        let mut conn = v6_connection_with_subtasks();
+        embedded::migrations::runner().run(&mut conn).unwrap();
+
+        // The three subtask tables are gone, the column and its index are here.
+        let names: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        for gone in ["subtasks", "subtask_dependencies", "subtask_reminders"] {
+            assert!(!names.iter().any(|name| name == gone), "{gone} survived V7");
+        }
+        assert!(names.iter().any(|name| name == "idx_tasks_parent"));
+
+        // Row conservation: soft-deleted children travel too, ids untouched.
+        let moved: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE parent_task_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(moved, 3);
+        let parent: Option<String> = conn
+            .query_row(
+                "SELECT parent_task_id FROM tasks WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(parent.as_deref(), Some("t1"));
+
+        // A child follows its parent's project; a child never lands on a board.
+        let (project, column): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT project_id, column_id FROM tasks WHERE id = 's1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(project.as_deref(), Some("p1"));
+        assert_eq!(column, None);
+
+        // done = 1 became a completion instant; done = 0 stayed open.
+        let completed: Option<String> = conn
+            .query_row(
+                "SELECT completed_at FROM tasks WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(completed.as_deref(), Some("2026-01-03T00:00:00Z"));
+        let open: Option<String> = conn
+            .query_row(
+                "SELECT completed_at FROM tasks WHERE id = 's2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(open, None);
+
+        // The edge was remapped rather than dropped, and the marker survived —
+        // a re-fire would spam the user with reminders they already got.
+        let edge: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_dependencies WHERE task_id = 's2' AND depends_on = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(edge, 1);
+        let marker: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_reminders WHERE task_id = 's1' AND kind = 'due'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(marker, 1);
+    }
+
+    #[test]
+    fn v7_keeps_migrated_children_searchable() {
+        // `task_search` is a contentless FTS5 table over `tasks`, fed by the
+        // `tasks_ai` trigger. Migrating by INSERT (not by rebuilding `tasks`)
+        // is what keeps that trigger — and this assertion — honest.
+        let mut conn = v6_connection_with_subtasks();
+        embedded::migrations::runner().run(&mut conn).unwrap();
+
+        let hits: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_search WHERE task_search MATCH '收集数据'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hits, 1, "a migrated child must be findable through search");
     }
 }
