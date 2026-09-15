@@ -2792,7 +2792,7 @@ Expected: 全绿；typecheck 零输出
 ```
 
 ```bash
-git add src/common/icons.ts src/common/colors.ts src/common/components src/features/projects src/features/namespaces docs/superpowers/specs/2026-09-15-namespaces-design.md
+git add src/app/AppShell.tsx src/common/icons.ts src/common/colors.ts src/common/components src/features/projects src/features/namespaces docs/ARCHITECTURE.md docs/superpowers/specs/2026-09-15-namespaces-design.md
 git commit -m "feat: pick a namespace when editing a project, and edit namespaces"
 ```
 
