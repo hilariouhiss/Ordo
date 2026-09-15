@@ -738,6 +738,25 @@ describe("任务详情的依赖区", () => {
     expect(await screen.findByText("顶层候选")).toBeTruthy();
     expect(screen.queryByText("子任务候选")).toBeNull();
   });
+
+  it("offers a child only its siblings as prerequisites", async () => {
+    const parent = taskFixture("top", { title: "顶层候选" });
+    const sibling = taskFixture("sib", { title: "兄弟候选", parentTaskId: "top", sortOrder: "a" });
+    const self = taskFixture("kid", { title: "被看的子任务", parentTaskId: "top", sortOrder: "b" });
+    store.setAll([parent, sibling, self], []);
+    renderDetail(self);
+
+    fireEvent.input(await screen.findByPlaceholderText("输入任务标题以添加前置"), {
+      target: { value: "候选" },
+    });
+
+    // §7.4: a child's candidates are the tasks under the same parent — its
+    // parent is not a step beside it, and neither is a task from elsewhere in
+    // the app. Both match the search term, so the two assertions cannot pass by
+    // the term matching nothing.
+    expect(await screen.findByRole("button", { name: "添加前置 兄弟候选" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "添加前置 顶层候选" })).toBeNull();
+  });
 });
 
 describe("子任务行的依赖是普通任务依赖", () => {

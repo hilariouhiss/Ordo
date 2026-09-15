@@ -4,7 +4,6 @@ import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/sol
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
 import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
-import { beginDrag } from "../../common/stores/drag";
 import {
   clearNotifications,
   notifications,
@@ -289,18 +288,16 @@ describe("AppShell sidebar", () => {
     const target = await screen.findByRole("link", { name: "杂事" });
     setTasks([task("t1", { parentTaskId: "p9" })], []);
 
-    // The child stands alone in 今天 (its parent is not in the view), and a
-    // child row has no drag source of its own in the rendering layer — so the
-    // drag is started from the shared store. What is under test is the
-    // sidebar's drop target, not the row that began the drag.
+    // The child stands alone in 今天 (its parent is not in the view). The drag
+    // has to start on *that row*: §9.4 is a user gesture, and starting it from
+    // the store instead would test a path the UI cannot reach.
     const row = (await waitFor(() => {
       const element = document.querySelector('[data-subtask-id="t1"]');
       if (!element) throw new Error("task row not rendered yet");
       return element;
     })) as HTMLElement;
-    expect(row).toBeTruthy();
-    beginDrag(new Event("dragstart") as DragEvent, { kind: "task", id: "t1" });
 
+    fireEvent.dragStart(row);
     fireEvent.dragOver(target);
     fireEvent.drop(target);
 

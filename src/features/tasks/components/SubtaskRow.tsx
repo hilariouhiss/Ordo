@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { Badge, Checkbox } from "../../../common/components";
+import { beginDrag, endDrag } from "../../../common/stores/drag";
 import type { Task } from "../types";
 
 export interface SubtaskRowProps {
@@ -40,6 +41,13 @@ export function SubtaskRow(props: SubtaskRowProps) {
     <div
       class="flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-subtask-id={props.task.id}
+      // R7b/§9.4: a child is a task, so it is a drag source like any other row
+      // — dragging it onto a sidebar project row moves it into that project and
+      // out of its parent. It is not a drop target: a child may not take a
+      // parent of its own (one level, §7.5).
+      draggable={true}
+      onDragStart={(event) => beginDrag(event, { kind: "task", id: props.task.id })}
+      onDragEnd={endDrag}
     >
       <span aria-hidden="true" class="flex w-5 shrink-0 self-stretch justify-center">
         <span class="w-px bg-border-strong" />
