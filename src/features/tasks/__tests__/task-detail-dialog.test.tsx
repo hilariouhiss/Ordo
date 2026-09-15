@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
@@ -160,6 +161,45 @@ describe("TaskDetailDialog", () => {
 
     // The nested dialog is the child's: its title is the dialog heading now.
     expect(await screen.findByRole("heading", { name: "收集数据" })).toBeTruthy();
+  });
+
+  it("takes the child's dialog down with the host when the host closes", async () => {
+    store.setAll(
+      [
+        taskFixture("t1"),
+        taskFixture("c1", { parentTaskId: "t1", title: "收集数据" }),
+      ],
+      [],
+    );
+    // The list view's own wiring: 编辑 in a detail closes it and opens the
+    // editor. Both the host's and the child's dialog call that same callback,
+    // and closing the host is a *prop* change, not the nested dialog's own
+    // `onOpenChange` — which is exactly why the nested one has to be gated on
+    // `open` too, or it stays mounted over the editor.
+    const [open, setOpen] = createSignal(true);
+    render(() => (
+      <TaskDetailDialog
+        open={open()}
+        onOpenChange={setOpen}
+        task={taskFixture("t1")}
+        onEdit={() => setOpen(false)}
+      />
+    ));
+
+    fireEvent.click(await screen.findByText("收集数据"));
+    const childDialog = (await screen.findByRole("heading", { name: "收集数据" })).closest(
+      "[role='dialog']",
+    ) as HTMLElement;
+
+    fireEvent.click(within(childDialog).getByRole("button", { name: "编辑" }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "收集数据" })).toBeNull());
+
+    // Re-opening the host does not resurrect it: the stacked child is dropped
+    // with the host, not merely hidden behind the closed one.
+    setOpen(true);
+    expect(await screen.findByRole("heading", { name: "任务 t1" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "收集数据" })).toBeNull();
   });
 
   it("shows the task's fields and the child completion progress", () => {

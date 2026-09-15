@@ -145,6 +145,25 @@ export function TaskListView(props: TaskListViewProps) {
    * expanding never hits the backend. */
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
 
+  // A child the *view* matched opens its parent (rule A): the two paths point
+  // at the same child rows, and the parent's position wins, so nothing is
+  // listed twice. Read from `props.tasks()` and not from `visible()` — a child
+  // whose parent survived the toolbar filter never reaches `visible()` at all,
+  // it is folded into that parent's row.
+  const autoOpen = createMemo(() => {
+    const viewIds = new Set(props.tasks().map((task) => task.id));
+    return new Set(
+      props.tasks()
+        .filter((task) => task.parentTaskId !== null && viewIds.has(task.parentTaskId))
+        .map((task) => task.parentTaskId as string),
+    );
+  });
+
+  /** What is actually on screen under a parent: the user's own toggle or rule
+   * A's auto-open. The disclosure control reads this, not the bare signal, or
+   * it announces 展开/`aria-expanded=false` above children the user can see. */
+  const isOpen = (id: string) => Boolean(expanded()[id]) || autoOpen().has(id);
+
   // After `visible`, not before it: Solid runs a memo's body eagerly as it is
   // created, so reading `visible` from above its own `const` is a TDZ crash.
   //
@@ -160,18 +179,6 @@ export function TaskListView(props: TaskListViewProps) {
     const childrenByParent = groupChildren(tasksState.tasks);
     const byId = new Map(tasksState.tasks.map((task) => [task.id, task]));
     const matched = visible();
-    // A child the *view* matched opens its parent (rule A): the two paths point
-    // at the same child rows, and the parent's position wins, so nothing is
-    // listed twice. Read from `props.tasks()` and not from `visible()` — a child
-    // whose parent survived the toolbar filter never reaches `visible()` at all,
-    // it is folded into that parent's row.
-    const viewIds = new Set(props.tasks().map((task) => task.id));
-    const autoOpen = new Set(
-      props.tasks()
-        .filter((task) => task.parentTaskId !== null && viewIds.has(task.parentTaskId))
-        .map((task) => task.parentTaskId as string),
-    );
-    const isOpen = (id: string) => Boolean(expanded()[id]) || autoOpen.has(id);
     const blockedOf = (task: Task) =>
       task.completedAt === null && isBlocked(index, done, task.id);
 
@@ -270,11 +277,12 @@ export function TaskListView(props: TaskListViewProps) {
             <h1 class="mr-1 shrink-0 text-base font-semibold tracking-tight">{title()}</h1>
           )}
         </Show>
-        {/* Top-level rows only (§8.7): a child riding under its parent is part
-            of that row, and counting it would make the number change just
-            because a disclosure was opened. */}
+        {/* The rows this view listed (§8.7): `visible()` holds every top-level
+            row plus every standalone child, and no grouped one — a grouped
+            child is part of its parent's row. So the number is the line count
+            the view decided on, and it cannot change when a disclosure opens. */}
         <span class="shrink-0 text-xs text-subtle-foreground">
-          {visible().filter((task) => task.parentTaskId === null).length} 个任务
+          {visible().length} 个任务
         </span>
 
         <div class="ml-auto flex shrink-0 items-center gap-2">
@@ -419,7 +427,7 @@ export function TaskListView(props: TaskListViewProps) {
                 subtaskDone={row.childDone}
                 blocked={row.blockerCount > 0}
                 blockerCount={row.blockerCount}
-                expanded={Boolean(expanded()[row.task.id])}
+                expanded={isOpen(row.task.id)}
                 onToggleExpand={toggleExpand}
                 onToggleComplete={toggleComplete}
                 onOpenDetail={openDetail}

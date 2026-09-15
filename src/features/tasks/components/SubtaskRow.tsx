@@ -41,23 +41,6 @@ export function SubtaskRow(props: SubtaskRowProps) {
       class="flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-subtask-id={props.task.id}
     >
-      {/* Before the rail, not after it: the prefix is the row's own context,
-          and putting it inside the rail's column would push the title off the
-          column its siblings are aligned to. */}
-      <Show when={props.parentTitle}>
-        {(title) => (
-          <button
-            type="button"
-            class="min-w-0 shrink-0 truncate rounded-sm text-xs text-subtle-foreground transition-colors hover:text-primary focus-ring"
-            title={`父任务：${title()}`}
-            aria-label={`打开父任务 ${title()}`}
-            onClick={() => props.onOpenParent?.(props.task.parentTaskId as string)}
-          >
-            父任务 · {title()}
-          </button>
-        )}
-      </Show>
-
       <span aria-hidden="true" class="flex w-5 shrink-0 self-stretch justify-center">
         <span class="w-px bg-border-strong" />
       </span>
@@ -73,6 +56,24 @@ export function SubtaskRow(props: SubtaskRowProps) {
           <Checkbox.Indicator />
         </Checkbox.Control>
       </Checkbox.Root>
+
+      {/* After the rail and the checkbox, not before them: the rail's 20px
+          column is what keeps this row's checkbox in line with every other
+          row's, and a prefix ahead of it pushes the checkbox out of that
+          column — the whole point of reserving the slot. */}
+      <Show when={props.parentTitle}>
+        {(title) => (
+          <button
+            type="button"
+            class="min-w-0 shrink-0 truncate rounded-sm text-xs text-subtle-foreground transition-colors hover:text-primary focus-ring"
+            title={`父任务：${title()}`}
+            aria-label={`打开父任务 ${title()}`}
+            onClick={() => props.onOpenParent?.(props.task.parentTaskId as string)}
+          >
+            父任务 · {title()}
+          </button>
+        )}
+      </Show>
 
       <button
         type="button"

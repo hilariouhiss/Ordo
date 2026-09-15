@@ -419,7 +419,8 @@ describe("任务行的子任务展开位", () => {
 
     render(() => <InboxView />);
 
-    expect(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" })).toBeTruthy();
+    // s2/s3 are 收件箱 rows of their own, so rule A leaves t1 open (收起).
+    expect(await screen.findByRole("button", { name: /任务 t1 的子任务/ })).toBeTruthy();
     expect(screen.getByText("1/3")).toBeTruthy();
   });
 
@@ -498,7 +499,15 @@ describe("SubtaskRow", () => {
     unmount();
 
     render(() => <SubtaskRow {...props} parentTitle="写周报" />);
-    expect(screen.getByRole("button", { name: "打开父任务 写周报" })).toBeTruthy();
+    const prefix = screen.getByRole("button", { name: "打开父任务 写周报" });
+    expect(prefix).toBeTruthy();
+    // The prefix sits *after* the rail and the checkbox, not before them: the
+    // rail's 20px column is what lines this row's checkbox up with every other
+    // row's, and a prefix ahead of it pushes the checkbox out of that column.
+    const checkbox = screen.getByRole("checkbox", { name: "完成子任务 第一步" });
+    expect(
+      checkbox.compareDocumentPosition(prefix) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("keeps the rail slot 20px wide and stretched to the row height", () => {
@@ -548,6 +557,13 @@ describe("任务列表的层级展示", () => {
     // each title appears exactly once.
     expect(await screen.findAllByText("收集数据")).toHaveLength(1);
     expect(screen.getAllByText("收集数据")[0].closest("[data-subtask-id]")).toBeTruthy();
+    // And the parent's disclosure agrees with what is on screen: it is open,
+    // so it must not announce 展开/aria-expanded=false over visible children.
+    expect(
+      screen
+        .getByRole("button", { name: "收起 写周报 的子任务" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 
   it("keeps a child whose parent is missing as a prefixed top-level row", async () => {
@@ -568,7 +584,9 @@ describe("任务列表的层级展示", () => {
   it("filters a standalone child but never a grouped one", async () => {
     store.setAll(
       [
-        task("p1", { title: "写周报", dueAt: iso(0, 12) }),
+        // p1 is 低, so 仅低 keeps it: c1 then has a parent on screen, which is
+        // the whole point — a child only *rides* when its parent survived.
+        task("p1", { title: "写周报", dueAt: iso(0, 12), priority: "low" }),
         task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(0, 13), priority: "high" }),
         task("p2", { title: "孤儿子任务", parentTaskId: "gone", dueAt: iso(0, 14), priority: "high" }),
       ],
@@ -579,21 +597,41 @@ describe("任务列表的层级展示", () => {
     fireEvent.pointerDown(await screen.findByRole("button", { name: /全部优先级/ }));
     fireEvent.click(await screen.findByRole("option", { name: "仅低" }));
 
-    // p2 is a row of its own: the filter drops it. c1 rides under its parent,
-    // which the filter also dropped — so 今天 is empty now.
-    await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
-    expect(screen.queryByText("收集数据")).toBeNull();
-    expect(screen.queryByText("孤儿子任务")).toBeNull();
+    // p2 stands on its own, so 仅低 drops it. c1 is 高 and still on screen,
+    // as p1's child row: a grouped child is its parent's context and no
+    // toolbar filter touches it.
+    await waitFor(() => expect(screen.queryByText("孤儿子任务")).toBeNull());
+    expect(screen.getByText("写周报")).toBeTruthy();
+    expect(screen.getByText("收集数据").closest("[data-subtask-id]")).toBeTruthy();
   });
 
   it("counts top-level rows only, so expanding never changes the number", async () => {
     seedHierarchy();
     render(() => <TodayView />);
 
-    // p1 + p2 are top-level; c1 rides under p1 and is not counted.
+    // p1 + p2 are top-level; c1 rides under p1 and is not counted. c1 matched
+    // 今天 itself, so rule A already has p1 open — the control reads 收起. The
+    // number is a count of rows, open or closed.
     expect(await screen.findByText("2 个任务")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /展开 写周报/ }));
+    fireEvent.click(screen.getByRole("button", { name: "收起 写周报 的子任务" }));
     expect(screen.getByText("2 个任务")).toBeTruthy();
+  });
+
+  it("counts a standalone child row as the row it is", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(5, 12) }), // not in 今天
+        task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(0, 13) }),
+      ],
+      [],
+    );
+    render(() => <TodayView />);
+
+    // c1's parent is out of view, so c1 stands on its own and is a row 今天
+    // shows: the number counts rows, so it is 1 — the old `parentTaskId ===
+    // null` formula printed 0 above this very row.
+    expect(await screen.findByText("1 个任务")).toBeTruthy();
+    expect(screen.getByText("收集数据")).toBeTruthy();
   });
 
   it("keeps a child of an expanded parent that the view itself did not match", async () => {
@@ -737,7 +775,7 @@ describe("阻塞标记", () => {
     store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     render(() => <InboxView />);
-    expect(screen.getByRole("button", { name: "展开 任务 a 的子任务" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /任务 a 的子任务/ })).toBeTruthy();
     expect(screen.getByText("阻塞中")).toBeTruthy();
     store.setDependencies([]);
   });
@@ -777,10 +815,9 @@ describe("完成后的行不再戴阻塞标记", () => {
     store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     render(() => <InboxView />);
-    // s2 is finished, so 收件箱 does not hold it on its own — it is here as the
-    // expanded parent's child, which is exactly the row under test.
-    fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
-
+    // s2 is finished, so 收件箱 does not hold it on its own: it is on screen as
+    // a child of a, whose unfinished child s1 is an 收件箱 row — rule A opens
+    // the parent, and *that* child row is the one under test.
     expect(screen.getByText("二")).toBeTruthy();
     expect(screen.queryByText("阻塞中")).toBeNull();
 

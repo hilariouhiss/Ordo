@@ -81,6 +81,13 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
     return id === null ? undefined : getTask(id);
   });
 
+  // The host closing is a prop change, not this dialog's own `onOpenChange`, so
+  // nothing would clear the stacked child: it has to be dropped with the host,
+  // or re-opening the same task brings the child's dialog back with it.
+  createEffect(() => {
+    if (!props.open) setViewingChildId(null);
+  });
+
   // Children need no load: they are rows in the same snapshot as this task,
   // and `SubtaskList` filters them out of the store. Comments and time entries
   // still have their own caches, so they keep their gates.
@@ -212,8 +219,11 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
 
       {/* A child's own detail, one level down: same component, so its fields,
           dependencies, comments and timer all come along unchanged. It closes
-          by clearing the id, which is also what unmounts it. */}
-      <Show when={viewingChild()}>
+          by clearing the id — and by the host closing: 编辑 in this dialog runs
+          the host's callback, which closes the host by prop and never touches
+          `viewingChildId`, so without `props.open` in the gate the child's
+          portal would stay mounted over the editor. */}
+      <Show when={props.open && viewingChild()}>
         {(child) => (
           <TaskDetailDialog
             open={true}
