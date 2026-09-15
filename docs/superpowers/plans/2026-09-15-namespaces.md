@@ -910,8 +910,8 @@ pub fn restore_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppEr
 
 - [ ] **Step 7: 跑服务测试**
 
-Run: `cd src-tauri && cargo test namespace_ archiving_a_namespace`
-Expected: 四条新测试全部 PASS（`namespace_create_appends_and_validates`、`namespace_update_patches_and_archive_restores`、`archiving_a_namespace_leaves_its_projects_alone`，加上 Task 1 的迁移与回落测试）
+Run: `cd src-tauri && cargo test -- namespace_ archiving_a_namespace`（libtest 的过滤器只能跟在 `--` 之后传多个；`cargo test A B` 会被 cargo 自己拒掉）
+Expected: 三条新测试全部 PASS（`namespace_create_appends_and_validates`、`namespace_update_patches_and_archive_restores`、`archiving_a_namespace_leaves_its_projects_alone`）；`cargo test namespace` 还会带上 Task 1 的 `v5_files_existing_projects_under_no_namespace` 与 `project_namespace_id_round_trips_and_clears`，那是同名过滤器捎带的，不是本任务的新用例
 
 - [ ] **Step 8: 注册命令**
 
@@ -1303,7 +1303,7 @@ git commit -m "feat: validate the namespace a project is filed under"
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd src-tauri && cargo test backup_carries_namespaces version_two_backups import_refuses_a_project`
+Run: `cd src-tauri && cargo test -- backup_carries_namespaces version_two_backups import_refuses_a_project`（同 Task 2：多个过滤器要跟在 `--` 之后）
 Expected: FAIL —— `backup_carries_namespaces_and_refiles_projects` 报断言不等（导入后命名空间列表为空）；`version_two_backups_import_with_every_project_ungrouped` 甚至可能在 `document.version > BACKUP_VERSION` 处通过，但 `imported[0].namespace_id` 断言前就已因字段缺失而失败；`import_refuses_a_project_filed_under_a_missing_namespace` 现在**会成功导入**（悬空外键未被外键约束挡住前，项目先落库），`assert!(import_backup(...).is_err())` 因此失败
 
 - [ ] **Step 3: 模型与版本号**
