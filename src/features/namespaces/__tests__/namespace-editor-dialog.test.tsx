@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
+import { COLORS } from "../../../common/colors";
 import { NamespaceEditorDialog } from "../components/NamespaceEditorDialog";
 import * as hooks from "../hooks";
 import * as store from "../store";
@@ -55,9 +56,23 @@ describe("NamespaceEditorDialog", () => {
     expect(hooks.createNamespace).toHaveBeenCalledWith({
       name: "工作",
       description: null,
-      color: null,
+      // R3: 未点颜色 → 弹窗预置的随机色随提交一起落库。
+      color: expect.any(String),
       icon: null,
     });
+  });
+
+  it("submits the picked colour, not the seeded one", async () => {
+    vi.mocked(hooks.createNamespace).mockResolvedValue(namespaceFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "工作" } });
+    fireEvent.click(screen.getByRole("button", { name: `颜色 ${COLORS[5]}` }));
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    const payload = vi.mocked(hooks.createNamespace).mock.calls[0]?.[0];
+    expect(payload?.color).toBe(COLORS[5]);
   });
 
   it("shows a clear error and skips the backend for a blank name", async () => {

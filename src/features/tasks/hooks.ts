@@ -9,6 +9,7 @@
  */
 
 import { normalizeError } from "../../common/ipc";
+import { randomColor } from "../../common/colors";
 import { pushError } from "../../common/stores/notifications";
 import * as api from "./api";
 import { requestBlockedConfirm } from "./blocked-confirm";
@@ -325,10 +326,12 @@ export async function restoreTask(taskId: string): Promise<Task | null> {
 export function createTag(input: NewTag): Promise<Tag | null> {
   const tempId = nextTempId();
   const now = new Date().toISOString();
+  // 未指定颜色（`undefined`）就随机一个；显式 `null`=「无颜色」保持无色（R3）。
+  const color = input.color === undefined ? randomColor() : input.color;
   const optimisticTag: Tag = {
     id: tempId,
     name: input.name.trim(),
-    color: input.color ?? null,
+    color,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -338,7 +341,7 @@ export function createTag(input: NewTag): Promise<Tag | null> {
     () => store.upsertTag(optimisticTag),
     () => store.removeTag(tempId),
     async () => {
-      const created = await api.createTag({ ...input, name: optimisticTag.name });
+      const created = await api.createTag({ ...input, name: optimisticTag.name, color });
       store.removeTag(tempId);
       store.upsertTag(created);
       return created;

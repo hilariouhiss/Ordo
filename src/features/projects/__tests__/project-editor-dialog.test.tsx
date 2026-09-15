@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
+import { COLORS } from "../../../common/colors";
 import { isoToLocalDateValue } from "../../../common/utils/datetime";
 import { resetNamespacesStore, setAll as setNamespaces } from "../../namespaces/store";
 import type { Namespace } from "../../namespaces/types";
@@ -80,11 +81,27 @@ describe("ProjectEditorDialog", () => {
     expect(hooks.createProject).toHaveBeenCalledWith({
       name: "网站改版",
       description: null,
-      color: null,
+      // R3: 未点颜色 → 弹窗预置的随机色随提交一起落库。
+      color: expect.any(String),
       icon: null,
       namespaceId: null,
       dueAt: null,
     });
+  });
+
+  it("submits a colour from the palette when the user picks one", async () => {
+    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "随手" } });
+    const swatch = screen.getByRole("button", { name: `颜色 ${COLORS[5]}` });
+    fireEvent.click(swatch);
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(hooks.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({ color: COLORS[5] }),
+    );
   });
 
   it("shows a clear error and skips the backend for a blank name", async () => {

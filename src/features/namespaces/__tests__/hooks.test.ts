@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { COLORS } from "../../../common/colors";
 import { clearNotifications, notifications } from "../../../common/stores/notifications";
 import type { Namespace } from "../types";
 
@@ -92,8 +93,31 @@ describe("createNamespace", () => {
     const created = await result;
 
     expect(created?.id).toBe("real-1");
-    expect(api.createNamespace).toHaveBeenCalledWith({ name: "工作" });
+    expect(api.createNamespace).toHaveBeenCalledWith({
+      name: "工作",
+      color: expect.any(String),
+    });
     expect(store.namespacesState.namespaces).toEqual([namespace("real-1", { name: "工作" })]);
+  });
+
+  // R3: 未指定颜色（`undefined`）→ 随机色；显式 `null`=「无颜色」→ 保持无色。
+  it("gives a namespace created without a colour a palette colour", async () => {
+    vi.mocked(api.createNamespace).mockImplementation(async (input) =>
+      namespace("real-1", { name: input.name, color: input.color ?? null }),
+    );
+
+    const created = await hooks.createNamespace({ name: "随手" });
+
+    expect(COLORS).toContain(created?.color);
+    expect(api.createNamespace).toHaveBeenCalledWith({ name: "随手", color: created?.color });
+  });
+
+  it("keeps an explicit null colour instead of randomizing it", async () => {
+    vi.mocked(api.createNamespace).mockResolvedValue(namespace("real-1", { name: "无色" }));
+
+    await hooks.createNamespace({ name: "无色", color: null });
+
+    expect(api.createNamespace).toHaveBeenCalledWith({ name: "无色", color: null });
   });
 
   it("removes the optimistic entry and notifies on failure", async () => {

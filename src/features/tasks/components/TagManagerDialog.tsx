@@ -2,6 +2,7 @@ import { For, Show, createSignal } from "solid-js";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-solid";
 import { z } from "zod";
 import { Button, Dialog, TextField } from "../../../common/components";
+import { randomColor } from "../../../common/colors";
 import { createTag, deleteTag, updateTag } from "../hooks";
 import { tasksState } from "../store";
 import type { Tag } from "../types";
@@ -89,7 +90,8 @@ export interface TagManagerDialogProps {
 
 export function TagManagerDialog(props: TagManagerDialogProps) {
   const [newName, setNewName] = createSignal("");
-  const [newColor, setNewColor] = createSignal<string | null>(null);
+  // 新建标签不指定颜色就随机一个，色板显示的就是要提交的颜色（R3）。
+  const [newColor, setNewColor] = createSignal<string | null>(randomColor());
   const [newError, setNewError] = createSignal("");
   const [creating, setCreating] = createSignal(false);
 
@@ -131,7 +133,7 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
       const created = await createTag({ name: parsed.data, color: newColor() });
       if (created) {
         setNewName("");
-        setNewColor(null);
+        setNewColor(randomColor());
       }
     } finally {
       setCreating(false);

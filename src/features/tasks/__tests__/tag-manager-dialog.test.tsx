@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
+import { COLORS } from "../../../common/colors";
 import { TagManagerDialog } from "../components/TagManagerDialog";
 import * as hooks from "../hooks";
 import * as store from "../store";
@@ -90,16 +91,31 @@ describe("TagManagerDialog", () => {
     expect(blue.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("creates a tag without a colour when none is picked", async () => {
+  // R3: 新建标签的色板预置一个随机色，用户不点也带色创建。
+  it("creates a tag with the seeded palette colour when none is picked", async () => {
     vi.mocked(hooks.createTag).mockResolvedValue(tagFixture("t3", "随手"));
     renderDialog();
 
     fireEvent.input(screen.getByLabelText("新建标签"), { target: { value: "随手" } });
     fireEvent.click(screen.getByRole("button", { name: "添加" }));
 
-    await waitFor(() =>
-      expect(hooks.createTag).toHaveBeenCalledWith({ name: "随手", color: null }),
+    await waitFor(() => expect(hooks.createTag).toHaveBeenCalledTimes(1));
+    expect(COLORS).toContain(vi.mocked(hooks.createTag).mock.calls[0]?.[0].color);
+  });
+
+  it("seeds a fresh colour for the next tag after a successful create", async () => {
+    vi.mocked(hooks.createTag).mockResolvedValue(tagFixture("t3", "随手"));
+    renderDialog();
+
+    fireEvent.input(screen.getByLabelText("新建标签"), { target: { value: "随手" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加" }));
+    await waitFor(() => expect(hooks.createTag).toHaveBeenCalledTimes(1));
+
+    // Exactly one palette swatch stays pressed: the form is never left colourless.
+    const pressed = COLORS.filter((color) =>
+      screen.getByRole("button", { name: `颜色 ${color}` }).getAttribute("aria-pressed") === "true",
     );
+    expect(pressed).toHaveLength(1);
   });
 
   it("rejects a blank name without calling the backend", async () => {

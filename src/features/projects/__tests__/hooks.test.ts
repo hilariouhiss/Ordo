@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { COLORS } from "../../../common/colors";
 import {
   clearNotifications,
   notifications,
@@ -98,8 +99,31 @@ describe("createProject", () => {
     const created = await result;
 
     expect(created?.id).toBe("real-1");
-    expect(api.createProject).toHaveBeenCalledWith({ name: "网站改版" });
+    expect(api.createProject).toHaveBeenCalledWith({
+      name: "网站改版",
+      color: expect.any(String),
+    });
     expect(store.projectsState.projects).toEqual([project("real-1", { name: "网站改版" })]);
+  });
+
+  // R3: 未指定颜色（`undefined`）→ 随机色；显式 `null`=「无颜色」→ 保持无色。
+  it("gives a project created without a colour a palette colour", async () => {
+    vi.mocked(api.createProject).mockImplementation(async (input) =>
+      project("real-1", { name: input.name, color: input.color ?? null }),
+    );
+
+    const created = await hooks.createProject({ name: "随手" });
+
+    expect(COLORS).toContain(created?.color);
+    expect(api.createProject).toHaveBeenCalledWith({ name: "随手", color: created?.color });
+  });
+
+  it("keeps an explicit null colour instead of randomizing it", async () => {
+    vi.mocked(api.createProject).mockResolvedValue(project("real-1", { name: "无色" }));
+
+    await hooks.createProject({ name: "无色", color: null });
+
+    expect(api.createProject).toHaveBeenCalledWith({ name: "无色", color: null });
   });
 
   it("removes the optimistic entry and notifies on failure", async () => {

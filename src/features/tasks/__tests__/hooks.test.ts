@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor } from "@solidjs/testing-library";
+import { COLORS } from "../../../common/colors";
 import {
   clearNotifications,
   notifications,
@@ -413,6 +414,23 @@ describe("tags", () => {
 
     expect(result?.id).toBe("t1");
     expect(store.tasksState.tags[0]?.id).toBe("t1");
+  });
+
+  // R3: 新建标签不指定颜色 → 随机色；显式 `null` 仍是「无颜色」。
+  it("gives a tag created without a colour a palette colour", async () => {
+    vi.mocked(api.createTag).mockImplementation(async (input) => tag("t1", input.name));
+
+    await hooks.createTag({ name: "随手" });
+
+    expect(COLORS).toContain(vi.mocked(api.createTag).mock.calls[0]?.[0].color);
+  });
+
+  it("keeps an explicit null tag colour instead of randomizing it", async () => {
+    vi.mocked(api.createTag).mockResolvedValue(tag("t1", "无色"));
+
+    await hooks.createTag({ name: "无色", color: null });
+
+    expect(api.createTag).toHaveBeenCalledWith({ name: "无色", color: null });
   });
 
   it("keeps duplicate names out of the store and notifies", async () => {

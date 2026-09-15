@@ -14,6 +14,7 @@ import {
   optimistic,
   reportFailure,
 } from "../../common/optimistic";
+import { randomColor } from "../../common/colors";
 import * as api from "./api";
 import * as store from "./store";
 import type { Namespace, NewNamespace, UpdateNamespace } from "./types";
@@ -38,11 +39,13 @@ export async function loadAll(): Promise<boolean> {
 export function createNamespace(input: NewNamespace): Promise<Namespace | null> {
   const tempId = nextTempId();
   const now = new Date().toISOString();
+  // 未指定颜色（`undefined`）就随机一个；显式 `null`=「无颜色」保持无色（R3）。
+  const color = input.color === undefined ? randomColor() : input.color;
   const optimisticNamespace: Namespace = {
     id: tempId,
     name: input.name.trim(),
     description: input.description ?? null,
-    color: input.color ?? null,
+    color,
     icon: input.icon ?? null,
     status: "active",
     // Backend assigns the real key; "\uffff" keeps the temp entry last when
@@ -60,6 +63,7 @@ export function createNamespace(input: NewNamespace): Promise<Namespace | null> 
       const created = await api.createNamespace({
         ...input,
         name: optimisticNamespace.name,
+        color,
       });
       store.removeNamespace(tempId);
       store.upsertNamespace(created);

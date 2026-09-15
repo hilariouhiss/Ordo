@@ -175,6 +175,25 @@ describe("AppShell sidebar", () => {
     expect(screen.queryByRole("navigation", { name: "命名空间列表" })).toBeNull();
   });
 
+  // R4: 两个创建入口都是「标题 ＋」，命名空间不再是列表下方的整宽按钮。
+  it("offers 项目 ＋ and 命名空间 ＋ as sibling headers", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([]);
+    renderShell();
+
+    const createProject = await screen.findByRole("button", { name: "新建项目" });
+    const createNamespace = screen.getByRole("button", { name: "新建命名空间" });
+
+    // Same header shape: a label row with the ＋ on its right.
+    for (const button of [createProject, createNamespace]) {
+      expect(button.parentElement?.textContent).toMatch(/项目|命名空间/);
+    }
+    expect(screen.queryByRole("button", { name: "＋ 新建命名空间" })).toBeNull();
+
+    createNamespace.click();
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
   it("drops the namespace chevron in the collapsed rail", async () => {
     vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
     vi.mocked(projectsApi.listProjects).mockResolvedValue([]);

@@ -14,6 +14,7 @@ import {
   optimistic,
   reportFailure,
 } from "../../common/optimistic";
+import { randomColor } from "../../common/colors";
 import * as api from "./api";
 import * as store from "./store";
 import type { NewProject, Project, UpdateProject } from "./types";
@@ -38,11 +39,13 @@ export async function loadAll(): Promise<boolean> {
 export function createProject(input: NewProject): Promise<Project | null> {
   const tempId = nextTempId();
   const now = new Date().toISOString();
+  // 未指定颜色（`undefined`）就随机一个；显式 `null`=「无颜色」保持无色（R3）。
+  const color = input.color === undefined ? randomColor() : input.color;
   const optimisticProject: Project = {
     id: tempId,
     name: input.name.trim(),
     description: input.description ?? null,
-    color: input.color ?? null,
+    color,
     icon: input.icon ?? null,
     namespaceId: input.namespaceId ?? null,
     dueAt: input.dueAt ?? null,
@@ -59,7 +62,11 @@ export function createProject(input: NewProject): Promise<Project | null> {
     () => store.upsertProject(optimisticProject),
     () => store.removeProject(tempId),
     async () => {
-      const created = await api.createProject({ ...input, name: optimisticProject.name });
+      const created = await api.createProject({
+        ...input,
+        name: optimisticProject.name,
+        color,
+      });
       store.removeProject(tempId);
       store.upsertProject(created);
       return created;

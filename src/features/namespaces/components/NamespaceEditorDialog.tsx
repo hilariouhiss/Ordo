@@ -7,6 +7,7 @@ import {
   IconPicker,
   TextField,
 } from "../../../common/components";
+import { randomColor } from "../../../common/colors";
 import { createNamespace, updateNamespace } from "../hooks";
 import type { Namespace } from "../types";
 
@@ -44,7 +45,7 @@ export function NamespaceEditorDialog(props: NamespaceEditorDialogProps) {
         if (!open) return;
         setName(namespace?.name ?? "");
         setDescription(namespace?.description ?? "");
-        setColor(namespace?.color ?? null);
+        setColor(namespace ? namespace.color : randomColor());
         setIcon(namespace?.icon ?? null);
         setNameError(undefined);
         setSubmitting(false);

@@ -9,6 +9,7 @@ import {
   TextField,
 } from "../../../common/components";
 import { isoToLocalDateValue, localDateValueToIso } from "../../../common/utils/datetime";
+import { randomColor } from "../../../common/colors";
 import { activeNamespaces, getNamespace } from "../../namespaces/store";
 import type { Namespace } from "../../namespaces/types";
 import { createProject, updateProject } from "../hooks";
@@ -100,7 +101,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         if (!open) return;
         setName(project?.name ?? "");
         setDescription(project?.description ?? "");
-        setColor(project?.color ?? null);
+        setColor(project ? project.color : randomColor());
         setIcon(project?.icon ?? null);
         setNamespaceId(project ? project.namespaceId : (props.defaultNamespaceId ?? null));
         setDueLocal(isoToLocalDateValue(project?.dueAt ?? null));

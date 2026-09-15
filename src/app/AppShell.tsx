@@ -105,6 +105,30 @@ function SectionLabel(props: { children: JSX.Element }) {
   return <p class="px-2.5 pb-1 text-xs text-subtle-foreground">{props.children}</p>;
 }
 
+/**
+ * A section caption with the trailing ＋ that creates one more of it (R4).
+ *
+ * Both creation entries in the sidebar wear this row — 项目 and 命名空间 — so
+ * the two sections read as siblings instead of one having a labelled header
+ * and the other a full-width button under its own list.
+ */
+function CreateHeader(props: { label: string; onCreate: () => void; class?: string }) {
+  return (
+    <div class={`flex items-center justify-between pb-1 pl-2.5 pr-0.5 ${props.class ?? ""}`}>
+      <p class="text-xs text-subtle-foreground">{props.label}</p>
+      <button
+        type="button"
+        aria-label={`新建${props.label}`}
+        title={`新建${props.label}`}
+        class={iconButtonClass}
+        onClick={props.onCreate}
+      >
+        <Plus size={14} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 /** One project row. `muted` is the archived variant: dimmer text, same layout. */
 function ProjectLink(props: { project: Project; collapsed: boolean; muted?: boolean }) {
   return (
@@ -293,18 +317,11 @@ export default function AppShell() {
             when={!collapsed()}
             fallback={<div class="mx-auto mt-2 w-6 border-t border-border" aria-hidden="true" />}
           >
-            <div class="flex items-center justify-between pb-1 pl-2.5 pr-0.5">
-              <p class="text-xs text-subtle-foreground">项目</p>
-              <button
-                type="button"
-                aria-label="新建项目"
-                title="新建项目"
-                class={iconButtonClass}
-                onClick={openCreateProject}
-              >
-                <Plus size={14} aria-hidden="true" />
-              </button>
-            </div>
+            <CreateHeader label="项目" onCreate={openCreateProject} />
+
+            {/* Sits under 项目 ＋: everything in this scroll area is the project
+                tree, and namespaces are the groups inside it. */}
+            <CreateHeader label="命名空间" onCreate={openCreateNamespace} class="mt-2" />
           </Show>
 
           <Show when={activeNamespaces().length > 0}>
@@ -333,17 +350,6 @@ export default function AppShell() {
                 )}
               </For>
             </nav>
-          </Show>
-
-          <Show when={!collapsed()}>
-            <button
-              type="button"
-              class="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-muted-foreground focus-ring"
-              onClick={openCreateNamespace}
-            >
-              <Plus size={12} aria-hidden="true" />
-              新建命名空间
-            </button>
           </Show>
 
           <nav aria-label="项目列表" class="mt-0.5 flex flex-col gap-0.5">
