@@ -27,6 +27,8 @@ const SUBTASK_COLUMNS: &str = "id, task_id, title, note, priority, due_at, compl
                                sort_order, created_at, updated_at, deleted_at";
 const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id, due_at, status, \
                                sort_order, created_at, updated_at, deleted_at";
+const NAMESPACE_COLUMNS: &str = "id, name, description, color, icon, status, sort_order, \
+                                 created_at, updated_at, deleted_at";
 const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
                                     updated_at, deleted_at";
 const COMMENT_COLUMNS: &str = "id, task_id, body, created_at, updated_at, deleted_at";
@@ -746,9 +748,10 @@ pub mod namespaces {
 
     pub fn insert(conn: &Connection, namespace: &Namespace) -> Result<(), AppError> {
         conn.execute(
-            "INSERT INTO namespaces (id, name, description, color, icon, status, sort_order, \
-             created_at, updated_at, deleted_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            &format!(
+                "INSERT INTO namespaces ({NAMESPACE_COLUMNS}) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+            ),
             params![
                 namespace.id.to_string(),
                 namespace.name,
@@ -768,8 +771,9 @@ pub mod namespaces {
     pub fn get(conn: &Connection, id: Uuid) -> Result<Option<Namespace>, AppError> {
         query_one(
             conn,
-            "SELECT id, name, description, color, icon, status, sort_order, created_at, \
-             updated_at, deleted_at FROM namespaces WHERE id = ?1 AND deleted_at IS NULL",
+            &format!(
+                "SELECT {NAMESPACE_COLUMNS} FROM namespaces WHERE id = ?1 AND deleted_at IS NULL"
+            ),
             params![id.to_string()],
             namespace_from_row,
         )
@@ -780,9 +784,10 @@ pub mod namespaces {
     pub fn list(conn: &Connection) -> Result<Vec<Namespace>, AppError> {
         query_all(
             conn,
-            "SELECT id, name, description, color, icon, status, sort_order, created_at, \
-             updated_at, deleted_at FROM namespaces WHERE deleted_at IS NULL \
-             ORDER BY sort_order, created_at, id",
+            &format!(
+                "SELECT {NAMESPACE_COLUMNS} FROM namespaces WHERE deleted_at IS NULL \
+                 ORDER BY sort_order, created_at, id"
+            ),
             &[],
             namespace_from_row,
         )
@@ -1501,7 +1506,7 @@ pub mod backup {
     /// Every row of every user-data table.
     pub fn export_all(conn: &Connection) -> Result<BackupData, AppError> {
         Ok(BackupData {
-            namespaces: namespaces::list(conn)?,
+            namespaces: all_rows(conn, "namespaces", NAMESPACE_COLUMNS, namespace_from_row)?,
             projects: all_rows(conn, "projects", PROJECT_COLUMNS, project_from_row)?,
             board_columns: all_rows(
                 conn,
@@ -2365,6 +2370,33 @@ mod tests {
         assert!(
             namespaces::set_status(&conn, namespace.id, ProjectStatus::Archived, ts(20)).unwrap()
         );
+    }
+
+    #[test]
+    fn backup_carries_soft_deleted_namespaces() {
+        let conn = conn();
+        let namespace = sample_namespace("n");
+        namespaces::insert(&conn, &namespace).unwrap();
+        // No command soft-deletes a namespace yet, so only raw SQL reaches this
+        // state — and once one does, a backup has to be a copy of the database
+        // rather than a view of it, or it would drop the namespace and leave
+        // its projects filed under an id that no longer imports.
+        conn.execute(
+            "UPDATE namespaces SET deleted_at = ?1 WHERE id = ?2",
+            params![ts(5), namespace.id.to_string()],
+        )
+        .unwrap();
+        assert!(namespaces::list(&conn).unwrap().is_empty());
+
+        let mut project = sample_project("n");
+        project.namespace_id = Some(namespace.id);
+        projects::insert(&conn, &project).unwrap();
+
+        let data = backup::export_all(&conn).unwrap();
+        assert_eq!(data.namespaces.len(), 1);
+        assert_eq!(data.namespaces[0].id, namespace.id);
+        assert_eq!(data.namespaces[0].deleted_at, Some(ts(5)));
+        assert_eq!(data.projects[0].namespace_id, Some(namespace.id));
     }
 
     #[test]

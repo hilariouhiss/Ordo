@@ -1338,7 +1338,7 @@ pub const BACKUP_VERSION: u32 = 3;
 
 ```rust
         Ok(BackupData {
-            namespaces: namespaces::list(conn)?,
+            namespaces: all_rows(conn, "namespaces", NAMESPACE_COLUMNS, namespace_from_row)?,
             projects: all_rows(conn, "projects", PROJECT_COLUMNS, project_from_row)?,
 ```
 
