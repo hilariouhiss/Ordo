@@ -53,10 +53,18 @@ function renderDialog() {
 }
 
 describe("TagManagerDialog", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The create form seeds a palette colour and re-seeds one after every
+    // successful create (R3), so the draw decides what is pressed next. Pin it:
+    // without this, "the picked swatch is dropped" fails whenever the fresh
+    // colour happens to repeat the previous one (about 1 run in 10).
+    vi.spyOn(Math, "random").mockReturnValue(0);
     store.resetTasksStore();
     store.setAll(
       [taskFixture("task-1", ["t1"]), taskFixture("task-2", [])],

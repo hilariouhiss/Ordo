@@ -30,8 +30,9 @@
 | M7 打磨验收 | 性能、动效、三端、体积、文档、质量收口 | 5、8 | MVP/v1 达到发布条件 |
 | M8 属性扩展与依赖 | 任务/子任务属性扩展（任务复杂度、子任务描述/优先级/截止/复杂度）+ 依赖边与完成顺序（软阻塞） | 2.1 依赖与完成顺序、子任务属性 | 属性可编辑并持久化；依赖可增删且拒绝成环；被阻塞项有标记且完成需确认 |
 | M9 命名空间 | 命名空间容器（项目分组）+ 侧边栏分组 + 命名空间页汇总 | PRD 2.2 命名空间 | 分组可导航；归档不级联；汇总随任务实时更新 |
+| M10 任务层级 | `tasks.parent_task_id` + V7 迁移 + 子任务并入任务树 + R7c 拖放 | R7c（`CHANGE_REQUESTS.md` §7）、`specs/2026-09-15-task-hierarchy-design.md` | 迁移守恒、单层校验、规则 A、拖放可落性 |
 
-MVP（PRD 6.1）= M0–M3；v1 完整版（PRD 6.2）= M0–M7。M8（属性扩展与依赖）与 M9（命名空间）都是 v1 之上追加的迭代：两条范围线都不含它们——M8 只在 M1 的任务/子任务链路上加东西（详见 §4 的 M8 一节），M9 只在 M2 的项目域上分层（详见 §4 的 M9 一节）。
+MVP（PRD 6.1）= M0–M3；v1 完整版（PRD 6.2）= M0–M7。M8（属性扩展与依赖）与 M9（命名空间）都是 v1 之上追加的迭代：两条范围线都不含它们——M8 只在 M1 的任务/子任务链路上加东西（详见 §4 的 M8 一节），M9 只在 M2 的项目域上分层（详见 §4 的 M9 一节）。M10（任务层级）同样是 v1 之上追加的迭代：它把 M1 的 `subtasks` 并进任务树，并让 M5 的统计口径与 M8 的依赖边跟上（详见 §4 的 M10 一节）。
 
 ## 3. 全局实施约定
 
@@ -44,8 +45,7 @@ MVP（PRD 6.1）= M0–M3；v1 完整版（PRD 6.2）= M0–M7。M8（属性扩�
 **命令命名（前缀 `<domain>:<action>`，常量集中在 `src/common/ipc/commands.ts`）**
 
 ```
-task:list|create|update|complete|softDelete|restore
-subtask:list|create|update|complete|delete|reorder
+task:list|create|update|complete|softDelete|restore|reorder
 tag:list|create|update|delete
 project:list|create|update|archive|restore
 namespace:list|create|update|archive|restore
@@ -199,6 +199,21 @@ M9 出口：分组可导航、归档不级联、汇总实时；`cargo test` / `c
 
 **顺序变更说明**：M9 内部按 NS-04（命名空间页与路由）→ NS-03（侧边栏分组）的顺序落地。侧边栏的分组行要 `Link` 到 `/namespaces/$namespaceId`，而那条路由由 NS-04 建立——不先有路由，`tsc` 直接拒绝该 `to`，jsdom 里渲染该 `Link` 也会抛错。两者没有别的依赖，交换顺序即可。
 
+### M10 任务层级（v1 迭代）
+
+子任务不再是独立实体：`subtasks` 并入 `tasks`，成为单层自引用（`tasks.parent_task_id`），子任务就是一条普通任务行。七个 `subtask:*` 命令退役，新增 `task:reorder`；视图按规则 A 渲染（父任务在同视图则子任务挂在它行下，否则带「父任务 · X」前缀独立成行），任务行可直接拖成另一个任务的子任务。
+
+| ID | 任务 | 关键产出/文件 | 验收标准 | 依赖 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| TH-01 | 数据层 | `V7__task_hierarchy.sql`（自引用列 + 搬迁 `subtasks` 行 + 依赖边与提醒标记合一 + 删三张子任务表）、`V8__no_orphan_children.sql`、`V9__stats_top_level_index.sql`；`models.rs` 的 `Task.parent_task_id` 与只读的 `LegacySubtask`；`db.rs` 表清单 | 迁移守恒（子任务行数/id 不变、依赖边与提醒标记不丢不重发）、FTS 触发器重建后新行可搜到 | F-05/06 | ✅ |
+| TH-02 | 后端 | 服务层与命令面切换（七个 `subtask:*` 退役、新增 `task:reorder`）；单层校验与自引用拒绝、级联软删/恢复、项目跟随、看板拒绝子任务、提醒单轮候选、统计只数顶层、备份升到 v4（`subtasks` 键只服务 pre-V7 文档的导入） | `cargo test` 全绿；越层与非法落点返回 validation | TH-01 | ✅ |
+| TH-03 | 前端数据层 | `types.ts` 的 `parentTaskId`、IPC 常量、`store.ts`（`childrenOf` / `topLevelTasks` / `hasChildren` 取代 `subtasksByTask` 缓存）、`hooks.ts`、`dependencies.ts`、`blocked-confirm.ts`、`reminders.ts` | 退役缓存与按需拉取删除后 store/hooks 单测仍绿；乐观更新与回滚语义不变 | TH-02 | ✅ |
+| TH-04 | 前端渲染 | `SubtaskRow` / `SubtaskList` 改造（删 `SubtaskEditor`，子任务编辑走 `TaskEditorDialog`）、`TaskDetailDialog` 与 `TaskEditorDialog` 的父任务选择、`TaskListView` 的规则 A/筛选/计数、看板卡片徽标、项目与命名空间的进度口径 | 20px 引导槽位等既有契约不变；规则 A、筛选与计数各有断言 | TH-03 | ✅ |
+| TH-05 | 交互 | R7c 落点（任务行 → 任务行 = 变成子任务）与 R7b 合并（项目行落点 = 移进该项目并移出父任务）、`hierarchy.ts` 的落点可落性判断、子任务行作拖源、脱离父任务时的提示 | 只有可落的落点高亮；有子任务的任务落点不高亮、松手无变化 | TH-04 | ✅ |
+| TH-06 | 文档 | `ARCHITECTURE.md`（实体表、V7/V8/V9 迁移、提醒与统计口径、命令清单与依赖载荷）、`PRD.md`（子任务模型、视图规则、拖放、统计口径）、`CHANGE_REQUESTS.md`（P6 与 §7 落地）、本计划 M10 | 文档与代码一致；全仓库无退役协议残留 | TH-05 | ✅ |
+
+M10 出口：迁移守恒、单层校验、规则 A、拖放可落性全部验收；`cargo test` / `cargo fmt` / `cargo clippy` / `pnpm test` / `pnpm typecheck` 全绿。
+
 ## 5. 依赖与并行关系
 
 ```
@@ -206,7 +221,9 @@ M0 ──► M1 ──► M2 ──► M3 ──► M4 ──► M5 ──► M6
         │
         ├──► M8（属性扩展与依赖）
         │
-        └──► M9（命名空间）
+        ├──► M9（命名空间）
+        │
+        └──► M10（任务层级，依赖 M1/M5/M8/M9）
 ```
 
 - M0 内部：F-04/F-07/F-08 可并行；F-05→F-06 顺序。
@@ -216,6 +233,7 @@ M0 ──► M1 ──► M2 ──► M3 ──► M4 ──► M5 ──► M6
 - M6 依赖对应功能域完成；D-03 依赖 M4 全量实体。
 - M8 只依赖 M1 的任务/子任务链路（T-04、T-06），与 M2–M7 没有顺序依赖，可以在 M1 之后随时插入。
 - M9 只依赖 M2 的项目域（P-03），与 M3–M8 没有顺序依赖，可以在 M2 之后随时插入；实施时 M9 内部按 Task 8 → Task 7 的顺序落地（见 §4 的顺序变更说明）。
+- M10 建立在 M1（任务/子任务链路）、M5（统计口径）、M8（依赖边）与 M9（侧边栏项目行）之上——它改的正是这几个域的交叉处，因此排在它们之后；实施时按数据层 → 后端 → 前端数据层 → 前端渲染 → 交互 → 文档推进（见 §4 的 M10 一节）。
 
 ## 6. 风险与注意事项
 

@@ -327,8 +327,8 @@ export default function AppShell() {
     void subscribeToReminders();
     // The quick-add window (D-02) is a separate webview with its own store, so
     // a task filed there stays invisible here until the list is pulled again.
-    // Tasks + tags only: that window creates nothing but bare tasks, and the
-    // bulk subtask rebuild would clobber a cache the user is writing to.
+    // Tasks + tags is the whole tree — children are rows in `tasks` (R7c) — so
+    // this one pull refreshes parents and children alike.
     listen(EVENTS.taskCreated, () => void reloadTasks()).catch(() => {});
   });
 

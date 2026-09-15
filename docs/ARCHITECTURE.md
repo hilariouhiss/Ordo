@@ -57,7 +57,7 @@ src/
 │   └── TaskViewer.tsx            # 全局任务详情/编辑弹窗（搜索命中等入口的跳转落点）
 ├── features/                     # 业务领域（按功能划分）
 │   ├── tasks/                    # 任务
-│   │   ├── components/           # TaskItemRow / SubtaskRow / TaskListView / 编辑器 / 看板卡 / BlockedConfirmHost
+│   │   ├── components/           # TaskItemRow / SubtaskRow / SubtaskList / TaskListView / 编辑器 / 看板卡 / BlockedConfirmHost
 │   │   ├── store.ts              # 任务内存 Store（Solid createStore）
 │   │   ├── api.ts                # 类型化 IPC 调用
 │   │   ├── hooks.ts              # 领域 hooks（创建/完成/拖拽/依赖写入）
@@ -98,7 +98,7 @@ src/
 - **任务/项目/标签/时间记录**：领域 store 持有全量数据，是前端的事实来源。
 - **UI 状态**（侧边栏折叠、当前路由激活态、主题、弹窗开合）放 `common/stores/`，与业务数据分离。
 - 派生数据（今日任务、项目完成率、统计聚合）用 Solid 的派生计算（`createMemo`）从 store 计算，**不重复存储**，保证单一事实来源。
-- **阻塞状态同样是派生量**：依赖边随任务列表一次载入（`dependency:listAll`），列表行的阻塞标记由 `TaskListView` 的 `rows` memo 每轮渲染一次算出——同一轮构建一次存活集合、索引与完成集合（`dependencies.ts` 的 `liveSet` / `buildIndex` / `completionSet`），把任务行的「还差几项」与展开后每个子任务行的阻塞与否一并传给 `TaskItemRow` / `SubtaskRow` 渲染，行组件自己不再查图（详情页的依赖区、子任务属性面板、详情弹窗的阻塞徽标各自持有一份自己的 memo）——单次查询的代价是该行的前置数量，而不是整张图的规模。**索引按存活集合建，不按原始边表建**：软删除是乐观的（行立刻离开 store，边要等下次 `dependency:listAll` 才消失），所以 `buildIndex(dependencies, live)` 丢掉任一端不在 store 里的边——删掉前置立即解锁，恢复前置依赖自动回来，都不需要补偿写入；行上的标记还要看自身是否已完成，已完成的任务/子任务不再挂「阻塞中」。阻塞是**软**的：`completeTask` / `completeSubtask` 只在「完成」时检查未完成前置，命中就**先不写库**，把请求停到 `blocked-confirm.ts`，由 `AppShell` 挂载的唯一 `BlockedConfirmHost` 弹一次确认（取消即丢弃）。**检查收敛在一个门（`hooks.ts` 的 `parkIfBlocked`）上，完成入口有四个**：任务行、详情弹窗、子任务行走 `completeTask` / `completeSubtask`；把卡片拖进 `is_done` 列同样是完成（后端在那里打 `completed_at` 并生成重复实例），所以 `board/hooks.ts` 的 `moveTaskToColumn` 在动手之前先过同一道门。请求自带「确认后要执行的动作」（`BlockedRequest.run`：任务/子任务完成，或整次拖拽移动），宿主只调 `run()`、不按 `kind` 分支，写入失败时保留对话框与前置清单；取消完成永不检查。
+- **阻塞状态同样是派生量**：依赖边随任务列表一次载入（`dependency:listAll`），列表行的阻塞标记由 `TaskListView` 的 `rows` memo 每轮渲染一次算出——同一轮构建一次存活集合、索引与完成集合（`dependencies.ts` 的 `liveSet` / `buildIndex` / `completionSet`），把任务行的「还差几项」与展开后每个子任务行的阻塞与否一并传给 `TaskItemRow` / `SubtaskRow` 渲染，行组件自己不再查图（详情页的依赖区、子任务列表 `SubtaskList`、详情弹窗的阻塞徽标各自持有一份自己的 memo）——单次查询的代价是该行的前置数量，而不是整张图的规模。**索引按存活集合建，不按原始边表建**：软删除是乐观的（行立刻离开 store，边要等下次 `dependency:listAll` 才消失），所以 `buildIndex(dependencies, live)` 丢掉任一端不在 store 里的边——删掉前置立即解锁，恢复前置依赖自动回来，都不需要补偿写入；行上的标记还要看自身是否已完成，已完成的任务/子任务不再挂「阻塞中」。阻塞是**软**的：`completeTask` 只在「完成」时检查未完成前置，命中就**先不写库**，把请求停到 `blocked-confirm.ts`，由 `AppShell` 挂载的唯一 `BlockedConfirmHost` 弹一次确认（取消即丢弃）。**检查收敛在一个门（`hooks.ts` 的 `parkIfBlocked`）上，完成入口有四个**：任务行、详情弹窗、子任务行走的都是 `completeTask`（子任务就是任务行，R7c，没有第二个完成函数）；把卡片拖进 `is_done` 列同样是完成（后端在那里打 `completed_at` 并生成重复实例），所以 `board/hooks.ts` 的 `moveTaskToColumn` 在动手之前先过同一道门。请求自带「确认后要执行的动作」（`BlockedRequest.run`：完成，或整次拖拽移动），宿主只调 `run()`、不按来源分支，写入失败时保留对话框与前置清单；取消完成永不检查。
 
 ### 2.3 数据访问与乐观更新
 
@@ -113,10 +113,10 @@ src/
 ```
 
 - **启动加载**：`app` 层在挂载时并发拉取任务/项目/标签等全量数据填充 store；加载态由 UI 状态管理，首屏可先用骨架屏。
-- **子任务随启动全量载入**：`loadAll` 一次取回全部存活子任务（`subtask:listAll`），`setSubtasksAll` 按 `task_id` 分组重建 `subtasksByTask`，并为每个存活任务建好条目（无子任务则为空数组）。列表要在折叠状态下就显示「谁有子任务、做完几项」，逐行懒加载会变成 N 次 IPC。
-- **批量载入只发生在启动**：会话中途的刷新走 `reloadTasks`（只重拉任务与标签），刻意不带子任务快照。`setSubtasksAll` 是盲重建（每个覆盖到的任务整数组替换），带着快照重跑会覆盖用户刚在详情弹窗里写入的子任务；而中途刷新的唯一来源——快捷添加窗——只会创建没有子任务的任务，它的行本来就不该有进度徽章，详情弹窗按 `hasSubtasks` 兜底拉一次即可。
-- `subtask:list`（按任务）保留，作为兜底：新建且带初始子任务的任务，其子任务是后端插入的、id 不在创建响应里，所以 `createTask` 成功后会补拉一次（见 Task 3）；缓存里确实没有条目的任务，详情弹窗也仍会按需拉一次。`hasSubtasks` 就是判断这个的。
-- 查询排除父任务已软删除的子任务——`soft_delete_task` 不级联，不排除的话每次载入都会带回一截随时间增长的死数据。
+- **任务树随启动全量载入**：`loadAll` 一次取回全部存活任务（**含子任务**——子任务就是 `parent_task_id` 非空的任务行，R7c）、标签与依赖边。列表要在折叠状态下就显示「谁有子任务、做完几项」，逐行懒加载会变成 N 次 IPC；层级只有一层，一次全表查询就能把整棵树带走。
+- **批量载入只发生在启动**：会话中途的刷新走 `reloadTasks`（重拉任务与标签，`setAll` 整表替换）。它替换的就是权威快照本身，而不是某个派生缓存——树是一张表，没有第二份需要防覆盖的副本。
+- **子任务没有独立命令，也没有按需拉取**：`task:create` 的 `subtaskTitles` 由后端在同一事务里插成子行，这些 id 不在创建响应里，所以 `createTask` 成功后补拉一次 `reloadTasks`（见 Task 3）；除此之外整棵树一直在 store 里，详情弹窗直接 `childrenOf(taskId)` 过滤，没有加载态，也没有「这条任务有没有子任务」的兜底查询。
+- **不存在父任务已删的孤儿行**：`soft_delete_task` 在同一事务里级联软删全部子任务（恢复同理），V8 迁移与备份导入也已清掉历史孤儿，所以载入路径不需要额外的「父任务是否还活着」谓词。
 - **reconcile 策略**：后端返回的实体（带 `updated_at`）作为权威值覆盖本地对应项，避免本地乐观值长期漂移。
 - **冲突处理**：单用户 + 本地，冲突概率极低；以「后端最后写入为准」即可，无需复杂 CRDT。
 - **错误归一化**：`common/ipc` 把后端 `AppError` 转成前端统一的 `{ code, message }`，组件层只消费这一形态。
@@ -188,8 +188,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
 - 命名用 `<domain>:<action>` 前缀，前端 `invoke` 字符串与之一一对应，集中在 `src/common/ipc/commands.ts` 维护常量，避免散落魔法字符串。Rust 侧用 `#[tauri::command(rename = "task:list")]` 注册为该名称（Rust 函数名保持合法标识符如 `task_list`）；命令参数键为 camelCase（Tauri 2 默认）。
 
   ```
-  task:list, task:create, task:update, task:complete, task:softDelete, task:restore
-  subtask:list, subtask:listAll, subtask:create, subtask:update, subtask:complete, subtask:delete, subtask:reorder
+  task:list, task:create, task:update, task:complete, task:softDelete, task:restore, task:reorder
   dependency:listAll, dependency:add, dependency:remove
   tag:list, tag:create, tag:update, tag:delete
   project:list, project:create, project:update, project:archive, project:restore
@@ -204,7 +203,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
   ```
 
 - 每个命令返回 `Result<T, AppError>`；`AppError` 已实现 `Serialize`（F-07），跨 IPC 传递 `{ code, message }` 形态的可读错误。
-- 依赖命令的载荷就是整条边 `{kind, dependentId, prerequisiteId}`（`kind` 取 `task` / `subtask`，字段 camelCase）：`dependency:listAll` 返回全部存活边（含 `kind`，无参数）；`dependency:add` 校验后写入并返回该边——重复添加同一条边是幂等的，返回同一条；`dependency:remove` 删除并返回空——删除不存在的边不报错。被依赖/阻塞状态不在后端计算，前端从 `listAll` 的边集派生。
+- 依赖命令的载荷就是整条边 `{dependentId, prerequisiteId}`（两个端点都是任务 id，字段 camelCase；V7 起子任务就是任务，边不再有 `kind` 之分）：`dependency:listAll` 返回全部存活边（无参数）；`dependency:add` 校验后写入并返回该边——重复添加同一条边是幂等的，返回同一条；`dependency:remove` 删除并返回空——删除不存在的边不报错。被依赖/阻塞状态不在后端计算，前端从 `listAll` 的边集派生。
 
 ### 3.3 状态与事务
 
@@ -272,11 +271,11 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 >
 > **统计视图（ST-02）**：`/stats` 的图表全部自绘 SVG（不引图表库，守体积红线）：`LineChart` 折线（y 轴取 1/2/5×10ⁿ 整数刻度）、`CalendarHeatmap` 周列网格（周一为首、按范围内峰值分 4 档着色；按固有尺寸渲染并横向滚动，避免「单列的一周」被拉伸成大色块）、`BarList` 横向对比条（填充用 `transform: scaleX`，不animate宽度）。交互只用 CSS：每个数据点/格子带 `<title>` 提示 + hover 透明度，无 JS 悬浮层，范围切换不引发布局抖动。`series.ts` 负责前后端契约的前端一半——把「近 7 天/30 天/本年」换算成本地日起止的 UTC 半开区间与 `offsetMinutes`（本年为周桶）、按 `bucketKeys` 生成坐标轴、用 `fillSeries` 把后端省略的空桶补零；`useStats` 以请求序号丢弃过期响应，快速切换范围时旧数据留在屏上、不会闪空白或画出过期窗口。时间分布可切「按项目/按标签」，复用同一个命令。
 >
-> **项目进度（ST-03）**：项目详情页头部内嵌 `ProjectProgress`（列表/看板两个 tab 共用）：总进度条、完成率、剩余任务数（R2 之后不再有截止倒计时——项目没有截止日期，时间压力只存在于任务/子任务的 `due_at`）。四个数值全部由传入的**实时任务切片**（`tasksState` 中属于该项目的任务）派生，而不是查 `stats:projectProgress`——勾选或拖拽完成在同一 tick 就推动进度条，无 IPC 往返与刷新窗口；`stats:projectProgress` 只服务跨项目对比（ST-02 的对比图）。（原「距截止还有 N 天 / 已逾期 N 天」倒计时随项目的 `due_at` 一起删除，见 V6。）
+> **项目进度（ST-03）**：项目详情页头部内嵌 `ProjectProgress`（列表/看板两个 tab 共用）：总进度条、完成率、剩余任务数（R2 之后不再有截止倒计时——项目没有截止日期，时间压力只存在于任务/子任务的 `due_at`）。四个数值全部由传入的**实时任务切片**（`tasksState` 中属于该项目的任务）派生，而不是查 `stats:projectProgress`——勾选或拖拽完成在同一 tick 就推动进度条，无 IPC 往返与刷新窗口；`stats:projectProgress` 只服务跨项目对比（ST-02 的对比图）。**「只数顶层」这一步在调用点完成**（`ProjectListView` / `NamespaceProjectsView` 传 `tasks.filter((task) => task.parentTaskId === null)`）：子任务是父任务内部的一份拆解，不是第二次完成，与后端 `stats:*` 的口径一致（见 ST-01）。（原「距截止还有 N 天 / 已逾期 N 天」倒计时随项目的 `due_at` 一起删除，见 V6。）
 >
 > **系统托盘（D-01）**：`tray.rs` 用 Tauri 核心 Tray API 建托盘（`tauri` crate 必须开启 `tray-icon` feature，否则 `tauri::tray` 不存在）：左键单击切换主窗口显示/隐藏，菜单为「显示主窗口 / 隐藏主窗口 / 退出 Ordo」（左键不弹菜单，`show_menu_on_left_click(false)`）。窗口关闭由 `lib.rs` 的 `on_window_event` 拦截 `CloseRequested`（`api.prevent_close()` + `hide()`），因此「关闭」= 驻留托盘，只有菜单「退出」调 `app.exit(0)` 才真正结束进程。托盘图标复用打包图标（`default_window_icon()`，缺失时不设置以免托盘不可见）。提醒不受影响：`scheduler.rs` 是独立线程、直接经 `tauri-plugin-notification` 发系统通知，不依赖可见的 webview；R-02 的「隐藏期间挂起、下次窗口 focus 时定位任务」在托盘唤起时依然成立（`show_main` 会 `set_focus()`）。`tray.rs` 的窗口 label 常量必须与 `tauri.conf.json` 的窗口一致（未声明 label 时 Tauri 默认 `main`，capabilities 也按该名字授权），label 不匹配会让托盘动作静默失效。Linux 下托盘依赖 appindicator 运行时（三端验证见 Q-03）。
 >
-> **数据备份（D-03）**：`backup:export` 把整库写成一个 JSON 文档（`{format:"ordo.backup", version:3, exportedAt, data:{projects, namespaces, boardColumns, tags, tasks, subtasks, taskTags, comments, timeEntries, dependencies, settings}}`，字段复用既有模型与 camelCase 约定），`backup:import` 读取同一文档并**整体替换**全部用户数据表：先删子表再删父表、先插父表再插子表（外键全程成立），整个过程在一个事务内，因此外来/更高版本/解析失败的文件不会改动任何数据（分别返回 validation）。与其他查询不同，`repositories::backup` 故意不过滤 `deleted_at`——备份是数据库的副本而非视图，软删除行随备份往返；`task_reminders` 与 `subtask_reminders` 不入备份（只用于提醒去重，会由迁移与调度器自然重建）。FTS 索引由既有触发器跟随导入的插入/删除同步，无需 rebuild（有测试断言恢复后可搜到）。`io` 是 AppError 的新错误码（文件读写失败），前端 `common/ipc/errors.ts` 白名单同步。文件由前端用 `tauri-plugin-dialog` 的保存/打开对话框选路径（capability `dialog:default`），Rust 只按给定路径读写，前端不接触字节；恢复前必须经确认弹窗，成功后重载 tasks/projects/namespaces 三个 store，无需重启即可看到恢复后的数据。
+> **数据备份（D-03）**：`backup:export` 把整库写成一个 JSON 文档（`{format:"ordo.backup", version:4, exportedAt, data:{projects, namespaces, boardColumns, tags, tasks, subtasks, taskTags, comments, timeEntries, dependencies, settings}}`，字段复用既有模型与 camelCase 约定），`backup:import` 读取同一文档并**整体替换**全部用户数据表：先删子表再删父表、先插父表再插子表（外键全程成立），整个过程在一个事务内，因此外来/更高版本/解析失败的文件不会改动任何数据（分别返回 validation）。与其他查询不同，`repositories::backup` 故意不过滤 `deleted_at`——备份是数据库的副本而非视图，软删除行随备份往返；`task_reminders` 不入备份（只用于提醒去重，会由迁移与调度器自然重建）。**`subtasks` 键是 pre-V7 文档的遗留位**：导出永远写空数组（子任务已经在 `tasks` 里，导出/导入往返的主键就是它们自己的行），导入时非空数组按 V7 的同一套映射落成子任务行（`project_id` 跟父任务、`deleted_at` 取子任务自己的），随后与主路径一样清一遍孤儿（见 V8）。FTS 索引由既有触发器跟随导入的插入/删除同步，无需 rebuild（有测试断言恢复后可搜到）。`io` 是 AppError 的新错误码（文件读写失败），前端 `common/ipc/errors.ts` 白名单同步。文件由前端用 `tauri-plugin-dialog` 的保存/打开对话框选路径（capability `dialog:default`），Rust 只按给定路径读写，前端不接触字节；恢复前必须经确认弹窗，成功后重载 tasks/projects/namespaces 三个 store，无需重启即可看到恢复后的数据。
 >
 > 备份版本 3 起携带 `namespaces`：文档里它是 `projects` 的父表（导入时先插），v1/v2 文件缺该键即空列表、其项目全部落在根级——这正是它们导出时的样子。
 
@@ -288,15 +287,15 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 
 > **项目不含截止日期（V6）**：`ALTER TABLE projects DROP COLUMN due_at`。截止日期是「你要完成的那件事」的属性，而项目是容器——它原来只喂了一条没人据此行动的倒计时。任务/子任务的 `due_at`、提醒链（V3）与 `stats:projectProgress` 的 `total`/`completed` 都不受影响；旧备份文档里的 `dueAt` 键由 serde 忽略，导入照常。
 >
-> **属性与依赖（V4）**：`tasks.complexity` 与 `subtasks.{note, priority, due_at, complexity}` 补齐此前缺失的属性；`priority` 沿用任务那套 `high/medium/low/none`（DB 默认 `none`），两处 `complexity` 都是 1–5 的可空整数（`NULL` = 未评估，由 CHECK 约束守住上下界）。依赖用两张纯连接表表示——`task_dependencies(task_id, depends_on, created_at)` 与 `subtask_dependencies(subtask_id, depends_on, created_at)`：复合主键 `(依赖方, 前置)` 即天然去重，`CHECK` 拒绝自环，两个外键都随任一端硬删级联；沿用 `task_tags` 的纯连接表写法（无 UUID/审计列），但额外带 `created_at`。**边的方向是「依赖方 → 前置」**：`(dependent, depends_on)` 读作「dependent 等待 depends_on」，因此「谁在等我」查 `depends_on` 一侧，两张表都为此侧的列建了索引（反向查询与环检测都走这条路径；正向前缀查询由主键覆盖）。`subtask_reminders(subtask_id, kind, sent_at)` 是 V3 `task_reminders` 的子任务版：V3 那张表不能复用，因为它按 `(task_id, kind)` 立键且 `task_id NOT NULL REFERENCES tasks(id)`——子任务提醒的外键要指向 `subtasks(id)`，键形状也随之不同。（V4 当时的两张依赖表与两张提醒标记表，在 V7 把 `subtasks` 并入 `tasks` 后各自合并为一张 `task_dependencies` / `task_reminders`，见上方 V7 一条。）
+> **属性与依赖（V4）**：`tasks.complexity` 与 `subtasks.{note, priority, due_at, complexity}` 补齐此前缺失的属性；`priority` 沿用任务那套 `high/medium/low/none`（DB 默认 `none`），两处 `complexity` 都是 1–5 的可空整数（`NULL` = 未评估，由 CHECK 约束守住上下界）。依赖**在 V4 当时**用两张纯连接表表示——`task_dependencies(task_id, depends_on, created_at)` 与 `subtask_dependencies(subtask_id, depends_on, created_at)`：复合主键 `(依赖方, 前置)` 即天然去重，`CHECK` 拒绝自环，两个外键都随任一端硬删级联；沿用 `task_tags` 的纯连接表写法（无 UUID/审计列），但额外带 `created_at`。**边的方向是「依赖方 → 前置」**：`(dependent, depends_on)` 读作「dependent 等待 depends_on」，因此「谁在等我」查 `depends_on` 一侧，两张表都为此侧的列建了索引（反向查询与环检测都走这条路径；正向前缀查询由主键覆盖）。`subtask_reminders(subtask_id, kind, sent_at)` 是 V3 `task_reminders` 的子任务版：V3 那张表不能复用，因为它按 `(task_id, kind)` 立键且 `task_id NOT NULL REFERENCES tasks(id)`——子任务提醒的外键要指向 `subtasks(id)`，键形状也随之不同。（V4 当时的两张依赖表与两张提醒标记表，在 V7 把 `subtasks` 并入 `tasks` 后各自合并为一张 `task_dependencies` / `task_reminders`，见上方 V7 一条。）
 >
 > **依赖的写入校验（`dependency:add`，四条）**：两端都必须存在且未被软删，否则 `not_found`；子任务边两端必须同属一个父任务，否则 `validation`（子任务不能在任务之间建立前置关系，任务级依赖则可跨项目）；不允许自环；不允许成环。环检测是一条递归 CTE：**从「前置」出发**沿 `depends_on` 逐跳向上找它自己的前置，若走到「依赖方」就说明新边会闭合环路。环检测读的是原始边表、不带存活谓词，端点已被软删的休眠边照样参与——经 `dependency:add` 写入的边因此不可能成环，恢复端点时关系回来也不会带进一个环（导入路径不重跑这四条校验，表里若已有环就靠下面那条 `UNION` 兜底）。递归项用 `UNION` 而非 `UNION ALL`——同一节点只展开一次，因此即便表里已经存在环也能收敛（写入路径的检查让环进不来，这是兜底）。校验在服务层（`validate_dependency`）而不是靠数据库约束：`CHECK (x <> depends_on)` 只挡得住自环，跨行约束 SQLite 无法表达。
 >
-> **软删除不删边**：端点被软删时边仍然留在表里，只是从 `dependency:listAll` 的存活谓词下消失（任务边要求两端 `deleted_at IS NULL`；子任务边额外要求父任务存活），于是「软删前置 ⇒ 被阻塞方自动解锁，恢复前置 ⇒ 依赖自动回来」，不需要任何补偿写入，也不存在恢复时重建关系的窗口。任务边与子任务边互不影响：两张表分别查询、按 `kind` 区分，子任务边不会泄漏进任务图。注意 `depends_on` 一侧的索引是这条语义的性能支撑（反向查询「谁在等我」与环检测都走它）。
+> **软删除不删边**：端点被软删时边仍然留在表里，只是从 `dependency:listAll` 的存活谓词下消失（两端都要求 `deleted_at IS NULL`），于是「软删前置 ⇒ 被阻塞方自动解锁，恢复前置 ⇒ 依赖自动回来」，不需要任何补偿写入，也不存在恢复时重建关系的窗口。V7 之后只有一张 `task_dependencies`：子任务就是任务，任务边与子任务边是同一张图，不再按 `kind` 分表查询，也不存在「子任务边泄漏进任务图」这回事。注意 `depends_on` 一侧的索引是这条语义的性能支撑（反向查询「谁在等我」与环检测都走它）。
 >
 > **依赖与 `sort_order` 正交**：`sort_order` 是**显示顺序**（用户拖拽出来的位置），依赖是**可执行顺序**（完成的前置约束），两者互不写入对方——拖拽重排不改依赖边，添加依赖也不动任何 `sort_order`。完成动作在后端不被依赖阻止（软阻塞）：被阻塞项照常可以完成，服务层不做拦截，「还差几项 / 确认一次」由前端从边集派生并提示。
 >
-> **全局快捷键快速添加（D-02）**：`shortcut.rs` 用 `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`）：按下时不再唤起主窗口，而是显示 `quick-add`——一个 560×150、无边框、置顶、不进任务栏的独立窗口，内容是一行输入 + 一行控件（项目 / 优先级 / 截止日期）+ 一行预览（`WebviewUrl::App("index.html")`，与主窗口同一个页面；前端 `index.tsx` 按窗口 label 分流：`quick-add` 渲染 `app/QuickAddWindow.tsx`，其余走 RouterProvider，浏览器 dev server 读不到 label 时回落主应用）。窗口在 setup 阶段建好并长期隐藏，所以按下即出、没有 webview 冷启动；`shortcut.rs` 在 show + set_focus 之后向该窗口 `emit_to` 一个 `quick-add:open` 事件——`autofocus` 只在页面加载时生效，而这个页面是在窗口还隐藏时加载的，因此聚焦必须由事件驱动，该事件同时把输入行与三个控件复位（每次唤起都从干净状态开始）并重拉一次项目列表（快捷窗有自己的 store，主窗口里新建或归档的项目它看不到）。回车提交后调 `getCurrentWindow().hide()` 把窗口收回（录入即隐），Esc 同样只隐藏；点击别处则由 `lib.rs` 的 `on_window_event` 捕获 `Focused(false)` 隐藏（无边框窗口没有关闭按钮可点）。两个窗口各有自己的 store，所以快捷窗创建成功后 `emit("task:created")`，主窗口 `AppShell` 监听后用 `reloadTasks()` 重新拉取任务与标签（不带子任务快照——它是盲重建，会覆盖用户刚写入的子任务，见 2.3 数据访问与乐观更新），否则主窗口会一直显示旧列表。
+> **全局快捷键快速添加（D-02）**：`shortcut.rs` 用 `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`）：按下时不再唤起主窗口，而是显示 `quick-add`——一个 560×150、无边框、置顶、不进任务栏的独立窗口，内容是一行输入 + 一行控件（项目 / 优先级 / 截止日期）+ 一行预览（`WebviewUrl::App("index.html")`，与主窗口同一个页面；前端 `index.tsx` 按窗口 label 分流：`quick-add` 渲染 `app/QuickAddWindow.tsx`，其余走 RouterProvider，浏览器 dev server 读不到 label 时回落主应用）。窗口在 setup 阶段建好并长期隐藏，所以按下即出、没有 webview 冷启动；`shortcut.rs` 在 show + set_focus 之后向该窗口 `emit_to` 一个 `quick-add:open` 事件——`autofocus` 只在页面加载时生效，而这个页面是在窗口还隐藏时加载的，因此聚焦必须由事件驱动，该事件同时把输入行与三个控件复位（每次唤起都从干净状态开始）并重拉一次项目列表（快捷窗有自己的 store，主窗口里新建或归档的项目它看不到）。回车提交后调 `getCurrentWindow().hide()` 把窗口收回（录入即隐），Esc 同样只隐藏；点击别处则由 `lib.rs` 的 `on_window_event` 捕获 `Focused(false)` 隐藏（无边框窗口没有关闭按钮可点）。两个窗口各有自己的 store，所以快捷窗创建成功后 `emit("task:created")`，主窗口 `AppShell` 监听后用 `reloadTasks()` 重新拉取任务与标签（整树替换：子任务就是同一个列表里的行，R7c），否则主窗口会一直显示旧列表。
 >
 > **快捷输入语法（D-02）**：`features/tasks/quick-add-parse.ts` 是纯函数，把一行文字解析成 `{title, projectId, priority, dueAt}`。三个标记**都是显式的**：`@项目`、`!高/!中/!低`、`#日期`（认全角 `＠`/`！`/`＃`），标记从标题里剥离后提交。`#` 后面接中文日期短语（今天/明天/后天、周X/下周X/星期X、N天后/N周后、月边界 月底/月初/月中 与 3月底、年边界 年底/今年底/明年底/2028年底、周末/下周末）或数字写法（`#9/30`、`#9-30`、`#2026-09-30`、`#2026/9/30`），都可带 上午/下午/晚上 + N点(半)。**日期必须带 `#`**：裸的「明天」「月底」现在只是标题里的普通文字，这样「月底前完成报表」不会再被静默改写成「前完成报表」——这是把日期也做成显式标记换来的，代价是每次都得多敲一个 `#`。多个 `#` 从左往右逐个尝试，第一个能解析成日期的生效（`issue #123` 这种读不出来的留在标题里，且不会挡住后面的 `#明天`）。两条贯穿始终的原则是**不猜**和**只删看得懂的**：歧义（`@W` 同时匹配 Work 与 Writing）、匹配不上（`@张三`）、不存在的日期（`2月31日`、`13/1`、`13月底`）一律原样留在标题里；项目名的匹配取「token 的最长项目名前缀」（`@Work#明天` 不需要空格也能断开），这样中文标题里拉丁项目名可以直接接汉字。只给日期不给时刻时按当天 23:59:59 处理，复用项目截止日期那套 `localDateValueToIso` 约定。控件与标记冲突时**控件优先**（用户最后一次显式点击意图最明确），预览行显示的始终是最终结果。优先级标签只有 `features/tasks/priority.ts` 一处定义，编辑器下拉、快捷窗控件、`!高` 标记共用，避免两处标签漂移。注意 Kobalte 的 Select 会在挂载时用一个初始值调一次 `onChange`，所以三个控件的 onChange 都加了「与当前生效值相同就忽略」的判断，否则光打开窗口就会记下「收件箱」并把输入行里的 `@项目` 压掉。
 >
