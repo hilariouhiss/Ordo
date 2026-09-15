@@ -159,6 +159,10 @@ describe("AppShell sidebar", () => {
     const flat = screen.getByRole("navigation", { name: "已归档项目" });
     expect(flat.textContent).toContain("归档项目");
     expect(flat.textContent).not.toContain("旧线项目");
+    // `归档项目` is a substring of `旧线归档项目`, so the positive assertion
+    // above cannot see a flat list wired to the archived namespace's projects:
+    // that list would drop the unfiled project and duplicate this one.
+    expect(flat.textContent).not.toContain("旧线归档项目");
   });
 
   it("shows no namespace rows when there are none", async () => {
