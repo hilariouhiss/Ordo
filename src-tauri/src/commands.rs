@@ -15,11 +15,11 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BackupSummary, BoardColumn, Comment, Dependency, NewBoardColumn, NewComment, NewProject,
-    NewSubtask, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit, Subtask, Tag,
-    Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
-    UpdateBoardColumn, UpdateComment, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
-    UpdateTimeEntry,
+    BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewBoardColumn, NewComment,
+    NewNamespace, NewProject, NewSubtask, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress,
+    SearchHit, Subtask, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery,
+    TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment, UpdateNamespace,
+    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::services;
 
@@ -208,6 +208,39 @@ pub fn project_archive(db: State<'_, Db>, project_id: Uuid) -> Result<Project, A
 #[tauri::command(rename = "project:restore")]
 pub fn project_restore(db: State<'_, Db>, project_id: Uuid) -> Result<Project, AppError> {
     with_conn(&db, |conn| services::restore_project(conn, project_id))
+}
+
+// --- namespace:* -----------------------------------------------------------
+
+#[tauri::command(rename = "namespace:list")]
+pub fn namespace_list(db: State<'_, Db>) -> Result<Vec<Namespace>, AppError> {
+    with_conn(&db, services::list_namespaces)
+}
+
+#[tauri::command(rename = "namespace:create")]
+pub fn namespace_create(db: State<'_, Db>, payload: NewNamespace) -> Result<Namespace, AppError> {
+    with_conn(&db, |conn| services::create_namespace(conn, payload))
+}
+
+#[tauri::command(rename = "namespace:update")]
+pub fn namespace_update(
+    db: State<'_, Db>,
+    namespace_id: Uuid,
+    payload: UpdateNamespace,
+) -> Result<Namespace, AppError> {
+    with_conn(&db, |conn| {
+        services::update_namespace(conn, namespace_id, payload)
+    })
+}
+
+#[tauri::command(rename = "namespace:archive")]
+pub fn namespace_archive(db: State<'_, Db>, namespace_id: Uuid) -> Result<Namespace, AppError> {
+    with_conn(&db, |conn| services::archive_namespace(conn, namespace_id))
+}
+
+#[tauri::command(rename = "namespace:restore")]
+pub fn namespace_restore(db: State<'_, Db>, namespace_id: Uuid) -> Result<Namespace, AppError> {
+    with_conn(&db, |conn| services::restore_namespace(conn, namespace_id))
 }
 
 // --- board:* ---------------------------------------------------------------

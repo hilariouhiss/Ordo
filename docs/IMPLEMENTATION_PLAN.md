@@ -47,6 +47,7 @@ task:list|create|update|complete|softDelete|restore
 subtask:list|create|update|complete|delete|reorder
 tag:list|create|update|delete
 project:list|create|update|archive|restore
+namespace:list, namespace:create, namespace:update, namespace:archive, namespace:restore
 board:listColumns|addColumn|updateColumn|deleteColumn|moveTask
 search:query
 comment:list|create|update|delete

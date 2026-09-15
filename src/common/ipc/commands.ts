@@ -40,6 +40,13 @@ export const COMMANDS = {
     archive: "project:archive",
     restore: "project:restore",
   },
+  namespace: {
+    list: "namespace:list",
+    create: "namespace:create",
+    update: "namespace:update",
+    archive: "namespace:archive",
+    restore: "namespace:restore",
+  },
   board: {
     listColumns: "board:listColumns",
     addColumn: "board:addColumn",

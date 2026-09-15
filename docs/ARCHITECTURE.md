@@ -185,6 +185,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
   dependency:listAll, dependency:add, dependency:remove
   tag:list, tag:create, tag:update, tag:delete
   project:list, project:create, project:update, project:archive, project:restore
+  namespace:list, namespace:create, namespace:update, namespace:archive, namespace:restore
   board:listColumns, board:addColumn, board:updateColumn, board:deleteColumn, board:moveTask
   search:query
   comment:list, comment:create, comment:update, comment:delete

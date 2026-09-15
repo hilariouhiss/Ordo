@@ -22,16 +22,17 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, DependencyKind,
-    NewBoardColumn, NewComment, NewProject, NewSubtask, NewTag, NewTask, NewTimeEntry, Patch,
-    Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind, RepeatFreq,
-    RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags, TimeDistribution,
-    TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment,
-    UpdateProject, UpdateSubtask, UpdateTag, UpdateTask, UpdateTimeEntry,
+    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, DependencyKind, Namespace,
+    NewBoardColumn, NewComment, NewNamespace, NewProject, NewSubtask, NewTag, NewTask,
+    NewTimeEntry, Patch, Priority, Project, ProjectProgress, ProjectStatus, Reminder, ReminderKind,
+    RepeatFreq, RepeatRule, SearchHit, SearchHitKind, Subtask, Tag, Task, TaskWithTags,
+    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateBoardColumn,
+    UpdateComment, UpdateNamespace, UpdateProject, UpdateSubtask, UpdateTag, UpdateTask,
+    UpdateTimeEntry,
 };
 use crate::repositories::{
-    backup, board_columns, comments, dependencies, projects, reminders, search, stats, subtasks,
-    tags, task_tags, tasks, time_entries,
+    backup, board_columns, comments, dependencies, namespaces, projects, reminders, search, stats,
+    subtasks, tags, task_tags, tasks, time_entries,
 };
 use crate::sort;
 
@@ -1023,6 +1024,101 @@ pub fn move_task(
 
     tx.commit()?;
     Ok(moved)
+}
+
+// ---------------------------------------------------------------------------
+// Namespaces
+// ---------------------------------------------------------------------------
+
+pub fn list_namespaces(conn: &Connection) -> Result<Vec<Namespace>, AppError> {
+    namespaces::list(conn)
+}
+
+/// Creates a namespace, appending it after the last existing one. Mirrors
+/// `create_project` minus the default board columns: a namespace holds
+/// projects, not tasks.
+pub fn create_namespace(conn: &Connection, input: NewNamespace) -> Result<Namespace, AppError> {
+    let name = validated_name(&input.name)?;
+    let now = Utc::now();
+    let siblings: Vec<(Uuid, String)> = namespaces::list(conn)?
+        .into_iter()
+        .map(|namespace| (namespace.id, namespace.sort_order))
+        .collect();
+    let (sort_order, rebalanced) = append_key(&siblings)?;
+
+    let tx = conn.unchecked_transaction()?;
+    for (id, key) in &rebalanced {
+        if !namespaces::set_sort_order(&tx, *id, key, now)? {
+            return Err(not_found("命名空间", *id));
+        }
+    }
+
+    let namespace = Namespace {
+        id: Uuid::new_v4(),
+        name,
+        description: input.description,
+        color: input.color,
+        icon: input.icon,
+        status: ProjectStatus::Active,
+        sort_order,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    namespaces::insert(&tx, &namespace)?;
+    tx.commit()?;
+    Ok(namespace)
+}
+
+/// Applies a partial patch (missing = unchanged, `Patch::Set` = replace).
+pub fn update_namespace(
+    conn: &Connection,
+    id: Uuid,
+    patch: UpdateNamespace,
+) -> Result<Namespace, AppError> {
+    let mut namespace = namespaces::get(conn, id)?.ok_or_else(|| not_found("命名空间", id))?;
+    if let Some(name) = &patch.name {
+        namespace.name = validated_name(name)?;
+    }
+    if let Patch::Set(description) = patch.description {
+        namespace.description = description;
+    }
+    if let Patch::Set(color) = patch.color {
+        namespace.color = color;
+    }
+    if let Patch::Set(icon) = patch.icon {
+        namespace.icon = icon;
+    }
+    namespace.updated_at = Utc::now();
+    if !namespaces::update(conn, &namespace)? {
+        return Err(not_found("命名空间", id));
+    }
+    Ok(namespace)
+}
+
+/// Archives (or restores) a namespace; repeating the current state is a no-op
+/// returning the unchanged row.
+///
+/// Projects inside are deliberately untouched: archiving a group must not
+/// silently flip the state of everything filed under it.
+pub fn set_namespace_status(
+    conn: &Connection,
+    id: Uuid,
+    status: ProjectStatus,
+) -> Result<Namespace, AppError> {
+    let namespace = namespaces::get(conn, id)?.ok_or_else(|| not_found("命名空间", id))?;
+    if namespace.status != status && !namespaces::set_status(conn, id, status, Utc::now())? {
+        return Err(not_found("命名空间", id));
+    }
+    namespaces::get(conn, id)?.ok_or_else(|| not_found("命名空间", id))
+}
+
+pub fn archive_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppError> {
+    set_namespace_status(conn, id, ProjectStatus::Archived)
+}
+
+pub fn restore_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppError> {
+    set_namespace_status(conn, id, ProjectStatus::Active)
 }
 
 // ---------------------------------------------------------------------------
@@ -2370,6 +2466,19 @@ mod tests {
 
     // --- projects & board ----------------------------------------------------
 
+    fn make_namespace(conn: &Connection, name: &str) -> Namespace {
+        create_namespace(
+            conn,
+            NewNamespace {
+                name: name.into(),
+                description: None,
+                color: None,
+                icon: None,
+            },
+        )
+        .unwrap()
+    }
+
     fn make_project(conn: &Connection, name: &str) -> Project {
         create_project(
             conn,
@@ -2543,6 +2652,120 @@ mod tests {
         assert_eq!(
             archive_project(&conn, Uuid::new_v4()).unwrap_err().code(),
             "not_found"
+        );
+    }
+
+    #[test]
+    fn namespace_create_appends_and_validates() {
+        let conn = conn();
+        let first = make_namespace(&conn, "工作");
+        let second = make_namespace(&conn, "学习");
+        assert!(first.sort_order < second.sort_order);
+        assert_eq!(
+            list_namespaces(&conn)
+                .unwrap()
+                .iter()
+                .map(|n| n.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["工作", "学习"]
+        );
+
+        let err = create_namespace(
+            &conn,
+            NewNamespace {
+                name: "   ".into(),
+                description: None,
+                color: None,
+                icon: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "validation");
+    }
+
+    #[test]
+    fn namespace_update_patches_and_archive_restores() {
+        let conn = conn();
+        let namespace = make_namespace(&conn, "旧名");
+
+        let renamed = update_namespace(
+            &conn,
+            namespace.id,
+            UpdateNamespace {
+                name: Some("新名".into()),
+                description: Patch::Set(Some("主线项目".into())),
+                color: Patch::Set(Some("#6366f1".into())),
+                icon: Patch::Set(None),
+            },
+        )
+        .unwrap();
+        assert_eq!(renamed.name, "新名");
+        assert_eq!(renamed.description.as_deref(), Some("主线项目"));
+        assert_eq!(renamed.color.as_deref(), Some("#6366f1"));
+
+        assert_eq!(
+            update_namespace(
+                &conn,
+                namespace.id,
+                UpdateNamespace {
+                    name: Some("  ".into()),
+                    description: Patch::Unchanged,
+                    color: Patch::Unchanged,
+                    icon: Patch::Unchanged,
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "validation"
+        );
+
+        let archived = archive_namespace(&conn, namespace.id).unwrap();
+        assert_eq!(archived.status, ProjectStatus::Archived);
+        // Archiving twice is a no-op returning the unchanged row; archived
+        // namespaces still list (navigation filters by status).
+        assert_eq!(
+            archive_namespace(&conn, namespace.id).unwrap().status,
+            ProjectStatus::Archived
+        );
+        assert_eq!(list_namespaces(&conn).unwrap().len(), 1);
+
+        let restored = restore_namespace(&conn, namespace.id).unwrap();
+        assert_eq!(restored.status, ProjectStatus::Active);
+        assert_eq!(
+            archive_namespace(&conn, Uuid::new_v4()).unwrap_err().code(),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn archiving_a_namespace_leaves_its_projects_alone() {
+        let conn = conn();
+        let namespace = make_namespace(&conn, "工作");
+        let project = create_project(
+            &conn,
+            NewProject {
+                name: "网站改版".into(),
+                description: None,
+                color: None,
+                icon: None,
+                namespace_id: Some(namespace.id),
+                due_at: None,
+            },
+        )
+        .unwrap();
+
+        archive_namespace(&conn, namespace.id).unwrap();
+
+        let after = projects::get(&conn, project.id).unwrap().unwrap();
+        assert_eq!(
+            after.status,
+            ProjectStatus::Active,
+            "group archive is not a cascade"
+        );
+        assert_eq!(
+            after.namespace_id,
+            Some(namespace.id),
+            "the filing survives"
         );
     }
 

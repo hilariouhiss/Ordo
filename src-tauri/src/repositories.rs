@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, Dependency, DependencyKind, Priority, Project, ProjectStatus,
+    BoardColumn, Comment, Dependency, DependencyKind, Namespace, Priority, Project, ProjectStatus,
     ReminderKind, RepeatRule, Setting, Subtask, Tag, Task, TimeEntry,
 };
 
@@ -181,6 +181,22 @@ fn project_from_row(row: &Row<'_>) -> Result<Project, AppError> {
             .map(parse_uuid)
             .transpose()?,
         due_at: row.get("due_at")?,
+        status: project_status_from_text(&status_text)?,
+        sort_order: row.get("sort_order")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        deleted_at: row.get("deleted_at")?,
+    })
+}
+
+fn namespace_from_row(row: &Row<'_>) -> Result<Namespace, AppError> {
+    let status_text: String = row.get("status")?;
+    Ok(Namespace {
+        id: parse_uuid(row.get("id")?)?,
+        name: row.get("name")?,
+        description: row.get("description")?,
+        color: row.get("color")?,
+        icon: row.get("icon")?,
         status: project_status_from_text(&status_text)?,
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
@@ -713,6 +729,110 @@ pub mod projects {
     ) -> Result<bool, AppError> {
         let affected = conn.execute(
             "UPDATE projects SET sort_order = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL",
+            params![sort_order, at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+}
+
+/// Namespace CRUD (`namespaces` table).
+///
+/// Same lifecycle as [`projects`]: archiving flips `status`, `deleted_at` is
+/// reserved for real deletion (unused by the v1 command surface). The status
+/// text helpers are the project ones — both tables share `ProjectStatus`.
+pub mod namespaces {
+    use super::*;
+
+    pub fn insert(conn: &Connection, namespace: &Namespace) -> Result<(), AppError> {
+        conn.execute(
+            "INSERT INTO namespaces (id, name, description, color, icon, status, sort_order, \
+             created_at, updated_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                namespace.id.to_string(),
+                namespace.name,
+                namespace.description,
+                namespace.color,
+                namespace.icon,
+                project_status_as_text(namespace.status),
+                namespace.sort_order,
+                namespace.created_at,
+                namespace.updated_at,
+                namespace.deleted_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get(conn: &Connection, id: Uuid) -> Result<Option<Namespace>, AppError> {
+        query_one(
+            conn,
+            "SELECT id, name, description, color, icon, status, sort_order, created_at, \
+             updated_at, deleted_at FROM namespaces WHERE id = ?1 AND deleted_at IS NULL",
+            params![id.to_string()],
+            namespace_from_row,
+        )
+    }
+
+    /// All non-deleted namespaces (archived ones included; the navigation
+    /// filters by `status`), ordered like the project list.
+    pub fn list(conn: &Connection) -> Result<Vec<Namespace>, AppError> {
+        query_all(
+            conn,
+            "SELECT id, name, description, color, icon, status, sort_order, created_at, \
+             updated_at, deleted_at FROM namespaces WHERE deleted_at IS NULL \
+             ORDER BY sort_order, created_at, id",
+            &[],
+            namespace_from_row,
+        )
+    }
+
+    /// Full-row update; returns false when the namespace is missing or deleted.
+    pub fn update(conn: &Connection, namespace: &Namespace) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE namespaces SET name = ?1, description = ?2, color = ?3, icon = ?4, \
+             status = ?5, sort_order = ?6, updated_at = ?7 \
+             WHERE id = ?8 AND deleted_at IS NULL",
+            params![
+                namespace.name,
+                namespace.description,
+                namespace.color,
+                namespace.icon,
+                project_status_as_text(namespace.status),
+                namespace.sort_order,
+                namespace.updated_at,
+                namespace.id.to_string(),
+            ],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// Archive/restore flip (`status`); returns false on missing/deleted rows
+    /// or when already in the requested state.
+    pub fn set_status(
+        conn: &Connection,
+        id: Uuid,
+        status: ProjectStatus,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE namespaces SET status = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND deleted_at IS NULL AND status != ?1",
+            params![project_status_as_text(status), at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
+
+    /// Targeted `sort_order` write used by service-level rebalances.
+    pub fn set_sort_order(
+        conn: &Connection,
+        id: Uuid,
+        sort_order: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE namespaces SET sort_order = ?1, updated_at = ?2 \
              WHERE id = ?3 AND deleted_at IS NULL",
             params![sort_order, at, id.to_string()],
         )?;
@@ -2170,6 +2290,73 @@ mod tests {
         let restored = projects::get(&conn, project.id).unwrap().unwrap();
         assert_eq!(restored.status, ProjectStatus::Active);
         assert_eq!(restored.updated_at, ts(20));
+    }
+
+    fn sample_namespace(sort_order: &str) -> Namespace {
+        Namespace {
+            id: Uuid::new_v4(),
+            name: "工作".into(),
+            description: None,
+            color: None,
+            icon: None,
+            status: ProjectStatus::Active,
+            sort_order: sort_order.into(),
+            created_at: ts(0),
+            updated_at: ts(0),
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn namespace_round_trips_and_orders_by_sort_order() {
+        let conn = conn();
+        let mid = sample_namespace("n");
+        let last = sample_namespace("t");
+        let first = sample_namespace("a");
+        for namespace in [&mid, &last, &first] {
+            namespaces::insert(&conn, namespace).unwrap();
+        }
+
+        assert_eq!(namespaces::get(&conn, first.id).unwrap().unwrap(), first);
+        assert_eq!(namespaces::get(&conn, Uuid::new_v4()).unwrap(), None);
+        assert_eq!(namespaces::list(&conn).unwrap(), vec![first, mid, last]);
+    }
+
+    #[test]
+    fn namespace_update_persists_every_field_and_archive_flips_status() {
+        let conn = conn();
+        let namespace = sample_namespace("n");
+        namespaces::insert(&conn, &namespace).unwrap();
+
+        let mut edited = namespace.clone();
+        edited.name = "工作（2026）".into();
+        edited.description = Some("主线项目".into());
+        edited.color = Some("#6366f1".into());
+        edited.icon = Some("briefcase".into());
+        edited.updated_at = ts(5);
+        assert!(namespaces::update(&conn, &edited).unwrap());
+        assert_eq!(
+            namespaces::get(&conn, namespace.id).unwrap().unwrap(),
+            edited
+        );
+
+        assert!(!namespaces::update(&conn, &sample_namespace("n")).unwrap());
+
+        assert!(
+            namespaces::set_status(&conn, namespace.id, ProjectStatus::Archived, ts(10)).unwrap()
+        );
+        let archived = namespaces::get(&conn, namespace.id).unwrap().unwrap();
+        assert_eq!(archived.status, ProjectStatus::Archived);
+        assert_eq!(archived.updated_at, ts(10));
+        // Archived is a state, not a soft delete: the row stays listed.
+        assert_eq!(namespaces::list(&conn).unwrap().len(), 1);
+        // Repeating the state is a no-op.
+        assert!(
+            !namespaces::set_status(&conn, namespace.id, ProjectStatus::Archived, ts(11)).unwrap()
+        );
+        assert!(
+            namespaces::set_status(&conn, namespace.id, ProjectStatus::Active, ts(20)).unwrap()
+        );
     }
 
     #[test]
