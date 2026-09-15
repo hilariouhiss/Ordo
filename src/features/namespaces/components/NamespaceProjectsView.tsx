@@ -126,7 +126,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
           <p class="pb-2 text-xs text-subtle-foreground">
             {projects().length} 个项目 · 汇总进度
           </p>
-          <ProjectProgress tasks={tasks()} dueAt={null} />
+          <ProjectProgress tasks={tasks()} />
         </div>
       </header>
 
@@ -172,7 +172,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
                       {project.name}
                     </Link>
                     <div class="mt-1.5">
-                      <ProjectProgress tasks={tasksOf(project.id)} dueAt={project.dueAt} />
+                      <ProjectProgress tasks={tasksOf(project.id)} />
                     </div>
                   </div>
 

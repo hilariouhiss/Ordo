@@ -105,7 +105,6 @@ pub struct Project {
     /// parse (`subtasks.priority` set the precedent).
     #[serde(default)]
     pub namespace_id: Option<Uuid>,
-    pub due_at: Option<DateTime<Utc>>,
     pub status: ProjectStatus,
     pub sort_order: String,
     pub created_at: DateTime<Utc>,
@@ -114,8 +113,9 @@ pub struct Project {
 }
 
 /// A namespace row (`namespaces`): an optional container grouping related
-/// projects. Mirrors [`Project`] minus the due date — a deadline belongs to the
-/// project, not to the container.
+/// projects. Mirrors [`Project`] minus the namespace link itself — nothing
+/// groups a namespace further, and a deadline belongs to the *task*, not to a
+/// container of projects (R2 removed the project's own `due_at`).
 ///
 /// The lifecycle state reuses [`ProjectStatus`]: same two values, same CHECK
 /// constraint, same text mapping in the repository layer.
@@ -532,8 +532,6 @@ pub struct NewProject {
     /// Namespace to file the new project under; `None` (or absent) = root list.
     #[serde(default)]
     pub namespace_id: Option<Uuid>,
-    #[serde(default)]
-    pub due_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -549,8 +547,6 @@ pub struct UpdateProject {
     /// Re-file the project; `Patch::Set(None)` moves it back to the root list.
     #[serde(default)]
     pub namespace_id: Patch<Uuid>,
-    #[serde(default)]
-    pub due_at: Patch<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -676,7 +672,6 @@ pub struct ProjectProgress {
     pub name: String,
     pub total: i64,
     pub completed: i64,
-    pub due_at: Option<DateTime<Utc>>,
 }
 
 /// Dimension `stats:timeDistribution` splits tracked time by.
@@ -855,7 +850,6 @@ mod tests {
             color: None,
             icon: None,
             namespace_id: None,
-            due_at: None,
             status: ProjectStatus::Active,
             sort_order: "a".into(),
             created_at: ts(),
@@ -871,7 +865,6 @@ mod tests {
                 "createdAt",
                 "deletedAt",
                 "description",
-                "dueAt",
                 "icon",
                 "id",
                 "name",

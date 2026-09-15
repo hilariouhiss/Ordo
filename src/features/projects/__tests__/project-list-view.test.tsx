@@ -48,7 +48,6 @@ function projectFixture(id: string, overrides: Partial<Project> = {}): Project {
     color: "#3b82f6",
     icon: "rocket",
     namespaceId: null,
-    dueAt: "2026-12-31T15:59:59.000Z",
     status: "active",
     sortOrder: "n",
     createdAt: "2026-09-09T10:00:00Z",
@@ -117,7 +116,8 @@ describe("ProjectListView", () => {
 
     expect(screen.getByText("项目 proj-1")).toBeTruthy();
     expect(screen.getByText("项目说明")).toBeTruthy();
-    expect(screen.getByText(/截止：/).textContent).toContain("2026年");
+    // R2: a project carries no deadline, so the header has no 截止 line.
+    expect(screen.queryByText(/截止/)).toBeNull();
     // Only the project's own tasks are listed; rate counts them.
     expect(screen.getByText("1 / 2 已完成")).toBeTruthy();
     expect(screen.getByText("剩余 1 项")).toBeTruthy();

@@ -26,14 +26,6 @@ function task(id: string, completed: boolean): Task {
   };
 }
 
-/** Local due instant `days` from today, at the end of that local day. */
-function dueIn(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  date.setHours(23, 59, 59, 0);
-  return date.toISOString();
-}
-
 function bar(): string {
   return screen.getByRole("progressbar").getAttribute("aria-valuenow") ?? "";
 }
@@ -42,7 +34,7 @@ afterEach(cleanup);
 
 describe("ProjectProgress", () => {
   it("summarises an empty project without dividing by zero", () => {
-    render(() => <ProjectProgress tasks={[]} dueAt={null} />);
+    render(() => <ProjectProgress tasks={[]} />);
 
     expect(bar()).toBe("0");
     expect(screen.getByRole("progressbar").getAttribute("aria-label")).toBe("完成率 0%");
@@ -54,7 +46,6 @@ describe("ProjectProgress", () => {
     render(() => (
       <ProjectProgress
         tasks={[task("t1", true), task("t2", true), task("t3", true), task("t4", false)]}
-        dueAt={null}
       />
     ));
 
@@ -66,39 +57,23 @@ describe("ProjectProgress", () => {
 
   it("rounds the rate to whole percent", () => {
     render(() => (
-      <ProjectProgress tasks={[task("t1", true), task("t2", false), task("t3", false)]} dueAt={null} />
+      <ProjectProgress tasks={[task("t1", true), task("t2", false), task("t3", false)]} />
     ));
 
     expect(screen.getByText("33%")).toBeTruthy();
   });
 
-  it("counts down to a future due date", () => {
-    render(() => <ProjectProgress tasks={[]} dueAt={dueIn(10)} />);
+  // R2: projects have no deadline, so nothing here counts down any more.
+  it("shows no countdown at all", () => {
+    render(() => <ProjectProgress tasks={[task("t1", false)]} />);
 
-    const countdown = screen.getByText(/距截止还有/);
-    // Calendar days, not elapsed hours: the number must not shift with the
-    // hour the panel happens to be read at.
-    expect(countdown.textContent).toBe("距截止还有 10 天");
-    expect(countdown.className).not.toContain("text-danger");
-  });
-
-  it("reads a due date later today as due today", () => {
-    render(() => <ProjectProgress tasks={[]} dueAt={dueIn(0)} />);
-
-    expect(screen.getByText("今天截止")).toBeTruthy();
-  });
-
-  it("flags an overdue due date", () => {
-    render(() => <ProjectProgress tasks={[]} dueAt={dueIn(-3)} />);
-
-    const countdown = screen.getByText(/已逾期/);
-    expect(countdown.textContent).toBe("已逾期 3 天");
-    expect(countdown.className).toContain("text-danger");
+    expect(screen.getByText("剩余 1 项")).toBeTruthy();
+    expect(screen.queryByText(/截止|逾期/)).toBeNull();
   });
 
   it("moves the bar as tasks are completed", () => {
     const [tasks, setTasks] = createSignal([task("t1", false), task("t2", false)]);
-    render(() => <ProjectProgress tasks={tasks()} dueAt={null} />);
+    render(() => <ProjectProgress tasks={tasks()} />);
 
     expect(screen.getByText("0 / 2 已完成")).toBeTruthy();
     expect(screen.getByText("剩余 2 项")).toBeTruthy();

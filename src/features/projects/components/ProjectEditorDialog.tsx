@@ -8,7 +8,6 @@ import {
   Select,
   TextField,
 } from "../../../common/components";
-import { isoToLocalDateValue, localDateValueToIso } from "../../../common/utils/datetime";
 import { randomColor } from "../../../common/colors";
 import { createNamespace } from "../../namespaces/hooks";
 import { activeNamespaces, getNamespace } from "../../namespaces/store";
@@ -25,15 +24,9 @@ import type { Project } from "../types";
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "项目名不能为空"),
-  dueLocal: z
-    .string()
-    .refine(
-      (value) => value === "" || !Number.isNaN(new Date(`${value}T23:59:59`).getTime()),
-      "截止日期无效",
-    ),
 });
 
-type FormField = "name" | "dueLocal" | "namespaceName";
+type FormField = "name" | "namespaceName";
 
 /** Sentinel for "no namespace": a real string, never `""`. */
 const NOT_FILED = "none";
@@ -60,7 +53,6 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
   const [namespaceId, setNamespaceId] = createSignal<string | null>(null);
   /** Name typed for the inline 新建命名空间 option (R5). */
   const [newNamespaceName, setNewNamespaceName] = createSignal("");
-  const [dueLocal, setDueLocal] = createSignal("");
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
 
@@ -115,7 +107,6 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         setIcon(project?.icon ?? null);
         setNamespaceId(project ? project.namespaceId : (props.defaultNamespaceId ?? null));
         setNewNamespaceName("");
-        setDueLocal(isoToLocalDateValue(project?.dueAt ?? null));
         setErrors({});
         setSubmitting(false);
       },
@@ -124,7 +115,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    const parsed = formSchema.safeParse({ name: name(), dueLocal: dueLocal() });
+    const parsed = formSchema.safeParse({ name: name() });
     if (!parsed.success) {
       const next: Partial<Record<FormField, string>> = {};
       for (const issue of parsed.error.issues) {
@@ -159,7 +150,6 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
         color: color(),
         icon: icon(),
         namespaceId: targetNamespaceId,
-        dueAt: localDateValueToIso(parsed.data.dueLocal),
       };
       const result = props.project
         ? await updateProject(props.project.id, payload)
@@ -245,19 +235,6 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
                 <TextField.ErrorMessage>{errors().namespaceName ?? ""}</TextField.ErrorMessage>
               </TextField.Root>
             </Show>
-
-            <TextField.Root
-              value={dueLocal()}
-              onChange={(value) => {
-                setDueLocal(value);
-                if (errors().dueLocal) setErrors({ ...errors(), dueLocal: undefined });
-              }}
-              validationState={errors().dueLocal ? "invalid" : "valid"}
-            >
-              <TextField.Label>截止日期</TextField.Label>
-              <TextField.Input type="date" />
-              <TextField.ErrorMessage>{errors().dueLocal ?? ""}</TextField.ErrorMessage>
-            </TextField.Root>
 
             <div class="mt-2 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => props.onOpenChange(false)}>

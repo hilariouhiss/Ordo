@@ -1,7 +1,14 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
 import { Settings2 } from "lucide-solid";
 import { z } from "zod";
-import { Button, Checkbox, Dialog, Select, TextField } from "../../../common/components";
+import {
+  Button,
+  Checkbox,
+  DateField,
+  Dialog,
+  Select,
+  TextField,
+} from "../../../common/components";
 import {
   isoToLocalInputValue,
   localInputValueToIso,
@@ -233,7 +240,9 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               validationState={errors().dueLocal ? "invalid" : "valid"}
             >
               <TextField.Label>截止时间</TextField.Label>
-              <TextField.Input type="datetime-local" />
+              <DateField type="datetime-local" value={dueLocal()}>
+                <TextField.Input type="datetime-local" />
+              </DateField>
               <TextField.ErrorMessage>{errors().dueLocal ?? ""}</TextField.ErrorMessage>
             </TextField.Root>
 

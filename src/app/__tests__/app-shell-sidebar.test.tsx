@@ -83,7 +83,6 @@ function project(
     color: null,
     icon: null,
     namespaceId: null,
-    dueAt: null,
     status: "active",
     sortOrder: "n",
     createdAt: "2026-09-15T10:00:00Z",

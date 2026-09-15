@@ -2,7 +2,7 @@ import { createSignal, onCleanup, onMount } from "solid-js";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { format } from "date-fns";
-import { Select, TextField, Toaster } from "../common/components";
+import { DateField, Select, TextField, Toaster } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
 import { isoToLocalDateValue, localDateValueToIso } from "../common/utils/datetime";
 import { loadAll as loadProjects } from "../features/projects/hooks";
@@ -266,7 +266,9 @@ export default function QuickAddWindow() {
             setManual({ ...manual(), dueAt: localDateValueToIso(value) });
           }}
         >
-          <TextField.Input type="date" aria-label="截止日期" />
+          <DateField type="date" value={isoToLocalDateValue(dueAt())}>
+            <TextField.Input type="date" aria-label="截止日期" />
+          </DateField>
         </TextField.Root>
       </div>
 

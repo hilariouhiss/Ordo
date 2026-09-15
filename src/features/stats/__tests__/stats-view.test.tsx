@@ -31,7 +31,7 @@ function distribution(): TimeDistribution {
 }
 
 function progress(): ProjectProgress[] {
-  return [{ projectId: "p1", name: "Alpha", total: 4, completed: 3, dueAt: null }];
+  return [{ projectId: "p1", name: "Alpha", total: 4, completed: 3 }];
 }
 
 /** Local midnight boundary, the way the view states its queries. */

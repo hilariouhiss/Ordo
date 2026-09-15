@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { Button, Select, TextField } from "../../../common/components";
+import { Button, DateField, Select, TextField } from "../../../common/components";
 import { COMPLEXITY_OPTIONS, complexityFromOption, complexityOptionValue } from "../complexity";
 import { isoToLocalInputValue, localInputValueToIso } from "../../../common/utils/datetime";
 import { buildIndex, entityKey, liveSet, wouldCycle } from "../dependencies";
@@ -104,7 +104,9 @@ export function SubtaskEditor(props: SubtaskEditorProps) {
 
         <TextField.Root class="w-52" value={dueLocal()} onChange={setDueLocal}>
           <TextField.Label class="sr-only">子任务截止时间</TextField.Label>
-          <TextField.Input type="datetime-local" aria-label="子任务截止时间" />
+          <DateField type="datetime-local" value={dueLocal()}>
+            <TextField.Input type="datetime-local" aria-label="子任务截止时间" />
+          </DateField>
         </TextField.Root>
       </div>
 

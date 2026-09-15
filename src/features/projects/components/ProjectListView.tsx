@@ -1,7 +1,5 @@
 import { Show, createMemo, createSignal } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { format } from "date-fns";
-import { zhCN } from "date-fns/locale";
 import { Archive, Pencil, RotateCcw } from "lucide-solid";
 import { Button, Tabs } from "../../../common/components";
 import { getIcon } from "../../../common/icons";
@@ -68,12 +66,6 @@ export function ProjectListView(props: { project: Project }) {
                 {project().description}
               </p>
             </Show>
-            <Show when={project().dueAt}>
-              <p class="mt-1.5 text-xs text-subtle-foreground">
-                截止：
-                {format(new Date(project().dueAt as string), "yyyy年M月d日", { locale: zhCN })}
-              </p>
-            </Show>
           </div>
 
           <div class="flex shrink-0 items-center gap-1.5">
@@ -108,7 +100,7 @@ export function ProjectListView(props: { project: Project }) {
         </Show>
 
         <div class="mt-4">
-          <ProjectProgress tasks={tasks()} dueAt={project().dueAt} />
+          <ProjectProgress tasks={tasks()} />
         </div>
       </header>
 

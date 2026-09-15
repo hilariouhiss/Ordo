@@ -60,7 +60,6 @@ function projectFixture(id: string, name: string): Project {
     color: null,
     icon: null,
     namespaceId: null,
-    dueAt: null,
     status: "active",
     sortOrder: id,
     createdAt: "2026-09-01T10:00:00Z",

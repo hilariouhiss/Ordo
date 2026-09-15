@@ -53,7 +53,6 @@ function project(id: string, overrides: Partial<Project> = {}): Project {
     color: null,
     icon: null,
     namespaceId: "ns1",
-    dueAt: null,
     status: "active",
     sortOrder: "n",
     createdAt: "2026-09-15T10:00:00Z",

@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { Pencil, Play, Square, Trash2 } from "lucide-solid";
 import { format } from "date-fns";
-import { Button, iconButtonClass } from "../../../common/components";
+import { Button, DateField, iconButtonClass } from "../../../common/components";
 import {
   createTimeEntry,
   deleteTimeEntry,
@@ -125,13 +125,15 @@ export function TimeTracker(props: TimeTrackerProps) {
       </div>
 
       <div class="mt-2 flex flex-wrap items-center gap-2">
-        <input
-          type="datetime-local"
-          aria-label="开始时间"
-          class={INPUT_CLASS}
-          value={startValue()}
-          onInput={(event) => setStartValue(event.currentTarget.value)}
-        />
+        <DateField type="datetime-local" value={startValue()}>
+          <input
+            type="datetime-local"
+            aria-label="开始时间"
+            class={INPUT_CLASS}
+            value={startValue()}
+            onInput={(event) => setStartValue(event.currentTarget.value)}
+          />
+        </DateField>
         <input
           type="number"
           min="1"

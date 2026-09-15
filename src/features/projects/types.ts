@@ -3,6 +3,8 @@
  * `src-tauri/src/models.rs` field-for-field (serde camelCase). Write payloads
  * follow the plan §3 patch semantics: a missing field leaves the stored value
  * unchanged, an explicit `null` clears it.
+ *
+ * There is no `dueAt`: a deadline belongs to a task, not to a project (R2).
  */
 
 /** Project lifecycle state (`projects.status`); archived projects are restorable. */
@@ -15,7 +17,6 @@ export interface Project {
   color: string | null;
   icon: string | null;
   namespaceId: string | null;
-  dueAt: string | null;
   status: ProjectStatus;
   sortOrder: string;
   createdAt: string;
@@ -29,7 +30,6 @@ export interface NewProject {
   color?: string | null;
   icon?: string | null;
   namespaceId?: string | null;
-  dueAt?: string | null;
 }
 
 export interface UpdateProject {
@@ -38,6 +38,5 @@ export interface UpdateProject {
   color?: string | null;
   icon?: string | null;
   namespaceId?: string | null;
-  dueAt?: string | null;
 }
 

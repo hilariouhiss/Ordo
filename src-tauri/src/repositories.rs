@@ -25,7 +25,7 @@ const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, du
 const TAG_COLUMNS: &str = "id, name, color, created_at, updated_at, deleted_at";
 const SUBTASK_COLUMNS: &str = "id, task_id, title, note, priority, due_at, complexity, done, \
                                sort_order, created_at, updated_at, deleted_at";
-const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id, due_at, status, \
+const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id, status, \
                                sort_order, created_at, updated_at, deleted_at";
 const NAMESPACE_COLUMNS: &str = "id, name, description, color, icon, status, sort_order, \
                                  created_at, updated_at, deleted_at";
@@ -182,7 +182,6 @@ fn project_from_row(row: &Row<'_>) -> Result<Project, AppError> {
             .get::<_, Option<String>>("namespace_id")?
             .map(parse_uuid)
             .transpose()?,
-        due_at: row.get("due_at")?,
         status: project_status_from_text(&status_text)?,
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
@@ -640,9 +639,9 @@ pub mod projects {
 
     pub fn insert(conn: &Connection, project: &Project) -> Result<(), AppError> {
         conn.execute(
-            "INSERT INTO projects (id, name, description, color, icon, namespace_id, due_at, \
+            "INSERT INTO projects (id, name, description, color, icon, namespace_id, \
              status, sort_order, created_at, updated_at, deleted_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 project.id.to_string(),
                 project.name,
@@ -650,7 +649,6 @@ pub mod projects {
                 project.color,
                 project.icon,
                 project.namespace_id.map(|id| id.to_string()),
-                project.due_at,
                 project_status_as_text(project.status),
                 project.sort_order,
                 project.created_at,
@@ -688,15 +686,14 @@ pub mod projects {
     pub fn update(conn: &Connection, project: &Project) -> Result<bool, AppError> {
         let affected = conn.execute(
             "UPDATE projects SET name = ?1, description = ?2, color = ?3, icon = ?4, \
-             namespace_id = ?5, due_at = ?6, status = ?7, sort_order = ?8, updated_at = ?9 \
-             WHERE id = ?10 AND deleted_at IS NULL",
+             namespace_id = ?5, status = ?6, sort_order = ?7, updated_at = ?8 \
+             WHERE id = ?9 AND deleted_at IS NULL",
             params![
                 project.name,
                 project.description,
                 project.color,
                 project.icon,
                 project.namespace_id.map(|id| id.to_string()),
-                project.due_at,
                 project_status_as_text(project.status),
                 project.sort_order,
                 project.updated_at,
@@ -1410,14 +1407,12 @@ pub mod stats {
                 name: row.get("name")?,
                 total: row.get("total")?,
                 completed: row.get("completed")?,
-                due_at: row.get("due_at")?,
             })
         })
     }
 
     /// Project tally query; the join walks `idx_tasks_project`.
-    const PROJECT_PROGRESS_SQL: &str =
-        "SELECT p.id AS project_id, p.name AS name, p.due_at AS due_at, \
+    const PROJECT_PROGRESS_SQL: &str = "SELECT p.id AS project_id, p.name AS name, \
                 COUNT(t.id) AS total, COUNT(t.completed_at) AS completed \
          FROM projects p \
          LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL \
@@ -1953,7 +1948,6 @@ mod tests {
             color: None,
             icon: None,
             namespace_id: None,
-            due_at: None,
             status: ProjectStatus::Active,
             sort_order: sort_order.into(),
             created_at: ts(0),
@@ -2263,7 +2257,6 @@ mod tests {
         edited.description = Some("迁移到新框架".into());
         edited.color = Some("#3b82f6".into());
         edited.icon = Some("rocket".into());
-        edited.due_at = Some(ts(30));
         edited.status = ProjectStatus::Archived;
         edited.sort_order = "p".into();
         edited.updated_at = ts(5);

@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import { COLORS } from "../../../common/colors";
-import { isoToLocalDateValue } from "../../../common/utils/datetime";
 import { createNamespace } from "../../namespaces/hooks";
 import { resetNamespacesStore, setAll as setNamespaces } from "../../namespaces/store";
 import type { Namespace } from "../../namespaces/types";
@@ -30,7 +29,6 @@ function projectFixture(id: string, overrides: Partial<Project> = {}): Project {
     color: null,
     icon: null,
     namespaceId: null,
-    dueAt: null,
     status: "active",
     sortOrder: "n",
     createdAt: "2026-09-09T10:00:00Z",
@@ -91,7 +89,6 @@ describe("ProjectEditorDialog", () => {
       color: expect.any(String),
       icon: null,
       namespaceId: null,
-      dueAt: null,
     });
   });
 
@@ -135,26 +132,12 @@ describe("ProjectEditorDialog", () => {
     expect(payload?.icon).toBe("rocket");
   });
 
-  it("converts the date input to the end of that local day", async () => {
-    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
-    const { onOpenChange } = renderDialog();
-
-    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "有截止" } });
-    fireEvent.input(screen.getByLabelText("截止日期"), { target: { value: "2026-12-31" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建" }));
-
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    const payload = vi.mocked(hooks.createProject).mock.calls[0]?.[0];
-    expect(payload?.dueAt).toBe(new Date("2026-12-31T23:59:59").toISOString());
-  });
-
   it("prefills every field in edit mode and submits a patch payload", async () => {
     const existing = projectFixture("p9", {
       name: "旧名",
       description: "说明",
       color: "#ef4444",
       icon: "rocket",
-      dueAt: "2026-12-31T15:59:59.000Z",
     });
     vi.mocked(hooks.updateProject).mockResolvedValue(existing);
     const { onOpenChange } = renderDialog(existing);
@@ -168,10 +151,6 @@ describe("ProjectEditorDialog", () => {
     expect(screen.getByRole("button", { name: "图标 rocket" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
-    expect((screen.getByLabelText("截止日期") as HTMLInputElement).value).toBe(
-      isoToLocalDateValue(existing.dueAt),
-    );
-
     fireEvent.input(screen.getByLabelText("名称"), { target: { value: "新名" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
@@ -182,7 +161,6 @@ describe("ProjectEditorDialog", () => {
       color: "#ef4444",
       icon: "rocket",
       namespaceId: existing.namespaceId,
-      dueAt: existing.dueAt,
     });
   });
 

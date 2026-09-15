@@ -7,6 +7,7 @@ export {
   type ButtonVariant,
 } from "./button";
 export { Checkbox } from "./checkbox";
+export { DateField, type DateFieldProps } from "./date-field";
 export { Dialog } from "./dialog";
 export { DropdownMenu } from "./dropdown-menu";
 export { EmptyState, type EmptyStateProps } from "./empty-state";

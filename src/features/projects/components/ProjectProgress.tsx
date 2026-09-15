@@ -1,23 +1,20 @@
-import { Show, createMemo } from "solid-js";
-import { differenceInCalendarDays } from "date-fns";
+import { createMemo } from "solid-js";
 import type { Task } from "../../tasks/types";
 
 export interface ProjectProgressProps {
   /** The project's own tasks; the panel derives everything from them. */
   tasks: Task[];
-  /** The project's due date (ISO), if it has one. */
-  dueAt: string | null;
 }
 
 /**
- * Project progress summary (ST-03): the overall bar, the completion rate, how
- * much work is left and how long there is until the due date.
+ * Project progress summary (ST-03): the overall bar, the completion rate and
+ * how much work is left.
  *
  * Every number derives from the live task list handed in — the project view
  * passes its reactive store slice — so checking a task moves the bar, the
  * rate and the remaining count in the same tick, without a backend round
- * trip. The countdown is read at render time, like the task views' due
- * labels; the panel never runs a timer of its own.
+ * trip. No countdown: projects have no deadline (R2) — task and subtask due
+ * dates are where time pressure lives.
  *
  * The percentage is the project's headline number, so it is set at label size
  * beside the bar rather than tucked away at caption size.
@@ -27,25 +24,6 @@ export function ProjectProgress(props: ProjectProgressProps) {
   const done = createMemo(() => props.tasks.filter((task) => task.completedAt !== null).length);
   const remaining = createMemo(() => total() - done());
   const rate = createMemo(() => (total() === 0 ? 0 : Math.round((done() / total()) * 100)));
-
-  // Project due dates are stored as the end of the local day
-  // (`localDateValueToIso`), so a same-day deadline is still "today" all day.
-  const due = createMemo(() => {
-    if (!props.dueAt) return null;
-    const date = new Date(props.dueAt);
-    if (Number.isNaN(date.getTime())) return null;
-
-    const days = differenceInCalendarDays(date, new Date());
-    if (days === 0) return { text: "今天截止", overdue: false };
-    // Calendar days on both sides of the decision. Measuring the text as
-    // elapsed time instead disagreed with the "today" rule for the first
-    // hours of every day: yesterday 23:59 read at 01:10 came out as
-    // 「已逾期 1 小时」next to a today/overdue verdict made in days.
-    const distance = `${Math.abs(days)} 天`;
-    return days < 0
-      ? { text: `已逾期 ${distance}`, overdue: true }
-      : { text: `距截止还有 ${distance}`, overdue: false };
-  });
 
   return (
     <div class="flex flex-col gap-2">
@@ -76,16 +54,6 @@ export function ProjectProgress(props: ProjectProgressProps) {
           ·
         </span>
         <span>剩余 {remaining()} 项</span>
-        <Show when={due()}>
-          {(deadline) => (
-            <>
-              <span aria-hidden="true" class="text-border-strong">
-                ·
-              </span>
-              <span classList={{ "text-danger": deadline().overdue }}>{deadline().text}</span>
-            </>
-          )}
-        </Show>
       </div>
     </div>
   );

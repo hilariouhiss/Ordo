@@ -390,3 +390,21 @@
   border-left: 1px solid var(--color-border-strong);
   padding-left: 9px;
 }
+
+/*
+ * Native date fields (R6, `common/components/date-field.tsx`).
+ *
+ * An empty `<input type="date">` paints one segment per field — `yyyy/mm/日
+ * --:--` on a WebView whose UI language disagrees with the OS one — and that
+ * text is not stylable, so it is hidden while the field is empty and
+ * unfocused and the wrapper's own placeholder shows through. While focused
+ * the segments come back (that is the editing affordance) and the placeholder
+ * steps aside.
+ */
+.date-field[data-empty]:not(:focus-within) input::-webkit-datetime-edit {
+  opacity: 0;
+}
+
+.date-field:focus-within .date-field-placeholder {
+  display: none;
+}

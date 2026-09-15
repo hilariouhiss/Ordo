@@ -24,7 +24,6 @@ export interface ProjectProgress {
   name: string;
   total: number;
   completed: number;
-  dueAt: string | null;
 }
 
 /** Tracked time of one project or tag; `id`/`name` are null for inbox time. */

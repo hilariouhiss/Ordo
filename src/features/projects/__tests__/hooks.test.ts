@@ -38,7 +38,6 @@ function project(id: string, overrides: Partial<Project> = {}): Project {
     color: null,
     icon: null,
     namespaceId: null,
-    dueAt: null,
     status: "active",
     sortOrder: "n",
     createdAt: "2026-09-09T10:00:00Z",
@@ -143,14 +142,13 @@ describe("updateProject", () => {
   it("applies the patch optimistically and reconciles", async () => {
     store.setAll([project("p1")]);
     vi.mocked(api.updateProject).mockResolvedValue(
-      project("p1", { name: "新名", description: "说明", dueAt: "2026-12-31T15:59:59.000Z" }),
+      project("p1", { name: "新名", description: "说明" }),
     );
 
     const saved = await hooks.updateProject("p1", {
       name: "新名",
       description: "说明",
       color: null,
-      dueAt: "2026-12-31T15:59:59.000Z",
     });
 
     expect(saved?.name).toBe("新名");
@@ -158,7 +156,6 @@ describe("updateProject", () => {
       name: "新名",
       description: "说明",
       color: null,
-      dueAt: "2026-12-31T15:59:59.000Z",
     });
     expect(store.getProject("p1")?.name).toBe("新名");
     expect(store.getProject("p1")?.description).toBe("说明");

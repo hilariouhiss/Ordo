@@ -48,7 +48,6 @@ export function createProject(input: NewProject): Promise<Project | null> {
     color,
     icon: input.icon ?? null,
     namespaceId: input.namespaceId ?? null,
-    dueAt: input.dueAt ?? null,
     status: "active",
     // Backend assigns the real key; "\uffff" keeps the temp entry last when
     // the sidebar re-sorts by sortOrder.
@@ -89,7 +88,6 @@ export function updateProject(
   if ("color" in patch) optimisticPatch.color = patch.color ?? null;
   if ("icon" in patch) optimisticPatch.icon = patch.icon ?? null;
   if ("namespaceId" in patch) optimisticPatch.namespaceId = patch.namespaceId ?? null;
-  if ("dueAt" in patch) optimisticPatch.dueAt = patch.dueAt ?? null;
 
   return optimistic(
     () => store.patchProject(projectId, optimisticPatch),

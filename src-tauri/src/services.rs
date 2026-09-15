@@ -785,7 +785,6 @@ pub fn create_project(conn: &Connection, input: NewProject) -> Result<Project, A
         color: input.color,
         icon: input.icon,
         namespace_id: input.namespace_id,
-        due_at: input.due_at,
         status: ProjectStatus::Active,
         sort_order,
         created_at: now,
@@ -840,9 +839,6 @@ pub fn update_project(
     if let Patch::Set(namespace_id) = patch.namespace_id {
         validate_namespace_ref(conn, namespace_id)?;
         project.namespace_id = namespace_id;
-    }
-    if let Patch::Set(due_at) = patch.due_at {
-        project.due_at = due_at;
     }
     project.updated_at = Utc::now();
     if !projects::update(conn, &project)? {
@@ -2498,7 +2494,6 @@ mod tests {
                 color: None,
                 icon: None,
                 namespace_id: None,
-                due_at: None,
             },
         )
         .unwrap()
@@ -2600,7 +2595,6 @@ mod tests {
                 color: None,
                 icon: None,
                 namespace_id: None,
-                due_at: None,
             },
         )
         .unwrap_err();
@@ -2621,7 +2615,6 @@ mod tests {
                 color: Patch::Set(None),
                 icon: Patch::Set(None),
                 namespace_id: Patch::Unchanged,
-                due_at: Patch::Set(None),
             },
         )
         .unwrap();
@@ -2637,7 +2630,6 @@ mod tests {
                     color: Patch::Unchanged,
                     icon: Patch::Unchanged,
                     namespace_id: Patch::Unchanged,
-                    due_at: Patch::Unchanged,
                 }
             )
             .unwrap_err()
@@ -2771,7 +2763,6 @@ mod tests {
                 color: None,
                 icon: None,
                 namespace_id: Some(namespace.id),
-                due_at: None,
             },
         )
         .unwrap();
@@ -2804,7 +2795,6 @@ mod tests {
                 color: None,
                 icon: None,
                 namespace_id: Some(ghost),
-                due_at: None,
             },
         )
         .unwrap_err();
@@ -2821,7 +2811,6 @@ mod tests {
                     color: Patch::Unchanged,
                     icon: Patch::Unchanged,
                     namespace_id: Patch::Set(Some(ghost)),
-                    due_at: Patch::Unchanged,
                 },
             )
             .unwrap_err()
@@ -2846,7 +2835,6 @@ mod tests {
                     color: Patch::Unchanged,
                     icon: Patch::Unchanged,
                     namespace_id: Patch::Set(Some(namespace.id)),
-                    due_at: Patch::Unchanged,
                 },
             )
             .unwrap_err()
@@ -2866,7 +2854,6 @@ mod tests {
                 color: Patch::Unchanged,
                 icon: Patch::Unchanged,
                 namespace_id: Patch::Set(Some(live.id)),
-                due_at: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2887,7 +2874,6 @@ mod tests {
                 color: Patch::Unchanged,
                 icon: Patch::Unchanged,
                 namespace_id: Patch::Set(Some(live.id)),
-                due_at: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -2902,7 +2888,6 @@ mod tests {
                 color: Patch::Unchanged,
                 icon: Patch::Unchanged,
                 namespace_id: Patch::Set(None),
-                due_at: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -4259,7 +4244,6 @@ mod tests {
                 name: "Alpha".into(),
                 total: 2,
                 completed: 1,
-                due_at: None,
             }
         );
         assert_eq!(progress[1].project_id, beta.id);
@@ -4478,7 +4462,6 @@ mod tests {
                 color: Patch::Unchanged,
                 icon: Patch::Unchanged,
                 namespace_id: Patch::Set(Some(namespace.id)),
-                due_at: Patch::Unchanged,
             },
         )
         .unwrap();
@@ -4703,7 +4686,6 @@ mod tests {
                 color: None,
                 icon: None,
                 namespace_id: Some(namespace.id),
-                due_at: None,
             },
         )
         .unwrap();
