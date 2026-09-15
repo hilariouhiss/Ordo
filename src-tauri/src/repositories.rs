@@ -2333,6 +2333,8 @@ mod tests {
         edited.description = Some("主线项目".into());
         edited.color = Some("#6366f1".into());
         edited.icon = Some("briefcase".into());
+        edited.status = ProjectStatus::Archived;
+        edited.sort_order = "z".into();
         edited.updated_at = ts(5);
         assert!(namespaces::update(&conn, &edited).unwrap());
         assert_eq!(
@@ -2343,19 +2345,19 @@ mod tests {
         assert!(!namespaces::update(&conn, &sample_namespace("n")).unwrap());
 
         assert!(
-            namespaces::set_status(&conn, namespace.id, ProjectStatus::Archived, ts(10)).unwrap()
+            namespaces::set_status(&conn, namespace.id, ProjectStatus::Active, ts(10)).unwrap()
         );
-        let archived = namespaces::get(&conn, namespace.id).unwrap().unwrap();
-        assert_eq!(archived.status, ProjectStatus::Archived);
-        assert_eq!(archived.updated_at, ts(10));
+        let restored = namespaces::get(&conn, namespace.id).unwrap().unwrap();
+        assert_eq!(restored.status, ProjectStatus::Active);
+        assert_eq!(restored.updated_at, ts(10));
         // Archived is a state, not a soft delete: the row stays listed.
         assert_eq!(namespaces::list(&conn).unwrap().len(), 1);
         // Repeating the state is a no-op.
         assert!(
-            !namespaces::set_status(&conn, namespace.id, ProjectStatus::Archived, ts(11)).unwrap()
+            !namespaces::set_status(&conn, namespace.id, ProjectStatus::Active, ts(11)).unwrap()
         );
         assert!(
-            namespaces::set_status(&conn, namespace.id, ProjectStatus::Active, ts(20)).unwrap()
+            namespaces::set_status(&conn, namespace.id, ProjectStatus::Archived, ts(20)).unwrap()
         );
     }
 

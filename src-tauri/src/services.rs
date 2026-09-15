@@ -2686,7 +2686,18 @@ mod tests {
     #[test]
     fn namespace_update_patches_and_archive_restores() {
         let conn = conn();
-        let namespace = make_namespace(&conn, "旧名");
+        // A non-null icon, so the `Patch::Set(None)` below really clears a
+        // stored value instead of restating the fixture's `None`.
+        let namespace = create_namespace(
+            &conn,
+            NewNamespace {
+                name: "旧名".into(),
+                description: None,
+                color: None,
+                icon: Some("briefcase".into()),
+            },
+        )
+        .unwrap();
 
         let renamed = update_namespace(
             &conn,
@@ -2702,6 +2713,7 @@ mod tests {
         assert_eq!(renamed.name, "新名");
         assert_eq!(renamed.description.as_deref(), Some("主线项目"));
         assert_eq!(renamed.color.as_deref(), Some("#6366f1"));
+        assert!(renamed.icon.is_none());
 
         assert_eq!(
             update_namespace(
