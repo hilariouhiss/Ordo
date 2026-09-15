@@ -458,6 +458,20 @@ describe("reorderTask", () => {
     expect(result?.map((item) => item.id)).toEqual(["t2", "t1"]);
     expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["t2", "t1"]);
   });
+
+  it("hands the new order to the derivation a view reads, not just the keys", async () => {
+    store.setAll([task("t1", { sortOrder: "m" }), task("t2", { sortOrder: "n" })], []);
+    vi.mocked(api.reorderTask).mockResolvedValue([
+      task("t2", { sortOrder: "a" }),
+      task("t1", { sortOrder: "b" }),
+    ]);
+
+    await hooks.reorderTask("t1", null, "m");
+
+    // `topLevelTasks` keeps the store's own order, so replacing the rows in
+    // place would leave the pre-drag order on screen until the next load.
+    expect(store.topLevelTasks().map((item) => item.id)).toEqual(["t2", "t1"]);
+  });
 });
 
 describe("tags", () => {

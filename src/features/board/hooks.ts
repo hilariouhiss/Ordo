@@ -193,7 +193,7 @@ export function moveTaskToColumn(
   if (
     column.isDone &&
     task.completedAt === null &&
-    parkIfBlocked("task", taskId, task.title, null, move)
+    parkIfBlocked(taskId, task.title, move)
   ) {
     return Promise.resolve(null);
   }

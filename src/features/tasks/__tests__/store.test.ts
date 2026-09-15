@@ -90,6 +90,20 @@ describe("tasks store", () => {
     expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "b", "c", "z"]);
   });
 
+  it("installTaskOrder installs the whole run where its first row sat", () => {
+    store.setAll(
+      [task("other"), task("t1", { sortOrder: "m" }), task("t2", { sortOrder: "n" })],
+      [],
+    );
+
+    store.installTaskOrder([task("t2", { sortOrder: "a" }), task("t1", { sortOrder: "b" })]);
+
+    // The rows move, not only their keys: a rebalance rewrote both.
+    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["other", "t2", "t1"]);
+    expect(store.getTask("t1")?.sortOrder).toBe("b");
+    expect(store.getTask("t2")?.sortOrder).toBe("a");
+  });
+
   it("tag mutators keep the list in sync", () => {
     store.setAll([], [tag("t1", "工作"), tag("t2", "生活")]);
 

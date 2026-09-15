@@ -329,7 +329,9 @@ export function reorderTask(
     () => {},
     async () => {
       const ordered = await api.reorderTask(taskId, prev, next);
-      for (const task of ordered) store.upsertTask(task);
+      // Installed as one run: the backend owns both the keys and the positions,
+      // so pasting rows one by one would leave the pre-drag order on screen.
+      store.installTaskOrder(ordered);
       return ordered;
     },
   );

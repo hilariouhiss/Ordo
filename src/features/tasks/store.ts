@@ -163,6 +163,30 @@ export function insertTaskAt(index: number, task: Task): void {
   );
 }
 
+/**
+ * Installs the authoritative sibling run `task:reorder` returns: every row is
+ * replaced and the run is re-spliced where its first row already sat.
+ *
+ * The whole returned list has to be taken, not a patch per row — a key
+ * exhaustion rebalance rewrites every sibling's key. `topLevelTasks` hands out
+ * the array's own order, so the drag has to land here and not only in the keys;
+ * runs from other scopes keep their slots, since their keys were not rewritten.
+ */
+export function installTaskOrder(ordered: Task[]): void {
+  setState(
+    "tasks",
+    produce((list: Task[]) => {
+      const ids = new Set(ordered.map((task) => task.id));
+      const at = list.findIndex((task) => ids.has(task.id));
+      const rest = list.filter((task) => !ids.has(task.id));
+      // A run of rows the store has never seen yet (the brief's empty-store
+      // case) has no first row to anchor to; it lands at the end, in order.
+      rest.splice(at === -1 ? rest.length : Math.min(at, rest.length), 0, ...ordered);
+      list.splice(0, list.length, ...rest);
+    }),
+  );
+}
+
 export function replaceTags(tags: Tag[]): void {
   setState("tags", tags);
 }
