@@ -254,6 +254,7 @@ Ordo 是一款**本地优先（local-first）、单用户**的桌面应用，核
 
 采用 `UUID 主键 + ISO-8601 时间戳 + 软删除` 约定，为未来同步/备份预留空间。核心实体：
 
+- **Namespace**：命名空间，把多个相关项目收在一个容器下（单层，项目至多归属一个）。
 - **Project**：项目。
 - **Task**：任务（含 `project_id` 可空、`status` 映射看板列、`repeat_rule`、`due_at`、`completed_at`）。
 - **Subtask**：子任务（关联 `task_id`）。

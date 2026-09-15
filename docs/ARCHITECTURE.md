@@ -223,6 +223,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
 ### 4.2 核心实体
 
 ```
+Namespace 1 ──── * Project
 Project 1 ──── * Task
 Task    1 ──── * Subtask
 Task    * ──── * Tag        （TaskTag 关联表）
@@ -234,6 +235,7 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 
 | 实体 | 关键字段 |
 | --- | --- |
+| **Namespace** | name, description, color, icon, status(active/archived), sort_order(字典序键)；项目经可空外键 `projects.namespace_id` 归属至多一个命名空间 |
 | **Project** | name, description, color, icon, due_at, status(active/archived), sort_order(字典序键) |
 | **Task** | project_id(可空→收件箱), title, note, priority, column_id, due_at, completed_at, repeat_rule, complexity(1–5，可空), tagIds(关联标签，随 task:list 返回), sort_order(字典序键，按所属列表/看板列内排序) |
 | **Subtask** | task_id, title, done, note, priority, due_at, complexity(1–5，可空), sort_order(字典序键) |

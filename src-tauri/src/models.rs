@@ -98,7 +98,35 @@ pub struct Project {
     pub description: Option<String>,
     pub color: Option<String>,
     pub icon: Option<String>,
+    /// Namespace this project is filed under, or `None` for the root list.
+    ///
+    /// `default` is load-bearing: a backup written before V5 has no
+    /// `namespaceId` key at all, and without it the whole document fails to
+    /// parse (`subtasks.priority` set the precedent).
+    #[serde(default)]
+    pub namespace_id: Option<Uuid>,
     pub due_at: Option<DateTime<Utc>>,
+    pub status: ProjectStatus,
+    pub sort_order: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+/// A namespace row (`namespaces`): an optional container grouping related
+/// projects. Mirrors [`Project`] minus the due date — a deadline belongs to the
+/// project, not to the container.
+///
+/// The lifecycle state reuses [`ProjectStatus`]: same two values, same CHECK
+/// constraint, same text mapping in the repository layer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Namespace {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub icon: Option<String>,
     pub status: ProjectStatus,
     pub sort_order: String,
     pub created_at: DateTime<Utc>,
@@ -494,6 +522,9 @@ pub struct NewProject {
     pub color: Option<String>,
     #[serde(default)]
     pub icon: Option<String>,
+    /// Namespace to file the new project under; `None` (or absent) = root list.
+    #[serde(default)]
+    pub namespace_id: Option<Uuid>,
     #[serde(default)]
     pub due_at: Option<DateTime<Utc>>,
 }
@@ -508,8 +539,35 @@ pub struct UpdateProject {
     pub color: Patch<String>,
     #[serde(default)]
     pub icon: Patch<String>,
+    /// Re-file the project; `Patch::Set(None)` moves it back to the root list.
+    #[serde(default)]
+    pub namespace_id: Patch<Uuid>,
     #[serde(default)]
     pub due_at: Patch<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewNamespace {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNamespace {
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Patch<String>,
+    #[serde(default)]
+    pub color: Patch<String>,
+    #[serde(default)]
+    pub icon: Patch<String>,
 }
 
 /// `board:addColumn` — the new column always appends at the end and starts
@@ -789,6 +847,7 @@ mod tests {
             description: None,
             color: None,
             icon: None,
+            namespace_id: None,
             due_at: None,
             status: ProjectStatus::Active,
             sort_order: "a".into(),
@@ -809,6 +868,7 @@ mod tests {
                 "icon",
                 "id",
                 "name",
+                "namespaceId",
                 "sortOrder",
                 "status",
                 "updatedAt",

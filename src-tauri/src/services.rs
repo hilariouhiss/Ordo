@@ -782,6 +782,7 @@ pub fn create_project(conn: &Connection, input: NewProject) -> Result<Project, A
         description: input.description,
         color: input.color,
         icon: input.icon,
+        namespace_id: input.namespace_id,
         due_at: input.due_at,
         status: ProjectStatus::Active,
         sort_order,
@@ -833,6 +834,10 @@ pub fn update_project(
     }
     if let Patch::Set(icon) = patch.icon {
         project.icon = icon;
+    }
+    if let Patch::Set(namespace_id) = patch.namespace_id {
+        // Existence is checked in Task 3; this task only carries the value.
+        project.namespace_id = namespace_id;
     }
     if let Patch::Set(due_at) = patch.due_at {
         project.due_at = due_at;
@@ -2373,6 +2378,7 @@ mod tests {
                 description: None,
                 color: None,
                 icon: None,
+                namespace_id: None,
                 due_at: None,
             },
         )
@@ -2474,6 +2480,7 @@ mod tests {
                 description: None,
                 color: None,
                 icon: None,
+                namespace_id: None,
                 due_at: None,
             },
         )
@@ -2494,6 +2501,7 @@ mod tests {
                 description: Patch::Set(Some("说明".into())),
                 color: Patch::Set(None),
                 icon: Patch::Set(None),
+                namespace_id: Patch::Unchanged,
                 due_at: Patch::Set(None),
             },
         )
@@ -2509,6 +2517,7 @@ mod tests {
                     description: Patch::Unchanged,
                     color: Patch::Unchanged,
                     icon: Patch::Unchanged,
+                    namespace_id: Patch::Unchanged,
                     due_at: Patch::Unchanged,
                 }
             )

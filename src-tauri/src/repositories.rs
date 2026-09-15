@@ -25,8 +25,8 @@ const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, du
 const TAG_COLUMNS: &str = "id, name, color, created_at, updated_at, deleted_at";
 const SUBTASK_COLUMNS: &str = "id, task_id, title, note, priority, due_at, complexity, done, \
                                sort_order, created_at, updated_at, deleted_at";
-const PROJECT_COLUMNS: &str = "id, name, description, color, icon, due_at, status, sort_order, \
-                               created_at, updated_at, deleted_at";
+const PROJECT_COLUMNS: &str = "id, name, description, color, icon, namespace_id, due_at, status, \
+                               sort_order, created_at, updated_at, deleted_at";
 const BOARD_COLUMN_COLUMNS: &str = "id, project_id, name, position, is_done, created_at, \
                                     updated_at, deleted_at";
 const COMMENT_COLUMNS: &str = "id, task_id, body, created_at, updated_at, deleted_at";
@@ -176,6 +176,10 @@ fn project_from_row(row: &Row<'_>) -> Result<Project, AppError> {
         description: row.get("description")?,
         color: row.get("color")?,
         icon: row.get("icon")?,
+        namespace_id: row
+            .get::<_, Option<String>>("namespace_id")?
+            .map(parse_uuid)
+            .transpose()?,
         due_at: row.get("due_at")?,
         status: project_status_from_text(&status_text)?,
         sort_order: row.get("sort_order")?,
@@ -618,15 +622,16 @@ pub mod projects {
 
     pub fn insert(conn: &Connection, project: &Project) -> Result<(), AppError> {
         conn.execute(
-            "INSERT INTO projects (id, name, description, color, icon, due_at, status, \
-             sort_order, created_at, updated_at, deleted_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO projects (id, name, description, color, icon, namespace_id, due_at, \
+             status, sort_order, created_at, updated_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 project.id.to_string(),
                 project.name,
                 project.description,
                 project.color,
                 project.icon,
+                project.namespace_id.map(|id| id.to_string()),
                 project.due_at,
                 project_status_as_text(project.status),
                 project.sort_order,
@@ -665,13 +670,14 @@ pub mod projects {
     pub fn update(conn: &Connection, project: &Project) -> Result<bool, AppError> {
         let affected = conn.execute(
             "UPDATE projects SET name = ?1, description = ?2, color = ?3, icon = ?4, \
-             due_at = ?5, status = ?6, sort_order = ?7, updated_at = ?8 \
-             WHERE id = ?9 AND deleted_at IS NULL",
+             namespace_id = ?5, due_at = ?6, status = ?7, sort_order = ?8, updated_at = ?9 \
+             WHERE id = ?10 AND deleted_at IS NULL",
             params![
                 project.name,
                 project.description,
                 project.color,
                 project.icon,
+                project.namespace_id.map(|id| id.to_string()),
                 project.due_at,
                 project_status_as_text(project.status),
                 project.sort_order,
@@ -1815,6 +1821,7 @@ mod tests {
             description: None,
             color: None,
             icon: None,
+            namespace_id: None,
             due_at: None,
             status: ProjectStatus::Active,
             sort_order: sort_order.into(),
@@ -2063,6 +2070,55 @@ mod tests {
         assert_eq!(projects::get(&conn, first.id).unwrap().unwrap(), first);
         assert_eq!(projects::get(&conn, Uuid::new_v4()).unwrap(), None);
         assert_eq!(projects::list(&conn).unwrap(), vec![first, mid, last]);
+    }
+
+    #[test]
+    fn project_namespace_id_round_trips_and_clears() {
+        let conn = conn();
+        // A real namespace row, because the FK is enforced (same reason the
+        // task/column fixtures above use `Uuid::new_v4()`).
+        let namespace_id = Uuid::new_v4();
+        conn.execute(
+            "INSERT INTO namespaces (id, name, status, sort_order, created_at, updated_at) \
+             VALUES (?1, '工作', 'active', 'a', ?2, ?2)",
+            params![namespace_id.to_string(), ts(0)],
+        )
+        .unwrap();
+
+        let mut project = sample_project("n");
+        project.namespace_id = Some(namespace_id);
+        projects::insert(&conn, &project).unwrap();
+        assert_eq!(
+            projects::get(&conn, project.id)
+                .unwrap()
+                .unwrap()
+                .namespace_id,
+            project.namespace_id
+        );
+
+        let mut moved_out = project.clone();
+        moved_out.namespace_id = None;
+        assert!(projects::update(&conn, &moved_out).unwrap());
+        assert_eq!(
+            projects::get(&conn, project.id)
+                .unwrap()
+                .unwrap()
+                .namespace_id,
+            None,
+            "an explicit NULL moves the project back to the root list"
+        );
+    }
+
+    #[test]
+    fn project_insert_rejects_an_unknown_namespace() {
+        let conn = conn();
+        let mut project = sample_project("n");
+        project.namespace_id = Some(Uuid::new_v4());
+
+        assert!(
+            projects::insert(&conn, &project).is_err(),
+            "the nullable FK is real: project writes cannot invent a namespace"
+        );
     }
 
     #[test]

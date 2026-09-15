@@ -64,6 +64,7 @@ mod tests {
             .unwrap();
 
         for expected in [
+            "namespaces",
             "projects",
             "board_columns",
             "tasks",
@@ -270,5 +271,33 @@ mod tests {
             rusqlite::params![stamp],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn v5_files_existing_projects_under_no_namespace() {
+        // A user's database before this change ships is at V4 with rows in it;
+        // the column must arrive as NULL for every one of them.
+        let mut conn = Connection::open_in_memory().unwrap();
+        embedded::migrations::runner()
+            .set_target(refinery::Target::Version(4))
+            .run(&mut conn)
+            .unwrap();
+        conn.execute(
+            "INSERT INTO projects (id, name, status, sort_order, created_at, updated_at) \
+             VALUES ('p1', '旧项目', 'active', 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        embedded::migrations::runner().run(&mut conn).unwrap();
+
+        let namespace_id: Option<String> = conn
+            .query_row(
+                "SELECT namespace_id FROM projects WHERE id = 'p1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(namespace_id, None);
     }
 }
