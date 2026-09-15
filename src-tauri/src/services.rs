@@ -469,9 +469,13 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
                     return Err(AppError::Validation("任务不能以自己为父任务".into()));
                 }
                 let parent = validate_parent(conn, parent_id)?;
-                if !tasks::list_by_parent(conn, id)?.is_empty() {
+                // Deleted children count: restoring this task brings every child
+                // of it back (`set_children_deleted` flips them all), so a
+                // parent taken under another task would return three levels
+                // deep the moment the first child is restored.
+                if tasks::has_children(conn, id)? {
                     return Err(AppError::Validation(
-                        "该任务还有子任务，不能变成别人的子任务".into(),
+                        "该任务还有子任务（含回收站中的），不能变成别人的子任务".into(),
                     ));
                 }
                 task.parent_task_id = Some(parent_id);
@@ -2362,6 +2366,55 @@ mod tests {
             error.code(),
             "validation",
             "one level means a parent has no parent"
+        );
+    }
+
+    #[test]
+    fn a_deleted_child_still_blocks_its_parent_from_becoming_a_child() {
+        // The three-level hole: delete the only child, re-parent its parent,
+        // then restore the child. The child's immediate parent is live again
+        // after step two, so the restore guard on its own would wave it
+        // through — into a tree that is now three levels deep.
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+        let target = make_task(&conn, "别的任务");
+        soft_delete_task(&conn, child.id).unwrap();
+
+        let error = update_task(
+            &conn,
+            parent.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(target.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.code(),
+            "validation",
+            "a child in the recycle bin still comes back through its parent's restore"
+        );
+        assert_eq!(
+            tasks::get(&conn, parent.id)
+                .unwrap()
+                .unwrap()
+                .parent_task_id,
+            None,
+            "the rejected re-parent left the task top-level"
+        );
+
+        // The rest of the sequence leaves the tree one level deep: the child
+        // returns under a parent that has no parent of its own.
+        let restored = restore_task(&conn, child.id).unwrap();
+        assert_eq!(restored.parent_task_id, Some(parent.id));
+        assert_eq!(
+            tasks::get(&conn, parent.id)
+                .unwrap()
+                .unwrap()
+                .parent_task_id,
+            None
         );
     }
 
@@ -4592,6 +4645,28 @@ mod tests {
     }
 
     #[test]
+    fn trend_counts_top_level_tasks_only() {
+        let conn = conn();
+        let parent = make_task(&conn, "父任务");
+        let child = make_child(&conn, &parent, "子任务");
+        complete_at(&conn, &child, at(9, 10));
+        let done_parent = make_task(&conn, "完成的顶层任务");
+        complete_at(&conn, &done_parent, at(9, 20));
+
+        let points = completion_trend(
+            &conn,
+            trend_query(at(9, 0), at(10, 0), StatsGranularity::Day, 0),
+        )
+        .unwrap();
+
+        let total: i64 = points.iter().map(|point| point.completed).sum();
+        assert_eq!(
+            total, 1,
+            "a child is a breakdown inside its parent, not a second completion"
+        );
+    }
+
+    #[test]
     fn project_progress_counts_live_tasks_and_skips_archived_projects() {
         let conn = conn();
         let alpha = make_project(&conn, "Alpha");
@@ -4624,6 +4699,23 @@ mod tests {
         );
         assert_eq!(progress[1].project_id, beta.id);
         assert_eq!((progress[1].total, progress[1].completed), (0, 0));
+    }
+
+    #[test]
+    fn project_progress_counts_top_level_tasks_only() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+        let parent = make_task_in(&conn, Some(project.id), Vec::new(), "顶层任务");
+        let child = make_child(&conn, &parent, "子任务");
+        complete_at(&conn, &child, at(9, 12));
+
+        let progress = project_progress(&conn).unwrap();
+
+        assert_eq!(
+            (progress[0].total, progress[0].completed),
+            (1, 0),
+            "a child rides inside its parent's count, and its completion is not the parent's"
+        );
     }
 
     #[test]

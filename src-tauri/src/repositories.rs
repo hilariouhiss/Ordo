@@ -303,6 +303,19 @@ pub mod tasks {
         )
     }
 
+    /// Whether any row at all points at `parent_id` — soft-deleted ones
+    /// included. The hierarchy guard needs the whole child set, not the visible
+    /// one: restoring a parent flips every child of it back on, so a parent
+    /// that took a new parent meanwhile would come back three levels deep.
+    pub fn has_children(conn: &Connection, parent_id: Uuid) -> Result<bool, AppError> {
+        let exists = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tasks WHERE parent_task_id = ?1)",
+            params![parent_id.to_string()],
+            |row| row.get(0),
+        )?;
+        Ok(exists)
+    }
+
     /// Soft-deletes or restores every child of `parent_id`; returns the count.
     ///
     /// Keyed on the transition (`deleted`) rather than a timestamp: a child is
@@ -1234,12 +1247,15 @@ pub mod stats {
     }
 
     /// The trend query; `completed_at`'s range predicate is what lets SQLite
-    /// walk `idx_tasks_completed_at` instead of the table (see the module
-    /// tests' query-plan assertions).
+    /// walk a `completed_at` index instead of the table (see the module tests'
+    /// query-plan assertions). That index is V9's composite one: with
+    /// `parent_task_id IS NULL` in the WHERE, the planner otherwise seeks
+    /// equality on `idx_tasks_parent` and scans it end to end.
     fn trend_sql(granularity: StatsGranularity) -> String {
         format!(
             "SELECT {} AS bucket, COUNT(*) AS completed FROM tasks \
-             WHERE deleted_at IS NULL AND completed_at >= ?1 AND completed_at < ?2 \
+             WHERE deleted_at IS NULL AND parent_task_id IS NULL \
+               AND completed_at >= ?1 AND completed_at < ?2 \
              GROUP BY bucket ORDER BY bucket",
             bucket("completed_at", granularity, 3)
         )
@@ -1339,11 +1355,14 @@ pub mod stats {
         })
     }
 
-    /// Project tally query; the join walks `idx_tasks_project`.
+    /// Project tally query; the join walks `idx_tasks_project`. Children are
+    /// filtered in the join, not after it: a project whose tasks are all
+    /// children must still show up with a zero tally.
     const PROJECT_PROGRESS_SQL: &str = "SELECT p.id AS project_id, p.name AS name, \
                 COUNT(t.id) AS total, COUNT(t.completed_at) AS completed \
          FROM projects p \
          LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL \
+              AND t.parent_task_id IS NULL \
          WHERE p.deleted_at IS NULL AND p.status = 'active' \
          GROUP BY p.id ORDER BY p.name COLLATE NOCASE, p.id";
 
@@ -1392,8 +1411,8 @@ pub mod stats {
             // must reach tasks through `idx_tasks_project`.
             let trend = plan(&conn, &trend_sql(StatsGranularity::Day), &bounds);
             assert!(
-                trend.contains("SEARCH tasks USING INDEX idx_tasks_completed_at"),
-                "trend does not seek idx_tasks_completed_at: {trend}"
+                trend.contains("SEARCH tasks USING INDEX idx_tasks_parent_completed"),
+                "trend does not seek idx_tasks_parent_completed: {trend}"
             );
 
             let buckets = plan(&conn, &time_buckets_sql(StatsGranularity::Week), &bounds);
@@ -1475,6 +1494,27 @@ pub mod backup {
         query_all(conn, &format!("SELECT {columns} FROM {table}"), &[], map)
     }
 
+    /// No live child survives under a soft-deleted parent.
+    ///
+    /// `replace_all` writes rows as the document has them, so this is the
+    /// import-time twin of `V8__no_orphan_children.sql`: a child leaves with
+    /// its parent's own `deleted_at` stamp, which the parent is guaranteed to
+    /// have. Children the document already deleted are left untouched — a
+    /// backup is a copy of the database, soft-deleted rows included.
+    fn delete_orphan_children(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "UPDATE tasks \
+                SET deleted_at = COALESCE( \
+                        (SELECT p.deleted_at FROM tasks p WHERE p.id = tasks.parent_task_id), \
+                        deleted_at) \
+              WHERE parent_task_id IS NOT NULL AND deleted_at IS NULL \
+                AND EXISTS (SELECT 1 FROM tasks p \
+                             WHERE p.id = tasks.parent_task_id AND p.deleted_at IS NOT NULL)",
+            [],
+        )?;
+        Ok(())
+    }
+
     /// Replaces every user-data table with `data`, inside the caller's
     /// transaction. Children are cleared before their parents and written
     /// after them, so the foreign keys hold throughout.
@@ -1552,6 +1592,12 @@ pub mod backup {
                 },
             )?;
         }
+        // The document is written verbatim, and the legacy mapping above takes
+        // the parent's project but the subtask's own `deleted_at`, so a pre-V7
+        // file can land a live child under a soft-deleted parent. Same rule as
+        // `V8__no_orphan_children.sql`, applied to the imported rows instead of
+        // the migrated ones.
+        delete_orphan_children(conn)?;
         // Edges go in last: their foreign keys need both endpoints to exist.
         for edge in &data.dependencies {
             dependencies::insert(conn, edge.dependent_id, edge.prerequisite_id, Utc::now())?;
@@ -2105,6 +2151,63 @@ mod tests {
                 .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
             2
+        );
+    }
+
+    #[test]
+    fn backup_import_leaves_no_live_child_under_a_deleted_parent() {
+        // A pre-V7 document in the shape V8 cleans up after: the parent task is
+        // in the recycle bin, its subtask is not.
+        let mut parent = sample_task("a");
+        parent.deleted_at = Some(ts(5));
+        let legacy = LegacySubtask {
+            id: Uuid::new_v4(),
+            task_id: parent.id,
+            title: "收集数据".into(),
+            note: None,
+            priority: Priority::None,
+            due_at: None,
+            complexity: None,
+            done: false,
+            sort_order: "a".into(),
+            created_at: ts(0),
+            updated_at: ts(0),
+            deleted_at: None,
+        };
+        // The same shape can also sit in the `tasks` array itself, which is
+        // copied verbatim.
+        let straggler = sample_child(parent.id, "b");
+        let data = BackupData {
+            tasks: vec![parent.clone(), straggler.clone()],
+            subtasks: vec![legacy.clone()],
+            ..BackupData::default()
+        };
+
+        let fresh = db::test_conn();
+        super::backup::replace_all(&fresh, &data).unwrap();
+
+        for id in [legacy.id, straggler.id] {
+            assert!(
+                tasks::get(&fresh, id).unwrap().is_none(),
+                "a live child under a deleted parent is exactly the orphan V8 removes"
+            );
+            let stamp: Option<DateTime<Utc>> = fresh
+                .query_row(
+                    "SELECT deleted_at FROM tasks WHERE id = ?1",
+                    params![id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                stamp,
+                Some(ts(5)),
+                "the child leaves with its parent's own stamp, not a fresh one"
+            );
+        }
+        assert_eq!(
+            tasks::get(&fresh, parent.id).unwrap(),
+            None,
+            "the parent itself stays in the recycle bin"
         );
     }
 
