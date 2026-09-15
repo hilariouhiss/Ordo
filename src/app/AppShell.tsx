@@ -19,6 +19,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
+import { beginDrag, draggedId, endDrag } from "../common/stores/drag";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import { getIcon } from "../common/icons";
 import TaskViewer from "./TaskViewer";
@@ -35,12 +36,17 @@ import {
 } from "../features/namespaces/store";
 import type { Namespace } from "../features/namespaces/types";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
-import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
-import { archivedProjects, projectsState } from "../features/projects/store";
+import {
+  loadAll as loadProjects,
+  restoreProject,
+  updateProject,
+} from "../features/projects/hooks";
+import { archivedProjects, getProject, projectsState } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
 import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
-import { reloadTasks } from "../features/tasks/hooks";
+import { reloadTasks, updateTask } from "../features/tasks/hooks";
+import { getTask } from "../features/tasks/store";
 
 type NavPath =
   | "/inbox"
@@ -129,17 +135,48 @@ function CreateHeader(props: { label: string; onCreate: () => void; class?: stri
   );
 }
 
-/** One project row. `muted` is the archived variant: dimmer text, same layout. */
+/** One project row. `muted` is the archived variant: dimmer text, same layout.
+ *
+ * It is both a drag source (R7a: file it under another namespace) and a drop
+ * target (R7b: drop a task here to move it into this project). */
 function ProjectLink(props: { project: Project; collapsed: boolean; muted?: boolean }) {
+  const [taskOver, setTaskOver] = createSignal(false);
+
+  const taskId = (event: DragEvent) => draggedId(event, "task");
+
   return (
     <Link
       to="/projects/$projectId"
       params={{ projectId: props.project.id }}
+      draggable={true}
+      onDragStart={(event) =>
+        beginDrag(event, { kind: "project", id: props.project.id })
+      }
+      onDragEnd={endDrag}
+      onDragOver={(event) => {
+        const id = taskId(event);
+        if (!id || getTask(id)?.projectId === props.project.id) return;
+        // preventDefault is what makes this element a drop target at all.
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        setTaskOver(true);
+      }}
+      onDragLeave={() => setTaskOver(false)}
+      onDrop={(event) => {
+        const id = taskId(event);
+        setTaskOver(false);
+        if (!id) return;
+        event.preventDefault();
+        endDrag();
+        if (getTask(id)?.projectId === props.project.id) return;
+        void updateTask(id, { projectId: props.project.id });
+      }}
       class={`${navRowClass(props.collapsed)} min-w-0 flex-1 ${
         props.muted
           ? "text-subtle-foreground hover:text-muted-foreground"
           : "text-muted-foreground hover:text-foreground"
       } hover:bg-surface-hover`}
+      classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": taskOver() }}
       activeProps={{
         class: `${navRowClass(props.collapsed)} min-w-0 flex-1 bg-primary/10 font-medium text-primary`,
         "aria-current": "page",
@@ -159,7 +196,10 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
   );
 }
 
-/** Namespace group header: chevron toggles the group, the name navigates. */
+/** Namespace group header: chevron toggles the group, the name navigates.
+ *
+ * It is also the drop target for R7a: dragging a project row onto it files the
+ * project into that namespace. */
 function NamespaceRow(props: {
   namespace: Namespace;
   collapsed: boolean;
@@ -174,8 +214,31 @@ function NamespaceRow(props: {
   const linkClass = () =>
     props.collapsed ? navRowClass(true) : `${navRowClass(false)} min-w-0 flex-1`;
 
+  const [projectOver, setProjectOver] = createSignal(false);
+  const draggedProject = (event: DragEvent) => draggedId(event, "project");
+
   return (
-    <div class="flex items-center gap-0.5">
+    <div
+      class="flex items-center gap-0.5 rounded-md"
+      classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": projectOver() }}
+      onDragOver={(event) => {
+        const id = draggedProject(event);
+        if (!id || getProject(id)?.namespaceId === props.namespace.id) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        setProjectOver(true);
+      }}
+      onDragLeave={() => setProjectOver(false)}
+      onDrop={(event) => {
+        const id = draggedProject(event);
+        setProjectOver(false);
+        if (!id) return;
+        event.preventDefault();
+        endDrag();
+        if (getProject(id)?.namespaceId === props.namespace.id) return;
+        void updateProject(id, { namespaceId: props.namespace.id });
+      }}
+    >
       <Show when={!props.collapsed}>
         <button
           type="button"
@@ -222,6 +285,8 @@ export default function AppShell() {
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<Project | null>(null);
   const [archivedOpen, setArchivedOpen] = createSignal(false);
+  /** The unfiled drop zone is hot (R7a). */
+  const [rootOver, setRootOver] = createSignal(false);
   const [namespaceEditorOpen, setNamespaceEditorOpen] = createSignal(false);
   // Collapsed namespaces, by id. Local on purpose: like `archivedOpen`, this is
   // view state, not data — nothing else needs it and it must not survive a
@@ -352,7 +417,31 @@ export default function AppShell() {
             </nav>
           </Show>
 
-          <nav aria-label="项目列表" class="mt-0.5 flex flex-col gap-0.5">
+          {/* Doubles as the "unfile it" drop zone: dropping a project here
+              clears its `namespaceId` (R7a). `min-h-6` keeps that target
+              reachable while the root list is empty. */}
+          <nav
+            aria-label="项目列表"
+            class="mt-0.5 flex min-h-6 flex-col gap-0.5 rounded-md"
+            classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": rootOver() }}
+            onDragOver={(event) => {
+              const id = draggedId(event, "project");
+              if (!id || getProject(id)?.namespaceId === null) return;
+              event.preventDefault();
+              if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+              setRootOver(true);
+            }}
+            onDragLeave={() => setRootOver(false)}
+            onDrop={(event) => {
+              const id = draggedId(event, "project");
+              setRootOver(false);
+              if (!id) return;
+              event.preventDefault();
+              endDrag();
+              if (getProject(id)?.namespaceId === null) return;
+              void updateProject(id, { namespaceId: null });
+            }}
+          >
             <For each={ungroupedProjects()}>
               {(project) => <ProjectLink project={project} collapsed={collapsed()} />}
             </For>

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/solid-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
@@ -8,9 +8,11 @@ import * as namespacesApi from "../../features/namespaces/api";
 import { resetNamespacesStore } from "../../features/namespaces/store";
 import type { Namespace } from "../../features/namespaces/types";
 import * as projectsApi from "../../features/projects/api";
+import * as tasksApi from "../../features/tasks/api";
 import { resetProjectsStore } from "../../features/projects/store";
 import type { Project } from "../../features/projects/types";
-import { resetTasksStore } from "../../features/tasks/store";
+import { resetTasksStore, setAll as setTasks } from "../../features/tasks/store";
+import type { Task } from "../../features/tasks/types";
 import { routeTree } from "../../router";
 
 // The shell subscribes to backend events and loads both stores on mount.
@@ -84,6 +86,28 @@ function project(
     icon: null,
     namespaceId: null,
     status: "active",
+    sortOrder: "n",
+    createdAt: "2026-09-15T10:00:00Z",
+    updatedAt: "2026-09-15T10:00:00Z",
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+/** A task due today, so the default view lists it and a drag can start there. */
+function task(id: string, overrides: Partial<Task> = {}): Task {
+  return {
+    id,
+    projectId: null,
+    title: `任务 ${id}`,
+    note: null,
+    priority: "none",
+    columnId: null,
+    dueAt: new Date().toISOString(),
+    completedAt: null,
+    repeatRule: null,
+    complexity: null,
+    tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-15T10:00:00Z",
     updatedAt: "2026-09-15T10:00:00Z",
@@ -218,5 +242,75 @@ describe("AppShell sidebar", () => {
     // The collapse signal is module-level: leave it expanded for later tests.
     toggleSidebar();
     await waitFor(() => expect(sidebarCollapsed()).toBe(false));
+  });
+
+  // R7a: 拖项目行到命名空间行 = 归入该命名空间；拖到根级项目区 = 移出命名空间。
+  it("files a dragged project into a namespace, and unfiles it on the root list", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    vi.mocked(projectsApi.updateProject).mockResolvedValue(
+      project("p1", "杂事", { namespaceId: "ns1" }),
+    );
+    renderShell();
+
+    const row = await screen.findByRole("link", { name: "杂事" });
+    expect(row.getAttribute("draggable")).toBe("true");
+
+    fireEvent.dragStart(row);
+    // Expanded, the row also carries the project count, so match on the name.
+    const group = screen.getByRole("link", { name: /工作/ }).closest("div") as HTMLElement;
+    fireEvent.dragOver(group);
+    fireEvent.drop(group);
+
+    await waitFor(() =>
+      expect(projectsApi.updateProject).toHaveBeenCalledWith("p1", { namespaceId: "ns1" }),
+    );
+
+    // Same drag, dropped on the root list, moves it back out.
+    fireEvent.dragStart(row);
+    const root = screen.getByRole("navigation", { name: "项目列表" });
+    fireEvent.dragOver(root);
+    fireEvent.drop(root);
+
+    await waitFor(() =>
+      expect(projectsApi.updateProject).toHaveBeenCalledWith("p1", { namespaceId: null }),
+    );
+  });
+
+  // R7b: 任务行拖到侧边栏项目行 = 把任务移进该项目。
+  it("moves a dragged task into the project row it is dropped on", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    vi.mocked(tasksApi.updateTask).mockResolvedValue(task("t1", { projectId: "p1" }));
+    renderShell();
+
+    const target = await screen.findByRole("link", { name: "杂事" });
+    setTasks([task("t1")], []);
+
+    const row = (await waitFor(() => {
+      const element = document.querySelector('[data-task-id="t1"]');
+      if (!element) throw new Error("task row not rendered yet");
+      return element;
+    })) as HTMLElement;
+
+    fireEvent.dragStart(row);
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+
+    await waitFor(() =>
+      expect(tasksApi.updateTask).toHaveBeenCalledWith("t1", { projectId: "p1" }),
+    );
+  });
+
+  it("ignores a drop that carries nothing we started", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    renderShell();
+
+    const group = (await screen.findByRole("link", { name: /工作/ })).closest("div") as HTMLElement;
+    // A file dragged in from the OS, or the board's own column drag.
+    fireEvent.drop(group);
+
+    expect(projectsApi.updateProject).not.toHaveBeenCalled();
   });
 });

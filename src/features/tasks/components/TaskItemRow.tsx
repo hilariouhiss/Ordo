@@ -7,6 +7,7 @@ import {
   iconButtonClass,
   type BadgeVariant,
 } from "../../../common/components";
+import { beginDrag, endDrag } from "../../../common/stores/drag";
 import { getTag } from "../store";
 import { describeRepeatRule } from "../repeat";
 import type { Priority, Task } from "../types";
@@ -65,6 +66,13 @@ export function TaskItemRow(props: TaskItemRowProps) {
       // row the trailing ⋯ button belongs to.
       class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-task-id={props.task.id}
+      // R7b: the row is the drag source for "move this task to another
+      // project" — the sidebar's project rows are the drop targets. Touch
+      // input already needs the platform's own long-press before a drag
+      // starts, which is exactly the behaviour we want there.
+      draggable={true}
+      onDragStart={(event) => beginDrag(event, { kind: "task", id: props.task.id })}
+      onDragEnd={endDrag}
     >
       <Show
         when={props.subtaskCount > 0}
