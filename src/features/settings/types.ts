@@ -7,6 +7,7 @@
 
 /** Row counts of one backup (`BackupCounts`). */
 export interface BackupCounts {
+  namespaces: number;
   projects: number;
   boardColumns: number;
   tasks: number;

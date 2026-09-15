@@ -1330,10 +1330,10 @@ pub fn time_distribution(
 
 /// Format marker written into every backup document.
 pub const BACKUP_FORMAT: &str = "ordo.backup";
-/// Generation of the backup format. Bumped to 2 when dependency edges joined
-/// the document: an older build reading a v2 file would silently drop them,
-/// so `import_backup` refuses anything newer than this value.
-pub const BACKUP_VERSION: u32 = 2;
+/// Generation of the backup format. Bumped to 3 when namespaces joined the
+/// document: an older build reading a v3 file would file every project at the
+/// root, so `import_backup` refuses anything newer than this value.
+pub const BACKUP_VERSION: u32 = 3;
 
 /// Writes every table to `path` as one JSON backup document.
 pub fn export_backup(conn: &Connection, path: &Path) -> Result<BackupSummary, AppError> {
@@ -4447,6 +4447,20 @@ mod tests {
     /// covers every table.
     fn seed_everything(conn: &Connection) -> Task {
         let project = make_project(conn, "Alpha");
+        let namespace = make_namespace(conn, "工作");
+        let project = update_project(
+            conn,
+            project.id,
+            UpdateProject {
+                name: None,
+                description: Patch::Unchanged,
+                color: Patch::Unchanged,
+                icon: Patch::Unchanged,
+                namespace_id: Patch::Set(Some(namespace.id)),
+                due_at: Patch::Unchanged,
+            },
+        )
+        .unwrap();
         let column = first_column(conn, project.id);
         let tag = create_tag(
             conn,
@@ -4509,6 +4523,7 @@ mod tests {
         assert_eq!(exported.path, path.to_string_lossy());
         assert_eq!(
             (
+                exported.counts.namespaces,
                 exported.counts.projects,
                 exported.counts.board_columns,
                 exported.counts.tasks,
@@ -4518,7 +4533,7 @@ mod tests {
                 exported.counts.time_entries,
                 exported.counts.settings,
             ),
-            (1, 3, 2, 1, 1, 1, 1, 1)
+            (1, 1, 3, 2, 1, 1, 1, 1, 1)
         );
 
         // Restoring into a database that never saw the data reproduces it all,
@@ -4561,6 +4576,13 @@ mod tests {
         import_backup(&restored, &path).unwrap();
         assert_eq!(tasks::list(&restored).unwrap().len(), 1);
         assert_eq!(backup::export_all(&restored).unwrap().tasks.len(), 2);
+        assert_eq!(
+            projects::get(&restored, before.projects[0].id)
+                .unwrap()
+                .unwrap()
+                .namespace_id,
+            before.projects[0].namespace_id
+        );
 
         std::fs::remove_file(&path).unwrap();
     }
@@ -4646,6 +4668,124 @@ mod tests {
         import_backup(&conn, &path).unwrap();
 
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn backup_carries_namespaces_and_refiles_projects() {
+        let conn = conn();
+        let namespace = make_namespace(&conn, "工作");
+        let project = create_project(
+            &conn,
+            NewProject {
+                name: "网站改版".into(),
+                description: None,
+                color: None,
+                icon: None,
+                namespace_id: Some(namespace.id),
+                due_at: None,
+            },
+        )
+        .unwrap();
+        let path = backup_path();
+        export_backup(&conn, &path).unwrap();
+
+        let restored = db::test_conn();
+        import_backup(&restored, &path).unwrap();
+
+        assert_eq!(list_namespaces(&restored).unwrap(), vec![namespace.clone()]);
+        assert_eq!(
+            projects::get(&restored, project.id)
+                .unwrap()
+                .unwrap()
+                .namespace_id,
+            Some(namespace.id),
+            "the filing survives a round trip"
+        );
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn version_two_backups_import_with_every_project_ungrouped() {
+        let conn = conn();
+        // A v2 document predates `namespaces` and has no `namespaceId` on its
+        // projects; `#[serde(default)]` has to carry both.
+        let document = serde_json::json!({
+            "format": BACKUP_FORMAT,
+            "version": 2,
+            "exportedAt": "2026-01-01T00:00:00Z",
+            "data": {
+                "projects": [{
+                    "id": "11111111-1111-4111-8111-111111111111",
+                    "name": "旧项目",
+                    "description": null,
+                    "color": null,
+                    "icon": null,
+                    "dueAt": null,
+                    "status": "active",
+                    "sortOrder": "a",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z",
+                    "deletedAt": null
+                }],
+                "boardColumns": [], "tags": [], "tasks": [], "subtasks": [],
+                "taskTags": [], "comments": [], "timeEntries": [], "settings": []
+            }
+        });
+        let path = backup_path();
+        std::fs::write(&path, serde_json::to_string(&document).unwrap()).unwrap();
+        import_backup(&conn, &path).unwrap();
+
+        let imported = list_projects(&conn).unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].namespace_id, None);
+        assert!(list_namespaces(&conn).unwrap().is_empty());
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn import_refuses_a_project_filed_under_a_missing_namespace() {
+        let conn = conn();
+        let existing = make_project(&conn, "已有项目");
+
+        // Only a hand-edited document can get here: the write path validates
+        // the reference, so a dangling one means the file was doctored.
+        let document = serde_json::json!({
+            "format": BACKUP_FORMAT,
+            "version": BACKUP_VERSION,
+            "exportedAt": "2026-01-01T00:00:00Z",
+            "data": {
+                "namespaces": [],
+                "projects": [{
+                    "id": "22222222-2222-4222-8222-222222222222",
+                    "name": "悬空项目",
+                    "description": null,
+                    "color": null,
+                    "icon": null,
+                    "namespaceId": "33333333-3333-4333-8333-333333333333",
+                    "dueAt": null,
+                    "status": "active",
+                    "sortOrder": "a",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z",
+                    "deletedAt": null
+                }],
+                "boardColumns": [], "tags": [], "tasks": [], "subtasks": [],
+                "taskTags": [], "comments": [], "timeEntries": [], "settings": []
+            }
+        });
+        let path = backup_path();
+        std::fs::write(&path, serde_json::to_string(&document).unwrap()).unwrap();
+
+        assert!(import_backup(&conn, &path).is_err());
+        assert_eq!(
+            list_projects(&conn).unwrap(),
+            vec![existing],
+            "a refused import changes nothing"
+        );
+
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

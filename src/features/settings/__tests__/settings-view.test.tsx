@@ -30,6 +30,7 @@ function summary(overrides: Partial<BackupSummary> = {}): BackupSummary {
     path: "C:\\backups\\ordo-backup-20260911-120000.json",
     exportedAt: "2026-09-11T12:00:00Z",
     counts: {
+      namespaces: 1,
       projects: 2,
       boardColumns: 6,
       tasks: 12,

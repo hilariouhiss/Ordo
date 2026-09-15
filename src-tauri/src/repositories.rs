@@ -1501,6 +1501,7 @@ pub mod backup {
     /// Every row of every user-data table.
     pub fn export_all(conn: &Connection) -> Result<BackupData, AppError> {
         Ok(BackupData {
+            namespaces: namespaces::list(conn)?,
             projects: all_rows(conn, "projects", PROJECT_COLUMNS, project_from_row)?,
             board_columns: all_rows(
                 conn,
@@ -1557,12 +1558,17 @@ pub mod backup {
             "tasks",
             "board_columns",
             "projects",
+            "namespaces",
             "tags",
             "settings",
         ] {
             conn.execute(&format!("DELETE FROM {table}"), [])?;
         }
 
+        // Parents first: `projects.namespace_id` references `namespaces`.
+        for namespace in &data.namespaces {
+            namespaces::insert(conn, namespace)?;
+        }
         for project in &data.projects {
             projects::insert(conn, project)?;
         }

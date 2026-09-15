@@ -288,6 +288,11 @@ pub struct TaskTagLink {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupData {
+    /// Namespaces precede the projects: they are the parent table, so an
+    /// importer inserts them first and the `projects.namespace_id` foreign key
+    /// holds all the way through. Absent in v1/v2 documents.
+    #[serde(default)]
+    pub namespaces: Vec<Namespace>,
     #[serde(default)]
     pub projects: Vec<Project>,
     #[serde(default)]
@@ -314,6 +319,7 @@ pub struct BackupData {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupCounts {
+    pub namespaces: usize,
     pub projects: usize,
     pub board_columns: usize,
     pub tasks: usize,
@@ -328,6 +334,7 @@ impl BackupData {
     /// Tallies of this payload, for the export/import confirmation.
     pub fn counts(&self) -> BackupCounts {
         BackupCounts {
+            namespaces: self.namespaces.len(),
             projects: self.projects.len(),
             board_columns: self.board_columns.len(),
             tasks: self.tasks.len(),
