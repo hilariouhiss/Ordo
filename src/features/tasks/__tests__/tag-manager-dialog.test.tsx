@@ -37,6 +37,7 @@ function taskFixture(id: string, tagIds: string[]): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds,
     sortOrder: "n",
     createdAt: "2026-01-10T10:00:00Z",

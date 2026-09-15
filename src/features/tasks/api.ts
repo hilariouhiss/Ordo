@@ -9,16 +9,13 @@ import type {
   Comment,
   Dependency,
   NewComment,
-  NewSubtask,
   NewTag,
   NewTask,
   NewTimeEntry,
-  Subtask,
   Tag,
   Task,
   TimeEntry,
   UpdateComment,
-  UpdateSubtask,
   UpdateTag,
   UpdateTask,
   UpdateTimeEntry,
@@ -50,6 +47,15 @@ export function restoreTask(taskId: string): Promise<Task> {
   return invokeCommand(COMMANDS.task.restore, { taskId });
 }
 
+/** Moves a task between its siblings; returns the sibling set in new order. */
+export function reorderTask(
+  taskId: string,
+  prev: string | null,
+  next: string | null,
+): Promise<Task[]> {
+  return invokeCommand(COMMANDS.task.reorder, { taskId, prev, next });
+}
+
 // --- tag:* -------------------------------------------------------------------
 
 export function listTags(): Promise<Tag[]> {
@@ -66,46 +72,6 @@ export function updateTag(tagId: string, payload: UpdateTag): Promise<Tag> {
 
 export function deleteTag(tagId: string): Promise<void> {
   return invokeCommand(COMMANDS.tag.delete, { tagId });
-}
-
-// --- subtask:* ---------------------------------------------------------------
-
-export function listSubtasks(taskId: string): Promise<Subtask[]> {
-  return invokeCommand(COMMANDS.subtask.list, { taskId });
-}
-
-/** Every live subtask of every live task; backs the hierarchical list. */
-export function listSubtasksAll(): Promise<Subtask[]> {
-  return invokeCommand(COMMANDS.subtask.listAll);
-}
-
-export function createSubtask(taskId: string, payload: NewSubtask): Promise<Subtask> {
-  return invokeCommand(COMMANDS.subtask.create, { taskId, payload });
-}
-
-export function updateSubtask(
-  subtaskId: string,
-  payload: UpdateSubtask,
-): Promise<Subtask> {
-  return invokeCommand(COMMANDS.subtask.update, { subtaskId, payload });
-}
-
-export function completeSubtask(subtaskId: string, done: boolean): Promise<Subtask> {
-  return invokeCommand(COMMANDS.subtask.complete, { subtaskId, done });
-}
-
-export function deleteSubtask(subtaskId: string): Promise<void> {
-  return invokeCommand(COMMANDS.subtask.delete, { subtaskId });
-}
-
-/** `prev`/`next` are the sort keys around the target slot; returns the task's
- * full subtask list in its new authoritative order. */
-export function reorderSubtask(
-  subtaskId: string,
-  prev: string | null,
-  next: string | null,
-): Promise<Subtask[]> {
-  return invokeCommand(COMMANDS.subtask.reorder, { subtaskId, prev, next });
 }
 
 // --- dependency:* ------------------------------------------------------------

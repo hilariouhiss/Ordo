@@ -11,21 +11,16 @@
  */
 
 import { createSignal } from "solid-js";
-import type { DependencyKind } from "./types";
 
 /** One unfinished prerequisite, resolved for display. */
 export interface BlockerRef {
-  kind: DependencyKind;
   id: string;
   title: string;
 }
 
 export interface BlockedRequest {
-  kind: DependencyKind;
-  /** The entity the user is trying to complete. */
+  /** The task the user is trying to complete. */
   id: string;
-  /** Parent task of a subtask; `null` for a task. */
-  parentId: string | null;
   title: string;
   blockers: BlockerRef[];
   /** What to run once the user confirms; the host awaits it. */

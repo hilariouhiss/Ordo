@@ -51,6 +51,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-01T10:00:00Z",

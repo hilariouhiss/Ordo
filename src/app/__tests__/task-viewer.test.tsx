@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
 import TaskViewer from "../TaskViewer";
 import { closeTaskViewer, openTaskViewer } from "../../common/stores/taskViewer";
-import * as taskApi from "../../features/tasks/api";
 import * as taskStore from "../../features/tasks/store";
 import type { Task } from "../../features/tasks/types";
 
@@ -15,18 +14,12 @@ vi.mock("../../features/tasks/api", () => ({
   completeTask: vi.fn(),
   softDeleteTask: vi.fn(),
   restoreTask: vi.fn(),
+  reorderTask: vi.fn(),
   listTags: vi.fn(),
   createTag: vi.fn(),
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
-  listSubtasks: vi.fn(),
-  listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
-  createSubtask: vi.fn(),
-  updateSubtask: vi.fn(),
-  completeSubtask: vi.fn(),
-  deleteSubtask: vi.fn(),
-  reorderSubtask: vi.fn(),
 }));
 
 vi.useFakeTimers();
@@ -43,6 +36,7 @@ function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-01T10:00:00Z",
@@ -54,7 +48,6 @@ function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(taskApi.listSubtasks).mockResolvedValue([]);
   taskStore.resetTasksStore();
   closeTaskViewer();
 });

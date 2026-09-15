@@ -21,18 +21,12 @@ vi.mock("../../tasks/api", () => ({
   completeTask: vi.fn(),
   softDeleteTask: vi.fn(),
   restoreTask: vi.fn(),
+  reorderTask: vi.fn(),
   listTags: vi.fn(),
   createTag: vi.fn(),
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
-  listSubtasks: vi.fn(),
-  listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
-  createSubtask: vi.fn(),
-  updateSubtask: vi.fn(),
-  completeSubtask: vi.fn(),
-  deleteSubtask: vi.fn(),
-  reorderSubtask: vi.fn(),
 }));
 
 // Debounced search runs on setTimeout; the responses resolve via microtasks
@@ -51,6 +45,7 @@ function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-01T10:00:00Z",
@@ -82,7 +77,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(taskApi.listTasks).mockResolvedValue([]);
   vi.mocked(taskApi.listTags).mockResolvedValue([]);
-  vi.mocked(taskApi.listSubtasks).mockResolvedValue([]);
   taskStore.resetTasksStore();
   closeTaskViewer();
 });

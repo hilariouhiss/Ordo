@@ -5,8 +5,8 @@ import { blockedRequest, clearBlockedConfirm } from "../blocked-confirm";
 /**
  * The one place a blocked completion is confirmed. Mounted once by the app
  * shell, so none of the completion entry points has to know about it: they go
- * through `completeTask` / `completeSubtask` (and, for the board's drag, its
- * move hook), which park the request here.
+ * through `completeTask` (a child row goes through the same hook — it is a
+ * task) and, for the board's drag, its move hook, which park the request here.
  *
  * Confirming replays the parked action itself — the hook that parked it wrote
  * `run`, so this component never branches on what kind of entity it is. The

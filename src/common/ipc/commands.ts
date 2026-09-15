@@ -12,15 +12,7 @@ export const COMMANDS = {
     complete: "task:complete",
     softDelete: "task:softDelete",
     restore: "task:restore",
-  },
-  subtask: {
-    list: "subtask:list",
-    listAll: "subtask:listAll",
-    create: "subtask:create",
-    update: "subtask:update",
-    complete: "subtask:complete",
-    delete: "subtask:delete",
-    reorder: "subtask:reorder",
+    reorder: "task:reorder",
   },
   dependency: {
     listAll: "dependency:listAll",

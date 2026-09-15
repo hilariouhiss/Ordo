@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Subtask, Tag, Task } from "../types";
+import type { Tag, Task } from "../types";
 import * as store from "../store";
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
@@ -14,6 +14,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-09T10:00:00Z",
@@ -28,23 +29,6 @@ function tag(id: string, name: string): Tag {
     id,
     name,
     color: null,
-    createdAt: "2026-09-09T10:00:00Z",
-    updatedAt: "2026-09-09T10:00:00Z",
-    deletedAt: null,
-  };
-}
-
-function subtask(id: string, taskId: string, sortOrder: string): Subtask {
-  return {
-    id,
-    taskId,
-    title: `子任务 ${id}`,
-    note: null,
-    priority: "none",
-    dueAt: null,
-    complexity: null,
-    done: false,
-    sortOrder,
     createdAt: "2026-09-09T10:00:00Z",
     updatedAt: "2026-09-09T10:00:00Z",
     deletedAt: null,
@@ -117,60 +101,52 @@ describe("tasks store", () => {
     expect(store.getTag("t1")?.color).toBe("#ff0000");
   });
 
-  it("subtask cache is scoped per task and safe when unloaded", () => {
-    expect(store.hasSubtasks("a")).toBe(false);
-    expect(store.getSubtasks("a")).toEqual([]);
+  describe("层级派生", () => {
+    it("childrenOf returns one parent's children in sort order", () => {
+      store.setAll(
+        [
+          task("p1", { sortOrder: "a" }),
+          task("c2", { parentTaskId: "p1", sortOrder: "n" }),
+          task("c1", { parentTaskId: "p1", sortOrder: "m" }),
+          task("other", { sortOrder: "b" }),
+          task("c3", { parentTaskId: "other", sortOrder: "a" }),
+        ],
+        [],
+      );
 
-    store.setSubtasks("a", [subtask("s1", "a", "n"), subtask("s2", "a", "o")]);
+      expect(store.childrenOf("p1").map((item) => item.id)).toEqual(["c1", "c2"]);
+      expect(store.childrenOf("other").map((item) => item.id)).toEqual(["c3"]);
+      expect(store.childrenOf("nobody")).toEqual([]);
+    });
 
-    expect(store.hasSubtasks("a")).toBe(true);
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1", "s2"]);
+    it("topLevelTasks drops every child but keeps store order", () => {
+      store.setAll(
+        [
+          task("p1", { sortOrder: "a" }),
+          task("c1", { parentTaskId: "p1", sortOrder: "m" }),
+          task("p2", { sortOrder: "b" }),
+        ],
+        [],
+      );
 
-    store.upsertSubtask("a", subtask("s3", "a", "p"));
-    store.patchSubtask("a", "s1", { done: true });
-    store.removeSubtask("a", "s2");
+      expect(store.topLevelTasks().map((item) => item.id)).toEqual(["p1", "p2"]);
+    });
 
-    const remaining = store.getSubtasks("a");
-    expect(remaining.map((item) => item.id)).toEqual(["s1", "s3"]);
-    expect(remaining[0]?.done).toBe(true);
+    it("hasChildren answers the disclosure question", () => {
+      store.setAll([task("p1"), task("c1", { parentTaskId: "p1" })], []);
 
-    // Mutating an unloaded task's cache is a no-op.
-    store.removeSubtask("unknown", "s1");
-    expect(store.getSubtasks("unknown")).toEqual([]);
-  });
-
-  it("setSubtasksAll seeds the loaded snapshot's ids and leaves other tasks alone", () => {
-    store.setAll([task("a"), task("b"), task("c"), task("late")], []);
-    store.setSubtasks("late", [subtask("s9", "late", "n")]);
-
-    store.setSubtasksAll(
-      [subtask("s1", "a", "n"), subtask("s2", "a", "o"), subtask("s3", "b", "n")],
-      ["a", "b", "c"],
-    );
-
-    // Sub-tasks are grouped under their own taskId.
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1", "s2"]);
-    expect(store.getSubtasks("b").map((item) => item.id)).toEqual(["s3"]);
-
-    // A task the load covered, but that has no sub-tasks, still gets an entry:
-    // `hasSubtasks` reads the key, and the detail dialog uses it to decide
-    // whether to fetch again.
-    expect(store.hasSubtasks("c")).toBe(true);
-    expect(store.getSubtasks("c")).toEqual([]);
-
-    // A live task missing from `taskIds` keeps its previous value — the seed
-    // comes from the load's own snapshot, never from `state.tasks`, which
-    // still lists `late` here.
-    expect(store.getSubtasks("late").map((item) => item.id)).toEqual(["s9"]);
+      expect(store.hasChildren("p1")).toBe(true);
+      expect(store.hasChildren("c1")).toBe(false);
+    });
   });
 
   it("resetTasksStore clears everything", () => {
     store.setAll([task("a")], [tag("t1", "工作")]);
-    store.setSubtasks("a", [subtask("s1", "a", "n")]);
 
     store.resetTasksStore();
 
     expect(store.tasksState.loaded).toBe(false);
-    expect(store.getSubtasks("a")).toEqual([]);
+    expect(store.tasksState.tasks).toEqual([]);
+    expect(store.tasksState.tags).toEqual([]);
   });
 });

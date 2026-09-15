@@ -6,7 +6,7 @@ import {
   clearNotifications,
   notifications,
 } from "../../../common/stores/notifications";
-import type { Dependency, Subtask, Tag, Task, TimeEntry } from "../types";
+import type { Dependency, Tag, Task, TimeEntry } from "../types";
 
 vi.mock("../api", () => ({
   listTasks: vi.fn(),
@@ -15,20 +15,14 @@ vi.mock("../api", () => ({
   completeTask: vi.fn(),
   softDeleteTask: vi.fn(),
   restoreTask: vi.fn(),
+  reorderTask: vi.fn(),
   listTags: vi.fn(),
   createTag: vi.fn(),
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
-  listSubtasks: vi.fn(),
-  listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
   addDependency: vi.fn(),
   removeDependency: vi.fn(),
-  createSubtask: vi.fn(),
-  updateSubtask: vi.fn(),
-  completeSubtask: vi.fn(),
-  deleteSubtask: vi.fn(),
-  reorderSubtask: vi.fn(),
   listComments: vi.fn(),
   createComment: vi.fn(),
   updateComment: vi.fn(),
@@ -72,6 +66,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-09T10:00:00Z",
@@ -103,25 +98,6 @@ function timeEntry(id: string, taskId: string, overrides: Partial<TimeEntry> = {
     updatedAt: "2026-09-09T09:30:00Z",
     deletedAt: null,
     ...overrides,
-  };
-}
-
-/** The third argument doubles as title and sort key: the per-task subtask
- * cases pass distinct keys ("n"/"o"/"p"), the bulk-load case a real title. */
-function subtask(id: string, taskId: string, key: string, done = false): Subtask {
-  return {
-    id,
-    taskId,
-    title: key,
-    note: null,
-    priority: "none",
-    dueAt: null,
-    complexity: null,
-    done,
-    sortOrder: key,
-    createdAt: "2026-09-09T10:00:00Z",
-    updatedAt: "2026-09-09T10:00:00Z",
-    deletedAt: null,
   };
 }
 
@@ -161,51 +137,50 @@ describe("loadAll", () => {
     ]);
   });
 
-  it("fills the subtask cache for every task, including childless ones", async () => {
-    vi.mocked(api.listTasks).mockResolvedValue([task("a"), task("b")]);
+  it("takes the whole tree in one snapshot and loads the edges with it", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      task("a"),
+      task("child", { parentTaskId: "a" }),
+    ]);
     vi.mocked(api.listTags).mockResolvedValue([]);
-    vi.mocked(api.listSubtasksAll).mockResolvedValue([
-      subtask("s1", "a", "第一步"),
-      subtask("s2", "a", "第二步", true),
+    vi.mocked(api.listDependencies).mockResolvedValue([
+      { dependentId: "child", prerequisiteId: "a" },
     ]);
 
     const ok = await hooks.loadAll();
 
     expect(ok).toBe(true);
-    expect(store.getSubtasks("a").map((item) => item.title)).toEqual(["第一步", "第二步"]);
-    // The childless task must still get an entry: `hasSubtasks` is what the
-    // detail dialog reads to decide whether to fetch, and a missing key would
-    // make it re-request data already in hand.
-    expect(store.hasSubtasks("b")).toBe(true);
-    expect(store.getSubtasks("b")).toEqual([]);
+    // There is no hierarchy leg to load: a child is a row in the same list.
+    expect(store.childrenOf("a").map((item) => item.id)).toEqual(["child"]);
+    expect(store.hasChildren("a")).toBe(true);
+    expect(store.tasksState.dependencies).toEqual([
+      { dependentId: "child", prerequisiteId: "a" },
+    ]);
   });
 });
 
 describe("reloadTasks", () => {
-  it("re-reads tasks and tags without touching the subtask cache", async () => {
+  it("re-reads tasks and tags, children included", async () => {
     store.setAll([task("a")], []);
-    store.setSubtasks("a", [subtask("s1", "a", "第一步")]);
-    vi.mocked(api.listTasks).mockResolvedValue([task("a", { title: "改名" }), task("new")]);
+    vi.mocked(api.listTasks).mockResolvedValue([
+      task("a", { title: "改名" }),
+      task("new"),
+      task("child", { parentTaskId: "new" }),
+    ]);
     vi.mocked(api.listTags).mockResolvedValue([tag("t1", "工作")]);
 
     const ok = await hooks.reloadTasks();
 
     expect(ok).toBe(true);
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "new"]);
+    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "new", "child"]);
     expect(store.tasksState.tags).toHaveLength(1);
-    // The snapshot stays home: the bulk rebuild would overwrite whatever the
-    // user just wrote from the detail dialog, and the mid-session caller (the
-    // quick-add window filing a task) creates no subtasks to pull.
-    expect(api.listSubtasksAll).not.toHaveBeenCalled();
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1"]);
-    // The new task gets no entry, so its detail dialog fetches once — the
-    // lazy fallback, and the truthful answer for a task nobody has opened.
-    expect(store.hasSubtasks("new")).toBe(false);
+    // The refresh carries the tree with it, so a child written elsewhere is
+    // visible without a second load.
+    expect(store.childrenOf("new").map((item) => item.id)).toEqual(["child"]);
   });
 
   it("notifies and reports failure without touching the loaded data", async () => {
-    store.setAll([task("a")], []);
-    store.setSubtasks("a", [subtask("s1", "a", "第一步")]);
+    store.setAll([task("a"), task("child", { parentTaskId: "a" })], []);
     vi.mocked(api.listTasks).mockRejectedValue(appError("database", "数据库错误"));
     vi.mocked(api.listTags).mockResolvedValue([]);
 
@@ -216,7 +191,7 @@ describe("reloadTasks", () => {
       { id: expect.any(Number), kind: "error", message: "数据库错误", code: "database" },
     ]);
     expect(store.getTask("a")).toBeTruthy();
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1"]);
+    expect(store.childrenOf("a").map((item) => item.id)).toEqual(["child"]);
   });
 });
 
@@ -255,22 +230,28 @@ describe("createTask", () => {
     expect(notifications()[0]).toMatchObject({ message: "标题不能为空", code: "validation" });
   });
 
-  it("refetches subtasks after creating a task that carried initial ones", async () => {
+  it("re-reads the list after creating a task that carried initial subtasks", async () => {
     vi.mocked(api.createTask).mockResolvedValue(task("created"));
-    vi.mocked(api.listSubtasks).mockResolvedValue([subtask("s1", "created", "第一步")]);
+    vi.mocked(api.listTasks).mockResolvedValue([
+      task("created"),
+      task("child", { parentTaskId: "created" }),
+    ]);
+    vi.mocked(api.listTags).mockResolvedValue([]);
 
     await hooks.createTask({ title: "新任务", subtaskTitles: ["第一步"] });
 
-    expect(api.listSubtasks).toHaveBeenCalledWith("created");
-    await waitFor(() => expect(store.getSubtasks("created")).toHaveLength(1));
+    // The children came back as plain rows of the same list, so one refresh is
+    // all it takes to give the new row its disclosure control.
+    await waitFor(() => expect(store.childrenOf("created")).toHaveLength(1));
+    expect(api.listTasks).toHaveBeenCalled();
   });
 
-  it("does not fetch subtasks when the new task carried none", async () => {
+  it("does not re-read the list when the new task carried none", async () => {
     vi.mocked(api.createTask).mockResolvedValue(task("created"));
 
     await hooks.createTask({ title: "新任务" });
 
-    expect(api.listSubtasks).not.toHaveBeenCalled();
+    expect(api.listTasks).not.toHaveBeenCalled();
   });
 });
 
@@ -309,6 +290,27 @@ describe("updateTask", () => {
     expect(result).toBeNull();
     expect(store.getTask("a")).toEqual(original);
     expect(notifications()[0]?.message).toBe("写入失败");
+  });
+
+  it("files the task under a parent and promotes it back, optimistically", async () => {
+    store.setAll([task("a"), task("p1")], []);
+    const pending = deferred<Task>();
+    vi.mocked(api.updateTask).mockReturnValue(pending.promise);
+
+    const call = hooks.updateTask("a", { parentTaskId: "p1" });
+    expect(store.getTask("a")?.parentTaskId).toBe("p1");
+    expect(store.childrenOf("p1").map((item) => item.id)).toEqual(["a"]);
+
+    pending.resolve(task("a", { parentTaskId: "p1" }));
+    await call;
+
+    // `null` is the "move back to the top level" patch, not a missing field.
+    vi.mocked(api.updateTask).mockResolvedValue(task("a"));
+    await hooks.updateTask("a", { parentTaskId: null });
+
+    expect(api.updateTask).toHaveBeenLastCalledWith("a", { parentTaskId: null });
+    expect(store.getTask("a")?.parentTaskId).toBeNull();
+    expect(store.topLevelTasks().map((item) => item.id)).toEqual(["a", "p1"]);
   });
 
   it("rejects unknown ids without calling the backend", async () => {
@@ -383,6 +385,8 @@ describe("softDeleteTask / restoreTask", () => {
 
   it("restores a deleted task with the authoritative row", async () => {
     vi.mocked(api.restoreTask).mockResolvedValue(task("a"));
+    vi.mocked(api.listTasks).mockResolvedValue([task("a")]);
+    vi.mocked(api.listTags).mockResolvedValue([]);
 
     const restored = await hooks.restoreTask("a");
 
@@ -398,6 +402,61 @@ describe("softDeleteTask / restoreTask", () => {
     expect(restored).toBeNull();
     expect(store.tasksState.tasks).toEqual([]);
     expect(notifications()[0]?.message).toBe("任务不存在");
+  });
+});
+
+describe("层级", () => {
+  it("createTask files a new task under its parent", async () => {
+    vi.mocked(api.createTask).mockImplementation(async (payload) =>
+      task("new-1", { title: payload.title, parentTaskId: payload.parentTaskId ?? null }),
+    );
+
+    await hooks.createTask({ title: "收集数据", parentTaskId: "p1" });
+
+    expect(api.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ parentTaskId: "p1" }),
+    );
+  });
+
+  it("soft-deleting a parent removes its children in the same tick", async () => {
+    store.setAll([task("p1"), task("c1", { parentTaskId: "p1" })], []);
+    vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
+
+    await hooks.softDeleteTask("p1");
+
+    expect(store.getTask("p1")).toBeUndefined();
+    expect(store.getTask("c1")).toBeUndefined();
+  });
+
+  it("restoring a parent re-reads the list so its children come back too", async () => {
+    // `restoreTask` is not optimistic — it waits for the authoritative row.
+    // The server restores the children in the same transaction, but the single
+    // returned row cannot carry them, so the hook re-reads the list.
+    store.setAll([], []);
+    vi.mocked(api.restoreTask).mockResolvedValue(task("p1"));
+    vi.mocked(api.listTasks).mockResolvedValue([
+      task("p1"),
+      task("c1", { parentTaskId: "p1" }),
+    ]);
+    vi.mocked(api.listTags).mockResolvedValue([]);
+
+    await hooks.restoreTask("p1");
+
+    expect(store.getTask("p1")).toBeDefined();
+    await waitFor(() => expect(store.getTask("c1")).toBeDefined());
+  });
+});
+
+describe("reorderTask", () => {
+  it("posts the neighbour keys and returns the authoritative siblings", async () => {
+    const ordered = [task("t2"), task("t1")];
+    vi.mocked(api.reorderTask).mockResolvedValue(ordered);
+
+    const result = await hooks.reorderTask("t1", null, "m");
+
+    expect(api.reorderTask).toHaveBeenCalledWith("t1", null, "m");
+    expect(result?.map((item) => item.id)).toEqual(["t2", "t1"]);
+    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["t2", "t1"]);
   });
 });
 
@@ -476,104 +535,6 @@ describe("tags", () => {
     expect(result).toBeNull();
     expect(store.tasksState.tags.map((item) => item.id)).toEqual(["t1", "t2"]);
     expect(store.getTask("a")?.tagIds).toEqual(["t1", "t2"]);
-  });
-});
-
-describe("subtasks", () => {
-  it("loads and caches a task's subtasks", async () => {
-    vi.mocked(api.listSubtasks).mockResolvedValue([subtask("s1", "a", "n")]);
-
-    const ok = await hooks.loadSubtasks("a");
-
-    expect(ok).toBe(true);
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1"]);
-  });
-
-  it("creates a subtask optimistically when the cache is loaded", async () => {
-    store.setSubtasks("a", [subtask("s1", "a", "n")]);
-    const pending = deferred<Subtask>();
-    vi.mocked(api.createSubtask).mockReturnValue(pending.promise);
-
-    const call = hooks.createSubtask("a", { title: "  新步骤  " });
-    expect(store.getSubtasks("a").some((item) => item.title === "新步骤")).toBe(true);
-
-    pending.resolve(subtask("s2", "a", "o"));
-    const result = await call;
-
-    expect(result?.id).toBe("s2");
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1", "s2"]);
-  });
-
-  it("skips the optimistic step when the cache is not loaded yet", async () => {
-    vi.mocked(api.createSubtask).mockResolvedValue(subtask("s1", "a", "n"));
-
-    const result = await hooks.createSubtask("a", { title: "新步骤" });
-
-    expect(result?.id).toBe("s1");
-    expect(store.hasSubtasks("a")).toBe(false);
-  });
-
-  it("toggles done optimistically and rolls back on failure", async () => {
-    store.setSubtasks("a", [subtask("s1", "a", "n")]);
-
-    const pending = deferred<Subtask>();
-    vi.mocked(api.completeSubtask).mockReturnValue(pending.promise);
-    const call = hooks.completeSubtask("a", "s1", true);
-    expect(store.getSubtasks("a")[0]?.done).toBe(true);
-    expect(api.completeSubtask).toHaveBeenCalledWith("s1", true);
-
-    pending.reject(appError("db", "失败"));
-    const result = await call;
-
-    expect(result).toBeNull();
-    expect(store.getSubtasks("a")[0]?.done).toBe(false);
-  });
-
-  it("reorders with the authoritative list and restores order on failure", async () => {
-    const list = [
-      subtask("s1", "a", "n"),
-      subtask("s2", "a", "o"),
-      subtask("s3", "a", "p"),
-    ];
-    store.setSubtasks("a", list);
-    const pending = deferred<Subtask[]>();
-    vi.mocked(api.reorderSubtask).mockReturnValue(pending.promise);
-
-    // Move s3 before s1 (next = s1's key).
-    const call = hooks.reorderSubtask("a", "s3", null, "n");
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s3", "s1", "s2"]);
-    expect(api.reorderSubtask).toHaveBeenCalledWith("s3", null, "n");
-
-    const authoritative = [
-      subtask("s3", "a", "a"),
-      subtask("s1", "a", "b"),
-      subtask("s2", "a", "c"),
-    ];
-    pending.resolve(authoritative);
-    const result = await call;
-
-    expect(result).toEqual(authoritative);
-    expect(store.getSubtasks("a")).toEqual(authoritative);
-
-    // A failed move restores the previous order.
-    vi.mocked(api.reorderSubtask).mockRejectedValue(appError("db", "失败"));
-    await hooks.reorderSubtask("a", "s1", "n", null);
-    expect(store.getSubtasks("a")).toEqual(authoritative);
-  });
-
-  it("deletes a subtask and re-inserts on failure", async () => {
-    store.setSubtasks("a", [subtask("s1", "a", "n"), subtask("s2", "a", "o")]);
-
-    const pending = deferred<void>();
-    vi.mocked(api.deleteSubtask).mockReturnValue(pending.promise);
-    const call = hooks.deleteSubtask("a", "s1");
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s2"]);
-
-    pending.reject(appError("db", "失败"));
-    const result = await call;
-
-    expect(result).toBeNull();
-    expect(store.getSubtasks("a").map((item) => item.id)).toEqual(["s1", "s2"]);
   });
 });
 
@@ -726,7 +687,7 @@ describe("依赖与软阻塞", () => {
     const blocked = task("a");
     const prerequisite = task("b");
     store.setAll([blocked, prerequisite], []);
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
 
     const result = await hooks.completeTask("a");
     expect(result).toBeNull();
@@ -736,7 +697,7 @@ describe("依赖与软阻塞", () => {
     // (`task()` names its fixtures `任务 <id>`).
     expect(blockedRequest()?.title).toBe("任务 a");
 
-    // The host replays exactly what was parked — no kind-switching.
+    // The host replays exactly what was parked.
     vi.mocked(api.completeTask).mockResolvedValue({ ...blocked, completedAt: "2026-09-14T10:00:00Z" });
     await blockedRequest()?.run();
     expect(api.completeTask).toHaveBeenCalledWith("a");
@@ -745,30 +706,38 @@ describe("依赖与软阻塞", () => {
   });
 
   it("子任务被阻塞时同样只停请求", async () => {
-    store.setAll([task("a")], []);
-    store.setSubtasks("a", [subtask("s1", "a", "第一步"), subtask("s2", "a", "第二步")]);
-    store.setDependencies([{ kind: "subtask", dependentId: "s1", prerequisiteId: "s2" }]);
+    // A child is a task: it goes through the same gate, and the parked request
+    // names the child itself rather than its parent.
+    store.setAll(
+      [
+        task("a"),
+        task("child", { parentTaskId: "a", title: "第一步" }),
+        task("s2", { parentTaskId: "a", title: "第二步" }),
+      ],
+      [],
+    );
+    store.setDependencies([{ dependentId: "child", prerequisiteId: "s2" }]);
 
-    expect(await hooks.completeSubtask("a", "s1", true)).toBeNull();
-    expect(api.completeSubtask).not.toHaveBeenCalled();
+    expect(await hooks.completeTask("child")).toBeNull();
+    expect(api.completeTask).not.toHaveBeenCalled();
     expect(blockedRequest()).toMatchObject({
-      kind: "subtask",
-      id: "s1",
-      parentId: "a",
+      id: "child",
       title: "第一步",
-      blockers: [{ kind: "subtask", id: "s2", title: "第二步" }],
+      blockers: [{ id: "s2", title: "第二步" }],
     });
 
-    vi.mocked(api.completeSubtask).mockResolvedValue(subtask("s1", "a", "第一步", true));
+    vi.mocked(api.completeTask).mockResolvedValue(
+      task("child", { parentTaskId: "a", completedAt: "2026-09-14T10:00:00Z" }),
+    );
     await blockedRequest()?.run();
-    expect(api.completeSubtask).toHaveBeenCalledWith("s1", true);
+    expect(api.completeTask).toHaveBeenCalledWith("child");
     store.setDependencies([]);
     clearBlockedConfirm();
   });
 
   it("前置被软删后不再阻塞，恢复后依赖自动回来", async () => {
     store.setAll([task("a"), task("b")], []);
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
     vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
     vi.mocked(api.completeTask).mockResolvedValue(
       task("a", { completedAt: "2026-09-14T10:00:00Z" }),
@@ -785,7 +754,10 @@ describe("依赖与软阻塞", () => {
 
     // Restoring the prerequisite brings the relation back on its own.
     vi.mocked(api.restoreTask).mockResolvedValue(task("b"));
+    vi.mocked(api.listTasks).mockResolvedValue([task("a"), task("b")]);
+    vi.mocked(api.listTags).mockResolvedValue([]);
     await hooks.restoreTask("b");
+    await waitFor(() => expect(store.getTask("b")).toBeDefined());
 
     expect(await hooks.completeTask("a")).toBeNull();
     expect(blockedRequest()?.blockers.map((blocker) => blocker.id)).toEqual(["b"]);
@@ -798,7 +770,7 @@ describe("依赖与软阻塞", () => {
     const dependent = task("a");
     const done = task("b", { completedAt: "2026-09-14T09:00:00Z" });
     store.setAll([dependent, done], []);
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
     vi.mocked(api.completeTask).mockResolvedValue({
       ...dependent,
       completedAt: "2026-09-14T10:00:00Z",
@@ -812,18 +784,19 @@ describe("依赖与软阻塞", () => {
   });
 
   it("取消完成不受前置影响，直接落库", async () => {
-    store.setAll([task("a")], []);
-    store.setSubtasks("a", [subtask("s1", "a", "第一步", true)]);
+    store.setAll(
+      [task("check", { completedAt: "2026-09-14T09:00:00Z" })],
+      [],
+    );
     // The prerequisite is unfinished — and nonexistent, so nothing else can
-    // explain the pass: `done === false` skips the check outright.
-    store.setDependencies([{ kind: "subtask", dependentId: "s1", prerequisiteId: "s2" }]);
-    vi.mocked(api.completeSubtask).mockResolvedValue(subtask("s1", "a", "第一步", false));
+    // explain the pass: un-completing never reaches the gate.
+    store.setDependencies([{ dependentId: "check", prerequisiteId: "s2" }]);
+    vi.mocked(api.updateTask).mockResolvedValue(task("check"));
 
-    const result = await hooks.completeSubtask("a", "s1", false);
+    const result = await hooks.uncompleteTask("check");
 
-    expect(api.completeSubtask).toHaveBeenCalledWith("s1", false);
-    expect(result?.done).toBe(false);
-    expect(store.getSubtasks("a")[0]?.done).toBe(false);
+    expect(api.updateTask).toHaveBeenCalledWith("check", { completedAt: null });
+    expect(result?.completedAt).toBeNull();
     expect(blockedRequest()).toBeNull();
     store.setDependencies([]);
   });
@@ -831,24 +804,22 @@ describe("依赖与软阻塞", () => {
   it("添加与删除依赖走乐观更新并调用 api", async () => {
     store.setAll([task("a"), task("b")], []);
     vi.mocked(api.addDependency).mockResolvedValue({
-      kind: "task",
       dependentId: "a",
       prerequisiteId: "b",
     });
 
-    await hooks.addDependency("task", "a", "b");
+    await hooks.addDependency("a", "b");
 
     expect(store.tasksState.dependencies).toEqual([
-      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+      { dependentId: "a", prerequisiteId: "b" },
     ]);
     expect(api.addDependency).toHaveBeenCalledWith({
-      kind: "task",
       dependentId: "a",
       prerequisiteId: "b",
     });
 
     vi.mocked(api.removeDependency).mockResolvedValue(undefined);
-    await hooks.removeDependency("task", "a", "b");
+    await hooks.removeDependency("a", "b");
     expect(store.tasksState.dependencies).toEqual([]);
   });
 
@@ -857,10 +828,10 @@ describe("依赖与软阻塞", () => {
     const pending = deferred<Dependency>();
     vi.mocked(api.addDependency).mockReturnValue(pending.promise);
 
-    const call = hooks.addDependency("task", "a", "b");
+    const call = hooks.addDependency("a", "b");
     // Optimistic: the edge is in the store before the IPC settles.
     expect(store.tasksState.dependencies).toEqual([
-      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+      { dependentId: "a", prerequisiteId: "b" },
     ]);
 
     pending.reject(appError("db", "写入失败"));
@@ -869,18 +840,18 @@ describe("依赖与软阻塞", () => {
     expect(notifications()[0]?.message).toBe("写入失败");
 
     // Removal rolls back the same way, from an edge that is there.
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
     vi.mocked(api.removeDependency).mockRejectedValue(appError("db", "写入失败"));
-    expect(await hooks.removeDependency("task", "a", "b")).toBeNull();
+    expect(await hooks.removeDependency("a", "b")).toBeNull();
     expect(store.tasksState.dependencies).toEqual([
-      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+      { dependentId: "a", prerequisiteId: "b" },
     ]);
 
     // An edge that is not in the store is a silent no-op success, not a write:
     // a second click on the same remove button must not raise an error toast.
-    expect(await hooks.removeDependency("task", "a", "zz")).toBe(true);
+    expect(await hooks.removeDependency("a", "zz")).toBe(true);
     expect(store.tasksState.dependencies).toEqual([
-      { kind: "task", dependentId: "a", prerequisiteId: "b" },
+      { dependentId: "a", prerequisiteId: "b" },
     ]);
     expect(api.removeDependency).toHaveBeenCalledTimes(1);
   });
@@ -888,52 +859,9 @@ describe("依赖与软阻塞", () => {
   it("删除不存在的依赖不写库、不通知", async () => {
     store.setAll([task("a"), task("b")], []);
 
-    expect(await hooks.removeDependency("task", "a", "b")).toBe(true);
+    expect(await hooks.removeDependency("a", "b")).toBe(true);
 
     expect(api.removeDependency).not.toHaveBeenCalled();
     expect(notifications()).toEqual([]);
-  });
-});
-
-describe("子任务属性", () => {
-  it("updateSubtask 的四个属性立即进 store，不等 IPC 回来", async () => {
-    store.setSubtasks("a", [subtask("s1", "a", "n")]);
-    const pending = deferred<Subtask>();
-    vi.mocked(api.updateSubtask).mockReturnValue(pending.promise);
-
-    const call = hooks.updateSubtask("a", "s1", {
-      note: "先对齐口径",
-      priority: "high",
-      dueAt: "2026-09-20T09:00:00Z",
-      complexity: 3,
-    });
-
-    const optimistic = store.getSubtasks("a")[0];
-    expect(optimistic?.note).toBe("先对齐口径");
-    expect(optimistic?.priority).toBe("high");
-    expect(optimistic?.dueAt).toBe("2026-09-20T09:00:00Z");
-    expect(optimistic?.complexity).toBe(3);
-
-    pending.resolve({
-      ...subtask("s1", "a", "n"),
-      note: "先对齐口径",
-      priority: "high",
-      dueAt: "2026-09-20T09:00:00Z",
-      complexity: 3,
-    });
-    await call;
-
-    // Clearing is the same patch shape (`null` = clear) and lands just as fast.
-    const clearing = deferred<Subtask>();
-    vi.mocked(api.updateSubtask).mockReturnValue(clearing.promise);
-    void hooks.updateSubtask("a", "s1", { note: null, dueAt: null, complexity: null });
-
-    const cleared = store.getSubtasks("a")[0];
-    expect(cleared?.note).toBeNull();
-    expect(cleared?.dueAt).toBeNull();
-    expect(cleared?.complexity).toBeNull();
-
-    clearing.resolve({ ...subtask("s1", "a", "n"), priority: "high" });
-    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledTimes(2));
   });
 });

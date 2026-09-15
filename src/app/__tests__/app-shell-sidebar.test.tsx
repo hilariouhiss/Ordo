@@ -44,18 +44,12 @@ vi.mock("../../features/tasks/api", () => ({
   completeTask: vi.fn(),
   softDeleteTask: vi.fn(),
   restoreTask: vi.fn(),
+  reorderTask: vi.fn(),
   listTags: vi.fn().mockResolvedValue([]),
   createTag: vi.fn(),
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
-  listSubtasks: vi.fn().mockResolvedValue([]),
-  listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
-  createSubtask: vi.fn(),
-  updateSubtask: vi.fn(),
-  completeSubtask: vi.fn(),
-  deleteSubtask: vi.fn(),
-  reorderSubtask: vi.fn(),
 }));
 
 function namespace(id: string, name: string, status: "active" | "archived" = "active"): Namespace {
@@ -107,6 +101,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-15T10:00:00Z",

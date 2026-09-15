@@ -6,19 +6,17 @@
  * local computation. Callers build the live set, the index and the completion
  * set once per render pass (inside a `createMemo`) and then ask per row; the
  * per-row cost is that row's own prerequisite count, not the size of the graph.
+ *
+ * A child task is a task (R7c) and an edge only ever joins two of them, so the
+ * keys here are bare task ids — there is no kind to qualify them with.
  */
 
-import type { Dependency, DependencyKind, Subtask, Task } from "./types";
-
-/** One entity's key in the index maps and the completion set. */
-export function entityKey(kind: DependencyKind, id: string): string {
-  return `${kind}:${id}`;
-}
+import type { Dependency, Task } from "./types";
 
 export interface DependencyIndex {
-  /** dependent key → its prerequisite ids, in insertion order */
+  /** dependent id → its prerequisite ids, in insertion order */
   prerequisites: Map<string, string[]>;
-  /** prerequisite key → the ids waiting for it */
+  /** prerequisite id → the ids waiting for it */
   successors: Map<string, string[]>;
 }
 
@@ -35,78 +33,54 @@ export function buildIndex(
   const prerequisites = new Map<string, string[]>();
   const successors = new Map<string, string[]>();
   for (const edge of dependencies) {
-    const dependent = entityKey(edge.kind, edge.dependentId);
-    const prerequisite = entityKey(edge.kind, edge.prerequisiteId);
     // A soft delete is optimistic here: the row leaves the store while the
     // edge list keeps the edge (`dependency:listAll` only hides it at the next
     // load), so liveness — not the raw list — decides whether an edge counts.
-    if (!live.has(dependent) || !live.has(prerequisite)) continue;
-    push(prerequisites, dependent, edge.prerequisiteId);
-    push(successors, prerequisite, edge.dependentId);
+    if (!live.has(edge.dependentId) || !live.has(edge.prerequisiteId)) continue;
+    push(prerequisites, edge.dependentId, edge.prerequisiteId);
+    push(successors, edge.prerequisiteId, edge.dependentId);
   }
   return { prerequisites, successors };
 }
 
-/** Keys of every entity the store still holds: a soft-deleted task is gone
- * from `state.tasks`, a soft-deleted subtask from its parent's cache array. */
-export function liveSet(
-  tasks: readonly Task[],
-  subtasksByTask: Record<string, readonly Subtask[]>,
-): Set<string> {
+/** Ids of every live task the store holds — children included, since they are
+ * rows in `tasks` like any other; a soft-deleted one is simply gone. */
+export function liveSet(tasks: readonly Task[]): Set<string> {
   const live = new Set<string>();
-  for (const task of tasks) live.add(entityKey("task", task.id));
-  for (const list of Object.values(subtasksByTask)) {
-    for (const subtask of list) live.add(entityKey("subtask", subtask.id));
-  }
+  for (const task of tasks) live.add(task.id);
   return live;
 }
 
-/** Keys of every finished entity: completed tasks and done subtasks. */
-export function completionSet(
-  tasks: readonly Task[],
-  subtasksByTask: Record<string, readonly Subtask[]>,
-): Set<string> {
+/** Ids of every finished task; a child task with `completedAt` set is done. */
+export function completionSet(tasks: readonly Task[]): Set<string> {
   const done = new Set<string>();
   for (const task of tasks) {
-    if (task.completedAt !== null) done.add(entityKey("task", task.id));
-  }
-  for (const list of Object.values(subtasksByTask)) {
-    for (const subtask of list) {
-      if (subtask.done) done.add(entityKey("subtask", subtask.id));
-    }
+    if (task.completedAt !== null) done.add(task.id);
   }
   return done;
 }
 
-/** Ids of the entity's prerequisites that are still unfinished. */
+/** Ids of the task's prerequisites that are still unfinished. */
 export function blockersOf(
   index: DependencyIndex,
   done: ReadonlySet<string>,
-  kind: DependencyKind,
   id: string,
 ): string[] {
-  const prerequisites = index.prerequisites.get(entityKey(kind, id)) ?? [];
-  return prerequisites.filter(
-    (prerequisiteId) => !done.has(entityKey(kind, prerequisiteId)),
-  );
+  const prerequisites = index.prerequisites.get(id) ?? [];
+  return prerequisites.filter((prerequisiteId) => !done.has(prerequisiteId));
 }
 
 export function isBlocked(
   index: DependencyIndex,
   done: ReadonlySet<string>,
-  kind: DependencyKind,
   id: string,
 ): boolean {
-  return blockersOf(index, done, kind, id).length > 0;
+  return blockersOf(index, done, id).length > 0;
 }
 
-/** Ids of the entities that list `id` as a prerequisite. */
-export function successorsOf(
-  index: DependencyIndex,
-  kind: DependencyKind,
-  id: string,
-): string[] {
-  return index.successors.get(entityKey(kind, id)) ?? [];
+/** Ids of the tasks that list `id` as a prerequisite. */
+export function successorsOf(index: DependencyIndex, id: string): string[] {
+  return index.successors.get(id) ?? [];
 }
 
 /**
@@ -117,21 +91,19 @@ export function successorsOf(
  */
 export function wouldCycle(
   index: DependencyIndex,
-  kind: DependencyKind,
   dependentId: string,
   prerequisiteId: string,
 ): boolean {
   if (dependentId === prerequisiteId) return true;
-  const target = entityKey(kind, dependentId);
   const seen = new Set<string>();
-  const stack = [entityKey(kind, prerequisiteId)];
+  const stack = [prerequisiteId];
   while (stack.length > 0) {
     const current = stack.pop() as string;
-    if (current === target) return true;
+    if (current === dependentId) return true;
     if (seen.has(current)) continue;
     seen.add(current);
     for (const next of index.prerequisites.get(current) ?? []) {
-      stack.push(entityKey(kind, next));
+      stack.push(next);
     }
   }
   return false;
@@ -140,7 +112,6 @@ export function wouldCycle(
 /** Whether two edges point at the same pair (used for optimistic inserts). */
 export function edgeEquals(left: Dependency, right: Dependency): boolean {
   return (
-    left.kind === right.kind &&
     left.dependentId === right.dependentId &&
     left.prerequisiteId === right.prerequisiteId
   );

@@ -18,6 +18,7 @@ function task(id: string, completed: boolean): Task {
     completedAt: completed ? "2026-09-09T10:00:00Z" : null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: id,
     createdAt: "2026-09-01T10:00:00Z",

@@ -74,6 +74,7 @@ function task(id: string, projectId: string | null, completed = false): Task {
     completedAt: completed ? "2026-09-15T10:00:00Z" : null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-15T10:00:00Z",

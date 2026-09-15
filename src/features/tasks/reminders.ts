@@ -23,9 +23,6 @@ export interface ReminderPayload {
   kind: "advance_1h" | "advance_10m" | "due";
   /** ISO-8601 UTC timestamp of the task's due time. */
   dueAt: string;
-  /** Set when the reminder belongs to a subtask; `taskId` is then its parent. */
-  subtaskId?: string | null;
-  subtaskTitle?: string | null;
 }
 
 const [pending, setPending] = createSignal<ReminderPayload | null>(null);
@@ -39,11 +36,9 @@ export function pendingReminder(): ReminderPayload | null {
 export function formatReminderMessage(reminder: ReminderPayload): string {
   const due = new Date(reminder.dueAt);
   const time = Number.isNaN(due.getTime()) ? "" : format(due, "HH:mm");
-  // The parent alone would be ambiguous when one task carries several dated
-  // subtasks, so a subtask reminder names both levels.
-  const subject = reminder.subtaskTitle
-    ? `${reminder.taskTitle} › ${reminder.subtaskTitle}`
-    : reminder.taskTitle;
+  // The payload names the task the reminder belongs to — a child task names
+  // itself, not its parent.
+  const subject = reminder.taskTitle;
   switch (reminder.kind) {
     case "advance_1h":
       return `「${subject}」将于 1 小时后（${time}）到期`;

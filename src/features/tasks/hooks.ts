@@ -18,17 +18,13 @@ import * as store from "./store";
 import type {
   Comment,
   Dependency,
-  DependencyKind,
   NewComment,
-  NewSubtask,
   NewTag,
   NewTask,
-  Subtask,
   Tag,
   Task,
   TimeEntry,
   UpdateComment,
-  UpdateSubtask,
   UpdateTag,
   UpdateTask,
   UpdateTimeEntry,
@@ -73,19 +69,18 @@ function missingEntity(what: string): null {
 
 // --- loading -----------------------------------------------------------------
 
-/** Loads all tasks (with tagIds), tags, every subtask and every dependency
+/** Loads all tasks (children included, with tagIds), tags and every dependency
  * edge; returns success. */
 export async function loadAll(): Promise<boolean> {
   try {
-    const [tasks, tags, subtasks, dependencies] = await Promise.all([
+    const [tasks, tags, dependencies] = await Promise.all([
       api.listTasks(),
       api.listTags(),
-      api.listSubtasksAll(),
       api.listDependencies(),
     ]);
-    // All three calls are fed by this load's own snapshot.
+    // All four fields now arrive in this load's own snapshot: the tree is one
+    // flat task list, so there is no second collection to seed.
     store.setAll(tasks, tags);
-    store.setSubtasksAll(subtasks, tasks.map((task) => task.id));
     store.setDependencies(dependencies);
     return true;
   } catch (error) {
@@ -95,32 +90,18 @@ export async function loadAll(): Promise<boolean> {
 }
 
 /**
- * Re-reads tasks and tags only; returns success. This is the mid-session
- * refresh: the quick-add window files a task through its own store, so this
- * window has to pull the list again.
+ * Re-reads tasks and tags; returns success. This is the mid-session refresh:
+ * the quick-add window files a task through its own store, so this window has
+ * to pull the list again.
  *
- * Deliberately without the bulk subtask snapshot: `setSubtasksAll` rebuilds
- * the cache blind, so running it here could only overwrite a subtask the user
- * just wrote from the detail dialog. Nothing the quick-add window creates has
- * subtasks, and a task without a cache entry simply renders no progress badge
- * until its detail is opened (the `hasSubtasks` fallback).
+ * The task snapshot carries the whole tree (children are rows in `tasks`), so
+ * a refresh is enough to pick up a child written elsewhere — no separate
+ * hierarchy load exists to go stale.
  */
 export async function reloadTasks(): Promise<boolean> {
   try {
     const [tasks, tags] = await Promise.all([api.listTasks(), api.listTags()]);
     store.setAll(tasks, tags);
-    return true;
-  } catch (error) {
-    reportFailure(error);
-    return false;
-  }
-}
-
-/** Loads one task's subtasks into the cache; returns success. */
-export async function loadSubtasks(taskId: string): Promise<boolean> {
-  try {
-    const subtasks = await api.listSubtasks(taskId);
-    store.setSubtasks(taskId, subtasks);
     return true;
   } catch (error) {
     reportFailure(error);
@@ -147,6 +128,7 @@ export function createTask(input: NewTask): Promise<Task | null> {
     completedAt: null,
     repeatRule: null,
     complexity: input.complexity ?? null,
+    parentTaskId: input.parentTaskId ?? null,
     tagIds: input.tagIds ? [...input.tagIds] : [],
     // Backend assigns the real key; "\uffff" keeps the temp entry last when
     // a view re-sorts by sortOrder.
@@ -163,11 +145,11 @@ export function createTask(input: NewTask): Promise<Task | null> {
       const created = await api.createTask({ ...input, title });
       store.removeTask(tempId);
       store.upsertTask(created);
-      // The initial subtasks were inserted server-side, so their ids are not
-      // in the response. Pull them now, or the new row would sit without a
-      // disclosure control or a progress badge until someone opens its
-      // detail. Fire-and-forget: the task itself must appear immediately.
-      if (input.subtaskTitles?.length) void loadSubtasks(created.id);
+      // The initial subtasks were inserted server-side as child rows with ids
+      // the response cannot carry. Pull the list again so the new row gets its
+      // disclosure control right away. Fire-and-forget: the task itself must
+      // appear immediately.
+      if (input.subtaskTitles?.length) void reloadTasks();
       return created;
     },
   );
@@ -188,6 +170,7 @@ export function updateTask(taskId: string, patch: UpdateTask): Promise<Task | nu
   if ("dueAt" in patch) optimisticPatch.dueAt = patch.dueAt ?? null;
   if ("completedAt" in patch) optimisticPatch.completedAt = patch.completedAt ?? null;
   if (patch.tagIds !== undefined) optimisticPatch.tagIds = [...patch.tagIds];
+  if ("parentTaskId" in patch) optimisticPatch.parentTaskId = patch.parentTaskId ?? null;
 
   return optimistic(
     () => store.patchTask(taskId, optimisticPatch),
@@ -226,53 +209,43 @@ function applyCompleteTask(taskId: string): Promise<Task | null> {
  * knowing which entry point parked it — the board's drag, for instance, also
  * moves the card.
  *
+ * A child task goes through this same gate: it is a task, and its edges live
+ * in the one edge set.
+ *
  * Returns `true` when the action was parked, in which case the caller must do
  * nothing else; `false` means it is not blocked and the caller runs `run`.
  */
 export function parkIfBlocked(
-  kind: DependencyKind,
   id: string,
   title: string,
-  parentId: string | null,
   run: () => Promise<unknown>,
 ): boolean {
-  const index = buildIndex(
-    store.tasksState.dependencies,
-    liveSet(store.tasksState.tasks, store.tasksState.subtasksByTask),
-  );
-  const done = completionSet(store.tasksState.tasks, store.tasksState.subtasksByTask);
-  const blockers = blockersOf(index, done, kind, id);
+  const index = buildIndex(store.tasksState.dependencies, liveSet(store.tasksState.tasks));
+  const done = completionSet(store.tasksState.tasks);
+  const blockers = blockersOf(index, done, id);
   if (blockers.length === 0) return false;
   requestBlockedConfirm({
-    kind,
     id,
-    parentId,
     title,
     blockers: blockers.map((blockerId) => ({
-      kind,
       id: blockerId,
-      title: titleOf(kind, blockerId),
+      title: titleOf(blockerId),
     })),
     run,
   });
   return true;
 }
 
-/** Title of a task or subtask by id, for the confirmation list. */
-function titleOf(kind: DependencyKind, id: string): string {
-  if (kind === "task") return store.getTask(id)?.title ?? "（已删除）";
-  for (const list of Object.values(store.tasksState.subtasksByTask)) {
-    const found = list.find((item) => item.id === id);
-    if (found) return found.title;
-  }
-  return "（已删除）";
+/** Title of a task by id, for the confirmation list. */
+function titleOf(id: string): string {
+  return store.getTask(id)?.title ?? "（已删除）";
 }
 
 export function completeTask(taskId: string): Promise<Task | null> {
   const current = store.getTask(taskId);
   if (!current) return Promise.resolve(missingEntity("任务"));
   const complete = () => forceCompleteTask(taskId);
-  if (parkIfBlocked("task", taskId, current.title, null, complete)) {
+  if (parkIfBlocked(taskId, current.title, complete)) {
     return Promise.resolve(null);
   }
   return complete();
@@ -289,16 +262,28 @@ export function uncompleteTask(taskId: string): Promise<Task | null> {
   return updateTask(taskId, { completedAt: null });
 }
 
-/** Soft-deletes a task; removed instantly, re-inserted at its position on failure. */
+/**
+ * Soft-deletes a task; removed instantly, re-inserted at its position on
+ * failure. The backend cascades to the children, so the optimistic step takes
+ * them out in the same tick — leaving them on screen would show orphans until
+ * the next load, and the rollback puts each one back.
+ */
 export function softDeleteTask(taskId: string): Promise<boolean | null> {
   const current = store.getTask(taskId);
   if (!current) return Promise.resolve(missingEntity("任务"));
   const snapshot: Task = { ...current };
   const index = store.taskIndex(taskId);
+  const children = store.childrenOf(taskId);
 
   return optimistic(
-    () => store.removeTask(taskId),
-    () => store.insertTaskAt(index, snapshot),
+    () => {
+      store.removeTask(taskId);
+      for (const child of children) store.removeTask(child.id);
+    },
+    () => {
+      store.insertTaskAt(index, snapshot);
+      for (const child of children) store.upsertTask(child);
+    },
     async () => {
       await api.softDeleteTask(taskId);
       return true;
@@ -315,10 +300,39 @@ export async function restoreTask(taskId: string): Promise<Task | null> {
   try {
     const restored = await api.restoreTask(taskId);
     store.upsertTask(restored);
+    // The server restored the children in the same transaction; the single
+    // returned row cannot carry them, so pull the list once more.
+    void reloadTasks();
     return restored;
   } catch (error) {
     return reportFailure(error);
   }
+}
+
+// --- ordering ----------------------------------------------------------------
+
+/**
+ * Moves a task between its siblings; reconciles the whole sibling set.
+ *
+ * The order is not something the client can infer optimistically: a rebalance
+ * can hand the whole sibling group new sort keys, and the neighbours' rows
+ * change with it. So this one skips the optimistic step and pastes the
+ * authoritative set back into the store instead.
+ */
+export function reorderTask(
+  taskId: string,
+  prev: string | null,
+  next: string | null,
+): Promise<Task[] | null> {
+  return optimistic(
+    () => {},
+    () => {},
+    async () => {
+      const ordered = await api.reorderTask(taskId, prev, next);
+      for (const task of ordered) store.upsertTask(task);
+      return ordered;
+    },
+  );
 }
 
 // --- tags --------------------------------------------------------------------
@@ -397,188 +411,6 @@ export function deleteTag(tagId: string): Promise<boolean | null> {
       return true;
     },
   );
-}
-
-// --- subtasks ----------------------------------------------------------------
-
-/** Creates a subtask appended to the cached list (once that list is loaded). */
-export function createSubtask(taskId: string, input: NewSubtask): Promise<Subtask | null> {
-  const tempId = nextTempId();
-  const now = new Date().toISOString();
-  const title = input.title.trim();
-  const optimisticSubtask: Subtask = {
-    id: tempId,
-    taskId,
-    title,
-    note: input.note ?? null,
-    priority: input.priority ?? "none",
-    dueAt: input.dueAt ?? null,
-    complexity: input.complexity ?? null,
-    done: false,
-    sortOrder: "\uffff",
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-  };
-  const cached = store.hasSubtasks(taskId);
-
-  return optimistic(
-    () => {
-      if (cached) store.upsertSubtask(taskId, optimisticSubtask);
-    },
-    () => {
-      if (cached) store.removeSubtask(taskId, tempId);
-    },
-    async () => {
-      // `...input` carries the optional attributes the optimistic row above
-      // already shows; dropping them here would make the reconcile undo them.
-      const created = await api.createSubtask(taskId, { ...input, title });
-      if (cached) {
-        store.removeSubtask(taskId, tempId);
-        store.upsertSubtask(taskId, created);
-      }
-      return created;
-    },
-  );
-}
-
-export function updateSubtask(
-  taskId: string,
-  subtaskId: string,
-  patch: UpdateSubtask,
-): Promise<Subtask | null> {
-  const current = store.getSubtasks(taskId).find((item) => item.id === subtaskId);
-  if (!current) return Promise.resolve(missingEntity("子任务"));
-  const before: Subtask = { ...current };
-
-  const optimisticPatch: Partial<Subtask> = { updatedAt: new Date().toISOString() };
-  if (patch.title !== undefined) optimisticPatch.title = patch.title.trim();
-  if (patch.done !== undefined) optimisticPatch.done = patch.done;
-  // The four attributes the subtask editor writes in one call: leaving them out
-  // here would show the old values until the round trip lands.
-  if ("note" in patch) optimisticPatch.note = patch.note ?? null;
-  if (patch.priority !== undefined) optimisticPatch.priority = patch.priority;
-  if ("dueAt" in patch) optimisticPatch.dueAt = patch.dueAt ?? null;
-  if ("complexity" in patch) optimisticPatch.complexity = patch.complexity ?? null;
-
-  return optimistic(
-    () => store.patchSubtask(taskId, subtaskId, optimisticPatch),
-    () => store.patchSubtask(taskId, subtaskId, before),
-    async () => {
-      const saved = await api.updateSubtask(subtaskId, patch);
-      store.patchSubtask(taskId, subtaskId, saved);
-      return saved;
-    },
-  );
-}
-
-/** Checks/unchecks a subtask via the dedicated `subtask:complete` command. */
-function applyCompleteSubtask(
-  taskId: string,
-  subtaskId: string,
-  done: boolean,
-): Promise<Subtask | null> {
-  const current = store.getSubtasks(taskId).find((item) => item.id === subtaskId);
-  if (!current) return Promise.resolve(missingEntity("子任务"));
-  const before: Subtask = { ...current };
-  const now = new Date().toISOString();
-
-  return optimistic(
-    () => store.patchSubtask(taskId, subtaskId, { done, updatedAt: now }),
-    () => store.patchSubtask(taskId, subtaskId, before),
-    async () => {
-      const saved = await api.completeSubtask(subtaskId, done);
-      store.patchSubtask(taskId, subtaskId, saved);
-      return saved;
-    },
-  );
-}
-
-export function completeSubtask(
-  taskId: string,
-  subtaskId: string,
-  done: boolean,
-): Promise<Subtask | null> {
-  const complete = () => forceCompleteSubtask(taskId, subtaskId);
-  if (done) {
-    const current = store.getSubtasks(taskId).find((item) => item.id === subtaskId);
-    if (!current) return Promise.resolve(missingEntity("子任务"));
-    if (parkIfBlocked("subtask", subtaskId, current.title, taskId, complete)) {
-      return Promise.resolve(null);
-    }
-  }
-  return applyCompleteSubtask(taskId, subtaskId, done);
-}
-
-/** Subtask counterpart of `forceCompleteTask`. */
-export function forceCompleteSubtask(
-  taskId: string,
-  subtaskId: string,
-): Promise<Subtask | null> {
-  return applyCompleteSubtask(taskId, subtaskId, true);
-}
-
-export function deleteSubtask(taskId: string, subtaskId: string): Promise<boolean | null> {
-  const list = store.getSubtasks(taskId);
-  const index = list.findIndex((item) => item.id === subtaskId);
-  if (index === -1) return Promise.resolve(missingEntity("子任务"));
-  const snapshot: Subtask = { ...list[index] };
-
-  return optimistic(
-    () => store.removeSubtask(taskId, subtaskId),
-    () => store.insertSubtaskAt(taskId, index, snapshot),
-    async () => {
-      await api.deleteSubtask(subtaskId);
-      return true;
-    },
-  );
-}
-
-/**
- * Moves a subtask between `prev`/`next` sort keys (either side optional at
- * the ends). Reconciles with the full authoritative list, because a key
- * exhaustion rebalance rewrites neighbouring keys too.
- */
-export function reorderSubtask(
-  taskId: string,
-  subtaskId: string,
-  prev: string | null,
-  next: string | null,
-): Promise<Subtask[] | null> {
-  const list = store.getSubtasks(taskId);
-  const from = list.findIndex((item) => item.id === subtaskId);
-  if (from === -1) return Promise.resolve(missingEntity("子任务"));
-  const snapshot: Subtask[] = list.map((item) => ({ ...item }));
-
-  // Optimistic target index within the list minus the moved item: after
-  // `prev`, else before `next`, else the end.
-  const others = list.filter((item) => item.id !== subtaskId);
-  let target = others.length;
-  if (prev !== null) {
-    const i = others.findIndex((item) => item.sortOrder === prev);
-    if (i !== -1) target = i + 1;
-  } else if (next !== null) {
-    const i = others.findIndex((item) => item.sortOrder === next);
-    if (i !== -1) target = i;
-  }
-
-  return optimistic(
-    () => store.setSubtasks(taskId, moveItem(list, from, target)),
-    () => store.setSubtasks(taskId, snapshot),
-    async () => {
-      const saved = await api.reorderSubtask(subtaskId, prev, next);
-      store.setSubtasks(taskId, saved);
-      return saved;
-    },
-  );
-}
-
-/** Pure list move used by the optimistic step of `reorderSubtask`. */
-function moveItem<T>(list: T[], from: number, to: number): T[] {
-  const copy = [...list];
-  const [item] = copy.splice(from, 1);
-  copy.splice(Math.min(Math.max(to, 0), copy.length), 0, item);
-  return copy;
 }
 
 // --- comments ------------------------------------------------------------------
@@ -827,11 +659,10 @@ export function stopTimer(taskId: string, entryId: string): Promise<TimeEntry | 
 
 /** Adds `dependent → prerequisite` optimistically; rolls back with a toast. */
 export function addDependency(
-  kind: DependencyKind,
   dependentId: string,
   prerequisiteId: string,
 ): Promise<boolean | null> {
-  const edge: Dependency = { kind, dependentId, prerequisiteId };
+  const edge: Dependency = { dependentId, prerequisiteId };
   const before = [...store.tasksState.dependencies];
 
   return optimistic(
@@ -845,11 +676,10 @@ export function addDependency(
 }
 
 export function removeDependency(
-  kind: DependencyKind,
   dependentId: string,
   prerequisiteId: string,
 ): Promise<boolean | null> {
-  const edge: Dependency = { kind, dependentId, prerequisiteId };
+  const edge: Dependency = { dependentId, prerequisiteId };
   const before = [...store.tasksState.dependencies];
   // A second click on the same remove button, or an edge the last load already
   // hid, lands here. Removal is idempotent on the backend too, so the absent

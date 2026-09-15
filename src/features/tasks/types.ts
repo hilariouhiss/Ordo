@@ -43,23 +43,9 @@ export interface Task {
   completedAt: string | null;
   repeatRule: RepeatRule | null;
   complexity: number | null;
+  /** Parent task; `null` for a top-level task. The hierarchy is one level. */
+  parentTaskId: string | null;
   tagIds: string[];
-  sortOrder: string;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt: string | null;
-}
-
-export interface Subtask {
-  id: string;
-  taskId: string;
-  title: string;
-  note: string | null;
-  priority: Priority;
-  dueAt: string | null;
-  /** 1–5, or `null` when never estimated. */
-  complexity: number | null;
-  done: boolean;
   sortOrder: string;
   createdAt: string;
   updatedAt: string;
@@ -104,6 +90,8 @@ export interface NewTask {
   subtaskTitles?: string[];
   repeatRule?: RepeatRule | null;
   complexity?: number | null;
+  /** `parentTaskId` files the task under a parent; missing = top-level. */
+  parentTaskId?: string | null;
 }
 
 export interface UpdateTask {
@@ -119,6 +107,8 @@ export interface UpdateTask {
   /** `null` cancels the rule; missing leaves `repeatRule` unchanged. */
   repeatRule?: RepeatRule | null;
   complexity?: number | null;
+  /** `null` moves the task out of its parent; missing leaves it filed. */
+  parentTaskId?: string | null;
 }
 
 export interface NewTag {
@@ -129,23 +119,6 @@ export interface NewTag {
 export interface UpdateTag {
   name?: string;
   color?: string | null;
-}
-
-export interface NewSubtask {
-  title: string;
-  note?: string | null;
-  priority?: Priority;
-  dueAt?: string | null;
-  complexity?: number | null;
-}
-
-export interface UpdateSubtask {
-  title?: string;
-  done?: boolean;
-  note?: string | null;
-  priority?: Priority;
-  dueAt?: string | null;
-  complexity?: number | null;
 }
 
 export interface NewComment {
@@ -172,15 +145,12 @@ export interface UpdateTimeEntry {
 
 // --- dependency edges --------------------------------------------------------
 
-/** Which edge set a dependency lives in (`DependencyKind` on the Rust side). */
-export type DependencyKind = "task" | "subtask";
-
 /**
  * One dependency edge: `prerequisiteId` must be finished before
- * `dependentId` can be completed.
+ * `dependentId` can be completed. Both endpoints are tasks — a child task is
+ * a task, so one edge set covers the whole tree.
  */
 export interface Dependency {
-  kind: DependencyKind;
   dependentId: string;
   prerequisiteId: string;
 }

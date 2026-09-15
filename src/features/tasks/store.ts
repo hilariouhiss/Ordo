@@ -1,7 +1,10 @@
 /**
  * Full-data task store (module-level `createStore`, mirroring the `ui.ts`
- * store conventions). Holds every live task/tag plus lazily cached subtask
- * lists; views derive their subsets from `tasksState`.
+ * store conventions). Holds every live task/tag plus lazily cached comment
+ * and time-entry lists; views derive their subsets from `tasksState`.
+ *
+ * A child task is a plain row in `tasks` (R7c): there is no second collection
+ * to keep in sync, so `childrenOf` and friends are filters, not caches.
  *
  * Mutators below are the data layer's plumbing — components change state
  * through `hooks.ts`, never directly.
@@ -9,7 +12,7 @@
 
 import { createStore, produce } from "solid-js/store";
 import { edgeEquals } from "./dependencies";
-import type { Comment, Dependency, Subtask, Tag, Task, TimeEntry } from "./types";
+import type { Comment, Dependency, Tag, Task, TimeEntry } from "./types";
 
 export interface TasksState {
   /** All live tasks, ordered by `sortOrder` as returned by `task:list`. */
@@ -18,8 +21,6 @@ export interface TasksState {
   tags: Tag[];
   /** All live dependency edges, loaded with the task list. */
   dependencies: Dependency[];
-  /** Subtask cache per task, filled on demand by `loadSubtasks`. */
-  subtasksByTask: Record<string, Subtask[]>;
   /** Comment cache per task, filled on demand by `loadComments`. */
   commentsByTask: Record<string, Comment[]>;
   /** Time-entry cache per task, filled on demand by `loadTimeEntries`;
@@ -33,7 +34,6 @@ const [state, setState] = createStore<TasksState>({
   tasks: [],
   tags: [],
   dependencies: [],
-  subtasksByTask: {},
   commentsByTask: {},
   timeEntriesByTask: {},
   loaded: false,
@@ -50,13 +50,25 @@ export function getTag(id: string): Tag | undefined {
   return state.tags.find((tag) => tag.id === id);
 }
 
-export function getSubtasks(taskId: string): Subtask[] {
-  return state.subtasksByTask[taskId] ?? [];
+/**
+ * A parent's children, in `sortOrder`. The whole hierarchy arrives in one
+ * `task:list` snapshot (R7c), so this is a filter — there is no cache, no
+ * loading state, and no second protocol to keep in sync.
+ */
+export function childrenOf(taskId: string): Task[] {
+  return state.tasks
+    .filter((task) => task.parentTaskId === taskId)
+    .sort((a, b) => (a.sortOrder < b.sortOrder ? -1 : a.sortOrder > b.sortOrder ? 1 : 0));
 }
 
-/** Whether the task's subtask list has been loaded into the cache. */
-export function hasSubtasks(taskId: string): boolean {
-  return taskId in state.subtasksByTask;
+/** Top-level tasks, in the store's own order. */
+export function topLevelTasks(): Task[] {
+  return state.tasks.filter((task) => task.parentTaskId === null);
+}
+
+/** Whether a task has children — the disclosure arrow and the badge. */
+export function hasChildren(taskId: string): boolean {
+  return state.tasks.some((task) => task.parentTaskId === taskId);
 }
 
 export function getComments(taskId: string): Comment[] {
@@ -192,96 +204,6 @@ export function insertTagAt(index: number, tag: Tag): void {
   );
 }
 
-export function setSubtasks(taskId: string, subtasks: Subtask[]): void {
-  setState("subtasksByTask", taskId, subtasks);
-}
-
-/**
- * Rebuilds the whole subtask cache from one bulk load. `taskIds` is the task
- * snapshot that load came from — not the live store — so the caller decides
- * which tasks the rebuild covers.
- *
- * Every id in `taskIds` gets an entry, empty when that task has no subtasks.
- * That is what `hasSubtasks` reads, and the task detail dialog uses it to
- * decide whether to fetch again — leaving a childless task without a key
- * would make every such dialog re-request data that is already in hand.
- *
- * The rebuild is blind: it replaces each covered task's array wholesale. Its
- * only caller is `loadAll`, which runs for the initial load (and the
- * post-import refresh) — the mid-session refresh (`reloadTasks`) deliberately
- * leaves the snapshot out — so a rebuild never lands on top of a write the
- * user just made from a row that was on screen. If a future refresh does have
- * to carry the snapshot again, skip tasks whose cache is already loaded
- * instead of merging: a merge would resurrect rows the user deleted.
- *
- * Note that `setState` MERGES this record per key rather than replacing it, so
- * a task deleted since the previous load keeps its stale entry — the whole
- * previous value survives, array included, so that stale array is not
- * necessarily empty. Each task in `taskIds` still has its array replaced
- * wholesale. `completionSet` does iterate every entry now, stale ones included,
- * and that is still safe: a stale id can never be consulted, because
- * `dependency:listAll` returns only edges whose endpoints are live, and a
- * subtask edge never crosses parent tasks.
- */
-export function setSubtasksAll(subtasks: Subtask[], taskIds: string[]): void {
-  const byTask: Record<string, Subtask[]> = {};
-  for (const id of taskIds) byTask[id] = [];
-  for (const subtask of subtasks) {
-    (byTask[subtask.taskId] ??= []).push(subtask);
-  }
-  setState("subtasksByTask", byTask);
-}
-
-export function upsertSubtask(taskId: string, subtask: Subtask): void {
-  setState(
-    "subtasksByTask",
-    taskId,
-    produce((list: Subtask[]) => {
-      if (!list) return; // cache not loaded yet; loadSubtasks will fetch
-      const index = list.findIndex((item) => item.id === subtask.id);
-      if (index === -1) {
-        list.push(subtask);
-      } else {
-        list[index] = subtask;
-      }
-    }),
-  );
-}
-
-export function patchSubtask(taskId: string, id: string, patch: Partial<Subtask>): void {
-  setState(
-    "subtasksByTask",
-    taskId,
-    produce((list: Subtask[]) => {
-      const subtask = list?.find((item) => item.id === id);
-      if (subtask) Object.assign(subtask, patch);
-    }),
-  );
-}
-
-export function removeSubtask(taskId: string, id: string): void {
-  setState(
-    "subtasksByTask",
-    taskId,
-    produce((list: Subtask[]) => {
-      if (!list) return;
-      const index = list.findIndex((item) => item.id === id);
-      if (index !== -1) list.splice(index, 1);
-    }),
-  );
-}
-
-export function insertSubtaskAt(taskId: string, index: number, subtask: Subtask): void {
-  setState(
-    "subtasksByTask",
-    taskId,
-    produce((list: Subtask[]) => {
-      if (!list) return;
-      list.splice(Math.min(Math.max(index, 0), list.length), 0, subtask);
-    }),
-  );
-}
-
 export function setComments(taskId: string, comments: Comment[]): void {
   setState("commentsByTask", taskId, comments);
 }
@@ -333,7 +255,6 @@ export function resetTasksStore(): void {
     tasks: [],
     tags: [],
     dependencies: [],
-    subtasksByTask: {},
     commentsByTask: {},
     timeEntriesByTask: {},
     loaded: false,

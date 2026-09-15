@@ -16,11 +16,9 @@ function deferred<T>() {
 /** A parked request whose action is the test's own stand-in. */
 function park(run: () => Promise<unknown>): void {
   const request: BlockedRequest = {
-    kind: "task",
     id: "a",
-    parentId: null,
     title: "写周报",
-    blockers: [{ kind: "task", id: "b", title: "收集数据" }],
+    blockers: [{ id: "b", title: "收集数据" }],
     run,
   };
   requestBlockedConfirm(request);

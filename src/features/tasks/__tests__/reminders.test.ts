@@ -32,18 +32,12 @@ vi.mock("../api", () => ({
   completeTask: vi.fn(),
   softDeleteTask: vi.fn(),
   restoreTask: vi.fn(),
+  reorderTask: vi.fn(),
   listTags: vi.fn(),
   createTag: vi.fn(),
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
-  listSubtasks: vi.fn(),
-  listSubtasksAll: vi.fn().mockResolvedValue([]),
   listDependencies: vi.fn().mockResolvedValue([]),
-  createSubtask: vi.fn(),
-  updateSubtask: vi.fn(),
-  completeSubtask: vi.fn(),
-  deleteSubtask: vi.fn(),
-  reorderSubtask: vi.fn(),
 }));
 
 function reminder(overrides: Partial<ReminderPayload> = {}): ReminderPayload {
@@ -74,7 +68,6 @@ beforeEach(async () => {
   listenMock.mockImplementation(() => Promise.resolve(() => {}));
   vi.mocked(taskApi.listTasks).mockResolvedValue([]);
   vi.mocked(taskApi.listTags).mockResolvedValue([]);
-  vi.mocked(taskApi.listSubtasks).mockResolvedValue([]);
   taskStore.resetTasksStore();
   clearNotifications();
   closeTaskViewer();
@@ -101,17 +94,14 @@ describe("formatReminderMessage", () => {
     );
   });
 
-  it("子任务提醒把父任务与子任务都写进文案", () => {
+  it("names the task the reminder belongs to, child or not", () => {
+    // A child task's reminder carries its own title: the payload has no
+    // second level to stitch on.
     expect(
-      formatReminderMessage({
-        taskId: "t1",
-        taskTitle: "写周报",
-        subtaskId: "s1",
-        subtaskTitle: "收集数据",
-        kind: "advance_10m",
-        dueAt: "2026-09-14T10:00:00Z",
-      }),
-    ).toContain("写周报 › 收集数据");
+      formatReminderMessage(
+        reminder({ taskTitle: "收集数据", kind: "advance_10m" }),
+      ),
+    ).toBe("「收集数据」将于 10 分钟后（12:30）到期");
   });
 });
 
