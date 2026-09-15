@@ -2800,11 +2800,15 @@ git commit -m "feat: pick a namespace when editing a project, and edit namespace
 
 ### Task 7: 侧边栏分组
 
+> **顺序变更（实施中裁定）**：本任务在 Task 8 之后执行。任务书里的侧边栏分组行要 `Link` 到 `/namespaces/$namespaceId`，而那条路由由 Task 8 建立——不先有路由，`to` 直接过不了 `tsc`（TS2322），jsdom 里渲染该 `Link` 也会在 `useLinkProps` 抛错。两个任务的其余部分没有依赖，交换顺序即可，产物不受影响。
+
 **Files:**
 - Modify: `src/app/AppShell.tsx`（分组导航 + 归档区 + 新建命名空间入口 + 启动加载）
 - Create: `src/app/__tests__/app-shell-sidebar.test.tsx`
 - Modify: `src/router.tsx`（导出 `routeTree` 供测试构造内存路由）
 - Modify: `docs/ARCHITECTURE.md`（§2.1 目录结构加 `features/namespaces/`）
+
+**实施前先读这三条**（Task 7 的 brief 初稿有错，已经在下文修正）：测试文件在 `src/app/__tests__/` 下，所有相对导入与 `vi.mock` 路径都要比「文件在 `src/app/` 下」多一层 `../`；`waitFor` 在该测试里没用到，而 `noUnusedLocals` 会把未使用的导入判为 TS6133，所以不要导入它；`restoreNamespace` 是归档分组恢复按钮要用的，导入块里缺了它。
 
 **Interfaces:**
 - Consumes: Task 5 的 `activeNamespaces`、`archivedNamespaces`、`projectsInNamespace`、`ungroupedProjects`、`archivedLooseProjects`、`archivedProjectsOf`、`namespacesState`、`loadAll as loadNamespaces`；Task 6 的 `NamespaceEditorDialog`
@@ -2820,18 +2824,18 @@ git commit -m "feat: pick a namespace when editing a project, and edit namespace
 
 ```tsx
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/solid-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../common/components/__tests__/setup";
-import * as namespacesApi from "../features/namespaces/api";
-import { resetNamespacesStore } from "../features/namespaces/store";
-import type { Namespace } from "../features/namespaces/types";
-import * as projectsApi from "../features/projects/api";
-import { resetProjectsStore } from "../features/projects/store";
-import type { Project } from "../features/projects/types";
-import { resetTasksStore } from "../features/tasks/store";
-import { routeTree } from "../router";
+import "../../common/components/__tests__/setup";
+import * as namespacesApi from "../../features/namespaces/api";
+import { resetNamespacesStore } from "../../features/namespaces/store";
+import type { Namespace } from "../../features/namespaces/types";
+import * as projectsApi from "../../features/projects/api";
+import { resetProjectsStore } from "../../features/projects/store";
+import type { Project } from "../../features/projects/types";
+import { resetTasksStore } from "../../features/tasks/store";
+import { routeTree } from "../../router";
 
 // The shell subscribes to backend events and loads both stores on mount.
 vi.mock("@tauri-apps/api/event", () => ({
@@ -2839,7 +2843,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../features/namespaces/api", () => ({
+vi.mock("../../features/namespaces/api", () => ({
   listNamespaces: vi.fn(),
   createNamespace: vi.fn(),
   updateNamespace: vi.fn(),
@@ -2847,7 +2851,7 @@ vi.mock("../features/namespaces/api", () => ({
   restoreNamespace: vi.fn(),
 }));
 
-vi.mock("../features/projects/api", () => ({
+vi.mock("../../features/projects/api", () => ({
   listProjects: vi.fn(),
   createProject: vi.fn(),
   updateProject: vi.fn(),
@@ -2855,7 +2859,7 @@ vi.mock("../features/projects/api", () => ({
   restoreProject: vi.fn(),
 }));
 
-vi.mock("../features/tasks/api", () => ({
+vi.mock("../../features/tasks/api", () => ({
   listTasks: vi.fn().mockResolvedValue([]),
   createTask: vi.fn(),
   updateTask: vi.fn(),
@@ -3018,6 +3022,7 @@ import {
   ungroupedProjects,
 } from "../features/namespaces/store";
 import type { Namespace } from "../features/namespaces/types";
+import { restoreNamespace } from "../features/namespaces/hooks";
 import { loadAll as loadProjects, restoreProject } from "../features/projects/hooks";
 import { archivedProjects, projectsState } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
@@ -3333,6 +3338,8 @@ git commit -m "feat: group the sidebar by namespace"
 ---
 
 ### Task 8: 命名空间页与路由
+
+> **顺序变更（实施中裁定）**：本任务先于 Task 7 执行，见 Task 7 开头的说明。完成后 Task 7 的侧边栏分组行才有可用的路由目标。
 
 **Files:**
 - Create: `src/features/namespaces/components/NamespaceProjectsView.tsx`（纯 props 驱动，可脱离路由测试）
@@ -3932,6 +3939,6 @@ git commit -m "docs: record the namespace milestone and the grouping rule"
 
 - Task 1 是其余全部任务的前置（表 + 模型 + 项目的归属列）。
 - Task 2 依赖 Task 1；Task 3 依赖 Task 2（`namespaces::get`）；Task 4 依赖 Task 2（导出/导入要写命名空间行）。
-- Task 5 依赖 Task 2（命令常量）与 Task 1（`Project.namespaceId` 的契约）；Task 6 依赖 Task 5；Task 7、8 都依赖 Task 5，彼此不冲突（AppShell vs 新页面），但都要动 `pnpm typecheck`，建议顺序执行。
+- Task 5 依赖 Task 2（命令常量）与 Task 1（`Project.namespaceId` 的契约）；Task 6 依赖 Task 5；Task 7、8 都依赖 Task 5，并按 **Task 8 → Task 7** 的顺序执行（侧边栏分组行的 `Link` 需要 Task 8 建立的路由才编译得过）。
 - Task 9 是唯一的收口任务：跑全量命令、手工验证并回写 IMPLEMENTATION_PLAN / AGENTS。
 - 后端（Task 1–4）与前端（Task 5–8）之间唯一的接口是 IPC 契约与 JSON 字段名，全部在前面的任务里写死，不需要并行协作。
