@@ -78,7 +78,6 @@ src/
 │   ├── icons.ts                  # 图标表（项目与命名空间共用，按名字解析成 lucide 组件）
 │   ├── optimistic.ts             # 乐观写入的共用件（临时 id / 失败通知 / optimistic 包装，各 feature hooks 共用）
 │   ├── components/               # 通用 UI（Button/Dialog/Dropdown/Skeleton/EmptyState…基于 Kobalte）
-│   │   └── palette-picker.tsx    # 色板与图标选择器（项目/命名空间编辑器共用）
 │   ├── ipc/                      # invoke 封装、命令常量、错误归一化
 │   ├── stores/                   # 全局 Store（主题、UI 状态、通知）
 │   └── utils/                    # 工具（日期/格式化）

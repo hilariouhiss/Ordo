@@ -57,20 +57,31 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
 
-  // The project's own namespace stays in the list even after it is archived:
-  // leaving it out would make the Select fall back to "不归属" and rewrite the
-  // field on the next save, silently unfiling a project the user only renamed.
+  // The namespace this dialog will submit: the edited project's own, or the
+  // preset for a new one. It mirrors the re-seed below on purpose — one
+  // definition, so the option list can never disagree with the payload.
+  const currentId = (): string | null =>
+    props.project ? props.project.namespaceId : (props.defaultNamespaceId ?? null);
+
+  // Whatever `currentId()` points at stays in the list even when the navigation
+  // does not offer it: an archived namespace (shown as "…（已归档）") or one that
+  // no longer resolves at all ("未知命名空间"). Leaving it out would make the
+  // Select fall back to "不归属" — the trigger would then show one value while
+  // the payload keeps another, and the next save would silently unfile the
+  // project.
   const namespaceOptions = (): NamespaceOption[] => {
-    const current = props.project?.namespaceId
-      ? getNamespace(props.project.namespaceId)
-      : undefined;
+    const id = currentId();
+    const current = id ? getNamespace(id) : undefined;
     const archived: NamespaceOption[] =
       current?.status === "archived"
         ? [{ id: current.id, name: `${current.name}（已归档）` }]
         : [];
+    const unresolved: NamespaceOption[] =
+      id && !current ? [{ id, name: "未知命名空间" }] : [];
     return [
       { id: null, name: "不归属" },
       ...archived,
+      ...unresolved,
       ...activeNamespaces().map((namespace: Namespace) => ({
         id: namespace.id,
         name: namespace.name,

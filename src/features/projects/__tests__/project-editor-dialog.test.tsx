@@ -219,6 +219,35 @@ describe("ProjectEditorDialog", () => {
     expect(vi.mocked(hooks.updateProject).mock.calls[0]?.[1]?.namespaceId).toBe("ns1");
   });
 
+  it("shows the archived namespace instead of falling back to 不归属", async () => {
+    // The trigger has to display the id the payload will carry: a list without
+    // the archived entry reads 不归属 while the save keeps ns1.
+    setNamespaces([namespaceFixture("ns1", "工作", "archived")]);
+    renderDialog(projectFixture("p9", { namespaceId: "ns1" }));
+
+    expect(screen.getByRole("button", { name: /命名空间/ }).textContent).toContain(
+      "工作（已归档）",
+    );
+  });
+
+  it("keeps an unresolvable namespace visible instead of refiling the project", async () => {
+    // The namespace is gone; a project still filed under its id must not read
+    // 不归属 while the payload keeps pointing at it.
+    setNamespaces([]);
+    const existing = projectFixture("p9", { namespaceId: "ghost" });
+    vi.mocked(hooks.updateProject).mockResolvedValue(existing);
+    renderDialog(existing);
+
+    expect(screen.getByRole("button", { name: /命名空间/ }).textContent).toContain(
+      "未知命名空间",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(hooks.updateProject).toHaveBeenCalled());
+    expect(vi.mocked(hooks.updateProject).mock.calls[0]?.[1]?.namespaceId).toBe("ghost");
+  });
+
   it("preselects the namespace a new project is created from", async () => {
     setNamespaces([namespaceFixture("ns2", "学习")]);
     vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
@@ -226,6 +255,27 @@ describe("ProjectEditorDialog", () => {
     render(() => (
       <ProjectEditorDialog open={true} onOpenChange={onOpenChange} defaultNamespaceId="ns2" />
     ));
+
+    fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(vi.mocked(hooks.createProject).mock.calls[0]?.[0]?.namespaceId).toBe("ns2");
+  });
+
+  it("preselects an archived namespace for a new project instead of dropping it", async () => {
+    // Task 8's entry point: the namespace page's empty state presets the
+    // namespace it is showing, archived ones included.
+    setNamespaces([namespaceFixture("ns2", "学习", "archived")]);
+    vi.mocked(hooks.createProject).mockResolvedValue(projectFixture("new-1"));
+    const onOpenChange = vi.fn();
+    render(() => (
+      <ProjectEditorDialog open={true} onOpenChange={onOpenChange} defaultNamespaceId="ns2" />
+    ));
+
+    expect(screen.getByRole("button", { name: /命名空间/ }).textContent).toContain(
+      "学习（已归档）",
+    );
 
     fireEvent.input(screen.getByLabelText("名称"), { target: { value: "网站改版" } });
     fireEvent.click(screen.getByRole("button", { name: "创建" }));
