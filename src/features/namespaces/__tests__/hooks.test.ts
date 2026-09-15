@@ -110,13 +110,16 @@ describe("createNamespace", () => {
 describe("updateNamespace", () => {
   it("applies the patch optimistically and reconciles", async () => {
     store.setAll([namespace("n1")]);
-    vi.mocked(api.updateNamespace).mockResolvedValue(namespace("n1", { name: "新名" }));
+    // The authoritative row differs from the optimistic patch (the patch stamps
+    // `updatedAt` with the current time), so dropping the reconcile fails here.
+    const saved = namespace("n1", { name: "新名", updatedAt: "2020-01-01T00:00:00Z" });
+    vi.mocked(api.updateNamespace).mockResolvedValue(saved);
 
-    const saved = await hooks.updateNamespace("n1", { name: "新名", color: null });
+    const result = await hooks.updateNamespace("n1", { name: "新名", color: null });
 
-    expect(saved?.name).toBe("新名");
+    expect(result?.name).toBe("新名");
     expect(api.updateNamespace).toHaveBeenCalledWith("n1", { name: "新名", color: null });
-    expect(store.getNamespace("n1")?.name).toBe("新名");
+    expect(store.getNamespace("n1")).toEqual(saved);
   });
 
   it("rolls back and notifies when the backend rejects the write", async () => {

@@ -56,6 +56,12 @@ export function isNamespaceLive(id: string): boolean {
   return getNamespace(id) !== undefined;
 }
 
+/** Whether a namespace is archived. Unknown ids are *not* archived — they are
+ * orphans, and §5.3 shows those as ungrouped instead of as an archived group. */
+export function isNamespaceArchived(id: string): boolean {
+  return getNamespace(id)?.status === "archived";
+}
+
 /** Active projects filed under a live namespace, by `sortOrder`. */
 export function projectsInNamespace(namespaceId: string): Project[] {
   return projectsState.projects.filter(
@@ -80,12 +86,16 @@ export function archivedLooseProjects(): Project[] {
   return projectsState.projects.filter((project) => {
     if (project.status !== "archived") return false;
     if (project.namespaceId === null) return true;
-    return getNamespace(project.namespaceId)?.status !== "archived";
+    return !isNamespaceArchived(project.namespaceId);
   });
 }
 
 /** Every live project filed under a namespace, whatever its own status — what
- * an archived namespace lists when the group is expanded. */
+ * an archived namespace lists when the group is expanded.
+ *
+ * The sidebar's archived group is the intended caller: `projectsInNamespace`
+ * also matches an archived namespace's active projects, so rendering both for
+ * one group would list them twice. */
 export function archivedProjectsOf(namespaceId: string): Project[] {
   return projectsState.projects.filter(
     (project) => project.namespaceId === namespaceId,

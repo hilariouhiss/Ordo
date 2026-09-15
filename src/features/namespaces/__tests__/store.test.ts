@@ -73,7 +73,20 @@ describe("namespaces store", () => {
     projectsStore.setAll([project("p1", { namespaceId: "ghost" })]);
 
     expect(store.isNamespaceLive("ghost")).toBe(false);
+    expect(store.isNamespaceArchived("ghost")).toBe(false);
     expect(store.ungroupedProjects().map((item) => item.id)).toEqual(["p1"]);
+  });
+
+  it("keeps an archived namespace live, so its active projects are not ungrouped", () => {
+    store.setAll([namespace("gone", { status: "archived" })]);
+    projectsStore.setAll([project("p1", { namespaceId: "gone" })]);
+
+    // Archived is not deleted: the project belongs to the archived group, not
+    // to the root list (§5.5 forbids showing it in both).
+    expect(store.isNamespaceLive("gone")).toBe(true);
+    expect(store.isNamespaceArchived("gone")).toBe(true);
+    expect(store.ungroupedProjects()).toEqual([]);
+    expect(store.archivedProjectsOf("gone").map((item) => item.id)).toEqual(["p1"]);
   });
 
   it("keeps archived projects of a live namespace in the flat list", () => {

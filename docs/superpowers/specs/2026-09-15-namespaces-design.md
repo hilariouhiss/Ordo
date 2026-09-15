@@ -161,7 +161,7 @@ namespace:list | create | update | archive | restore
 - `isNamespaceLive(id)`：存活集合判定（§5.3 的唯一入口）。
 - `projectsInNamespace(id)`：属于该**存活**命名空间的 `active` 项目。侧边栏分组、命名空间页的项目行、以及该页的汇总切片用的都是它——一个口径，不留第二个「全部存活项目」的变体，也就不会出现「行里显示归档项目、汇总却不算它」的分叉。
 - `ungroupedProjects()`：`namespaceId === null || !isNamespaceLive(namespaceId)`，且 `status === "active"`。
-- `archivedLooseProjects()`：仍留在「已归档」平铺列表里的项目——未归属的、孤儿、以及归属**存活**命名空间的；归属已归档命名空间的归档项目缩进在那一组下面。
+- `archivedLooseProjects()`：未归属的、孤儿的（`isNamespaceArchived` 为 false）以及归属**未归档**命名空间的已归档项目，留在「已归档」平铺列表；归属**已归档**命名空间的归档项目缩进在那一组下面。
 - `archivedProjectsOf(id)`：已归档命名空间展开时要列出的项目（该组下全部存活项目，含自身已归档的）。
 
 派生函数写在 `namespaces/store.ts` 里但读 `projectsState`——分组是两个域的交叉量，放在哪一边都要交叉 import；放在「容器」这一侧（namespaces）比让 `projects/store.ts` 认识命名空间更自然。`features` 之间不 import 内部实现的规则约束的是**组件**，store 之间的只读派生是既有做法（`ProjectListView` 已经直接读 `tasksState`）。
@@ -252,5 +252,5 @@ namespace:list | create | update | archive | restore
 
 - **不做嵌套**：需要「组内的组」时，第一版的做法是再建一个命名空间并用命名约定区分；真要做树，改动集中在 `namespaces` 表加 `parent_id` + 侧边栏递归渲染 + 深度/环校验，与本次的其余部分正交。
 - **不做筛选维度**：命名空间今天只影响导航与一个汇总页；把它接进任务视图筛选与统计参数是另一条独立改动，且不改变本次的数据层。
-- **`ungroupedProjects()` 每次渲染都过一遍存活集合**：项目数量级是几十，`Set` 判定是 O(1)，不值得缓存（`ponytail:` 若项目数进入四位数，把它换成一次 `createMemo` 索引）。
+- **`ungroupedProjects()` 每次渲染都过一遍项目、并对每个项目做一次线性的 `namespaces` 查找**：两个量级都是几十，这点 O(n×m) 不值得缓存（`ponytail:` 若任一侧进入四位数，改成一次 `createMemo` 建 `Set` 索引，把查找降到 O(1)）。
 - **命名空间页的汇总口径是 active 项目**：与 `stats:projectProgress` 保持一致；若用户希望「归档项目也算历史完成量」，那是统计口径变更，应同时改两处。
