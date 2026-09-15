@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { X } from "lucide-solid";
 import { iconButtonClass } from "../../../common/components";
 import { addDependency, removeDependency } from "../hooks";
-import { buildIndex, completionSet, entityKey, liveSet, successorsOf, wouldCycle } from "../dependencies";
+import { buildIndex, completionSet, liveSet, successorsOf, wouldCycle } from "../dependencies";
 import { getTask, tasksState } from "../store";
 
 export interface TaskDependenciesProps {
@@ -19,15 +19,15 @@ export function TaskDependencies(props: TaskDependenciesProps) {
   const [query, setQuery] = createSignal("");
 
   const index = createMemo(() =>
-    buildIndex(tasksState.dependencies, liveSet(tasksState.tasks, tasksState.subtasksByTask)),
+    buildIndex(tasksState.dependencies, liveSet(tasksState.tasks)),
   );
-  const done = createMemo(() => completionSet(tasksState.tasks, tasksState.subtasksByTask));
+  const done = createMemo(() => completionSet(tasksState.tasks));
 
   const titleOf = (id: string) => getTask(id)?.title ?? "（已删除）";
   const prerequisites = createMemo(
-    () => index().prerequisites.get(entityKey("task", props.taskId)) ?? [],
+    () => index().prerequisites.get(props.taskId) ?? [],
   );
-  const successors = createMemo(() => successorsOf(index(), "task", props.taskId));
+  const successors = createMemo(() => successorsOf(index(), props.taskId));
 
   const candidates = createMemo(() => {
     const term = query().trim().toLowerCase();
@@ -36,7 +36,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
     return tasksState.tasks
       .filter((task) => task.id !== props.taskId && !taken.has(task.id))
       .filter((task) => task.title.toLowerCase().includes(term))
-      .filter((task) => !wouldCycle(index(), "task", props.taskId, task.id))
+      .filter((task) => !wouldCycle(index(), props.taskId, task.id))
       .slice(0, 6);
   });
 
@@ -54,7 +54,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
             <li class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm">
               <span
                 class="min-w-0 flex-1 truncate"
-                classList={{ "text-subtle-foreground line-through": done().has(entityKey("task", id)) }}
+                classList={{ "text-subtle-foreground line-through": done().has(id) }}
               >
                 {titleOf(id)}
               </span>
@@ -62,7 +62,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
                 type="button"
                 class={iconButtonClass}
                 aria-label={`移除前置 ${titleOf(id)}`}
-                onClick={() => void removeDependency("task", props.taskId, id)}
+                onClick={() => void removeDependency(props.taskId, id)}
               >
                 <X size={14} aria-hidden="true" />
               </button>
@@ -87,7 +87,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
               class="truncate rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-ring"
               aria-label={`添加前置 ${candidate.title}`}
               onClick={() => {
-                void addDependency("task", props.taskId, candidate.id);
+                void addDependency(props.taskId, candidate.id);
                 setQuery("");
               }}
             >

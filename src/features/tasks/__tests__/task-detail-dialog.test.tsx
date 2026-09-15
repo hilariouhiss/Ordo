@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as store from "../store";
-import type { Comment, Subtask, Task, TimeEntry } from "../types";
+import type { Comment, Task, TimeEntry } from "../types";
 import { TaskDetailDialog } from "../components/TaskDetailDialog";
 
 vi.mock("../api", () => ({
@@ -53,6 +53,7 @@ function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-01T10:00:00Z",
@@ -62,22 +63,9 @@ function taskFixture(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
-function subtaskFixture(id: string, taskId: string, overrides: Partial<Subtask> = {}): Subtask {
-  return {
-    id,
-    taskId,
-    title: `子任务 ${id}`,
-    note: null,
-    priority: "none",
-    dueAt: null,
-    complexity: null,
-    done: false,
-    sortOrder: id,
-    createdAt: "2026-09-01T10:00:00Z",
-    updatedAt: "2026-09-01T10:00:00Z",
-    deletedAt: null,
-    ...overrides,
-  };
+/** A child of the task under test: the same row with `parentTaskId` set. */
+function childFixture(id: string, overrides: Partial<Task> = {}): Task {
+  return taskFixture(id, { title: `子任务 ${id}`, parentTaskId: TASK_ID, sortOrder: id, ...overrides });
 }
 
 function commentFixture(id: string, body: string): Comment {
@@ -110,8 +98,10 @@ function timeEntryFixture(
 
 const TASK_ID = "task-1";
 
-function seedSubtasks(subtasks: Subtask[]): void {
-  store.setSubtasks(TASK_ID, subtasks);
+/** Puts children under the task under test: one snapshot, one collection — a
+ * child is a row in `tasks`, so there is no cache to seed. */
+function seedChildren(...children: Task[]): void {
+  store.setAll([...store.tasksState.tasks, ...children], []);
 }
 
 function renderDetail(fixture: Task = taskFixture(TASK_ID)) {
@@ -123,7 +113,7 @@ function renderDetail(fixture: Task = taskFixture(TASK_ID)) {
   return { onEdit, onOpenChange };
 }
 
-function subtaskIdsInOrder(): string[] {
+function childIdsInOrder(): string[] {
   return [...document.querySelectorAll("[data-subtask-id]")].map(
     (el) => el.getAttribute("data-subtask-id") ?? "",
   );
@@ -143,7 +133,36 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TaskDetailDialog", () => {
-  it("shows the task's fields and the subtask completion progress", () => {
+  it("lists children straight from the store, with no loading gate", async () => {
+    store.setAll(
+      [
+        taskFixture("t1"),
+        taskFixture("c1", { parentTaskId: "t1", title: "收集数据" }),
+      ],
+      [],
+    );
+    renderDetail(taskFixture("t1"));
+
+    expect(await screen.findByText("收集数据")).toBeTruthy();
+  });
+
+  it("opens the child's own detail from its row", async () => {
+    store.setAll(
+      [
+        taskFixture("t1"),
+        taskFixture("c1", { parentTaskId: "t1", title: "收集数据" }),
+      ],
+      [],
+    );
+    renderDetail(taskFixture("t1"));
+
+    fireEvent.click(await screen.findByText("收集数据"));
+
+    // The nested dialog is the child's: its title is the dialog heading now.
+    expect(await screen.findByRole("heading", { name: "收集数据" })).toBeTruthy();
+  });
+
+  it("shows the task's fields and the child completion progress", () => {
     store.setAll(
       [
         taskFixture(TASK_ID, {
@@ -153,14 +172,12 @@ describe("TaskDetailDialog", () => {
           dueAt: "2026-09-09T23:00:00Z",
           complexity: 4,
         }),
+        childFixture("s1", { sortOrder: "a", completedAt: "2026-09-09T10:00:00Z" }),
+        childFixture("s2", { sortOrder: "b" }),
+        childFixture("s3", { sortOrder: "c" }),
       ],
       [],
     );
-    seedSubtasks([
-      subtaskFixture("s1", TASK_ID, { done: true }),
-      subtaskFixture("s2", TASK_ID),
-      subtaskFixture("s3", TASK_ID),
-    ]);
 
     renderDetail();
 
@@ -170,29 +187,24 @@ describe("TaskDetailDialog", () => {
     expect(screen.getByText("复杂度 4")).toBeTruthy();
     expect(screen.getByText("1/3 已完成")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("33");
-    expect(api.listSubtasks).not.toHaveBeenCalled(); // cache already held them
   });
 
-  it("loads subtasks through subtask:list when opening without a cache", async () => {
-    vi.mocked(api.listSubtasks).mockResolvedValue([subtaskFixture("s1", TASK_ID)]);
-
+  it("keeps the loading placeholder on the two caches that still have one", async () => {
     renderDetail();
 
-    // Both lazy sections show their loading placeholder until loaded.
-    const statuses = screen.getAllByRole("status");
-    expect(statuses.map((el) => el.textContent)).toEqual([
-      "子任务加载中…",
+    // 子任务 no longer loads — it is a filter over the task snapshot — so only
+    // the comment and time-entry caches show a placeholder.
+    expect(screen.getAllByRole("status").map((el) => el.textContent)).toEqual([
       "评论加载中…",
       "时间记录加载中…",
     ]);
-    expect(await screen.findByText("子任务 s1")).toBeTruthy();
-    expect(api.listSubtasks).toHaveBeenCalledWith(TASK_ID);
+    expect(await screen.findByLabelText("添加评论")).toBeTruthy();
+    expect(await screen.findByLabelText("时长（分钟）")).toBeTruthy();
   });
 
-  it("adds a subtask from the input on Enter", async () => {
-    seedSubtasks([]);
-    vi.mocked(api.createSubtask).mockImplementation(async (_taskId, payload) =>
-      subtaskFixture("created-1", TASK_ID, { title: payload.title }),
+  it("adds a child task from the input on Enter", async () => {
+    vi.mocked(api.createTask).mockResolvedValue(
+      childFixture("created-1", { title: "新的子任务" }),
     );
 
     renderDetail();
@@ -203,39 +215,45 @@ describe("TaskDetailDialog", () => {
     fireEvent.keyDown(screen.getByLabelText("添加子任务"), { key: "Enter" });
 
     expect(screen.getByText("新的子任务")).toBeTruthy(); // optimistic row
-    await waitFor(() => expect(api.createSubtask).toHaveBeenCalledWith(TASK_ID, { title: "新的子任务" }));
+    await waitFor(() =>
+      expect(api.createTask).toHaveBeenCalledWith({
+        title: "新的子任务",
+        parentTaskId: TASK_ID,
+      }),
+    );
     await waitFor(() =>
       expect((screen.getByLabelText("添加子任务") as HTMLInputElement).value).toBe(""),
     );
   });
 
-  it("lets the IME take the Enter that commits a composition (subtasks)", async () => {
-    seedSubtasks([subtaskFixture("s1", TASK_ID, { title: "旧标题" })]);
+  it("lets the IME take the Enter that commits a composition (children)", async () => {
+    seedChildren(childFixture("s1", { title: "旧标题" }));
 
     renderDetail();
 
     // Adding: Enter mid-composition must not file the half-typed title.
     fireEvent.input(screen.getByLabelText("添加子任务"), { target: { value: "新子任务" } });
     fireEvent.keyDown(screen.getByLabelText("添加子任务"), { key: "Enter", isComposing: true });
-    expect(api.createSubtask).not.toHaveBeenCalled();
+    expect(api.createTask).not.toHaveBeenCalled();
 
-    // Committing an edit: same story, the title stays editable.
-    fireEvent.click(screen.getByText("旧标题"));
+    // Renaming: same story, the title stays editable.
+    fireEvent.click(screen.getByRole("button", { name: "重命名子任务 旧标题" }));
     const editor = screen.getByDisplayValue("旧标题") as HTMLInputElement;
     fireEvent.input(editor, { target: { value: "新标题" } });
     fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
-    expect(api.updateSubtask).not.toHaveBeenCalled();
+    expect(api.updateTask).not.toHaveBeenCalled();
 
     // The next Enter (composition finished) does go through.
+    vi.mocked(api.updateTask).mockResolvedValue(childFixture("s1", { title: "新标题" }));
     fireEvent.keyDown(editor, { key: "Enter" });
-    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledWith("s1", { title: "新标题" }));
+    await waitFor(() => expect(api.updateTask).toHaveBeenCalledWith("s1", { title: "新标题" }));
   });
 
-  it("checks a subtask and the progress follows optimistically", async () => {
-    seedSubtasks([
-      subtaskFixture("s1", TASK_ID, { done: true, sortOrder: "a" }),
-      subtaskFixture("s2", TASK_ID, { sortOrder: "b" }),
-    ]);
+  it("checks a child and the progress follows optimistically", async () => {
+    seedChildren(
+      childFixture("s1", { sortOrder: "a", completedAt: "2026-09-09T10:00:00Z" }),
+      childFixture("s2", { sortOrder: "b" }),
+    );
 
     renderDetail();
 
@@ -243,66 +261,103 @@ describe("TaskDetailDialog", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "完成子任务 子任务 s2" }));
 
     expect(screen.getByText("2/2 已完成")).toBeTruthy();
-    await waitFor(() => expect(api.completeSubtask).toHaveBeenCalledWith("s2", true));
+    await waitFor(() => expect(api.completeTask).toHaveBeenCalledWith("s2"));
   });
 
-  it("inline-edits a subtask title on click (Enter commits, empty cancels)", async () => {
-    seedSubtasks([subtaskFixture("s1", TASK_ID, { title: "旧标题" })]);
+  it("renames a child in place (Enter commits, empty cancels)", async () => {
+    seedChildren(childFixture("s1", { title: "旧标题" }));
+    vi.mocked(api.updateTask).mockResolvedValue(childFixture("s1", { title: "新标题" }));
 
     renderDetail();
-    fireEvent.click(screen.getByText("旧标题"));
+    fireEvent.click(screen.getByRole("button", { name: "重命名子任务 旧标题" }));
 
     const input = screen.getByDisplayValue("旧标题") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "新标题" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledWith("s1", { title: "新标题" }));
+    await waitFor(() => expect(api.updateTask).toHaveBeenCalledWith("s1", { title: "新标题" }));
     expect(screen.getByText("新标题")).toBeTruthy();
 
-    // Editing to whitespace-only does not hit the backend.
-    fireEvent.click(screen.getByText("新标题"));
+    // Renaming to whitespace-only does not hit the backend.
+    fireEvent.click(screen.getByRole("button", { name: "重命名子任务 新标题" }));
     const again = screen.getByDisplayValue("新标题") as HTMLInputElement;
     fireEvent.input(again, { target: { value: "   " } });
     fireEvent.keyDown(again, { key: "Enter" });
 
     await waitFor(() => expect(screen.getByText("新标题")).toBeTruthy());
-    expect(api.updateSubtask).toHaveBeenCalledTimes(1);
+    expect(api.updateTask).toHaveBeenCalledTimes(1);
   });
 
-  it("deletes a subtask from the row button", async () => {
-    seedSubtasks([subtaskFixture("s1", TASK_ID, { title: "要删的" })]);
-    vi.mocked(api.deleteSubtask).mockResolvedValue(undefined);
+  it("deletes a child from the row button", async () => {
+    seedChildren(childFixture("s1", { title: "要删的" }));
+    vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
 
     renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "删除子任务 要删的" }));
 
-    await waitFor(() => expect(api.deleteSubtask).toHaveBeenCalledWith("s1"));
+    await waitFor(() => expect(api.softDeleteTask).toHaveBeenCalledWith("s1"));
     await waitFor(() => expect(screen.queryByText("要删的")).toBeNull());
   });
 
-  it("moves a subtask up/down by passing the neighbours' sort keys", async () => {
-    seedSubtasks([
-      subtaskFixture("s1", TASK_ID, { sortOrder: "a" }),
-      subtaskFixture("s2", TASK_ID, { sortOrder: "b" }),
-      subtaskFixture("s3", TASK_ID, { sortOrder: "c" }),
+  it("hands a child to the editor from the sliders button", () => {
+    seedChildren(childFixture("s1", { title: "定稿" }));
+
+    const { onEdit } = renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "编辑子任务 定稿" }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+  });
+
+  it("moves a child up by passing the neighbours' sort keys", async () => {
+    seedChildren(
+      childFixture("s1", { sortOrder: "a" }),
+      childFixture("s2", { sortOrder: "b" }),
+      childFixture("s3", { sortOrder: "c" }),
+    );
+    // The backend owns both the keys and the positions, so the hook installs
+    // the run it returns instead of guessing the order optimistically.
+    vi.mocked(api.reorderTask).mockResolvedValue([
+      childFixture("s2", { sortOrder: "a" }),
+      childFixture("s1", { sortOrder: "b" }),
+      childFixture("s3", { sortOrder: "c" }),
     ]);
-    // The hook reconciles with the returned authoritative list.
-    vi.mocked(api.reorderSubtask).mockImplementation(async () => store.getSubtasks(TASK_ID));
 
     renderDetail();
 
     // Move up from the middle: target slot is the list head.
     fireEvent.click(screen.getByRole("button", { name: "上移子任务 子任务 s2" }));
-    expect(subtaskIdsInOrder()).toEqual(["s2", "s1", "s3"]); // optimistic move
-    await waitFor(() => expect(api.reorderSubtask).toHaveBeenCalledWith("s2", null, "a"));
 
-    // Move down from the middle: target slot is the list tail.
-    fireEvent.click(screen.getByRole("button", { name: "下移子任务 子任务 s1" }));
-    await waitFor(() => expect(api.reorderSubtask).toHaveBeenCalledWith("s1", "c", null));
+    await waitFor(() => expect(api.reorderTask).toHaveBeenCalledWith("s2", null, "a"));
+    await waitFor(() => expect(childIdsInOrder()).toEqual(["s2", "s1", "s3"]));
+  });
+
+  it("moves a child down by passing the neighbours' sort keys", async () => {
+    seedChildren(
+      childFixture("s1", { sortOrder: "a" }),
+      childFixture("s2", { sortOrder: "b" }),
+      childFixture("s3", { sortOrder: "c" }),
+    );
+    vi.mocked(api.reorderTask).mockResolvedValue([
+      childFixture("s1", { sortOrder: "a" }),
+      childFixture("s3", { sortOrder: "b" }),
+      childFixture("s2", { sortOrder: "c" }),
+    ]);
+
+    renderDetail();
+
+    // Move down from the middle to the tail: the slot after the last sibling
+    // has no neighbour, so `next` is null.
+    fireEvent.click(screen.getByRole("button", { name: "下移子任务 子任务 s2" }));
+
+    await waitFor(() => expect(api.reorderTask).toHaveBeenCalledWith("s2", "c", null));
+    await waitFor(() => expect(childIdsInOrder()).toEqual(["s1", "s3", "s2"]));
   });
 
   it("disables the move buttons at the list ends", () => {
-    seedSubtasks([subtaskFixture("s1", TASK_ID), subtaskFixture("s2", TASK_ID)]);
+    seedChildren(
+      childFixture("s1", { sortOrder: "a" }),
+      childFixture("s2", { sortOrder: "b" }),
+    );
 
     renderDetail();
 
@@ -318,7 +373,6 @@ describe("TaskDetailDialog", () => {
   });
 
   it("routes the footer actions: edit callback, complete, delete", async () => {
-    seedSubtasks([]);
     const pending = { resolve: (_task: Task) => {} } as { resolve: (task: Task) => void };
     vi.mocked(api.completeTask).mockReturnValue(
       new Promise((resolve) => {
@@ -567,7 +621,6 @@ describe("TaskDetailDialog time tracking", () => {
     vi.mocked(api.listTimeEntries).mockResolvedValue([
       timeEntryFixture("e1", { duration: 2700 }),
     ]);
-    store.setSubtasks(TASK_ID, []);
     store.setComments(TASK_ID, []);
 
     renderDetail();
@@ -589,8 +642,8 @@ describe("任务详情的依赖区", () => {
       [],
     );
     store.setDependencies([
-      { kind: "task", dependentId: TASK_ID, prerequisiteId: "b" },
-      { kind: "task", dependentId: "c", prerequisiteId: TASK_ID },
+      { dependentId: TASK_ID, prerequisiteId: "b" },
+      { dependentId: "c", prerequisiteId: TASK_ID },
     ]);
     render(() => (
       <TaskDetailDialog
@@ -628,47 +681,35 @@ describe("任务详情的依赖区", () => {
   });
 });
 
-describe("子任务属性面板", () => {
-  it("前置只列同一父任务下的兄弟子任务，属性保存时一次写回", async () => {
-    seedSubtasks([
-      subtaskFixture("s1", TASK_ID, { title: "收集数据" }),
-      subtaskFixture("s2", TASK_ID, { title: "定稿" }),
-    ]);
-    vi.mocked(api.updateSubtask).mockResolvedValue(
-      subtaskFixture("s2", TASK_ID, { title: "定稿", note: "先对齐口径" }),
+describe("子任务行的依赖是普通任务依赖", () => {
+  it("子任务的前置就在它自己的详情依赖区里增删", async () => {
+    store.setAll(
+      [
+        taskFixture(TASK_ID, { title: "写周报" }),
+        childFixture("s1", { title: "收集数据", sortOrder: "a" }),
+        childFixture("s2", { title: "定稿", sortOrder: "b" }),
+      ],
+      [],
     );
+    store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
+    vi.mocked(api.removeDependency).mockResolvedValue(undefined);
 
-    renderDetail();
-    fireEvent.click(screen.getByRole("button", { name: "展开子任务属性 定稿" }));
+    // 定稿 has a detail of its own (R7c), and that is where its prerequisites
+    // are managed now: the edge joins two task ids like any other, so nothing
+    // about it is child-specific.
+    renderDetail(childFixture("s2", { title: "定稿", sortOrder: "b" }));
 
-    // The picker offers the sibling and nothing else: a subtask is never its own
-    // prerequisite, and cross-parent edges are rejected by the backend, so no
-    // other subtask can appear here at all.
-    const section = document.querySelector('[aria-label="子任务"]') as HTMLElement;
-    const offered = () =>
-      [...section.querySelectorAll("[aria-pressed]")].map((el) => el.textContent);
-    expect(offered()).toEqual(["收集数据"]);
+    const section = await screen.findByRole("region", { name: "依赖" });
+    expect(within(section).getByText("收集数据")).toBeTruthy();
 
-    // A prerequisite is a discrete write: one edge per click, no save step.
-    fireEvent.click(screen.getByRole("button", { name: "收集数据", pressed: false }));
-    expect(api.addDependency).toHaveBeenCalledWith({
-      kind: "subtask",
-      dependentId: "s2",
-      prerequisiteId: "s1",
-    });
-
-    // The four attributes ride a single updateSubtask call, then the panel closes.
-    fireEvent.input(screen.getByLabelText("描述"), { target: { value: "先对齐口径" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() => expect(api.updateSubtask).toHaveBeenCalledTimes(1));
-    expect(api.updateSubtask).toHaveBeenCalledWith("s2", {
-      note: "先对齐口径",
-      priority: "none",
-      dueAt: null,
-      complexity: null,
-    });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "保存" })).toBeNull());
+    fireEvent.click(within(section).getByRole("button", { name: "移除前置 收集数据" }));
+    await waitFor(() =>
+      expect(api.removeDependency).toHaveBeenCalledWith({
+        dependentId: "s2",
+        prerequisiteId: "s1",
+      }),
+    );
+    store.setDependencies([]);
   });
 });
 
@@ -678,7 +719,7 @@ describe("任务详情的阻塞标记", () => {
       [taskFixture(TASK_ID), taskFixture("b", { title: "收集数据" })],
       [],
     );
-    store.setDependencies([{ kind: "task", dependentId: TASK_ID, prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: TASK_ID, prerequisiteId: "b" }]);
 
     renderDetail();
 
@@ -698,7 +739,7 @@ describe("任务详情的阻塞标记", () => {
       ],
       [],
     );
-    store.setDependencies([{ kind: "task", dependentId: TASK_ID, prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: TASK_ID, prerequisiteId: "b" }]);
 
     renderDetail();
 
@@ -712,11 +753,11 @@ describe("任务详情的阻塞标记", () => {
 
 describe("子任务行的阻塞标记", () => {
   it("前置未完成的子任务行戴紧凑阻塞标记", () => {
-    seedSubtasks([
-      subtaskFixture("s1", TASK_ID, { title: "收集数据", sortOrder: "a" }),
-      subtaskFixture("s2", TASK_ID, { title: "定稿", sortOrder: "b" }),
-    ]);
-    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+    seedChildren(
+      childFixture("s1", { title: "收集数据", sortOrder: "a" }),
+      childFixture("s2", { title: "定稿", sortOrder: "b" }),
+    );
+    store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     renderDetail();
 
@@ -725,11 +766,15 @@ describe("子任务行的阻塞标记", () => {
   });
 
   it("已完成的子任务行不再戴标记", () => {
-    seedSubtasks([
-      subtaskFixture("s1", TASK_ID, { title: "收集数据", sortOrder: "a" }),
-      subtaskFixture("s2", TASK_ID, { title: "定稿", done: true, sortOrder: "b" }),
-    ]);
-    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+    seedChildren(
+      childFixture("s1", { title: "收集数据", sortOrder: "a" }),
+      childFixture("s2", {
+        title: "定稿",
+        sortOrder: "b",
+        completedAt: "2026-09-09T10:00:00Z",
+      }),
+    );
+    store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     renderDetail();
 

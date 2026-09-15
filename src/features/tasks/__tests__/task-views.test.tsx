@@ -5,7 +5,7 @@ import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as hooks from "../hooks";
 import * as store from "../store";
-import type { Subtask, Task } from "../types";
+import type { Task } from "../types";
 import { SubtaskRow } from "../components/SubtaskRow";
 import { CompletedView } from "../components/views/CompletedView";
 import { InboxView } from "../components/views/InboxView";
@@ -43,6 +43,7 @@ function iso(dayOffset: number, hour: number, minute = 0): string {
   return new Date(2026, 8, 9 + dayOffset, hour, minute).toISOString();
 }
 
+/** A task row; a child is the same row with `parentTaskId` set (R7c). */
 function task(id: string, overrides: Partial<Task> = {}): Task {
   return {
     id,
@@ -55,6 +56,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     completedAt: null,
     repeatRule: null,
     complexity: null,
+    parentTaskId: null,
     tagIds: [],
     sortOrder: "n",
     createdAt: "2026-09-01T10:00:00Z",
@@ -64,21 +66,18 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
-function subtask(id: string, taskId: string, title: string, done = false): Subtask {
-  return {
-    id,
-    taskId,
-    title,
-    note: null,
-    priority: "none",
-    dueAt: null,
-    complexity: null,
-    done,
-    sortOrder: "n",
-    createdAt: "2026-09-01T10:00:00Z",
-    updatedAt: "2026-09-01T10:00:00Z",
-    deletedAt: null,
-  };
+/** A top-level task plus two children that are *not* due today, so 今天 shows
+ * only the parent until its disclosure opens. */
+function seedParentWithTomorrowChildren() {
+  store.setAll(
+    [
+      task("p1", { title: "写周报", dueAt: iso(0, 12), sortOrder: "a" }),
+      task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(1, 9), sortOrder: "a" }),
+      task("c2", { title: "定稿", parentTaskId: "p1", dueAt: iso(1, 10), sortOrder: "b" }),
+      task("p2", { title: "读论文", dueAt: iso(0, 14), sortOrder: "b" }),
+    ],
+    [],
+  );
 }
 
 function deferred<T>() {
@@ -212,7 +211,7 @@ describe("TodayView", () => {
     expect(screen.getByText("10000 个任务")).toBeTruthy();
   });
 
-  it("opens the task detail (with subtask loading) when a row title is clicked", async () => {
+  it("opens the task detail when a row title is clicked", async () => {
     store.setAll([task("t1", { title: "旧标题", dueAt: iso(0, 23) })], []);
 
     render(() => <TodayView />);
@@ -220,7 +219,8 @@ describe("TodayView", () => {
 
     expect(await screen.findByText("任务详情与子任务")).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
-    await waitFor(() => expect(api.listSubtasks).toHaveBeenCalledWith("t1"));
+    // The child list needs no load of its own any more, so it never shows one.
+    expect(screen.queryByText("子任务加载中…")).toBeNull();
   });
 
   it("opens the editor prefilled from the row menu", async () => {
@@ -406,14 +406,16 @@ describe("filtering and sorting", () => {
 });
 
 describe("任务行的子任务展开位", () => {
-  it("shows a disclosure control and a done/total badge when the task has subtasks", async () => {
-    store.setAll([task("t1")], []);
-    store.setSubtasks("t1", [
-      subtask("s1", "t1", "第一步", true),
-      subtask("s2", "t1", "第二步", false),
-      subtask("s3", "t1", "第三步", false),
-    ]);
-    vi.mocked(api.listTasks).mockResolvedValue([task("t1")]);
+  it("shows a disclosure control and a done/total badge when the task has children", async () => {
+    store.setAll(
+      [
+        task("t1", { sortOrder: "a" }),
+        task("s1", { title: "第一步", parentTaskId: "t1", sortOrder: "a", completedAt: iso(0, 10) }),
+        task("s2", { title: "第二步", parentTaskId: "t1", sortOrder: "b" }),
+        task("s3", { title: "第三步", parentTaskId: "t1", sortOrder: "c" }),
+      ],
+      [],
+    );
 
     render(() => <InboxView />);
 
@@ -423,8 +425,6 @@ describe("任务行的子任务展开位", () => {
 
   it("renders neither a disclosure control nor a badge for a childless task", async () => {
     store.setAll([task("t1")], []);
-    store.setSubtasks("t1", []);
-    vi.mocked(api.listTasks).mockResolvedValue([task("t1")]);
 
     render(() => <InboxView />);
 
@@ -435,16 +435,27 @@ describe("任务行的子任务展开位", () => {
 });
 
 describe("SubtaskRow", () => {
-  it("toggles done through the callback and opens the parent's detail", () => {
-    const parent = task("t1");
-    const child = subtask("s1", "t1", "第一步");
+  it("renders a child task row and checks it off", () => {
+    render(() => (
+      <SubtaskRow
+        task={task("s1", { title: "第一步", parentTaskId: "t1", completedAt: null })}
+        blocked={false}
+        onToggleDone={vi.fn()}
+        onOpenDetail={vi.fn()}
+      />
+    ));
+
+    expect(screen.getByRole("checkbox", { name: "完成子任务 第一步" })).toBeTruthy();
+  });
+
+  it("routes the checkbox and the title to their callbacks", () => {
+    const child = task("s1", { title: "第一步", parentTaskId: "t1" });
     const onToggleDone = vi.fn();
     const onOpenDetail = vi.fn();
 
     render(() => (
       <SubtaskRow
-        subtask={child}
-        parent={parent}
+        task={child}
         blocked={false}
         onToggleDone={onToggleDone}
         onOpenDetail={onOpenDetail}
@@ -452,17 +463,18 @@ describe("SubtaskRow", () => {
     ));
 
     fireEvent.click(screen.getByRole("checkbox", { name: "完成子任务 第一步" }));
-    expect(onToggleDone).toHaveBeenCalledWith(parent, child, true);
+    expect(onToggleDone).toHaveBeenCalledWith(child, true);
 
+    // A child is a task with a detail of its own (R7c), not a label on its
+    // parent's — the title opens *that*.
     fireEvent.click(screen.getByText("第一步"));
-    expect(onOpenDetail).toHaveBeenCalledWith(parent);
+    expect(onOpenDetail).toHaveBeenCalledWith(child);
   });
 
-  it("strikes through a done subtask", () => {
+  it("strikes through a finished child", () => {
     render(() => (
       <SubtaskRow
-        subtask={subtask("s1", "t1", "第一步", true)}
-        parent={task("t1")}
+        task={task("s1", { title: "第一步", parentTaskId: "t1", completedAt: iso(0, 10) })}
         blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
@@ -473,11 +485,26 @@ describe("SubtaskRow", () => {
     expect(screen.getByText("第一步").className).toContain("line-through");
   });
 
+  it("shows the parent prefix only on a standalone child row", () => {
+    const props = {
+      task: task("s1", { title: "第一步", parentTaskId: "t1" }),
+      blocked: false,
+      onToggleDone: vi.fn(),
+      onOpenDetail: vi.fn(),
+      onOpenParent: vi.fn(),
+    };
+    const { unmount } = render(() => <SubtaskRow {...props} />);
+    expect(screen.queryByText(/父任务/)).toBeNull();
+    unmount();
+
+    render(() => <SubtaskRow {...props} parentTitle="写周报" />);
+    expect(screen.getByRole("button", { name: "打开父任务 写周报" })).toBeTruthy();
+  });
+
   it("keeps the rail slot 20px wide and stretched to the row height", () => {
     const { container } = render(() => (
       <SubtaskRow
-        subtask={subtask("s1", "t1", "第一步")}
-        parent={task("t1")}
+        task={task("s1", { title: "第一步", parentTaskId: "t1" })}
         blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
@@ -501,98 +528,116 @@ describe("SubtaskRow", () => {
 });
 
 describe("任务列表的层级展示", () => {
-  function seedWithSubtasks() {
-    store.setAll([task("t1"), task("t2")], []);
-    store.setSubtasks("t1", [
-      subtask("s1", "t1", "收集意见", true),
-      subtask("s2", "t1", "定稿", false),
-    ]);
-    store.setSubtasks("t2", []);
+  function seedHierarchy() {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(0, 12) }),
+        task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(0, 13) }),
+        task("c2", { title: "定稿", parentTaskId: "p1", dueAt: iso(5, 12) }),
+        task("p2", { title: "读论文", dueAt: iso(0, 14) }),
+      ],
+      [],
+    );
   }
 
-  it("starts collapsed and hides the children", async () => {
-    seedWithSubtasks();
-    render(() => <InboxView />);
+  it("groups a matched child under its parent instead of listing it twice", async () => {
+    seedHierarchy();
+    render(() => <TodayView />);
 
-    expect(await screen.findByText("任务 t1")).toBeTruthy();
-    expect(screen.queryByText("收集意见")).toBeNull();
-    expect(screen.getByText("1/2")).toBeTruthy();
-    // The digits stay visible but are hidden from assistive tech; the name is
-    // real text, because `aria-label` on the Badge's generic span is ignored.
-    expect(screen.getByText("1/2").getAttribute("aria-hidden")).toBe("true");
-    expect(screen.getByText("子任务 1/2 已完成").className).toContain("sr-only");
+    // p1 and c1 both match "today"; the child renders under its parent, so
+    // each title appears exactly once.
+    expect(await screen.findAllByText("收集数据")).toHaveLength(1);
+    expect(screen.getAllByText("收集数据")[0].closest("[data-subtask-id]")).toBeTruthy();
   });
 
-  it("expands to list the cached children in their seeded order and collapses again", async () => {
-    seedWithSubtasks();
-    render(() => <InboxView />);
+  it("keeps a child whose parent is missing as a prefixed top-level row", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(5, 12) }),   // not in 今天
+        task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(0, 13) }),
+      ],
+      [],
+    );
+    render(() => <TodayView />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+    const prefix = await screen.findByRole("button", { name: "打开父任务 写周报" });
+    expect(prefix).toBeTruthy();
+    expect(screen.getByText("父任务 · 写周报")).toBeTruthy();
+  });
 
-    // The view renders the cache's own order; `sortOrder` belongs to the Rust
-    // query and is asserted there. This guards the flattening.
-    const rendered = [
-      ...(document.querySelector('[role="list"]') as HTMLElement).querySelectorAll(
-        "[data-subtask-id]",
-      ),
-    ].map((el) => el.getAttribute("data-subtask-id"));
-    expect(rendered).toEqual(["s1", "s2"]);
+  it("filters a standalone child but never a grouped one", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(0, 12) }),
+        task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(0, 13), priority: "high" }),
+        task("p2", { title: "孤儿子任务", parentTaskId: "gone", dueAt: iso(0, 14), priority: "high" }),
+      ],
+      [],
+    );
+    render(() => <TodayView />);
 
-    expect(screen.getByText("收集意见")).toBeTruthy();
+    fireEvent.pointerDown(await screen.findByRole("button", { name: /全部优先级/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "仅低" }));
+
+    // p2 is a row of its own: the filter drops it. c1 rides under its parent,
+    // which the filter also dropped — so 今天 is empty now.
+    await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
+    expect(screen.queryByText("收集数据")).toBeNull();
+    expect(screen.queryByText("孤儿子任务")).toBeNull();
+  });
+
+  it("counts top-level rows only, so expanding never changes the number", async () => {
+    seedHierarchy();
+    render(() => <TodayView />);
+
+    // p1 + p2 are top-level; c1 rides under p1 and is not counted.
+    expect(await screen.findByText("2 个任务")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /展开 写周报/ }));
+    expect(screen.getByText("2 个任务")).toBeTruthy();
+  });
+
+  it("keeps a child of an expanded parent that the view itself did not match", async () => {
+    seedParentWithTomorrowChildren();
+    render(() => <TodayView />);
+
+    expect(await screen.findByText("写周报")).toBeTruthy();
+    // c1 and c2 are due tomorrow: not 今天 rows of their own, so they stay
+    // hidden until the parent's disclosure opens (§8.6: children ride along).
+    expect(screen.queryByText("收集数据")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "展开 写周报 的子任务" }));
+    expect(screen.getByText("收集数据")).toBeTruthy();
     expect(screen.getByText("定稿")).toBeTruthy();
+    // Still one row each, and the count still counts the parent only.
+    expect(screen.getByText("2 个任务")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "收起 任务 t1 的子任务" }));
-    expect(screen.queryByText("收集意见")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "收起 写周报 的子任务" }));
+    expect(screen.queryByText("收集数据")).toBeNull();
   });
 
-  it("completes a subtask optimistically and moves the parent's badge", async () => {
-    seedWithSubtasks();
-    const pending = deferred<Subtask>();
-    vi.mocked(api.completeSubtask).mockReturnValue(pending.promise);
-    render(() => <InboxView />);
+  it("opens the child's own detail from a child row of the list", async () => {
+    seedParentWithTomorrowChildren();
+    render(() => <TodayView />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "完成子任务 定稿" }));
+    fireEvent.click(await screen.findByRole("button", { name: "展开 写周报 的子任务" }));
+    fireEvent.click(screen.getByText("收集数据"));
 
-    // The badge moves in the same frame, before the backend answers.
-    expect(screen.getByText("2/2")).toBeTruthy();
-    expect(api.completeSubtask).toHaveBeenCalledWith("s2", true);
-
-    pending.resolve(subtask("s2", "t1", "定稿", true));
-    await waitFor(() => expect(screen.getByText("2/2")).toBeTruthy());
+    expect(await screen.findByRole("heading", { name: "收集数据" })).toBeTruthy();
   });
 
-  it("opens the parent's detail when a subtask title is clicked", async () => {
-    seedWithSubtasks();
-    render(() => <InboxView />);
+  it("opens the parent's detail from a standalone child's prefix", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(5, 12) }),
+        task("c1", { title: "收集数据", parentTaskId: "p1", dueAt: iso(0, 13) }),
+      ],
+      [],
+    );
+    render(() => <TodayView />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
-    fireEvent.click(screen.getByText("收集意见"));
+    fireEvent.click(await screen.findByRole("button", { name: "打开父任务 写周报" }));
 
-    expect(await screen.findByText("任务详情与子任务")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "任务 t1" })).toBeTruthy();
-  });
-
-  it("keeps every child of an expanded task while a filter is active", async () => {
-    store.setAll([task("t1", { priority: "high" }), task("t2", { priority: "low" })], []);
-    store.setSubtasks("t1", [
-      subtask("s1", "t1", "收集意见"),
-      subtask("s2", "t1", "定稿"),
-    ]);
-    render(() => <InboxView />);
-
-    expect(await screen.findByText("任务 t2")).toBeTruthy();
-
-    await selectFromCombobox(/优先级筛选/, "仅高");
-    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
-
-    // The filter really ran: the low-priority task is gone.
-    expect(screen.queryByText("任务 t2")).toBeNull();
-
-    // Subtasks carry no priority, so they are never filtered: a badge reading
-    // 0/2 above a single visible row would be lying.
-    expect(screen.getByText("收集意见")).toBeTruthy();
-    expect(screen.getByText("定稿")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "写周报" })).toBeTruthy();
   });
 
   /*
@@ -608,12 +653,14 @@ describe("任务列表的层级展示", () => {
     const dimension = (element: Element, axis: "h" | "w") =>
       [...element.classList].filter((name) => new RegExp(`^(?:${axis}|size)-`).test(name));
 
-    seedWithSubtasks();
-    render(() => <InboxView />);
-    fireEvent.click(await screen.findByRole("button", { name: "展开 任务 t1 的子任务" }));
+    seedParentWithTomorrowChildren();
+    render(() => <TodayView />);
+    // The parent is the only 今天 row with children, and its children are not
+    // in 今天 themselves, so the disclosure is what adds the two rows below.
+    fireEvent.click(await screen.findByRole("button", { name: "展开 写周报 的子任务" }));
 
     const list = document.querySelector('[role="list"]') as HTMLElement;
-    // Four flattened rows (t1, its two children, t2) at the virtualizer's
+    // Four flattened rows (p1, its two children, p2) at the virtualizer's
     // assumed 56px. A 60px row here would misplace every row below the fold.
     expect((list.firstElementChild as HTMLElement).style.height).toBe("224px");
 
@@ -625,7 +672,7 @@ describe("任务列表的层级展示", () => {
       expect(dimension(row, "h")).toEqual(["h-14"]);
     }
 
-    // Disclosure slot (button with children, spacer without) and the subtask
+    // Disclosure slot (button with children, spacer without) and the child
     // rail: all three are the same 20px, which is what lines the checkboxes up.
     const [withChildren, childless] = [
       ...list.querySelectorAll<HTMLElement>("[data-task-id]"),
@@ -643,7 +690,7 @@ describe("阻塞标记", () => {
     const blocked = task("a");
     const prerequisite = task("b");
     store.setAll([blocked, prerequisite], []);
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
 
     render(() => <InboxView />);
     expect(screen.getByText("阻塞中 · 还差 1 项")).toBeTruthy();
@@ -656,7 +703,7 @@ describe("阻塞标记", () => {
 
   it("软删前置后阻塞标记立即消失，恢复后回来", async () => {
     store.setAll([task("a"), task("b")], []);
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
     vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
 
     render(() => <InboxView />);
@@ -678,17 +725,19 @@ describe("阻塞标记", () => {
   });
 
   it("展开后未完成前置的子任务行也带标记", () => {
-    const parent = task("a");
-    const first = subtask("s1", "a", "一");
-    const second = subtask("s2", "a", "二");
-    store.setAll([parent], []);
-    store.setSubtasksAll([first, second], ["a"]);
-    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+    store.setAll(
+      [
+        task("a", { sortOrder: "a" }),
+        task("s1", { title: "一", parentTaskId: "a", sortOrder: "a" }),
+        task("s2", { title: "二", parentTaskId: "a", sortOrder: "b" }),
+      ],
+      [],
+    );
+    // A child's edges are ordinary edges: one task id on each end (R7c).
+    store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     render(() => <InboxView />);
-    // The factory titles a task `任务 <id>`, so the disclosure's accessible
-    // name carries that prefix (the brief's snippet abbreviated it).
-    fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
+    expect(screen.getByRole("button", { name: "展开 任务 a 的子任务" })).toBeTruthy();
     expect(screen.getByText("阻塞中")).toBeTruthy();
     store.setDependencies([]);
   });
@@ -700,7 +749,7 @@ describe("完成后的行不再戴阻塞标记", () => {
       [task("a", { completedAt: iso(0, 12) }), task("b")],
       [],
     );
-    store.setDependencies([{ kind: "task", dependentId: "a", prerequisiteId: "b" }]);
+    store.setDependencies([{ dependentId: "a", prerequisiteId: "b" }]);
 
     render(() => <CompletedView />);
 
@@ -711,15 +760,25 @@ describe("完成后的行不再戴阻塞标记", () => {
     store.setDependencies([]);
   });
 
-  it("已完成的子任务行不戴阻塞中", async () => {
-    store.setAll([task("a")], []);
-    store.setSubtasksAll(
-      [subtask("s1", "a", "一"), subtask("s2", "a", "二", true)],
-      ["a"],
+  it("已完成的子任务行不戴阻塞中", () => {
+    store.setAll(
+      [
+        task("a", { sortOrder: "a" }),
+        task("s1", { title: "一", parentTaskId: "a", sortOrder: "a" }),
+        task("s2", {
+          title: "二",
+          parentTaskId: "a",
+          sortOrder: "b",
+          completedAt: iso(0, 11),
+        }),
+      ],
+      [],
     );
-    store.setDependencies([{ kind: "subtask", dependentId: "s2", prerequisiteId: "s1" }]);
+    store.setDependencies([{ dependentId: "s2", prerequisiteId: "s1" }]);
 
     render(() => <InboxView />);
+    // s2 is finished, so 收件箱 does not hold it on its own — it is here as the
+    // expanded parent's child, which is exactly the row under test.
     fireEvent.click(screen.getByRole("button", { name: "展开 任务 a 的子任务" }));
 
     expect(screen.getByText("二")).toBeTruthy();

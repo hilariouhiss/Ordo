@@ -324,6 +324,61 @@ describe("TaskEditorDialog", () => {
     );
   });
 
+  it("files a task under the picked parent", async () => {
+    store.setAll(
+      [taskFixture("p1", { title: "写周报" }), taskFixture("t1", { title: "收集数据" })],
+      [],
+    );
+    vi.mocked(hooks.updateTask).mockResolvedValue(taskFixture("t1", { parentTaskId: "p1" }));
+    renderDialog(taskFixture("t1"));
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /父任务/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "写周报" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(hooks.updateTask).toHaveBeenCalledWith(
+        "t1",
+        expect.objectContaining({ parentTaskId: "p1" }),
+      ),
+    );
+  });
+
+  // Kobalte fires `onChange` once on mount with the seeded value. Reading that
+  // as a pick would re-file the task under its own parent — or, worse, promote
+  // a child to the top level — just by opening the dialog.
+  it("does not write a parent the user never picked", async () => {
+    const existing = taskFixture("t1", { title: "收集数据", parentTaskId: "p1" });
+    store.setAll([taskFixture("p1", { title: "写周报" }), existing], []);
+    vi.mocked(hooks.updateTask).mockResolvedValue(existing);
+    renderDialog(existing);
+
+    expect(screen.getByRole("button", { name: /父任务/ }).textContent).toContain("写周报");
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(hooks.updateTask).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(hooks.updateTask).mock.calls[0]?.[1]).not.toHaveProperty("parentTaskId");
+  });
+
+  it("promotes a child back to the top level through the sentinel row", async () => {
+    const existing = taskFixture("t1", { title: "收集数据", parentTaskId: "p1" });
+    store.setAll([taskFixture("p1", { title: "写周报" }), existing], []);
+    vi.mocked(hooks.updateTask).mockResolvedValue(taskFixture("t1"));
+    renderDialog(existing);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /父任务/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "（顶层任务）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(hooks.updateTask).toHaveBeenCalledWith(
+        "t1",
+        expect.objectContaining({ parentTaskId: null }),
+      ),
+    );
+  });
+
   it("keeps the dialog open when the backend rejects the write", async () => {
     vi.mocked(hooks.createTask).mockResolvedValue(null);
     const { onOpenChange } = renderDialog();

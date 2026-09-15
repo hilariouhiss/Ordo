@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, on } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import { Settings2 } from "lucide-solid";
 import { z } from "zod";
 import {
@@ -21,7 +21,7 @@ import {
 } from "../complexity";
 import { PRIORITY_OPTIONS } from "../priority";
 import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
-import { getTag, tasksState } from "../store";
+import { getTag, getTask, tasksState } from "../store";
 import type { Priority, RepeatFreq, RepeatRule, Task } from "../types";
 import { TagManagerDialog } from "./TagManagerDialog";
 
@@ -31,6 +31,10 @@ import { TagManagerDialog } from "./TagManagerDialog";
  * optimistic hooks; the dialog closes only on success — failures keep the
  * form open and surface a notification (handled by the hooks).
  */
+
+/** The 父任务 picker's "no parent" row. Kobalte reads `""` back as "nothing is
+ * selected" and paints the trigger blank, so the sentinel is a real string. */
+const NO_PARENT = { id: null as string | null, name: "（顶层任务）" };
 
 const formSchema = z.object({
   title: z.string().trim().min(1, "标题不能为空"),
@@ -63,6 +67,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const [repeatFreq, setRepeatFreq] = createSignal<RepeatFreq | "none">("none");
   const [repeatInterval, setRepeatInterval] = createSignal("1");
   const [repeatPaused, setRepeatPaused] = createSignal(false);
+  const [parentId, setParentId] = createSignal<string | null>(null);
   const [managerOpen, setManagerOpen] = createSignal(false);
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
@@ -82,12 +87,28 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         setRepeatFreq(task?.repeatRule?.freq ?? "none");
         setRepeatInterval(String(task?.repeatRule?.interval ?? 1));
         setRepeatPaused(task?.repeatRule?.paused ?? false);
+        setParentId(task?.parentTaskId ?? null);
         setManagerOpen(false);
         setErrors({});
         setSubmitting(false);
       },
     ),
   );
+
+  /**
+   * Parents a task may be filed under: top-level tasks only (the hierarchy is
+   * one level, so a child can never be a parent), minus the task being edited —
+   * a task is not its own parent. The sentinel keeps the picker able to say
+   * 「顶层任务」, which is what `null` means.
+   */
+  const parentOptions = createMemo(() => [
+    NO_PARENT,
+    ...tasksState.tasks
+      .filter((item) => item.parentTaskId === null && item.id !== props.task?.id)
+      .map((item) => ({ id: item.id as string | null, name: item.title })),
+  ]);
+  const selectedParent = () =>
+    parentOptions().find((option) => option.id === parentId()) ?? NO_PARENT;
 
   const selectedPriority = () =>
     PRIORITY_OPTIONS.find((option) => option.value === priority()) ??
@@ -140,12 +161,26 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
     setSubmitting(true);
     try {
       const noteValue = note().trim() ? note().trim() : null;
+      // A child lives inside its parent's project (the backend enforces it), so
+      // a picked parent brings its project along instead of leaving the task in
+      // the view it was created from.
+      const parent = parentId() === null ? undefined : getTask(parentId() as string);
+      const projectId =
+        parentId() !== null
+          ? parent?.projectId ?? null
+          : props.task
+            ? props.task.projectId
+            : props.defaultProjectId ?? null;
+      // Sparse patch: re-opening the dialog must not re-send the parent it was
+      // seeded with, and an untouched edit must not read as 「move to top level」.
+      const parentPatch =
+        parentId() === (props.task?.parentTaskId ?? null) ? {} : { parentTaskId: parentId() };
       const payload = {
         title: parsed.data.title,
         note: noteValue,
         priority: priority(),
         complexity: complexity(),
-        projectId: props.task ? props.task.projectId : props.defaultProjectId ?? null,
+        projectId,
         dueAt: localInputValueToIso(parsed.data.dueLocal),
         // Only tags that still exist: 管理标签 opens from inside this dialog, so
         // a picked tag can be deleted before the form is submitted. Its chip
@@ -153,6 +188,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         // untick, and the backend rejects the whole write with `标签 … 不存在`.
         tagIds: tagIds().filter((id) => getTag(id) !== undefined),
         repeatRule,
+        ...parentPatch,
       };
       const result = props.task
         ? await updateTask(props.task.id, payload)
@@ -194,6 +230,30 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               <TextField.Label>备注</TextField.Label>
               <TextField.TextArea placeholder="补充说明（可选）" />
             </TextField.Root>
+
+            <Select.Root
+              options={parentOptions()}
+              optionValue={(option) => option.id ?? "none"}
+              optionTextValue={(option) => option.name}
+              itemToString={(option) => option.name}
+              value={selectedParent()}
+              onChange={(option) => {
+                // Kobalte fires onChange once on mount with the seeded value;
+                // treating that as a pick would re-file the task on render.
+                const id = option?.id ?? null;
+                if (id === parentId()) return;
+                setParentId(id);
+              }}
+            >
+              <Select.Label>父任务</Select.Label>
+              <Select.Trigger>
+                <Select.Value>{selectedParent().name}</Select.Value>
+                <Select.Icon />
+              </Select.Trigger>
+              <Select.Content>
+                <Select.Listbox />
+              </Select.Content>
+            </Select.Root>
 
             <Select.Root
               options={PRIORITY_OPTIONS}

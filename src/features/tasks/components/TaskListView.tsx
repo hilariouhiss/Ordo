@@ -1,10 +1,10 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
-import { completeSubtask, completeTask, softDeleteTask, uncompleteTask } from "../hooks";
+import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
 import { blockersOf, buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
-import { getSubtasks, tasksState } from "../store";
-import type { Priority, Subtask, Task } from "../types";
+import { getTask, tasksState } from "../store";
+import type { Priority, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
 import { SubtaskRow } from "./SubtaskRow";
 import { TaskDetailDialog } from "./TaskDetailDialog";
@@ -21,17 +21,21 @@ const ROW_HEIGHT = 56;
  * One rendered line. The tree is flattened into this, so every row keeps the
  * same 56px height the virtualizer assumes — teaching `VirtualList` to measure
  * variable rows would mean rewriting a primitive four other views depend on.
+ *
+ * `child` covers both shapes a child takes under rule A: tucked under its
+ * parent row, or standing in as a top-level row of its own when the parent is
+ * not in this view (it then carries the parent's title as a prefix).
  */
 type ListRow =
   | {
       kind: "task";
       task: Task;
-      subtaskCount: number;
-      subtaskDone: number;
+      childCount: number;
+      childDone: number;
       /** Prerequisites still unfinished; 0 means the row is not blocked. */
       blockerCount: number;
     }
-  | { kind: "subtask"; task: Task; subtask: Subtask; blocked: boolean };
+  | { kind: "child"; task: Task; blocked: boolean; parentTitle: string | null };
 
 export type SortOption = { value: SortMode; label: string };
 
@@ -58,6 +62,28 @@ const PRIORITY_FILTER_OPTIONS: Array<{ value: Priority | "all"; label: string }>
  */
 const FILTER_CLASS =
   "flex h-8 select-none items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:text-foreground focus-ring";
+
+/**
+ * Children of every task in the snapshot, keyed by parent id and sorted by
+ * `sortOrder` — the same order `childrenOf` hands back, built in one pass.
+ *
+ * Asking `childrenOf` per row instead would be O(n²) over the render pass:
+ * it filters (and sorts) the whole snapshot every call, and the 10k-row
+ * virtualization case in `task-views.test.tsx` is exactly that shape.
+ */
+function groupChildren(tasks: readonly Task[]): Map<string, Task[]> {
+  const byParent = new Map<string, Task[]>();
+  for (const task of tasks) {
+    if (task.parentTaskId === null) continue;
+    const siblings = byParent.get(task.parentTaskId);
+    if (siblings) siblings.push(task);
+    else byParent.set(task.parentTaskId, [task]);
+  }
+  for (const siblings of byParent.values()) {
+    siblings.sort((a, b) => (a.sortOrder < b.sortOrder ? -1 : a.sortOrder > b.sortOrder ? 1 : 0));
+  }
+  return byParent;
+}
 
 export interface TaskListViewProps {
   /** Page title. Omitted where a parent header already names the view (the
@@ -95,15 +121,27 @@ export function TaskListView(props: TaskListViewProps) {
   // Captured once so day boundaries don't flap between rows mid-render.
   const [now] = createSignal(new Date());
 
-  const visible = createMemo(() =>
-    sortTasks(
-      applyFilter(props.tasks(), { priority: priorityFilter(), tagIds: tagFilter() }),
-      sortMode(),
-      tasksState.tags,
-    ),
-  );
+  // The view predicate (今天/收件箱/…) already ran; this adds the toolbar
+  // filters, and §8.6 decides who they touch: a row that stands on its own is
+  // filtered, a child riding under its parent is context and never is.
+  const visible = createMemo(() => {
+    const filter = { priority: priorityFilter(), tagIds: tagFilter() };
+    const all = props.tasks();
+    const top = applyFilter(
+      all.filter((task) => task.parentTaskId === null),
+      filter,
+    );
+    const topIds = new Set(top.map((task) => task.id));
+    const standaloneChildren = applyFilter(
+      all.filter(
+        (task) => task.parentTaskId !== null && !topIds.has(task.parentTaskId as string),
+      ),
+      filter,
+    );
+    return sortTasks([...top, ...standaloneChildren], sortMode(), tasksState.tags);
+  });
 
-  /** Expanded task ids. Local only: the subtasks are already in the store, so
+  /** Expanded task ids. Local only: the children are already in the store, so
    * expanding never hits the backend. */
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
 
@@ -114,44 +152,75 @@ export function TaskListView(props: TaskListViewProps) {
   // per pass, here, and each row is then answered from them: the per-row cost is
   // that row's own prerequisite count, not the size of the graph.
   const rows = createMemo<ListRow[]>(() => {
-    const live = liveSet(tasksState.tasks, tasksState.subtasksByTask);
+    const live = liveSet(tasksState.tasks);
     const index = buildIndex(tasksState.dependencies, live);
-    const done = completionSet(tasksState.tasks, tasksState.subtasksByTask);
-    return visible().flatMap((task) => {
-      const children = getSubtasks(task.id);
-      const head: ListRow = {
+    const done = completionSet(tasksState.tasks);
+    // One pass for the children and one lookup table: both are per-render-pass
+    // derivations, like the dependency index above.
+    const childrenByParent = groupChildren(tasksState.tasks);
+    const byId = new Map(tasksState.tasks.map((task) => [task.id, task]));
+    const matched = visible();
+    // A child the *view* matched opens its parent (rule A): the two paths point
+    // at the same child rows, and the parent's position wins, so nothing is
+    // listed twice. Read from `props.tasks()` and not from `visible()` — a child
+    // whose parent survived the toolbar filter never reaches `visible()` at all,
+    // it is folded into that parent's row.
+    const viewIds = new Set(props.tasks().map((task) => task.id));
+    const autoOpen = new Set(
+      props.tasks()
+        .filter((task) => task.parentTaskId !== null && viewIds.has(task.parentTaskId))
+        .map((task) => task.parentTaskId as string),
+    );
+    const isOpen = (id: string) => Boolean(expanded()[id]) || autoOpen.has(id);
+    const blockedOf = (task: Task) =>
+      task.completedAt === null && isBlocked(index, done, task.id);
+
+    const out: ListRow[] = [];
+    for (const task of matched) {
+      if (task.parentTaskId !== null) {
+        out.push({
+          kind: "child",
+          task,
+          blocked: blockedOf(task),
+          parentTitle: byId.get(task.parentTaskId)?.title ?? "（已删除）",
+        });
+        continue;
+      }
+      const children = childrenByParent.get(task.id) ?? [];
+      out.push({
         kind: "task",
         task,
-        subtaskCount: children.length,
-        subtaskDone: children.filter((child) => child.done).length,
+        childCount: children.length,
+        childDone: children.filter((child) => child.completedAt !== null).length,
         // A finished item is not waiting for anything: it wears no blocked
         // marker, or 已完成 would contradict itself (the task got there through
         // 「仍要完成」, and its prerequisite may still be open).
         blockerCount:
-          task.completedAt === null ? blockersOf(index, done, "task", task.id).length : 0,
-      };
-      if (children.length === 0 || !expanded()[task.id]) return [head];
-      // The return annotation is load-bearing too: without it the literal's
-      // `kind` widens to `string` and the array stops being a `ListRow[]`.
-      return [
-        head,
-        ...children.map(
-          (subtask): ListRow => ({
-            kind: "subtask",
-            task,
-            subtask,
-            blocked: !subtask.done && isBlocked(index, done, "subtask", subtask.id),
-          }),
-        ),
-      ];
-    });
+          task.completedAt === null ? blockersOf(index, done, task.id).length : 0,
+      });
+      // Children ignore the toolbar filters (§8.6): they are context for the
+      // parent row, and hiding one would leave its 0/2 badge lying.
+      if (children.length === 0 || !isOpen(task.id)) continue;
+      for (const child of children) {
+        out.push({ kind: "child", task: child, blocked: blockedOf(child), parentTitle: null });
+      }
+    }
+    return out;
   });
 
   const toggleExpand = (task: Task) =>
     setExpanded((current) => ({ ...current, [task.id]: !current[task.id] }));
 
-  const toggleSubtask = (task: Task, subtask: Subtask, done: boolean) => {
-    void completeSubtask(task.id, subtask.id, done);
+  /** A child row's checkbox: it is a task, so it completes through the task
+   * hooks and the same blocked-confirm gate. */
+  const toggleChild = (child: Task, done: boolean) => {
+    void (done ? completeTask(child.id) : uncompleteTask(child.id));
+  };
+
+  /** The 父任务 prefix of a standalone child row: show the parent. */
+  const openParent = (parentId: string) => {
+    const parent = getTask(parentId);
+    if (parent) openDetail(parent);
   };
 
   const filtered = () => priorityFilter() !== "all" || tagFilter().length > 0;
@@ -201,7 +270,12 @@ export function TaskListView(props: TaskListViewProps) {
             <h1 class="mr-1 shrink-0 text-base font-semibold tracking-tight">{title()}</h1>
           )}
         </Show>
-        <span class="shrink-0 text-xs text-subtle-foreground">{visible().length} 个任务</span>
+        {/* Top-level rows only (§8.7): a child riding under its parent is part
+            of that row, and counting it would make the number change just
+            because a disclosure was opened. */}
+        <span class="shrink-0 text-xs text-subtle-foreground">
+          {visible().filter((task) => task.parentTaskId === null).length} 个任务
+        </span>
 
         <div class="ml-auto flex shrink-0 items-center gap-2">
           {props.toolbarExtra}
@@ -334,15 +408,15 @@ export function TaskListView(props: TaskListViewProps) {
           class="min-h-0 flex-1 overflow-y-auto"
           items={rows()}
           itemHeight={ROW_HEIGHT}
-          getKey={(row) => (row.kind === "task" ? row.task.id : row.subtask.id)}
+          getKey={(row) => row.task.id}
         >
           {(row) =>
             row.kind === "task" ? (
               <TaskItemRow
                 task={row.task}
                 now={now()}
-                subtaskCount={row.subtaskCount}
-                subtaskDone={row.subtaskDone}
+                subtaskCount={row.childCount}
+                subtaskDone={row.childDone}
                 blocked={row.blockerCount > 0}
                 blockerCount={row.blockerCount}
                 expanded={Boolean(expanded()[row.task.id])}
@@ -354,11 +428,12 @@ export function TaskListView(props: TaskListViewProps) {
               />
             ) : (
               <SubtaskRow
-                subtask={row.subtask}
-                parent={row.task}
+                task={row.task}
+                parentTitle={row.parentTitle}
                 blocked={row.blocked}
-                onToggleDone={toggleSubtask}
+                onToggleDone={toggleChild}
                 onOpenDetail={openDetail}
+                onOpenParent={openParent}
               />
             )
           }
