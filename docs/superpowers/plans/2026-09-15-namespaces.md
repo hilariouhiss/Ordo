@@ -3318,11 +3318,7 @@ Expected: 三条 PASS；typecheck 零输出
 
 - [ ] **Step 6: 文档同步 + 提交**
 
-`docs/ARCHITECTURE.md` §2.1 的目录树里，`features/` 下加：
-
-```
-│   ├── namespaces/               # 命名空间（项目分组 + 组内汇总）
-```
+`docs/ARCHITECTURE.md` §2.1 的目录树里，`namespaces/` 与 `namespaces/components/` 两行**已经由 Task 8 加好了**（Task 8 的组件清单需要那个目录先存在）。所以这一步只做一件事：把这两行的说明补成覆盖本任务的组件，例如把 `components/` 那行写成 `NamespaceEditorDialog / NamespaceProjectsView / NamespaceDetailView`。**不要重复添加目录行**，否则树里会出现两条 `namespaces/`。
 
 并在 §2.2 或 §2.5 之后补一句分组规则（放在 §2.4 路由之前）：
 
@@ -3690,7 +3686,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
                     </div>
                   </div>
 
-                  <DropdownMenu>
+                  <DropdownMenu.Root>
                     <DropdownMenu.Trigger
                       class={iconButtonClass}
                       aria-label={`项目操作 ${project.name}`}
@@ -3712,7 +3708,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
                         </DropdownMenu.Item>
                       </DropdownMenu.Content>
                     </DropdownMenu.Portal>
-                  </DropdownMenu>
+                  </DropdownMenu.Root>
                 </li>
               )}
             </For>
