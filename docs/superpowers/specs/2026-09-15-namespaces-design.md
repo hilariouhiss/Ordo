@@ -159,6 +159,7 @@ namespace:list | create | update | archive | restore
 
 - `activeNamespaces()` / `archivedNamespaces()`：按 `sortOrder`。
 - `isNamespaceLive(id)`：存活集合判定（§5.3 的唯一入口）。
+- `isNamespaceArchived(id)`：命名空间状态判定的唯一出处（`archivedLooseProjects` 用它，而不是就地读 `status`）——`isNamespaceLive` 管「认不认识」，它管「归档没有」，两个问题分开问，派生才不会各自解释一遍状态。
 - `projectsInNamespace(id)`：属于该**存活**命名空间的 `active` 项目。侧边栏分组、命名空间页的项目行、以及该页的汇总切片用的都是它——一个口径，不留第二个「全部存活项目」的变体，也就不会出现「行里显示归档项目、汇总却不算它」的分叉。
 - `ungroupedProjects()`：`namespaceId === null || !isNamespaceLive(namespaceId)`，且 `status === "active"`。
 - `archivedLooseProjects()`：未归属的、孤儿的（`isNamespaceArchived` 为 false）以及归属**未归档**命名空间的已归档项目，留在「已归档」平铺列表；归属**已归档**命名空间的归档项目缩进在那一组下面。

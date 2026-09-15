@@ -2783,6 +2783,8 @@ Expected: 全绿；typecheck 零输出
 
 - [ ] **Step 10: 文档同步 + 提交**
 
+`docs/ARCHITECTURE.md` §2.1 的目录树里，`common/` 下补上这次下沉的三个文件：`icons.ts`（图标表，项目与命名空间共用）、`colors.ts`（预设色板）、`components/palette-picker.tsx`（色板与图标选择器）。
+
 `docs/superpowers/specs/2026-09-15-namespaces-design.md` §6.4(c) 的第一条改成（把「各存活命名空间」这一句补全，说明被编辑项目自己的归档命名空间也在选项里）：
 
 ```markdown

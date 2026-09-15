@@ -74,6 +74,7 @@ src/
 │   ├── tags/                     # 标签
 │   └── settings/                 # 设置（主题/自启/快捷键）
 ├── common/                       # 跨领域共享
+│   ├── optimistic.ts             # 乐观写入的共用件（临时 id / 失败通知 / optimistic 包装，各 feature hooks 共用）
 │   ├── components/               # 通用 UI（Button/Dialog/Dropdown/Skeleton/EmptyState…基于 Kobalte）
 │   ├── ipc/                      # invoke 封装、命令常量、错误归一化
 │   ├── stores/                   # 全局 Store（主题、UI 状态、通知）
