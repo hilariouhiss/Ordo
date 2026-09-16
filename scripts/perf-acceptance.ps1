@@ -13,7 +13,10 @@
 # 安装包 < 30 MB。
 param(
     [switch]$SkipBuild,
-    [int]$Runs = 3
+    [int]$Runs = 3,
+    # 验收数据集规模：1 ≈ 2k 行、2 ≈ 8k 行、5 = 50k 行（见 src-tauri/src/perf.rs）。
+    [ValidateSet("1", "2", "5")]
+    [string]$Scale = "1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,6 +86,9 @@ if ($largest -gt $SIZE_BUDGET_MB) {
 }
 
 Write-Step "命令往返（验收库 + 逐条命令预算；失败即超预算）"
+# 数据集规模同时传给种子与命令往返那条测试；启动计时读的也是这个库。
+$env:ORDO_PERF_SCALE = $Scale
+Write-Host "数据集规模档位：ORDO_PERF_SCALE=$Scale"
 Push-Location $srcTauri
 cargo test --release perf -- --ignored --nocapture --test-threads=1
 if ($LASTEXITCODE -ne 0) { $failures += "有命令超出往返预算（见上面的 [perf] 表）" }

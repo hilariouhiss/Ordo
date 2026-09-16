@@ -125,15 +125,39 @@ mod tests {
     };
     use crate::services;
 
-    // 验收数据集规模：一个「用了两年」的库。这些数字就是验收记录里引用的规模，
-    // 改了它们就要重跑验收。
-    const NAMESPACES: usize = 6;
-    const PROJECTS: usize = 40;
-    const TASKS_PER_PROJECT: usize = 50;
-    const TAGS: usize = 60;
     /// 每 5 个顶层任务挂 1 个子任务。
     const CHILD_EVERY: usize = 5;
-    const DEPENDENCY_EDGES: usize = 500;
+
+    /// 验收数据集规模：`ORDO_PERF_SCALE=1|2|5` → 约 2k / 8k / 50k 顶层任务行。
+    /// 默认 1（脚本不传就是小档）。规模写进 `[perf] dataset:` 行，验收记录引用的
+    /// 就是它；三档都跑一遍才知道哪条命令的常数项、哪条随行数涨。
+    fn scale() -> usize {
+        std::env::var("ORDO_PERF_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| (1..=5).contains(value))
+            .unwrap_or(1)
+    }
+
+    fn namespaces_count() -> usize {
+        6
+    }
+
+    fn projects_count() -> usize {
+        40 * scale()
+    }
+
+    fn tasks_per_project_count() -> usize {
+        50 * scale()
+    }
+
+    fn tags_count() -> usize {
+        60
+    }
+
+    fn dependency_edges_count() -> usize {
+        500 * scale()
+    }
 
     /// 命令往返预算：NFR 的「任务/项目操作 < 50ms」，统计另按「秒级」算。
     const BUDGET_MS: f64 = 50.0;
@@ -199,7 +223,7 @@ mod tests {
         let mut rng = Rng(2026_0916);
         let now = Utc::now();
 
-        let namespaces: Vec<Namespace> = (0..NAMESPACES)
+        let namespaces: Vec<Namespace> = (0..namespaces_count())
             .map(|i| {
                 services::create_namespace(
                     conn,
@@ -213,7 +237,7 @@ mod tests {
                 .unwrap()
             })
             .collect();
-        let tags: Vec<Tag> = (0..TAGS)
+        let tags: Vec<Tag> = (0..tags_count())
             .map(|i| {
                 services::create_tag(
                     conn,
@@ -235,7 +259,7 @@ mod tests {
         let mut column_anchor_key = String::new();
         let mut column_mover = Uuid::nil();
 
-        for p in 0..PROJECTS {
+        for p in 0..projects_count() {
             let project = services::create_project(
                 conn,
                 NewProject {
@@ -243,7 +267,7 @@ mod tests {
                     description: Some("验收数据集".into()),
                     color: None,
                     icon: None,
-                    namespace_id: Some(namespaces[p % NAMESPACES].id),
+                    namespace_id: Some(namespaces[p % namespaces_count()].id),
                 },
             )
             .unwrap();
@@ -253,7 +277,7 @@ mod tests {
                 column_id = columns[1].id;
             }
 
-            for t in 0..TASKS_PER_PROJECT {
+            for t in 0..tasks_per_project_count() {
                 let task = services::create_task(
                     conn,
                     NewTask {
@@ -272,7 +296,7 @@ mod tests {
                         // 扫描都有东西可扫。
                         due_at: (t % 2 == 0)
                             .then(|| now + Duration::days(rng.below(40) as i64 - 20)),
-                        tag_ids: vec![tags[(p + t) % TAGS].id],
+                        tag_ids: vec![tags[(p + t) % tags_count()].id],
                         complexity: Some((t % 5) as i64 + 1),
                         ..draft(String::new())
                     },
@@ -333,8 +357,11 @@ mod tests {
             }
         }
 
-        let step = (pool.len() / DEPENDENCY_EDGES).max(1);
-        for i in (step..pool.len()).step_by(step).take(DEPENDENCY_EDGES) {
+        let step = (pool.len() / dependency_edges_count()).max(1);
+        for i in (step..pool.len())
+            .step_by(step)
+            .take(dependency_edges_count())
+        {
             services::add_dependency(
                 conn,
                 Dependency {
@@ -438,7 +465,12 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
             .unwrap();
         println!(
-            "[perf] dataset: {NAMESPACES} 命名空间 / {PROJECTS} 项目 / {TAGS} 标签 / {rows} 任务行 / {DEPENDENCY_EDGES} 依赖边"
+            "[perf] dataset (scale {}): {} 命名空间 / {} 项目 / {} 标签 / {rows} 任务行 / {} 依赖边",
+            scale(),
+            namespaces_count(),
+            projects_count(),
+            tags_count(),
+            dependency_edges_count()
         );
         println!("[perf] command-roundtrip (服务层 + 响应序列化, {ROUNDS} 轮/命令):");
 
