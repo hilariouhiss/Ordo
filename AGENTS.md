@@ -2,9 +2,9 @@
 
 ## What this is
 
-`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 42 commands (`src-tauri/src/commands.rs`); schema is at migration V9.
+`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 43 commands (`src-tauri/src/commands.rs`); schema is at migration V9.
 
-Outstanding verification work (performance targets, three-platform checks) is listed in `docs/DECISIONS.md`§4.
+Outstanding verification work (animation/accessibility review, three-platform checks) is listed in `docs/DECISIONS.md`§4. The performance targets are measured — see `docs/ARCHITECTURE.md`§6.1.
 
 ## Stack / layout
 
@@ -25,6 +25,7 @@ Outstanding verification work (performance targets, three-platform checks) is li
 - `pnpm tauri dev` — full app in dev mode (runs `pnpm dev` then launches the Rust window).
 - `pnpm tauri build` — full release build/bundle.
 - Rust (inside `src-tauri/`): `cargo check`, `cargo test`, `cargo build`. No CI runs the linters, so run them by hand — `cargo fmt` (the tree is rustfmt-clean, default config) and `cargo clippy --all-targets -- -D warnings` must both come back silent.
+- `pwsh -File scripts/perf-acceptance.ps1` — Q-01 performance acceptance: release build, bundle size, per-command round trips, cold/hot start. Add `-SkipBuild` to reuse existing artifacts. Details and the recorded numbers: `docs/ARCHITECTURE.md`§6.1.
 
 ## Documentation
 

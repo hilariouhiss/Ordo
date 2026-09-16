@@ -16,6 +16,7 @@ import {
   Sun,
 } from "lucide-solid";
 import { listen } from "@tauri-apps/api/event";
+import { mark, markInteractive } from "../common/perf";
 import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
@@ -442,11 +443,18 @@ export default function AppShell() {
   // the one-shot initial loads (retried by navigation remounts until they
   // succeed) and the app-lifetime reminder event subscription.
   onMount(() => {
-    if (!namespacesState.loaded) void loadNamespaces();
-    if (!projectsState.loaded) void loadProjects();
-    // The tree lists each project's unfinished tasks, so the shell needs the
-    // task snapshot itself — it cannot wait for a task view to mount first.
-    if (!tasksState.loaded) void loadTasks();
+    // Q-01 性能验收的分界点：外壳挂载（路由与懒加载的视图 chunk 都已就位）。
+    mark("shell-mounted");
+    const initialLoads = [
+      namespacesState.loaded ? undefined : loadNamespaces(),
+      projectsState.loaded ? undefined : loadProjects(),
+      // The tree lists each project's unfinished tasks, so the shell needs the
+      // task snapshot itself — it cannot wait for a task view to mount first.
+      tasksState.loaded ? undefined : loadTasks(),
+    ];
+    // Q-01 性能验收：「首屏可交互」= 外壳的这几笔一次性加载都落地了（失败的也算
+    // 落地，否则一次断网就让验收拿不到数字）。
+    void Promise.allSettled(initialLoads).then(markInteractive);
     void subscribeToReminders();
     // The quick-add window (D-02) is a separate webview with its own store, so
     // a task filed there stays invisible here until the list is pulled again.

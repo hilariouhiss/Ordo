@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod error;
 pub mod models;
+mod perf;
 pub mod repositories;
 pub(crate) mod scheduler;
 pub mod services;
@@ -17,6 +18,9 @@ pub use error::AppError;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Q-01 的地基：进程起点。之后再没有哪个时刻比这里更早。
+    perf::mark_start();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -68,14 +72,22 @@ pub fn run() {
             commands::stats_time_distribution,
             commands::backup_export,
             commands::backup_import,
+            commands::perf_ready,
         ])
         .setup(|app| {
+            // Q-01 的启动分界点：Tauri 在调用本闭包**之前**已经建好了主窗口与
+            // 它的 WebView，所以这一行的读数 = 事件循环 + 主 WebView 创建。
+            perf::note_now("webview-main");
             let db = db::init(&db_path(app)?)?;
+            perf::note_now("db");
             app.manage(db.clone());
             scheduler::spawn(app.handle().clone(), db);
             tray::init(app.handle())?;
+            perf::note_now("tray");
+            // 这一步会建 quick-add 小窗（第二个 WebView），是启动路径上最后一块。
             shortcut::init(app.handle())?;
             shortcut::register(app.handle());
+            perf::note_now("backend-ready");
             Ok(())
         })
         // Closing the window parks the app in the tray (D-01); 退出 in the tray
@@ -98,11 +110,20 @@ pub fn run() {
 }
 
 /// Resolves the on-disk location of the SQLite database.
+///
+/// `ORDO_DB` overrides it: the Q-01 acceptance run measures startup against a
+/// seeded database and must not touch the user's own.
 fn db_path(app: &tauri::App) -> Result<PathBuf, AppError> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::Db(e.to_string()))?;
-    std::fs::create_dir_all(&dir).map_err(|e| AppError::Db(e.to_string()))?;
-    Ok(dir.join("ordo.db"))
+    let path = match std::env::var_os("ORDO_DB") {
+        Some(custom) => PathBuf::from(custom),
+        None => app
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::Db(e.to_string()))?
+            .join("ordo.db"),
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| AppError::Db(e.to_string()))?;
+    }
+    Ok(path)
 }

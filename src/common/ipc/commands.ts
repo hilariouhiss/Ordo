@@ -69,6 +69,9 @@ export const COMMANDS = {
     export: "backup:export",
     import: "backup:import",
   },
+  perf: {
+    ready: "perf:ready",
+  },
 } as const;
 
 type ValueOf<T> = T[keyof T];

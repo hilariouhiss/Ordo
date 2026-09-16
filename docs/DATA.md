@@ -132,6 +132,8 @@ V2–V9 之后的索引清单：
 
 **查询计划由单测断言**：`repositories::stats::tests::statistics_queries_are_index_backed` 用 `EXPLAIN QUERY PLAN` + 代表性绑定值，要求出现这些子串——趋势 `SEARCH tasks USING INDEX idx_tasks_parent_completed`；分桶与项目份额 `SEARCH e USING INDEX idx_time_entries_started_at`；项目进度 `SEARCH t USING INDEX idx_tasks_project`。全表 SCAN 即测试失败（不是运行时断言）。改动统计 SQL 或索引时必须同步跑这些测试。
 
+同一条规矩也管着走**启动路径**的依赖读：`repositories::tests::dependencies_live_edges_seek_the_primary_key` 要求 `task_dependencies` 的两个端点各是一次 seek，且不出现 `SCAN tasks`。这条断言有来历：谓词写成 `IN (SELECT id FROM tasks WHERE deleted_at IS NULL)` 时，规划器会对每条边重扫一遍 `tasks`（2825 个任务时实测 637 ms，`EXISTS` 版本 0.9 ms），而 `dependency:listAll` 每次启动都要跑（[ARCHITECTURE](./ARCHITECTURE.md)§6.1）。
+
 **已知的索引取舍**（V9 注释里记着）：`idx_tasks_completed_at` 保留为全表口径的通用索引；`idx_tasks_parent` 保留——它的前缀查询已被复合索引覆盖，但它本身更窄，仍是 `list_by_parent` 那类查询的自然选择。只按 `completed_at` 建的部分索引，规划器不选。
 
 ## 5. 备份文档格式

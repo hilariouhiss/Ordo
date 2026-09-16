@@ -215,7 +215,7 @@
 
 ## 8. 非功能目标
 
-这些是**目标值**，尚未完成系统性验收（见 [DECISIONS.md](./DECISIONS.md) 未完成项）。
+下表是**目标值**。体积与命令往返已达标并有实测记录（Windows，含口径与验收数据集）；启动耗时只达标一半——冷启动视 WebView2 运行时缓存 0.86–1.6 s，热启动 0.73–0.84 s。数字、口径与缺口见 [ARCHITECTURE](./ARCHITECTURE.md)§6.1 与 [DECISIONS](./DECISIONS.md)§4；动效、无障碍与 macOS / Linux 一致性仍待验收。
 
 | 维度 | 目标 |
 | --- | --- |

@@ -1,4 +1,6 @@
 /* @refresh reload */
+// 第一行副作用引入：性能验收的页面内计时从这个模块被求值时开始（Q-01）。
+import "./common/perf";
 import { Show } from "solid-js";
 import { render } from "solid-js/web";
 import { getCurrentWindow } from "@tauri-apps/api/window";

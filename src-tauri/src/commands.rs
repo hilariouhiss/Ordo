@@ -343,3 +343,13 @@ pub fn stats_time_distribution(
 ) -> Result<TimeDistribution, AppError> {
     with_conn(&db, |conn| services::time_distribution(conn, query))
 }
+
+// --- perf:* ----------------------------------------------------------------
+
+/// Q-01 性能验收的接收端：前端在首屏可交互时把启动与命令耗时交回来，后端在
+/// `ORDO_PERF=1` 时打印（见 `perf.rs`）。没有返回值，也没有失败路径——量不到
+/// 数据不该让用户看见错误。
+#[tauri::command(rename = "perf:ready")]
+pub fn perf_ready(report: crate::perf::StartupReport) {
+    crate::perf::report_startup(report);
+}

@@ -1642,16 +1642,20 @@ pub mod dependencies {
     /// returns. Soft-deleted endpoints are filtered out rather than their edges
     /// deleted, so deleting a prerequisite unblocks its dependents and
     /// restoring it brings the relation back.
+    ///
+    /// `EXISTS`, not `IN (SELECT …)`: the planner turns the latter into a
+    /// per-probe re-scan of `tasks` (measured on a 2825-task database: 637 ms
+    /// vs 0.9 ms, with `EXPLAIN QUERY PLAN` showing `SCAN tasks` under a LIST
+    /// SUBQUERY). Both forms return the same edges; this one seeks the primary
+    /// key once per endpoint — and this read is on the startup path.
+    /// `dependencies_live_edges_seek_the_primary_key` holds the plan in place.
+    pub(super) const LIVE_SQL: &str = "SELECT task_id, depends_on FROM task_dependencies d \
+         WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.id = d.task_id AND t.deleted_at IS NULL) \
+           AND EXISTS (SELECT 1 FROM tasks p WHERE p.id = d.depends_on AND p.deleted_at IS NULL) \
+         ORDER BY task_id, depends_on";
+
     pub fn list_live(conn: &Connection) -> Result<Vec<Dependency>, AppError> {
-        query_all(
-            conn,
-            "SELECT task_id, depends_on FROM task_dependencies d \
-             WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
-               AND depends_on IN (SELECT id FROM tasks WHERE deleted_at IS NULL) \
-             ORDER BY task_id, depends_on",
-            &[],
-            edge_from_row,
-        )
+        query_all(conn, LIVE_SQL, &[], edge_from_row)
     }
 
     /// Every edge, soft-deleted endpoints included: a backup is a copy of the
@@ -1744,6 +1748,35 @@ mod tests {
 
     fn ts(minutes: i64) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 9, 9, 10, 0, 0).unwrap() + chrono::Duration::minutes(minutes)
+    }
+
+    /// The planner's explanation of `sql`, one detail line per step.
+    fn plan_of(conn: &Connection, sql: &str) -> String {
+        let mut stmt = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .expect("prepare explain");
+        let details: Vec<String> = stmt
+            .query_map([], |row| row.get("detail"))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        details.join(" | ")
+    }
+
+    /// `dependency:listAll` runs at every startup, and its former
+    /// `IN (SELECT id FROM tasks …)` form cost 637 ms on a 2825-task database:
+    /// the planner re-scanned `tasks` once per edge. Both endpoints must be a
+    /// seek instead (Q-01 acceptance caught this).
+    #[test]
+    fn dependencies_live_edges_seek_the_primary_key() {
+        let plan = plan_of(&conn(), dependencies::LIVE_SQL);
+
+        assert!(plan.contains("SEARCH t EXISTS"), "{plan}");
+        assert!(plan.contains("SEARCH p EXISTS"), "{plan}");
+        assert!(
+            !plan.contains("SCAN tasks"),
+            "list_live scans tasks instead of seeking: {plan}"
+        );
     }
 
     fn sample_task(sort_order: &str) -> Task {

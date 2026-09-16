@@ -50,6 +50,7 @@ src/
 │   ├── colors.ts              # 预设色板（项目与命名空间共用；null = 无颜色）
 │   ├── icons.ts               # 图标表（按名字解析成 lucide 组件）
 │   ├── optimistic.ts          # 乐观写入共用件（临时 id / 失败通知 / optimistic 包装）
+│   ├── perf.ts                # 性能验收计时（Q-01）：启动与命令往返样本、上报
 │   ├── components/            # 通用 UI（基于 Kobalte 二次封装）+ index.ts 桶文件
 │   │   └── badge / button / checkbox / date-field / dialog / dropdown-menu /
 │   │       empty-state / palette-picker / popover / select / skeleton / tabs /
@@ -90,11 +91,11 @@ src/
     └── settings/              # 设置（主题 / 自启 / 备份）
 ```
 
-标签域没有独立目录：标签管理 UI 在 `features/tasks/components/TagManagerDialog.tsx`，色板等共享件在 `common/`。测试与源码同域存放于各自的 `__tests__/`（共 56 个测试文件，Vitest）；`src/common/components/__tests__/setup.ts` 是共享的 jsdom 测试环境。
+标签域没有独立目录：标签管理 UI 在 `features/tasks/components/TagManagerDialog.tsx`，色板等共享件在 `common/`。测试与源码同域存放于各自的 `__tests__/`（共 55 个测试文件，Vitest）；`src/common/components/__tests__/setup.ts` 是共享的 jsdom 测试环境。
 
 ### 2.2 边界规则
 
-- **`features/*/api.ts` 是唯一能直接调用 `invoke` 的地方**；组件与 store 只调用本 feature 的 `api.ts` 或 `hooks.ts`。
+- **`features/*/api.ts` 是唯一能直接调用 `invoke` 的地方**；组件与 store 只调用本 feature 的 `api.ts` 或 `hooks.ts`。唯一例外是 `common/perf.ts`：它的 `perf:ready` 上报必须绕开 `invokeCommand`（否则这条量测命令会把自己计进样本），代价是它拿不到错误归一化——那条路径本来也不该让用户看见错误（§6.1）。
 - **`features` 之间不互相 import 内部实现**，共享逻辑下沉到 `common/`。
 - 跨视图的「跳转到任务」交互（如搜索命中）经由 `common/stores/taskViewer.ts` 记录聚焦 id，由 app 层的 `TaskViewer.tsx` 托管任务详情/编辑弹窗——**app 装配层是唯一组合各 feature UI 的地方**。
 - 组件不直接操作 store 的原始数据，通过 `hooks.ts` 暴露的语义化动作（`completeTask`、`moveTaskToColumn`）变更，便于在动作里统一做乐观更新与同步。
@@ -213,18 +214,19 @@ scheduler.rs    ← 后台提醒线程：定时调用 services::scan_reminders�
                   把新触发的提醒以 `reminder:triggered` 事件广播给前端
 tray.rs         ← 系统托盘
 shortcut.rs     ← 全局快捷键 + quick-add 小窗生命周期
+perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报的接收与打印、验收数据集
 ```
 
 - 单向向下：`commands → services → repositories → (models, db)`；`scheduler → services`（不经 commands）。
 - 禁止跨层反向依赖；`models` 是被依赖的叶子层，不含 SQL 或业务逻辑。
 - `repositories` 用**纯函数**接受 `&Connection`（而非 trait），测试时用 in-memory SQLite + 真实迁移，比 mock 更可信。不引入 repository trait 抽象。
-- 模块可见性：`models`、`repositories`、`services`、`sort` 是 `pub mod`（供集成测试与库消费），`commands`/`db`/`error`/`scheduler`/`shortcut`/`tray` 私有。
+- 模块可见性：`models`、`repositories`、`services`、`sort` 是 `pub mod`（供集成测试与库消费），`commands`/`db`/`error`/`scheduler`/`shortcut`/`tray`/`perf` 私有。
 
 ### 3.2 命令面
 
 命令统一放在 `commands.rs`，命名 `<domain>:<action>`，Rust 侧用 `#[tauri::command(rename = "task:list")]` 注册（函数名保持合法标识符如 `task_list`）；参数键为 camelCase（Tauri 2 默认，`task_id` → `taskId`）。前端字符串常量集中在 `src/common/ipc/commands.ts`，避免散落魔法字符串。
 
-后端**实际注册 42 个命令**（`lib.rs` 的 `invoke_handler`）：
+后端**实际注册 43 个命令**（`lib.rs` 的 `invoke_handler`）：
 
 | 域 | 命令 |
 | --- | --- |
@@ -239,10 +241,13 @@ shortcut.rs     ← 全局快捷键 + quick-add 小窗生命周期
 | time | `list` `create` `update` `delete` `start` `stop` |
 | stats | `trend` `projectProgress` `timeDistribution` |
 | backup | `export` `import` |
+| perf | `ready` |
 
 约定：每个命令返回 `Result<T, AppError>`；**任何返回任务行的命令都返回 `TaskWithTags`**（`Task` 字段打平在顶层 + 一个 `tagIds` 键），前端无条件读 `tagIds`，所以没有哪个写路径可以只回裸行。`board:listColumns` 对不存在的项目返回空数组（不报错），`comment:list` / `time:list` 也不校验任务存在。
 
-**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（42 个）。
+**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（43 个）。
+
+`perf:ready` 是唯一一个**不返回 `Result`、也不碰数据库**的命令：前端把启动与命令耗时交回来，后端在 `ORDO_PERF=1` 时打到 stdout（见 §6.1）。没有它，应用自己就不知道「首屏可交互」是哪一刻。
 
 **事件面**（反向通道，常量在 `src/common/ipc/events.ts`）：
 
@@ -255,7 +260,7 @@ shortcut.rs     ← 全局快捷键 + quick-add 小窗生命周期
 ### 3.3 状态与事务
 
 - SQLite 连接由 `db::Db = Arc<Mutex<Connection>>` 作为 Tauri 托管状态共享；`Mutex` 串行化写，`Arc` 让后台提醒线程与命令处理器共享同一连接——**所有 IPC 与调度线程都在这一个锁上排队**。
-- 数据库文件位置：`app_data_dir()/ordo.db`（`lib.rs::db_path`，目录不存在则创建）。
+- 数据库文件位置：`app_data_dir()/ordo.db`（`lib.rs::db_path`，目录不存在则创建）；环境变量 `ORDO_DB` 可以覆盖这个路径（Q-01 验收用它指向预置的验收库，不碰用户自己的数据）。
 - 迁移在 `db.rs` 用 `refinery::embed_migrations!` 内嵌 `src-tauri/migrations/*.sql`，连接建立时执行；`db.rs` 同时断言外键确实处于启用状态。
 - 多步写操作（创建任务 + 关联标签 + 插入子任务行、看板移动、备份导入、级联软删/恢复等）在 `services` 层用 `unchecked_transaction` 包裹，保证原子性。
 - 时间戳与 UUID 统一在**后端生成**（`chrono` / `uuid`），前端不生成主键；同一次操作里的多行写入共用同一个 `now`。
@@ -301,6 +306,7 @@ shortcut.rs     ← 全局快捷键 + quick-add 小窗生命周期
 | `pnpm test` / `pnpm test:watch` | Vitest（单元测试） |
 | `pnpm tauri dev` | 完整应用（跑 `pnpm dev` 后拉起 Rust 窗口） |
 | `pnpm tauri build` | 完整发布构建/打包 |
+| `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
 没有配置 ESLint/Prettier；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.0`；主窗口 1120×740、最小 720×520、居中、`csp: null`。
@@ -379,3 +385,49 @@ shortcut.rs     ← 全局快捷键 + quick-add 小窗生命周期
 | 体积小（<30 MB） | Tauri release 优化（LTO/strip/panic=abort/codegen-units=1）；路由懒加载按需打包；不引重型库（无动画/图表/DnD/UI 库）；图表自绘 SVG；虚拟滚动自研；不打包 Web 字体 |
 | 响应快 | 冷启动（全量加载在预算内）；命令往返 <50ms；统计走聚合索引秒级返回；FTS5 全文检索 |
 | 三端一致 | 同一份前端代码；全局快捷键与托盘按平台适配（macOS `⌘⇧Space`）；Linux 托盘依赖 appindicator 运行时 |
+
+体积与命令往返已达标、启动耗时未全部达标，实测数字与口径见 §6.1。
+
+### 6.1 性能验收（Q-01）
+
+**跑法**：`pwsh -File scripts/perf-acceptance.ps1`（`-SkipBuild` 复用已有产物）。一条命令按「构建 → 体积 → 命令往返 → 启动」跑完四项，与 [PRODUCT](./PRODUCT.md)§8 的目标值逐项对账，全部量完再一起报结论，有超预算项就以非零码退出。它拒绝在锁屏的会话里跑：锁屏时 Windows 限制窗口创建与 WebView 渲染，启动时间会放大 2–4 倍（本机实测同一份二进制：解锁 730 ms、锁屏 2.2 s）。
+
+**怎么量**：
+
+| 项 | 怎么量 |
+| --- | --- |
+| 启动 | **应用自己计时**，不用外部秒表——「首屏可交互」只有它自己知道是哪一刻。`perf.rs::mark_start()` 在 `run()` 第一行记下进程起点；`setup` 里四个分界点标出「主 WebView 建好 → DB → 托盘 → 后端就绪」；前端 `common/perf.ts` 记页面时间线（导航起算的 `module` / `shell-mounted` / `interactive`）与每条命令的往返耗时，在首屏可交互时经 `perf:ready` 交回后端；后端在 `ORDO_PERF=1` 时把 `[perf]` 行打到 stdout，脚本重定向收走 |
+| 命令往返 | `cargo test --release perf -- --ignored`：在验收库上逐条命令跑 20 轮，每轮把响应 `serde_json::to_string`（跨 IPC 的正是这个字符串），**平均**超预算即失败——单次毛刺在共享机器上不可控，最大值照样打印出来供人判断 |
+| 体积 | 直接量 `target/release/bundle` 的产物 |
+
+**验收数据集**：`ORDO_DB` 把库指到 `src-tauri/target/perf/ordo.db`——6 命名空间 / 40 项目 / 60 标签 / 2825 任务行 / 500 依赖边，由 `perf.rs` 的种子测试走真实服务层灌入。启动计时也跑在它上面：空库谁都能过。全程不读不写用户自己的库。
+
+**口径**：
+
+- 「首屏可交互」= 外壳那三笔一次性加载（命名空间 / 项目 / 任务树）都落地。更早的 `shell-mounted`（外壳已画出、数据还没到）一并记录，但不作为达标口径。
+- 「冷启动」= 构建后第一次启动。它的磁盘缓存取决于此前有没有启动过 WebView2 应用，所以它是冷启动的**下界**，系统重启后的冷启动只会更慢。
+- 「热启动」= 同一会话内后续各次的最大值（保守口径）。
+
+**实测记录**（2026-09-16，Windows 11 x64，release 构建，屏幕解锁且机器空闲，两次会话）：
+
+| 项 | 目标 | 实测 |
+| --- | --- | --- |
+| 冷启动（进程启动 → 首屏可交互） | < 1500 ms | 860 ms（WebView2 运行时缓存已热）/ 1619 ms（该二进制首次启动、运行时缓存冷） |
+| 热启动 | < 500 ms | **730–840 ms，未达标**（两次会话：730 / 753 与 821 / 836） |
+| 命令往返（最慢一条 `task:list`，2825 行） | < 50 ms | 11.6–16.5 ms；`board:moveTask` 8.0–8.6、`task:create` 8.1–11.8，其余 ≤1 ms |
+| 统计查询（三个 `stats:*`） | 秒级 | 0.3–1.1 ms |
+| 安装包 | < 30 MB | NSIS 2.8 MB、MSI 3.9 MB（裸二进制 8.1 MB） |
+
+**热启动的 730 ms 花在哪**（一轮明细，进程起点起算）：
+
+| 阶段 | 实测 |
+| --- | --- |
+| 事件循环 + 主窗口与它的 WebView | 320–440 ms（WebView2 运行时缓存冷时 1068 ms） |
+| DB 迁移 + 托盘 | +12 ms |
+| quick-add 小窗（第二个 WebView）+ 全局快捷键 | +123 ms |
+| 页面：脚本加载 → 外壳挂载 | 再 +175 ms（导航起算 100 → 175 ms） |
+| 首屏数据落地（任务 + 标签 + 依赖 + 项目 + 命名空间） | 再 +268 ms（导航起算 → 443 ms） |
+
+**两处缺口与可选手段**：热启动超出目标约 1.5–1.7 倍。能省的两处都要付代价——把 quick-add 小窗改成按下快捷键时才建（省约 123 ms，代价是第一次唤出要等 WebView 起来，D-02 特意没这么做），或启动时不拉整棵树（省约 270 ms，与 [DECISIONS](./DECISIONS.md)§1.2「`task:list` 一次带走整棵树」冲突）。两项都没做，理由与缺口记在 [DECISIONS](./DECISIONS.md)§4。
+
+**量的时候避开两个坑**：并行编译时量出的 2.4 s 与锁屏时的 2.2 s 都不是应用的成本（脚本拦得住锁屏，拦不住并行的编译任务）。另外，命令往返那一项量的是服务层 + 响应序列化，**不含 IPC 传输与页面主线程排队**：真机启动那一轮 5 条命令并发、页面同时在挂载外壳，实测每条 50–135 ms——所以「命令往返 <50 ms」目前的证据是服务层的，含 IPC 的稳态往返还没有单独量过。
