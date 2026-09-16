@@ -23,6 +23,7 @@ import type {
   NewTask,
   Tag,
   Task,
+  TaskPage,
   TimeEntry,
   UpdateComment,
   UpdateTag,
@@ -68,6 +69,43 @@ function missingEntity(what: string): null {
 }
 
 // --- loading -----------------------------------------------------------------
+
+/** 装载中的范围：并发调用复用同一个请求（导航重挂载会同时发起两次）。 */
+const inFlightScopes = new Map<string, Promise<boolean>>();
+
+/**
+ * Guarantees a scope is loaded: already loaded returns at once, a call in flight
+ * is reused, otherwise the loader runs once and its page is installed. A failure
+ * lands in `scopeMeta.error` (the view's retry reads it) and leaves the scope
+ * unloaded, so the next call retries. `force` is the retry button's path: it
+ * re-runs the loader even for a scope that already loaded.
+ */
+export function ensureScope(
+  scope: string,
+  load: () => Promise<TaskPage>,
+  force = false,
+): Promise<boolean> {
+  if (!force && store.scopeMetaOf(scope).loaded) return Promise.resolve(true);
+  const running = inFlightScopes.get(scope);
+  if (running) return running;
+
+  const request = (async () => {
+    store.markScopeLoading(scope, true);
+    try {
+      store.installPage(scope, await load(), false);
+      return true;
+    } catch (error) {
+      const failure = normalizeError(error);
+      store.markScopeError(scope, failure.message);
+      return false;
+    } finally {
+      inFlightScopes.delete(scope);
+    }
+  })();
+
+  inFlightScopes.set(scope, request);
+  return request;
+}
 
 /** Loads all tasks (children included, with tagIds), tags and every dependency
  * edge; returns success. */

@@ -111,6 +111,33 @@ export function tasks(): Task[] {
   return rows.sort(bySortOrder);
 }
 
+/**
+ * A scope's rows in the scope's own order (the server's `ORDER BY`). The
+ * transitional `tasks()` sorts by key because the `all` snapshot arrives in one
+ * shot; a real scope arrives already ordered and is not re-sorted here.
+ */
+export function scopeRows(scope: string): Task[] {
+  const ids = state.scopes[scope] ?? [];
+  const rows: Task[] = [];
+  for (const id of ids) {
+    const task = state.byId[id];
+    if (task) rows.push(task);
+  }
+  return rows;
+}
+
+export function scopeMetaOf(scope: string): ScopeMeta {
+  return (
+    state.scopeMeta[scope] ?? {
+      loaded: false,
+      loading: false,
+      hasMore: false,
+      cursor: null,
+      error: null,
+    }
+  );
+}
+
 export function getTask(id: string): Task | undefined {
   return state.byId[id];
 }
@@ -181,6 +208,47 @@ export function taskIndex(id: string): number {
 }
 
 // --- scope plumbing ----------------------------------------------------------
+
+/** The view shows its skeleton off this. */
+export function markScopeLoading(scope: string, loading: boolean): void {
+  setState("scopeMeta", scope, (meta: ScopeMeta | undefined) => ({
+    loaded: meta?.loaded ?? false,
+    loading,
+    hasMore: meta?.hasMore ?? false,
+    cursor: meta?.cursor ?? null,
+    error: loading ? null : (meta?.error ?? null),
+  }));
+}
+
+/** A failed load lands here; the view's retry button reads it. */
+export function markScopeError(scope: string, message: string): void {
+  setState("scopeMeta", scope, (meta: ScopeMeta | undefined) => ({
+    loaded: meta?.loaded ?? false,
+    loading: false,
+    hasMore: meta?.hasMore ?? false,
+    cursor: meta?.cursor ?? null,
+    error: message,
+  }));
+}
+
+/** `project:<id>` 的装载清单；未装载的项目范围不凭空造。 */
+function projectScopeKey(projectId: string | null): string | null {
+  return projectId === null ? null : `project:${projectId}`;
+}
+
+/** 把一行加进它所属的项目范围（若那个范围已装载）。 */
+function indexProjectScope(draft: TasksState, task: Task): void {
+  const scope = projectScopeKey(task.projectId);
+  if (scope === null || draft.scopes[scope] === undefined) return;
+  if (!draft.scopes[scope].includes(task.id)) draft.scopes[scope] = [...draft.scopes[scope], task.id];
+}
+
+/** 把一行从某个项目范围里摘掉。 */
+function unindexProjectScope(draft: TasksState, task: Task): void {
+  const scope = projectScopeKey(task.projectId);
+  if (scope === null || draft.scopes[scope] === undefined) return;
+  draft.scopes[scope] = draft.scopes[scope].filter((id) => id !== task.id);
+}
 
 function indexChild(draft: TasksState, parentId: string, childId: string): void {
   const siblings = draft.childrenByParent[parentId] ?? [];
@@ -306,12 +374,16 @@ export function upsertTask(task: Task): void {
         moveChildIndex(draft, task.id, previous.parentTaskId, task.parentTaskId);
       }
       insertRow(draft, task);
-      // Transitional: `all` feeds the views, so a brand-new row (the optimistic
-      // create) has to show up right away — even before any snapshot loaded,
-      // exactly as it did when the store held a plain array.
       if (isNew) {
+        indexProjectScope(draft, task);
+        // Transitional: `all` feeds the views, so a brand-new row (the optimistic
+        // create) has to show up right away — even before any snapshot loaded,
+        // exactly as it did when the store held a plain array.
         const ids = draft.scopes.all ?? [];
         if (!ids.includes(task.id)) draft.scopes.all = [...ids, task.id];
+      } else if (previous.projectId !== task.projectId) {
+        unindexProjectScope(draft, previous);
+        indexProjectScope(draft, task);
       }
     }),
   );
@@ -323,9 +395,17 @@ export function patchTask(id: string, patch: Partial<Task>): void {
       const task = draft.byId[id];
       if (!task) return;
       const previousParent = task.parentTaskId;
+      const previousProject = task.projectId;
       Object.assign(task, patch);
       if ("parentTaskId" in patch) {
         moveChildIndex(draft, id, previousParent, task.parentTaskId);
+      }
+      // A row that changed project leaves the old scope's list and joins the new
+      // one. Same project (a full authoritative row arrives that way) is left
+      // alone, or every edit would push the row to the end of a loaded scope.
+      if ("projectId" in patch && previousProject !== task.projectId) {
+        unindexProjectScope(draft, { ...task, projectId: previousProject });
+        indexProjectScope(draft, task);
       }
     }),
   );

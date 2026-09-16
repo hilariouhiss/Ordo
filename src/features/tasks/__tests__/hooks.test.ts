@@ -197,6 +197,57 @@ describe("reloadTasks", () => {
   });
 });
 
+describe("ensureScope", () => {
+  it("只拉一次；并发调用复用同一个请求；失败写 error", async () => {
+    const page = {
+      rows: [task("t1", { projectId: "p1" })],
+      children: [],
+      related: [],
+      blocked: [],
+      hasMore: false,
+      cursor: null,
+    };
+    const load = vi.fn().mockResolvedValue(page);
+
+    await Promise.all([hooks.ensureScope("project:p1", load), hooks.ensureScope("project:p1", load)]);
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t1"]);
+
+    // 已装载 → 不再发请求。
+    await hooks.ensureScope("project:p1", load);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("force 绕过「已装载」的短路（重试按钮用）", async () => {
+    const load = vi.fn().mockResolvedValue({
+      rows: [task("t9", { projectId: "p1" })],
+      children: [],
+      related: [],
+      blocked: [],
+      hasMore: false,
+      cursor: null,
+    });
+
+    await hooks.ensureScope("project:p1", load);
+    await hooks.ensureScope("project:p1", load, true);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t9"]);
+  });
+
+  it("失败记进 scopeMeta 并返回 false", async () => {
+    const load = vi.fn().mockRejectedValue(appError("db", "读不出来"));
+
+    await expect(hooks.ensureScope("project:p2", load)).resolves.toBe(false);
+
+    expect(store.scopeMetaOf("project:p2").error).toBe("读不出来");
+    // 失败不算装载完成，下一次还会重试。
+    await hooks.ensureScope("project:p2", load);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("createTask", () => {
   it("shows a trimmed optimistic entry, then reconciles with the real row", async () => {
     const pending = deferred<Task>();

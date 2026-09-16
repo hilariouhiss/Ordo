@@ -15,6 +15,7 @@ import type {
   NewTimeEntry,
   Tag,
   Task,
+  TaskPage,
   TimeEntry,
   UpdateComment,
   UpdateTag,
@@ -26,6 +27,11 @@ import type {
 
 export function listTasks(): Promise<Task[]> {
   return invokeCommand(COMMANDS.task.list);
+}
+
+/** One project's tasks as a scope page (`project:<id>`). */
+export function listTasksByProject(projectId: string): Promise<TaskPage> {
+  return invokeCommand(COMMANDS.task.listByProject, { projectId });
 }
 
 export function createTask(payload: NewTask): Promise<Task> {

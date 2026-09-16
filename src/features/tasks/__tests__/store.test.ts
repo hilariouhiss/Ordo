@@ -213,6 +213,95 @@ describe("tasks store", () => {
       store.removeTask("c1");
       expect(store.childrenOf("t1")).toEqual([]);
     });
+
+    it("scopeRows 按范围自己的顺序给行；未装载的范围是空的", () => {
+      store.installPage(
+        "project:p1",
+        {
+          rows: [task("t2", { sortOrder: "o" }), task("t1", { sortOrder: "n" })],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      // 顺序是服务端给的（`ORDER BY sort_order, created_at, id`），不再客户端排一遍。
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t2", "t1"]);
+      expect(store.scopeRows("project:p9")).toEqual([]);
+    });
+
+    it("项目范围的成员关系跟着行自己走（新建/改项目/删除）", () => {
+      store.setAll([], []);
+      store.installPage(
+        "project:p1",
+        {
+          rows: [task("t1", { projectId: "p1" })],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      // 新建一行：projectId 决定它进哪个范围——项目范围的谓词就是这一个字段，
+      // 所以不必重写任何视图逻辑。
+      store.upsertTask(task("t2", { projectId: "p1", sortOrder: "o" }));
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t1", "t2"]);
+
+      // 换个项目：从旧范围出去、进新范围（新范围没装载就不凭空造）。
+      store.patchTask("t2", { projectId: "p2" });
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t1"]);
+      expect(store.scopeRows("project:p2")).toEqual([]);
+
+      store.removeTask("t1");
+      expect(store.scopeRows("project:p1")).toEqual([]);
+    });
+
+    it("同一个项目的整行 patch 不改范围顺序（改标题不该把行挪到尾）", () => {
+      store.installPage(
+        "project:p1",
+        {
+          rows: [task("t1", { projectId: "p1" }), task("t2", { projectId: "p1" })],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      // `hooks.updateTask` 用后端返回的整行 reconcile，所以改名那次 patch 也带
+      // `projectId`；值没变，顺序就该原样。
+      store.patchTask("t1", task("t1", { projectId: "p1", title: "改名" }));
+
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t1", "t2"]);
+      expect(store.getTask("t1")?.title).toBe("改名");
+    });
+
+    it("装载失败写进 scopeMeta.error，重试成功后清掉", () => {
+      store.markScopeLoading("project:p1", true);
+      expect(store.scopeMetaOf("project:p1")).toMatchObject({ loading: true, error: null });
+
+      store.markScopeError("project:p1", "数据库连接锁失效");
+      expect(store.scopeMetaOf("project:p1")).toMatchObject({
+        loading: false,
+        loaded: false,
+        error: "数据库连接锁失效",
+      });
+
+      store.installPage(
+        "project:p1",
+        { rows: [task("t1")], children: [], related: [], blocked: [], hasMore: false, cursor: null },
+        false,
+      );
+      expect(store.scopeMetaOf("project:p1")).toMatchObject({ loaded: true, error: null });
+    });
   });
 
   it("tag mutators keep the list in sync", () => {

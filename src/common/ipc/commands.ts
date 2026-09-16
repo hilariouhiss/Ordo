@@ -7,6 +7,7 @@
 export const COMMANDS = {
   task: {
     list: "task:list",
+    listByProject: "task:listByProject",
     create: "task:create",
     update: "task:update",
     complete: "task:complete",
