@@ -26,7 +26,6 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(shortcut::plugin())
         .invoke_handler(tauri::generate_handler![
-            commands::greet,
             commands::task_list,
             commands::task_create,
             commands::task_update,

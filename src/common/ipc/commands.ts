@@ -65,10 +65,6 @@ export const COMMANDS = {
     projectProgress: "stats:projectProgress",
     timeDistribution: "stats:timeDistribution",
   },
-  settings: {
-    get: "settings:get",
-    set: "settings:set",
-  },
   backup: {
     export: "backup:export",
     import: "backup:import",

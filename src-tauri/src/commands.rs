@@ -33,12 +33,6 @@ fn with_conn<T>(
     f(&conn)
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-pub fn greet(name: &str) -> String {
-    format!("Hello, {name}! You've been greeted from Rust!")
-}
-
 // --- task:* ----------------------------------------------------------------
 //
 // Every command below that answers with a task row answers with `TaskWithTags`
