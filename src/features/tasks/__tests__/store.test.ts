@@ -284,6 +284,34 @@ describe("tasks store", () => {
       expect(store.getTask("t1")?.title).toBe("改名");
     });
 
+    it("insertTaskAt 把回滚的行放回它所属的项目范围", () => {
+      store.setAll([task("t1", { projectId: "p1" }), task("t2", { projectId: "p1" })], []);
+      store.installPage(
+        "project:p1",
+        {
+          rows: [task("t1", { projectId: "p1" }), task("t2", { projectId: "p1" })],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      // 删除失败的撤销：`hooks.softDeleteTask` 先取位置，删掉，再把行按原位置插回来。
+      const slot = store.taskIndex("t1");
+      store.removeTask("t1");
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t2"]);
+
+      store.insertTaskAt(slot, task("t1", { projectId: "p1" }));
+
+      // 回到 `all` 的原位置，也回到项目范围——否则 `ensureScope` 由于
+      // `loaded: true` 短路，切走再回来也修不好这一行。
+      expect(store.tasks().map((row) => row.id)).toEqual(["t1", "t2"]);
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t2", "t1"]);
+    });
+
     it("装载失败写进 scopeMeta.error，重试成功后清掉", () => {
       store.markScopeLoading("project:p1", true);
       expect(store.scopeMetaOf("project:p1")).toMatchObject({ loading: true, error: null });

@@ -429,6 +429,10 @@ export function insertTaskAt(index: number, task: Task): void {
   setState(
     produce((draft: TasksState) => {
       insertRow(draft, task);
+      // Membership follows the row wherever it re-enters, this path included:
+      // the rollback has to put it back in its project scope too, or it is
+      // missing there until a forced reload.
+      indexProjectScope(draft, task);
       const ids = draft.scopes.all ?? [];
       ids.splice(Math.min(Math.max(index, 0), ids.length), 0, task.id);
       draft.scopes.all = ids;
