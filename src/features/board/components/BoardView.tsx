@@ -47,12 +47,19 @@ export function BoardView(props: { projectId: string }) {
   const columns = () => getColumns(props.projectId);
   const lanes = () => splitLanes(columns());
   // The lane rules (`../lanes`) decide where each task shows; the board never
-  // hides one. §8.4 keeps children out: a child has no `columnId` of its own —
-  // it lives inside its parent, which is where its progress shows.
+  // hides one *of this project's tasks*. The store holds every task, and a task
+  // outside this project has no `columnId` here, so `laneOf` would fall back to
+  // the first open lane and put it on this board — the project filter is what
+  // keeps the board showing the same tasks as the list beside it.
+  // §8.4 keeps children out: a child has no `columnId` of its own — it lives
+  // inside its parent, which is where its progress shows.
   const tasksOf = (columnId: string) =>
     sortTasks(
       tasksState.tasks.filter(
-        (task) => task.parentTaskId === null && laneOf(task, lanes())?.id === columnId,
+        (task) =>
+          task.projectId === props.projectId &&
+          task.parentTaskId === null &&
+          laneOf(task, lanes())?.id === columnId,
       ),
       "manual",
     );

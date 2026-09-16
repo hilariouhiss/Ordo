@@ -130,6 +130,25 @@ describe("BoardView", () => {
     expect(laneIds("c2")).toEqual(["finished"]);
   });
 
+  it("shows only this project's tasks: the fallback lane is not a catch-all", () => {
+    renderBoard();
+    tasksStore.setAll(
+      [
+        task("mine", { columnId: "c1" }),
+        // 收件箱任务：没有项目，也没有列。两个「没有」都让 `laneOf` 回落到第一个
+        // 开放列，于是它曾经出现在每个项目的看板上——而列表视图按 projectId
+        // 过滤，从来不显示它。
+        task("inbox", { projectId: null, columnId: null, title: "收件箱里的任务" }),
+        task("other-project", { projectId: "proj-2", columnId: null, title: "别的项目的任务" }),
+      ],
+      [],
+    );
+
+    expect(laneIds("c1")).toEqual(["mine"]);
+    expect(screen.queryByText("收件箱里的任务")).toBeNull();
+    expect(screen.queryByText("别的项目的任务")).toBeNull();
+  });
+
   it("renders only top-level tasks as cards and badges their children", () => {
     renderBoard();
     tasksStore.setAll(
