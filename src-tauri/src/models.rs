@@ -412,6 +412,15 @@ pub struct Reorder {
     pub rebalanced: Vec<TaskKey>,
 }
 
+/// `(id, title)` of a row a scope page references without returning its body —
+/// the 父任务 prefix of a child row whose parent is off-scope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRef {
+    pub id: Uuid,
+    pub title: String,
+}
+
 /// Which entity produced a search hit (`search:query`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

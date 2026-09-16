@@ -10,13 +10,14 @@
 //! `AppError::NotFound`.
 
 use chrono::{DateTime, Utc};
+use rusqlite::types::Value;
 use rusqlite::{params, Connection, Row, ToSql};
 use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
     BoardColumn, Comment, Dependency, Namespace, Priority, Project, ProjectStatus, ReminderKind,
-    RepeatRule, Setting, Tag, Task, TimeEntry,
+    RepeatRule, Setting, Tag, Task, TaskRef, TimeEntry,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -48,6 +49,33 @@ fn query_all<T>(
         .query_and_then(params, map)?
         .collect::<Result<Vec<T>, AppError>>()?;
     Ok(rows)
+}
+
+/// `query_all` 的动态版本：绑定值是运行期拼出来的 `Value` 列表（`IN (?,?,?)`），
+/// 所以不能借用调用栈上的 `&[&dyn ToSql]`。
+fn query_all_values<T>(
+    conn: &Connection,
+    sql: &str,
+    bound: &[Value],
+    map: RowMap<T>,
+) -> Result<Vec<T>, AppError> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt
+        .query_and_then(rusqlite::params_from_iter(bound.iter()), map)?
+        .collect::<Result<Vec<T>, AppError>>()?;
+    Ok(rows)
+}
+
+/// `?, ?, ?` —— 给 `IN` 列表用。空列表由调用方提前返回（`IN ()` 不是合法 SQL）。
+fn placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 绑定时一律走 TEXT：主键是 TEXT UUID，与写入路径同一编码。
+fn uuid_value(id: &Uuid) -> Value {
+    Value::Text(id.to_string())
 }
 
 /// Runs `sql` and maps the first row, if any.
@@ -421,6 +449,100 @@ pub mod tasks {
         )
     }
 
+    /// One project's live tasks in list order — top-level rows and their
+    /// children alike (the project page shows both). The scope of a project is
+    /// exactly this: one indexed range, not the whole table filtered in Rust.
+    pub fn list_by_project(conn: &Connection, project_id: Uuid) -> Result<Vec<Task>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {TASK_COLUMNS} FROM tasks \
+                 WHERE project_id = ?1 AND deleted_at IS NULL \
+                 ORDER BY sort_order, created_at, id"
+            ),
+            params![project_id.to_string()],
+            task_from_row,
+        )
+    }
+
+    /// Live children of `parent_ids`, minus `exclude`. A scope page has to carry
+    /// them: children ignore the scope predicate (and the toolbar filters), so a
+    /// parent row's 0/2 badge and its expansion need **all** of them, not only
+    /// the ones the query matched.
+    pub fn list_children_of(
+        conn: &Connection,
+        parent_ids: &[Uuid],
+        exclude: &[Uuid],
+    ) -> Result<Vec<Task>, AppError> {
+        if parent_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let parents = placeholders(parent_ids.len());
+        let mut bound: Vec<Value> = parent_ids.iter().map(uuid_value).collect();
+        let filter = if exclude.is_empty() {
+            String::new()
+        } else {
+            bound.extend(exclude.iter().map(uuid_value));
+            format!(" AND id NOT IN ({})", placeholders(exclude.len()))
+        };
+        query_all_values(
+            conn,
+            &format!(
+                "SELECT {TASK_COLUMNS} FROM tasks \
+                 WHERE parent_task_id IN ({parents}) AND deleted_at IS NULL{filter} \
+                 ORDER BY sort_order, created_at, id"
+            ),
+            &bound,
+            task_from_row,
+        )
+    }
+
+    /// How many of each task's prerequisites are still open (live and not
+    /// completed) — the row's soft-blocking badge, computed here so the
+    /// frontend never needs the dependency graph. Only tasks with at least one
+    /// open prerequisite come back; the caller defaults the rest to zero.
+    pub fn blocked_counts(conn: &Connection, ids: &[Uuid]) -> Result<Vec<(Uuid, i64)>, AppError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let bound: Vec<Value> = ids.iter().map(uuid_value).collect();
+        query_all_values(
+            conn,
+            &format!(
+                "SELECT d.task_id AS task_id, COUNT(*) AS open_count \
+                 FROM task_dependencies d JOIN tasks p ON p.id = d.depends_on \
+                 WHERE d.task_id IN ({}) AND p.deleted_at IS NULL AND p.completed_at IS NULL \
+                 GROUP BY d.task_id",
+                placeholders(ids.len())
+            ),
+            &bound,
+            |row| Ok((parse_uuid(row.get("task_id")?)?, row.get("open_count")?)),
+        )
+    }
+
+    /// `(id, title)` for a set of tasks — the 父任务 prefix of a child row whose
+    /// parent the scope did not return.
+    pub fn titles_of(conn: &Connection, ids: &[Uuid]) -> Result<Vec<TaskRef>, AppError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let bound: Vec<Value> = ids.iter().map(uuid_value).collect();
+        query_all_values(
+            conn,
+            &format!(
+                "SELECT id, title FROM tasks WHERE id IN ({}) AND deleted_at IS NULL",
+                placeholders(ids.len())
+            ),
+            &bound,
+            |row| {
+                Ok(TaskRef {
+                    id: parse_uuid(row.get("id")?)?,
+                    title: row.get("title")?,
+                })
+            },
+        )
+    }
+
     /// A parent's children in `sort_order`; live rows only.
     pub fn list_by_parent(conn: &Connection, parent_id: Uuid) -> Result<Vec<Task>, AppError> {
         query_all(
@@ -683,6 +805,36 @@ pub mod task_tags {
             })?
             .collect::<Result<Vec<(Uuid, Uuid)>, AppError>>()?;
         Ok(links)
+    }
+
+    /// `(task_id, tag_id)` links for a set of tasks, involving live tags only —
+    /// the scoped counterpart of [`list_all`], for one scope page instead of the
+    /// whole table.
+    pub fn list_for_tasks(
+        conn: &Connection,
+        task_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, Uuid)>, AppError> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let bound: Vec<Value> = task_ids.iter().map(uuid_value).collect();
+        query_all_values(
+            conn,
+            &format!(
+                "SELECT tt.task_id, tt.tag_id FROM task_tags tt \
+                 JOIN tags t ON t.id = tt.tag_id \
+                 WHERE t.deleted_at IS NULL AND tt.task_id IN ({}) \
+                 ORDER BY tt.task_id, t.name COLLATE NOCASE",
+                placeholders(task_ids.len())
+            ),
+            &bound,
+            |row| {
+                Ok((
+                    parse_uuid(row.get("task_id")?)?,
+                    parse_uuid(row.get("tag_id")?)?,
+                ))
+            },
+        )
     }
 }
 
@@ -2994,5 +3146,131 @@ mod tests {
         assert!(reminders::mark_fired(&conn, task.id, ReminderKind::Advance1h, ts(61)).unwrap());
         assert!(!reminders::mark_fired(&conn, task.id, ReminderKind::Advance1h, ts(62)).unwrap());
         assert!(reminders::mark_fired(&conn, task.id, ReminderKind::Due, ts(63)).unwrap());
+    }
+
+    /// 按项目取行：项目页只该付自己那几百行的钱，索引是 `idx_tasks_project`。
+    #[test]
+    fn project_scope_queries_seek_their_indexes() {
+        let conn = conn();
+        let project = Value::Text("project-1".into());
+        let ids: Vec<Value> = (0..3).map(|i| Value::Text(format!("task-{i}"))).collect();
+        let list = placeholders(ids.len());
+        let cases: Vec<(&str, String, Vec<Value>)> = vec![
+            (
+                "list_by_project",
+                "SELECT id FROM tasks WHERE project_id = ?1 AND deleted_at IS NULL \
+                 ORDER BY sort_order, created_at, id"
+                    .to_string(),
+                vec![project],
+            ),
+            (
+                "list_children_of",
+                format!(
+                    "SELECT id FROM tasks WHERE parent_task_id IN ({list}) AND deleted_at IS NULL \
+                     AND id NOT IN ({list}) ORDER BY sort_order, created_at, id"
+                ),
+                [ids.clone(), ids.clone()].concat(),
+            ),
+            (
+                "blocked_counts",
+                format!(
+                    "SELECT d.task_id, COUNT(*) FROM task_dependencies d \
+                     JOIN tasks p ON p.id = d.depends_on \
+                     WHERE d.task_id IN ({list}) AND p.deleted_at IS NULL \
+                       AND p.completed_at IS NULL GROUP BY d.task_id"
+                ),
+                ids.clone(),
+            ),
+            (
+                "list_for_tasks",
+                format!(
+                    "SELECT tt.task_id, tt.tag_id FROM task_tags tt \
+                     JOIN tags t ON t.id = tt.tag_id \
+                     WHERE t.deleted_at IS NULL AND tt.task_id IN ({list}) \
+                     ORDER BY tt.task_id, t.name COLLATE NOCASE"
+                ),
+                ids.clone(),
+            ),
+            (
+                "titles_of",
+                format!("SELECT id, title FROM tasks WHERE id IN ({list}) AND deleted_at IS NULL"),
+                ids,
+            ),
+        ];
+
+        for (label, sql, bound) in cases {
+            let plan = plan_with(&conn, &sql, &bound);
+            assert!(
+                !plan.contains("SCAN"),
+                "{label} scans instead of seeking: {plan}"
+            );
+            assert!(plan.contains("SEARCH"), "{label} does not seek: {plan}");
+        }
+    }
+
+    /// 范围页要的三块拼装材料：未命中的子行、未完成前置计数、范围外父标题。
+    #[test]
+    fn project_scope_queries_answer_their_questions() {
+        let conn = conn();
+        // A real project row: foreign keys are on (the bundled SQLite defaults
+        // them on), so the tasks below cannot point at a project that is not
+        // there.
+        let project = sample_project("n");
+        projects::insert(&conn, &project).unwrap();
+        let project_id = project.id;
+        let parent = Task {
+            project_id: Some(project_id),
+            sort_order: "n".into(),
+            ..sample_task("n")
+        };
+        let child = Task {
+            project_id: Some(project_id),
+            parent_task_id: Some(parent.id),
+            sort_order: "n".into(),
+            ..sample_task("n")
+        };
+        let other = Task {
+            project_id: Some(project_id),
+            sort_order: "o".into(),
+            ..sample_task("o")
+        };
+        for task in [&parent, &child, &other] {
+            tasks::insert(&conn, task).unwrap();
+        }
+
+        let rows = tasks::list_by_project(&conn, project_id).unwrap();
+        assert_eq!(rows.len(), 3, "顶层与子行都在项目范围里");
+
+        // 已经命中的子行不必再带一次（`rows` 里有了）。
+        assert!(tasks::list_children_of(&conn, &[parent.id], &[child.id])
+            .unwrap()
+            .is_empty());
+        // 没命中的子行必须带回来（视图范围靠它做 0/2 徽标与展开）。
+        let extra = tasks::list_children_of(&conn, &[parent.id], &[]).unwrap();
+        assert_eq!(extra.len(), 1);
+        assert_eq!(extra[0].id, child.id);
+
+        // 阻塞计数只数「存活且未完成」的前置。
+        let dependent = Task {
+            project_id: Some(project_id),
+            sort_order: "p".into(),
+            ..sample_task("p")
+        };
+        tasks::insert(&conn, &dependent).unwrap();
+        dependencies::insert(&conn, dependent.id, parent.id, ts(0)).unwrap();
+        let counts = tasks::blocked_counts(&conn, &[dependent.id, parent.id]).unwrap();
+        assert_eq!(counts, vec![(dependent.id, 1)]);
+
+        tasks::soft_delete(&conn, parent.id, ts(5)).unwrap();
+        assert!(
+            tasks::blocked_counts(&conn, &[dependent.id])
+                .unwrap()
+                .is_empty(),
+            "软删的前置不算未完成前置"
+        );
+
+        let titles = tasks::titles_of(&conn, &[other.id]).unwrap();
+        assert_eq!(titles.len(), 1);
+        assert_eq!(titles[0].title, other.title);
     }
 }
