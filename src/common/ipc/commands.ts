@@ -28,6 +28,7 @@ export const COMMANDS = {
   },
   project: {
     list: "project:list",
+    unfinishedCounts: "project:unfinishedCounts",
     create: "project:create",
     update: "project:update",
     archive: "project:archive",

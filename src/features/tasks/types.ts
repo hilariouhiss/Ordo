@@ -196,3 +196,9 @@ export interface TaskPage {
   hasMore: boolean;
   cursor: string | null;
 }
+
+/** One live project's unfinished top-level task count (`project:unfinishedCounts`). */
+export interface ProjectUnfinished {
+  projectId: string;
+  unfinished: number;
+}

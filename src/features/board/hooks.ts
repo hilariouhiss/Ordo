@@ -9,7 +9,7 @@
 
 import { normalizeError } from "../../common/ipc";
 import { pushError } from "../../common/stores/notifications";
-import { parkIfBlocked } from "../tasks/hooks";
+import { loadUnfinishedCounts, parkIfBlocked } from "../tasks/hooks";
 import * as tasksStore from "../tasks/store";
 import type { Task } from "../tasks/types";
 import * as api from "./api";
@@ -137,6 +137,7 @@ function applyMove(
     async () => {
       const result = await api.moveTask(taskId, columnId, prev, next);
       tasksStore.applyReorder(result.moved, result.rebalanced);
+      void loadUnfinishedCounts();
       return result.moved;
     },
   );

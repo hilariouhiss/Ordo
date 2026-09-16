@@ -13,6 +13,7 @@ import type {
   NewTag,
   NewTask,
   NewTimeEntry,
+  ProjectUnfinished,
   Tag,
   Task,
   TaskPage,
@@ -32,6 +33,13 @@ export function listTasks(): Promise<Task[]> {
 /** One project's tasks as a scope page (`project:<id>`). */
 export function listTasksByProject(projectId: string): Promise<TaskPage> {
   return invokeCommand(COMMANDS.task.listByProject, { projectId });
+}
+
+// --- project:* ---------------------------------------------------------------
+
+/** Every live project's unfinished top-level task count — the sidebar arrows. */
+export function listUnfinishedCounts(): Promise<ProjectUnfinished[]> {
+  return invokeCommand(COMMANDS.project.unfinishedCounts);
 }
 
 export function createTask(payload: NewTask): Promise<Task> {

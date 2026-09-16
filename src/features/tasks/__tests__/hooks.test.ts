@@ -10,6 +10,7 @@ import type { Dependency, Tag, Task, TimeEntry } from "../types";
 
 vi.mock("../api", () => ({
   listTasks: vi.fn(),
+  listUnfinishedCounts: vi.fn().mockResolvedValue([]),
   createTask: vi.fn(),
   updateTask: vi.fn(),
   completeTask: vi.fn(),
@@ -951,5 +952,50 @@ describe("依赖与软阻塞", () => {
 
     expect(api.removeDependency).not.toHaveBeenCalled();
     expect(notifications()).toEqual([]);
+  });
+});
+
+describe("loadUnfinishedCounts", () => {
+  it("写进 store，迟到的响应不覆盖新的", async () => {
+    let releaseFirst: (rows: { projectId: string; unfinished: number }[]) => void = () => {};
+    vi.mocked(api.listUnfinishedCounts)
+      .mockReturnValueOnce(new Promise((resolve) => (releaseFirst = resolve)))
+      .mockResolvedValueOnce([{ projectId: "p1", unfinished: 3 }]);
+
+    const stale = hooks.loadUnfinishedCounts();
+    const fresh = hooks.loadUnfinishedCounts();
+    releaseFirst([{ projectId: "p1", unfinished: 1 }]);
+
+    await Promise.all([stale, fresh]);
+    expect(store.unfinishedCountOf("p1")).toBe(3);
+  });
+});
+
+describe("写后刷新计数", () => {
+  it("新建、完成、删除之后各重取一次", async () => {
+    vi.mocked(api.listUnfinishedCounts).mockResolvedValue([{ projectId: "p1", unfinished: 1 }]);
+    vi.mocked(api.createTask).mockResolvedValue(task("t9", { projectId: "p1" }));
+    vi.mocked(api.completeTask).mockResolvedValue(task("t1", { completedAt: "2026-09-16T10:00:00Z" }));
+    vi.mocked(api.softDeleteTask).mockResolvedValue(undefined);
+
+    await hooks.createTask({ title: "新任务", projectId: "p1" });
+    expect(api.listUnfinishedCounts).toHaveBeenCalledTimes(1);
+
+    store.upsertTask(task("t1", { projectId: "p1" }));
+    await hooks.completeTask("t1");
+    expect(api.listUnfinishedCounts).toHaveBeenCalledTimes(2);
+
+    await hooks.softDeleteTask("t1");
+    expect(api.listUnfinishedCounts).toHaveBeenCalledTimes(3);
+  });
+
+  it("纯字段编辑（改标题）不重取", async () => {
+    vi.mocked(api.listUnfinishedCounts).mockResolvedValue([]);
+    store.upsertTask(task("t1", { projectId: "p1" }));
+    vi.mocked(api.updateTask).mockResolvedValue(task("t1", { projectId: "p1", title: "改过" }));
+
+    await hooks.updateTask("t1", { title: "改过" });
+
+    expect(api.listUnfinishedCounts).not.toHaveBeenCalled();
   });
 });

@@ -380,6 +380,18 @@ describe("tasks store", () => {
       );
       expect(store.scopeMetaOf("project:p1")).toMatchObject({ loaded: true, error: null });
     });
+
+    it("unfinishedCountOf 读服务端给的计数，未知项目按 0", () => {
+      store.setUnfinishedCounts([
+        { projectId: "p1", unfinished: 2 },
+        { projectId: "p2", unfinished: 0 },
+      ]);
+
+      expect(store.unfinishedCountOf("p1")).toBe(2);
+      expect(store.unfinishedCountOf("p2")).toBe(0);
+      // 没被服务端提到的项目不画箭头。
+      expect(store.unfinishedCountOf("p9")).toBe(0);
+    });
   });
 
   it("tag mutators keep the list in sync", () => {

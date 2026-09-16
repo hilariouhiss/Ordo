@@ -16,6 +16,12 @@ vi.mock("../api", () => ({
   moveTask: vi.fn(),
 }));
 
+// A drop re-reads the sidebar counts afterwards (`tasks/hooks`), so the tasks
+// api is stubbed too — the real one would reach for Tauri.
+vi.mock("../../tasks/api", () => ({
+  listUnfinishedCounts: vi.fn().mockResolvedValue([]),
+}));
+
 function column(id: string, overrides: Partial<BoardColumn> = {}): BoardColumn {
   return {
     id,

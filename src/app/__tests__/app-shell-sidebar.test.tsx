@@ -44,6 +44,7 @@ vi.mock("../../features/projects/api", () => ({
 
 vi.mock("../../features/tasks/api", () => ({
   listTasks: vi.fn().mockResolvedValue([]),
+  listUnfinishedCounts: vi.fn().mockResolvedValue([]),
   createTask: vi.fn(),
   updateTask: vi.fn(),
   completeTask: vi.fn(),

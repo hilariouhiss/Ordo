@@ -20,6 +20,7 @@ import { edgeEquals } from "./dependencies";
 import type {
   Comment,
   Dependency,
+  ProjectUnfinished,
   Tag,
   Task,
   TaskKey,
@@ -50,6 +51,8 @@ export interface TasksState {
   related: Record<string, TaskRef>;
   /** taskId → unfinished prerequisite count (the server's number). */
   blocked: Record<string, number>;
+  /** projectId → 顶层未完成行数（服务端口径，`project:unfinishedCounts`）。 */
+  unfinishedByProject: Record<string, number>;
   /** All live tags, ordered by name (case-insensitive). */
   tags: Tag[];
   /** Every live dependency edge, loaded with the task snapshot (until the
@@ -72,6 +75,7 @@ function emptyState(): TasksState {
     childrenByParent: {},
     related: {},
     blocked: {},
+    unfinishedByProject: {},
     tags: [],
     dependencies: [],
     commentsByTask: {},
@@ -171,6 +175,11 @@ export function hasChildren(taskId: string): boolean {
 /** Unfinished prerequisite count as the backend counted it on the last load. */
 export function blockedCountOf(taskId: string): number {
   return state.blocked[taskId] ?? 0;
+}
+
+/** 侧边栏箭头用的每项目未完成顶层行数；服务端没提到的项目按 0（不画箭头）。 */
+export function unfinishedCountOf(projectId: string): number {
+  return state.unfinishedByProject[projectId] ?? 0;
 }
 
 /**
@@ -356,6 +365,14 @@ export function setAll(tasks: Task[], tags: Tag[]): void {
 /** Replaces the whole edge set (the dependency load's own snapshot). */
 export function setDependencies(dependencies: Dependency[]): void {
   setState("dependencies", dependencies);
+}
+
+/** Replaces the per-project unfinished counts (one aggregate load). */
+export function setUnfinishedCounts(counts: ProjectUnfinished[]): void {
+  setState(
+    "unfinishedByProject",
+    Object.fromEntries(counts.map((row) => [row.projectId, row.unfinished])),
+  );
 }
 
 /** Adds one edge if it is not already there (optimistic insert). */

@@ -25,6 +25,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 vi.mock("../../features/tasks/api", () => ({
   listTasks: vi.fn(),
+  listUnfinishedCounts: vi.fn().mockResolvedValue([]),
   createTask: vi.fn(),
   updateTask: vi.fn(),
   completeTask: vi.fn(),

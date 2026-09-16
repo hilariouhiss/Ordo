@@ -107,6 +107,27 @@ export function ensureScope(
   return request;
 }
 
+/** 计数请求序号：迟到的响应不许覆盖新的（同时会有多笔写）。 */
+let unfinishedSeq = 0;
+
+/**
+ * 侧边栏的每项目未完成计数（`project:unfinishedCounts`，一条聚合）。它也是
+ * 「该项目还有没有未完成项」的唯一口径——前端不从快照里数，只在可能改变这个
+ * 数字的写之后重取一次。
+ */
+export async function loadUnfinishedCounts(): Promise<boolean> {
+  const request = ++unfinishedSeq;
+  try {
+    const counts = await api.listUnfinishedCounts();
+    if (request !== unfinishedSeq) return true;
+    store.setUnfinishedCounts(counts);
+    return true;
+  } catch (error) {
+    reportFailure(error);
+    return false;
+  }
+}
+
 /** Loads all tasks (children included, with tagIds), tags and every dependency
  * edge; returns success. */
 export async function loadAll(): Promise<boolean> {
@@ -183,6 +204,7 @@ export function createTask(input: NewTask): Promise<Task | null> {
       const created = await api.createTask({ ...input, title });
       store.removeTask(tempId);
       store.upsertTask(created);
+      void loadUnfinishedCounts();
       // The initial subtasks were inserted server-side as child rows with ids
       // the response cannot carry. Pull the list again so the new row gets its
       // disclosure control right away. Fire-and-forget: the task itself must
@@ -216,6 +238,16 @@ export function updateTask(taskId: string, patch: UpdateTask): Promise<Task | nu
     async () => {
       const saved = await api.updateTask(taskId, patch);
       store.patchTask(taskId, saved);
+      // 只有可能改变「谁还算未完成顶层行」的改动才重取：纯标题/备注/标签/
+      // 优先级/复杂度编辑与排序都不改变这个数。
+      if (
+        "projectId" in patch ||
+        "parentTaskId" in patch ||
+        "completedAt" in patch ||
+        "columnId" in patch
+      ) {
+        void loadUnfinishedCounts();
+      }
       return saved;
     },
   );
@@ -234,6 +266,7 @@ function applyCompleteTask(taskId: string): Promise<Task | null> {
     async () => {
       const saved = await api.completeTask(taskId);
       store.patchTask(taskId, saved);
+      void loadUnfinishedCounts();
       return saved;
     },
   );
@@ -331,6 +364,7 @@ export function softDeleteTask(taskId: string): Promise<boolean | null> {
     },
     async () => {
       await api.softDeleteTask(taskId);
+      void loadUnfinishedCounts();
       return true;
     },
   );
@@ -345,6 +379,7 @@ export async function restoreTask(taskId: string): Promise<Task | null> {
   try {
     const restored = await api.restoreTask(taskId);
     store.upsertTask(restored);
+    void loadUnfinishedCounts();
     // The server restored the children in the same transaction; the single
     // returned row cannot carry them, so pull the list once more.
     void reloadTasks();
