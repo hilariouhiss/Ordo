@@ -1,2 +1,4 @@
 node_modules
 dist
+# 本地工作区：设计稿与实施计划不进版本库（约定见 AGENTS.md 的文档规则）
+.superpowers/
