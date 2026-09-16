@@ -479,6 +479,9 @@ mod tests {
         timed("task:list", BUDGET_MS, &mut over, || {
             services::list_tasks(&conn).unwrap()
         });
+        timed("task:listByProject", BUDGET_MS, &mut over, || {
+            services::list_tasks_by_project(&conn, fixture.project).unwrap()
+        });
         timed("tag:list", BUDGET_MS, &mut over, || {
             services::list_tags(&conn).unwrap()
         });

@@ -501,6 +501,13 @@ pub mod tasks {
     /// completed) — the row's soft-blocking badge, computed here so the
     /// frontend never needs the dependency graph. Only tasks with at least one
     /// open prerequisite come back; the caller defaults the rest to zero.
+    ///
+    /// `EXISTS`, not `JOIN tasks p` with the two predicates in `WHERE`: written
+    /// as a join the planner drives from `tasks` (the `completed_at IS NULL`
+    /// index matches most of the table) and probes `d` per row — 3.3 s for one
+    /// 375-row project page on the 50k acceptance database, against 0.2 ms
+    /// here. Same trap [`dependencies::LIVE_SQL`] documents;
+    /// `project_scope_queries_seek_their_indexes` holds this plan in place.
     pub fn blocked_counts(conn: &Connection, ids: &[Uuid]) -> Result<Vec<(Uuid, i64)>, AppError> {
         if ids.is_empty() {
             return Ok(Vec::new());
@@ -510,8 +517,10 @@ pub mod tasks {
             conn,
             &format!(
                 "SELECT d.task_id AS task_id, COUNT(*) AS open_count \
-                 FROM task_dependencies d JOIN tasks p ON p.id = d.depends_on \
-                 WHERE d.task_id IN ({}) AND p.deleted_at IS NULL AND p.completed_at IS NULL \
+                 FROM task_dependencies d \
+                 WHERE d.task_id IN ({}) AND EXISTS (SELECT 1 FROM tasks p \
+                   WHERE p.id = d.depends_on AND p.deleted_at IS NULL \
+                     AND p.completed_at IS NULL) \
                  GROUP BY d.task_id",
                 placeholders(ids.len())
             ),
@@ -2729,6 +2738,59 @@ mod tests {
         );
     }
 
+    /// 范围页的那一问：一批 task 的标签链接，空输入直接空手回（`IN ()` 不是合法
+    /// SQL）。软删的标签整条链接消失；软删的**任务**由调用方负责——`task_page`
+    /// 只拿存活行的 id 来问，软删的任务在范围查询里就已经不在页上了。
+    #[test]
+    fn scoped_tag_links_skip_deleted_rows_and_answer_an_empty_batch() {
+        let conn = conn();
+        assert_eq!(
+            task_tags::list_for_tasks(&conn, &[]).unwrap(),
+            Vec::<(Uuid, Uuid)>::new()
+        );
+
+        let project = sample_project("n");
+        projects::insert(&conn, &project).unwrap();
+        let live = Task {
+            project_id: Some(project.id),
+            ..sample_task("n")
+        };
+        let gone = Task {
+            project_id: Some(project.id),
+            ..sample_task("o")
+        };
+        for row in [&live, &gone] {
+            tasks::insert(&conn, row).unwrap();
+        }
+        let live_tag = sample_tag("urgent");
+        let dead_tag = sample_tag("later");
+        for tag in [&live_tag, &dead_tag] {
+            tags::insert(&conn, tag).unwrap();
+        }
+        task_tags::set_task_tags(&conn, live.id, &[live_tag.id, dead_tag.id]).unwrap();
+        task_tags::set_task_tags(&conn, gone.id, &[live_tag.id]).unwrap();
+
+        // 存活的那条链接回，软删标签那条不回。
+        tags::soft_delete(&conn, dead_tag.id, ts(5)).unwrap();
+        assert_eq!(
+            task_tags::list_for_tasks(&conn, &[live.id]).unwrap(),
+            vec![(live.id, live_tag.id)]
+        );
+
+        // 软删的任务：范围查询先把它滤掉，页上根本没有它，链接也就进不了页。
+        tasks::soft_delete(&conn, gone.id, ts(6)).unwrap();
+        let page_ids: Vec<Uuid> = tasks::list_by_project(&conn, project.id)
+            .unwrap()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(page_ids, vec![live.id]);
+        assert_eq!(
+            task_tags::list_for_tasks(&conn, &page_ids).unwrap(),
+            vec![(live.id, live_tag.id)]
+        );
+    }
+
     #[test]
     fn project_round_trips_and_orders_by_sort_order() {
         let conn = conn();
@@ -3155,6 +3217,14 @@ mod tests {
         let project = Value::Text("project-1".into());
         let ids: Vec<Value> = (0..3).map(|i| Value::Text(format!("task-{i}"))).collect();
         let list = placeholders(ids.len());
+        // `blocked_counts` 单独拿出来：它的慢形状也是「两次 SEARCH」，下面那圈
+        // 通用断言看不见，而 50k 档上它值 3.3 s（见该函数的注释）。
+        let blocked_counts = format!(
+            "SELECT d.task_id, COUNT(*) FROM task_dependencies d \
+             WHERE d.task_id IN ({list}) AND EXISTS (SELECT 1 FROM tasks p \
+               WHERE p.id = d.depends_on AND p.deleted_at IS NULL \
+                 AND p.completed_at IS NULL) GROUP BY d.task_id"
+        );
         let cases: Vec<(&str, String, Vec<Value>)> = vec![
             (
                 "list_by_project",
@@ -3171,16 +3241,7 @@ mod tests {
                 ),
                 [ids.clone(), ids.clone()].concat(),
             ),
-            (
-                "blocked_counts",
-                format!(
-                    "SELECT d.task_id, COUNT(*) FROM task_dependencies d \
-                     JOIN tasks p ON p.id = d.depends_on \
-                     WHERE d.task_id IN ({list}) AND p.deleted_at IS NULL \
-                       AND p.completed_at IS NULL GROUP BY d.task_id"
-                ),
-                ids.clone(),
-            ),
+            ("blocked_counts", blocked_counts.clone(), ids.clone()),
             (
                 "list_for_tasks",
                 format!(
@@ -3194,7 +3255,7 @@ mod tests {
             (
                 "titles_of",
                 format!("SELECT id, title FROM tasks WHERE id IN ({list}) AND deleted_at IS NULL"),
-                ids,
+                ids.clone(),
             ),
         ];
 
@@ -3206,6 +3267,11 @@ mod tests {
             );
             assert!(plan.contains("SEARCH"), "{label} does not seek: {plan}");
         }
+
+        // 边按主键取、前置按主键取；起手若是 `tasks`（谓词写成 join 时的形状），
+        // 375 行的项目页要 3.3 s。
+        let plan = plan_with(&conn, &blocked_counts, &ids);
+        assert!(plan.contains("SEARCH d USING PRIMARY KEY"), "{plan}");
     }
 
     /// 范围页要的三块拼装材料：未命中的子行、未完成前置计数、范围外父标题。

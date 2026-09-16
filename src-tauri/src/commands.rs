@@ -17,8 +17,9 @@ use crate::error::AppError;
 use crate::models::{
     BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment, NewNamespace,
     NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, Reorder, SearchHit, Tag,
-    TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
-    UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
+    TaskPage, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint,
+    TrendQuery, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask,
+    UpdateTimeEntry,
 };
 use crate::services;
 
@@ -43,6 +44,13 @@ fn with_conn<T>(
 #[tauri::command(rename = "task:list")]
 pub fn task_list(db: State<'_, Db>) -> Result<Vec<TaskWithTags>, AppError> {
     with_conn(&db, services::list_tasks)
+}
+
+#[tauri::command(rename = "task:listByProject")]
+pub fn task_list_by_project(db: State<'_, Db>, project_id: Uuid) -> Result<TaskPage, AppError> {
+    with_conn(&db, |conn| {
+        services::list_tasks_by_project(conn, project_id)
+    })
 }
 
 #[tauri::command(rename = "task:create")]

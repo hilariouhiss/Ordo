@@ -421,6 +421,36 @@ pub struct TaskRef {
     pub title: String,
 }
 
+/// How many of a task's prerequisites are still open. Computed server-side so
+/// the frontend can show the soft-blocking badge without holding the graph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskBlocked {
+    pub task_id: Uuid,
+    pub count: i64,
+}
+
+/// One scope query's answer. `children` carries the children of this page's
+/// top-level rows that the rows themselves did not bring (a view scope filters
+/// them out; the project scope does not), so the list can render a parent's
+/// 0/2 badge and expand it without another round trip. `related` fills in the
+/// parent titles of children whose parent is not on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPage {
+    pub rows: Vec<TaskWithTags>,
+    #[serde(default)]
+    pub children: Vec<TaskWithTags>,
+    #[serde(default)]
+    pub related: Vec<TaskRef>,
+    #[serde(default)]
+    pub blocked: Vec<TaskBlocked>,
+    /// Keyset paging: the project scope is not paged (its toolbar filters and
+    /// sort apply to the whole project), the views are.
+    pub has_more: bool,
+    pub cursor: Option<String>,
+}
+
 /// Which entity produced a search hit (`search:query`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

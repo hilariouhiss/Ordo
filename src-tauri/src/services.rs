@@ -25,9 +25,9 @@ use crate::models::{
     BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment,
     NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project,
     ProjectProgress, ProjectStatus, Reminder, ReminderKind, Reorder, RepeatFreq, RepeatRule,
-    SearchHit, SearchHitKind, Tag, Task, TaskKey, TaskWithTags, TimeDistribution,
-    TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateComment, UpdateNamespace,
-    UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
+    SearchHit, SearchHitKind, Tag, Task, TaskBlocked, TaskKey, TaskPage, TaskWithTags,
+    TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateComment,
+    UpdateNamespace, UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
     backup, board_columns, comments, dependencies, namespaces, projects, reminders, search, stats,
@@ -383,6 +383,73 @@ pub fn tasks_with_tags(conn: &Connection, tasks: Vec<Task>) -> Result<Vec<TaskWi
         .into_iter()
         .map(|task| task_with_tags(conn, task))
         .collect()
+}
+
+/// A batch of rows as `TaskWithTags`, with the tag links read once for the whole
+/// batch — `tasks_with_tags` asks per row, which is fine for one row and not for
+/// a page.
+fn rows_with_tags(tasks: Vec<Task>, links: &HashMap<Uuid, Vec<Uuid>>) -> Vec<TaskWithTags> {
+    tasks
+        .into_iter()
+        .map(|task| TaskWithTags {
+            tag_ids: links.get(&task.id).cloned().unwrap_or_default(),
+            task,
+        })
+        .collect()
+}
+
+/// Turns one scope's rows into a `TaskPage`: the children the rows did not
+/// bring, the parent titles for children whose parent is off-scope, and the
+/// open-prerequisite count of every row. One definition, shared by every scope
+/// (today the project scope, later the four views).
+fn task_page(conn: &Connection, rows: Vec<Task>) -> Result<TaskPage, AppError> {
+    let row_ids: Vec<Uuid> = rows.iter().map(|task| task.id).collect();
+    let parent_ids: Vec<Uuid> = rows
+        .iter()
+        .filter(|task| task.parent_task_id.is_none())
+        .map(|task| task.id)
+        .collect();
+    let children = tasks::list_children_of(conn, &parent_ids, &row_ids)?;
+
+    let mut all_ids = row_ids.clone();
+    all_ids.extend(children.iter().map(|task| task.id));
+
+    // One query per concern, all keyed on the page's ids.
+    let mut links: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for (task_id, tag_id) in task_tags::list_for_tasks(conn, &all_ids)? {
+        links.entry(task_id).or_default().push(tag_id);
+    }
+
+    // Parents a child row references but this page does not carry.
+    let mut seen: HashSet<Uuid> = all_ids.iter().copied().collect();
+    let missing: Vec<Uuid> = children
+        .iter()
+        .filter_map(|task| task.parent_task_id)
+        .chain(rows.iter().filter_map(|task| task.parent_task_id))
+        .filter(|id| seen.insert(*id))
+        .collect();
+    let related = tasks::titles_of(conn, &missing)?;
+
+    let blocked = tasks::blocked_counts(conn, &all_ids)?
+        .into_iter()
+        .map(|(task_id, count)| TaskBlocked { task_id, count })
+        .collect();
+
+    Ok(TaskPage {
+        rows: rows_with_tags(rows, &links),
+        children: rows_with_tags(children, &links),
+        related,
+        blocked,
+        has_more: false,
+        cursor: None,
+    })
+}
+
+/// `task:listByProject` — one project's tasks as a scope page. Not paged: the
+/// project's toolbar filters and sort apply to the whole project, exactly as
+/// they did when the page filtered the global snapshot itself.
+pub fn list_tasks_by_project(conn: &Connection, project_id: Uuid) -> Result<TaskPage, AppError> {
+    task_page(conn, tasks::list_by_project(conn, project_id)?)
 }
 
 /// Creates a task (plus tag links and initial subtasks) in one transaction;
@@ -3040,6 +3107,63 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    /// 项目范围页：行 + 该带的子行 + 未完成前置计数；没有筛选，所以不分页。
+    #[test]
+    fn list_tasks_by_project_pages_one_project() {
+        let conn = conn();
+        let project = make_project(&conn, "范围项目");
+        let other = make_project(&conn, "别的项目");
+        let project_task = |title: &str| {
+            create_task(
+                &conn,
+                NewTask {
+                    project_id: Some(project.id),
+                    ..make_new_task(title)
+                },
+            )
+            .unwrap()
+        };
+        let parent = project_task("父");
+        let child = make_child(&conn, &parent, "子");
+        let stray = create_task(
+            &conn,
+            NewTask {
+                project_id: Some(other.id),
+                ..make_new_task("别人的")
+            },
+        )
+        .unwrap();
+        let prerequisite = project_task("前置");
+        add_dependency(&conn, dependency(parent.id, prerequisite.id)).unwrap();
+
+        let page = list_tasks_by_project(&conn, project.id).unwrap();
+
+        let ids: Vec<Uuid> = page.rows.iter().map(|row| row.task.id).collect();
+        assert_eq!(ids.len(), 3, "父、子、前置；别的项目不在内");
+        assert!(ids.contains(&parent.id) && ids.contains(&child.id));
+        assert!(!ids.contains(&stray.id));
+        assert!(page.children.is_empty(), "项目范围没有筛掉任何子行");
+        assert!(page.related.is_empty(), "父就在同一页里");
+        assert_eq!(page.blocked.len(), 1);
+        assert_eq!(page.blocked[0].task_id, parent.id);
+        assert_eq!(page.blocked[0].count, 1);
+        assert!(!page.has_more);
+        assert!(page.cursor.is_none());
+
+        // 标签跟着行一起回（`TagManagerDialog` 的计数与工具栏筛选都读它）。
+        assert!(page
+            .rows
+            .iter()
+            .find(|row| row.task.id == parent.id)
+            .unwrap()
+            .tag_ids
+            .is_empty());
+
+        // 未知项目给空页，不报错：深层链接/已删除项目由项目行本身兜住。
+        let empty = list_tasks_by_project(&conn, Uuid::new_v4()).unwrap();
+        assert!(empty.rows.is_empty());
     }
 
     fn first_column(conn: &Connection, project_id: Uuid) -> BoardColumn {

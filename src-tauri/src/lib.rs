@@ -31,6 +31,7 @@ pub fn run() {
         .plugin(shortcut::plugin())
         .invoke_handler(tauri::generate_handler![
             commands::task_list,
+            commands::task_list_by_project,
             commands::task_create,
             commands::task_update,
             commands::task_complete,
