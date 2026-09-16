@@ -47,8 +47,8 @@ export function BoardView(props: { projectId: string }) {
   const columns = () => getColumns(props.projectId);
   const lanes = () => splitLanes(columns());
   // The scope *is* this project, so no `projectId` filter is needed here: a task
-  // outside it cannot reach this board. §8.4 keeps children out — a child has no
-  // `columnId` of its own, it lives inside its parent.
+  // outside it cannot reach this board. §8.4 keeps children out — a child can
+  // carry a `columnId`, but it lives inside its parent, never on a lane.
   const tasksOf = (columnId: string) =>
     sortTasks(
       scopeRows(`project:${props.projectId}`).filter(
