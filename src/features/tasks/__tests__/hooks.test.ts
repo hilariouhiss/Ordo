@@ -989,13 +989,22 @@ describe("写后刷新计数", () => {
     expect(api.listUnfinishedCounts).toHaveBeenCalledTimes(3);
   });
 
-  it("纯字段编辑（改标题）不重取", async () => {
+  it("编辑器那样带上同值字段的纯字段编辑不重取；真换项目才重取", async () => {
     vi.mocked(api.listUnfinishedCounts).mockResolvedValue([]);
     store.upsertTask(task("t1", { projectId: "p1" }));
+    // 编辑器 (TaskEditorDialog) 每次保存都带上任务自己的 `projectId`/`completedAt`
+    // 之类的整行字段，改标题也不例外——所以判定要按值，不能按「键在不在」。
     vi.mocked(api.updateTask).mockResolvedValue(task("t1", { projectId: "p1", title: "改过" }));
 
-    await hooks.updateTask("t1", { title: "改过" });
+    await hooks.updateTask("t1", { projectId: "p1", title: "改过" });
 
     expect(api.listUnfinishedCounts).not.toHaveBeenCalled();
+
+    // 真换项目（p1 → p2）会改变两个项目各自的计数。
+    vi.mocked(api.updateTask).mockResolvedValue(task("t1", { projectId: "p2" }));
+
+    await hooks.updateTask("t1", { projectId: "p2" });
+
+    expect(api.listUnfinishedCounts).toHaveBeenCalledTimes(1);
   });
 });

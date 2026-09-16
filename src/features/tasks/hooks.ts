@@ -239,12 +239,15 @@ export function updateTask(taskId: string, patch: UpdateTask): Promise<Task | nu
       const saved = await api.updateTask(taskId, patch);
       store.patchTask(taskId, saved);
       // 只有可能改变「谁还算未完成顶层行」的改动才重取：纯标题/备注/标签/
-      // 优先级/复杂度编辑与排序都不改变这个数。
+      // 优先级/复杂度编辑与排序都不改变这个数。三个字段按**值**比而不是按「键在
+      // 不在」比——编辑器 (TaskEditorDialog) 每次保存都带上任务自己的 `projectId`，
+      // 按键比会让每次改名都白跑一趟聚合。`parentTaskId` 是例外，只看键：后端拿到它
+      // 就把 `project_id` 改成父任务的项目、清掉 `column_id`，值没变也算数。
       if (
-        "projectId" in patch ||
         "parentTaskId" in patch ||
-        "completedAt" in patch ||
-        "columnId" in patch
+        before.projectId !== saved.projectId ||
+        before.completedAt !== saved.completedAt ||
+        before.columnId !== saved.columnId
       ) {
         void loadUnfinishedCounts();
       }
