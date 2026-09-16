@@ -249,7 +249,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 **设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（44 个）。
 
-`task:listByProject` 返回 `TaskPage`（§4 的载荷）：`rows` + 该带的 `children` + 范围外的父 `related` + 每行的未完成前置计数 `blocked`。项目范围**不分页**——项目详情的工具栏筛选与排序作用在整个项目上，与它此前自己过滤全量快照时的行为一致。
+`task:listByProject` 返回 `TaskPage`：`rows` + 该带的 `children` + 范围外的父 `related` + 每行的未完成前置计数 `blocked`。项目范围**不分页**——项目详情的工具栏筛选与排序作用在整个项目上，与它此前自己过滤全量快照时的行为一致。
 
 `task:reorder` 与 `board:moveTask` 返回 `{ moved, rebalanced }`：被移动的行 + 被重写的排序键。键耗尽触发的重排会重写整个范围，所以那些行必须回给调用方；普通路径下 `rebalanced` 是空数组，一次索引 seek 就够（旧实现回整个兄弟范围，载荷随范围大小增长）。
 
