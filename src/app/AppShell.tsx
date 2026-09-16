@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onMount, type JSX } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { Link, Outlet } from "@tanstack/solid-router";
 import {
@@ -21,6 +21,7 @@ import { Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
 import { beginDrag, draggedId, endDrag } from "../common/stores/drag";
 import { pushInfo } from "../common/stores/notifications";
+import { openTaskViewer } from "../common/stores/taskViewer";
 import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
 import { getIcon } from "../common/icons";
 import TaskViewer from "./TaskViewer";
@@ -46,8 +47,9 @@ import { archivedProjects, getProject, projectsState } from "../features/project
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
 import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
-import { reloadTasks, updateTask } from "../features/tasks/hooks";
-import { getTask } from "../features/tasks/store";
+import { loadAll as loadTasks, reloadTasks, updateTask } from "../features/tasks/hooks";
+import { getTask, tasksState } from "../features/tasks/store";
+import { isCompleted } from "../features/tasks/view-filters";
 
 type NavPath =
   | "/inbox"
@@ -82,6 +84,61 @@ function navRowClass(collapsed: boolean): string {
   return `flex items-center gap-2.5 rounded-md text-sm transition duration-150 ease-out focus-ring ${
     collapsed ? "size-8 justify-center" : "px-2.5 py-1.5"
   }`;
+}
+
+/**
+ * Row geometry for the project tree. A row's content column must not depend on
+ * whether the row can expand, so the chevron gets its own 20px slot *left* of
+ * the content and the row pulls itself left by that slot instead of pushing its
+ * content right. The shared 28px `iconButtonClass` chevron plus its 2px gap came
+ * to 30px — exactly the `child-indent` step — which is why a group's own line
+ * used to land on its children's column.
+ *
+ * Level 0 (`-ml-2`) puts the slot in the sidebar's own 8px gutter, a hair right
+ * of the nav icons above it; level 1 (`-ml-2.5`) puts it on the child list's
+ * guide line, which leaves those rows exactly where they already were.
+ */
+function treeRowClass(level: 0 | 1): string {
+  return `flex items-center rounded-md ${level === 0 ? "-ml-2" : "-ml-2.5"}`;
+}
+
+/** The `Link` half of such a row: the slot already spent the leading padding. */
+const TREE_CONTENT_CLASS =
+  "flex items-center gap-2.5 rounded-md text-sm transition duration-150 ease-out focus-ring ml-0.5 py-1.5 pr-2.5";
+
+/** A row's unfinished-task list: the shared indent step, with the title landing
+ * under the project's name rather than under its icon. */
+const TREE_LEAF_CLASS =
+  "flex w-full items-center rounded-md py-1 pl-1.5 pr-2 text-sm text-muted-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring";
+
+/**
+ * The disclosure chevron that opens a group: 20px wide, not the shared 28px
+ * `iconButtonClass`, because the slot has to fit inside one indent step while the
+ * row it belongs to stays on its own column.
+ */
+function Disclosure(props: { open: boolean; label: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={props.open}
+      aria-label={props.label}
+      class="flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring"
+      onClick={props.onToggle}
+    >
+      <ChevronDown
+        size={12}
+        aria-hidden="true"
+        class="transition-transform duration-200 ease-out"
+        classList={{ "-rotate-90": !props.open }}
+      />
+    </button>
+  );
+}
+
+/** A row with nothing to disclose keeps the slot, or its content would sit a
+ * column left of its siblings'. */
+function DisclosureSpacer() {
+  return <span aria-hidden="true" class="h-7 w-5 shrink-0" />;
 }
 
 function NavItem(props: {
@@ -187,14 +244,14 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
           },
         );
       }}
-      class={`${navRowClass(props.collapsed)} min-w-0 flex-1 ${
+      class={`${props.collapsed ? navRowClass(true) : TREE_CONTENT_CLASS} min-w-0 flex-1 ${
         props.muted
           ? "text-subtle-foreground hover:text-muted-foreground"
           : "text-muted-foreground hover:text-foreground"
       } hover:bg-surface-hover`}
       classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": taskOver() }}
       activeProps={{
-        class: `${navRowClass(props.collapsed)} min-w-0 flex-1 bg-primary/10 font-medium text-primary`,
+        class: `${props.collapsed ? navRowClass(true) : TREE_CONTENT_CLASS} min-w-0 flex-1 bg-primary/10 font-medium text-primary`,
         "aria-current": "page",
       }}
       title={props.project.name}
@@ -209,6 +266,75 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
         <span class="min-w-0 truncate">{props.project.name}</span>
       </Show>
     </Link>
+  );
+}
+
+/**
+ * One project row plus the disclosure that lists the project's unfinished tasks.
+ *
+ * `nested` = the project belongs to a namespace, so it takes the level-1 row
+ * geometry (chevron on the guide line) instead of the level-0 one. `trailing`
+ * carries the archived rows' 恢复 button.
+ *
+ * Open/closed is local, like `collapsedGroups`: view state, not data. Only
+ * *top-level* unfinished tasks are listed — a child already reads as part of its
+ * parent everywhere else, and the sidebar has no room for the whole tree.
+ */
+function ProjectItem(props: {
+  project: Project;
+  collapsed: boolean;
+  nested?: boolean;
+  muted?: boolean;
+  trailing?: JSX.Element;
+}) {
+  const [open, setOpen] = createSignal(false);
+  const unfinished = createMemo(() =>
+    tasksState.tasks.filter(
+      (task) =>
+        task.projectId === props.project.id &&
+        task.parentTaskId === null &&
+        !isCompleted(task),
+    ),
+  );
+
+  return (
+    <Show
+      when={!props.collapsed}
+      fallback={<ProjectLink project={props.project} collapsed={true} muted={props.muted} />}
+    >
+      <div>
+        <div class={treeRowClass(props.nested ? 1 : 0)}>
+          <Show when={unfinished().length > 0} fallback={<DisclosureSpacer />}>
+            <Disclosure
+              open={open()}
+              label={`${open() ? "收起" : "展开"}项目 ${props.project.name}`}
+              onToggle={() => setOpen(!open())}
+            />
+          </Show>
+          <ProjectLink project={props.project} collapsed={false} muted={props.muted} />
+          {props.trailing}
+        </div>
+        <Show when={open() && unfinished().length > 0}>
+          <nav
+            aria-label={`${props.project.name} 的未完成任务`}
+            class="child-indent flex flex-col gap-0.5"
+          >
+            <For each={unfinished()}>
+              {(task) => (
+                <button
+                  type="button"
+                  class={TREE_LEAF_CLASS}
+                  title={task.title}
+                  onClick={() => openTaskViewer(task.id)}
+                >
+                  <span class="min-w-0 truncate">{task.title}</span>
+                </button>
+              )}
+            </For>
+          </nav>
+        </Show>
+      </div>
+    </Show>
   );
 }
 
@@ -228,14 +354,17 @@ function NamespaceRow(props: {
   // ~6px basis that squeezes the icon. The row then keeps the project rows'
   // plain `size-8 justify-center` geometry.
   const linkClass = () =>
-    props.collapsed ? navRowClass(true) : `${navRowClass(false)} min-w-0 flex-1`;
+    props.collapsed ? navRowClass(true) : `${TREE_CONTENT_CLASS} min-w-0 flex-1`;
+  // The chevron's slot hangs in the sidebar's own gutter, so the row's name and
+  // icon stay on the level-0 column however wide the arrow is (R8).
+  const rowClass = () => (props.collapsed ? "flex items-center rounded-md" : treeRowClass(0));
 
   const [projectOver, setProjectOver] = createSignal(false);
   const draggedProject = (event: DragEvent) => draggedId(event, "project");
 
   return (
     <div
-      class="flex items-center gap-0.5 rounded-md"
+      class={rowClass()}
       classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": projectOver() }}
       onDragOver={(event) => {
         const id = draggedProject(event);
@@ -256,20 +385,11 @@ function NamespaceRow(props: {
       }}
     >
       <Show when={!props.collapsed}>
-        <button
-          type="button"
-          aria-expanded={props.open}
-          aria-label={`${props.open ? "收起" : "展开"}命名空间 ${props.namespace.name}`}
-          class={iconButtonClass}
-          onClick={props.onToggle}
-        >
-          <ChevronDown
-            size={12}
-            aria-hidden="true"
-            class="transition-transform duration-200 ease-out"
-            classList={{ "-rotate-90": !props.open }}
-          />
-        </button>
+        <Disclosure
+          open={props.open}
+          label={`${props.open ? "收起" : "展开"}命名空间 ${props.namespace.name}`}
+          onToggle={props.onToggle}
+        />
       </Show>
       <Link
         to="/namespaces/$namespaceId"
@@ -324,6 +444,9 @@ export default function AppShell() {
   onMount(() => {
     if (!namespacesState.loaded) void loadNamespaces();
     if (!projectsState.loaded) void loadProjects();
+    // The tree lists each project's unfinished tasks, so the shell needs the
+    // task snapshot itself — it cannot wait for a task view to mount first.
+    if (!tasksState.loaded) void loadTasks();
     void subscribeToReminders();
     // The quick-add window (D-02) is a separate webview with its own store, so
     // a task filed there stays invisible here until the list is pulled again.
@@ -423,7 +546,9 @@ export default function AppShell() {
                         class="child-indent flex flex-col gap-0.5"
                       >
                         <For each={projectsInNamespace(namespace.id)}>
-                          {(project) => <ProjectLink project={project} collapsed={collapsed()} />}
+                          {(project) => (
+                            <ProjectItem project={project} collapsed={collapsed()} nested />
+                          )}
                         </For>
                       </nav>
                     </Show>
@@ -459,7 +584,7 @@ export default function AppShell() {
             }}
           >
             <For each={ungroupedProjects()}>
-              {(project) => <ProjectLink project={project} collapsed={collapsed()} />}
+              {(project) => <ProjectItem project={project} collapsed={collapsed()} />}
             </For>
           </nav>
 
@@ -512,7 +637,12 @@ export default function AppShell() {
                         >
                           <For each={archivedProjectsOf(namespace.id)}>
                             {(project) => (
-                              <ProjectLink project={project} collapsed={collapsed()} muted />
+                              <ProjectItem
+                                project={project}
+                                collapsed={collapsed()}
+                                nested
+                                muted
+                              />
                             )}
                           </For>
                         </nav>
@@ -525,17 +655,23 @@ export default function AppShell() {
               <nav aria-label="已归档项目" class="mt-0.5 flex flex-col gap-0.5">
                 <For each={archivedLooseProjects()}>
                   {(project) => (
-                    <div class="group flex items-center gap-0.5">
-                      <ProjectLink project={project} collapsed={collapsed()} muted />
-                      <button
-                        type="button"
-                        aria-label={`恢复项目 ${project.name}`}
-                        title="恢复项目"
-                        class={`${iconButtonClass} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
-                        onClick={() => void restoreProject(project.id)}
-                      >
-                        <RotateCcw size={13} aria-hidden="true" />
-                      </button>
+                    <div class="group">
+                      <ProjectItem
+                        project={project}
+                        collapsed={collapsed()}
+                        muted
+                        trailing={
+                          <button
+                            type="button"
+                            aria-label={`恢复项目 ${project.name}`}
+                            title="恢复项目"
+                            class={`${iconButtonClass} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
+                            onClick={() => void restoreProject(project.id)}
+                          >
+                            <RotateCcw size={13} aria-hidden="true" />
+                          </button>
+                        }
+                      />
                     </div>
                   )}
                 </For>

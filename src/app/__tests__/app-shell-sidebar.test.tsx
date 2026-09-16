@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/solid-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
 import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
+import { closeTaskViewer } from "../../common/stores/taskViewer";
 import {
   clearNotifications,
   notifications,
@@ -15,7 +16,7 @@ import * as projectsApi from "../../features/projects/api";
 import * as tasksApi from "../../features/tasks/api";
 import { resetProjectsStore } from "../../features/projects/store";
 import type { Project } from "../../features/projects/types";
-import { resetTasksStore, setAll as setTasks } from "../../features/tasks/store";
+import { resetTasksStore, setAll as setTasks, tasksState } from "../../features/tasks/store";
 import type { Task } from "../../features/tasks/types";
 import { routeTree } from "../../router";
 
@@ -129,6 +130,7 @@ beforeEach(() => {
   resetNamespacesStore();
   resetTasksStore();
   clearNotifications();
+  closeTaskViewer();
 });
 
 afterEach(cleanup);
@@ -161,6 +163,98 @@ describe("AppShell sidebar", () => {
     const root = screen.getByRole("navigation", { name: "项目列表" });
     expect(root.textContent).toContain("杂事");
     expect(root.textContent).not.toContain("网站改版");
+  });
+
+  // R8: 展开箭头占的是自己左边那一列，父行内容不再被它推到和子项同一列上 ——
+  // 28px 的 `iconButtonClass` 箭头加 2px gap 正好等于 `child-indent` 的 30px。
+  it("keeps a group's own row off its children's column", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "网站改版", { namespaceId: "ns1" }),
+    ]);
+    renderShell();
+
+    const row = (await screen.findByRole("link", { name: /工作/ })).closest("div") as HTMLElement;
+    // The chevron's slot hangs in the sidebar's own gutter, so the group's icon
+    // and name keep the level-0 column; only the children take the indent.
+    expect(row.classList.contains("-ml-2")).toBe(true);
+    expect(row.classList.contains("child-indent")).toBe(false);
+
+    const group = screen.getByRole("navigation", { name: "工作 的项目" });
+    expect(group.className).toContain("child-indent");
+
+    // A nested project pulls its own slot onto the guide line, which leaves the
+    // row's content exactly where it was before the row became expandable.
+    const nested = screen
+      .getByRole("link", { name: "网站改版" })
+      .closest("div") as HTMLElement;
+    expect(nested.classList.contains("-ml-2.5")).toBe(true);
+    expect(nested.classList.contains("child-indent")).toBe(false);
+  });
+
+  // R9: 项目行可展开，列出该项目「顶层 + 未完成」的任务。
+  it("expands a project row into its top-level unfinished tasks", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "杂事"),
+      project("p2", "别的"),
+    ]);
+    // Loaded by the shell itself: the sidebar cannot wait for a task view.
+    vi.mocked(tasksApi.listTasks).mockResolvedValue([
+      task("t1", { projectId: "p1", title: "写周报" }),
+      task("t2", { projectId: "p1", title: "已完成的", completedAt: "2026-09-15T10:00:00Z" }),
+      task("t3", { projectId: "p1", title: "子任务", parentTaskId: "t1" }),
+      task("t4", { projectId: "p2", title: "别的任务" }),
+      task("t5", { title: "收件箱任务" }),
+    ]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "展开项目 杂事" }));
+
+    const list = await screen.findByRole("navigation", { name: "杂事 的未完成任务" });
+    expect(list.textContent).toContain("写周报");
+    expect(list.textContent).not.toContain("已完成的");
+    expect(list.textContent).not.toContain("子任务");
+    expect(list.textContent).not.toContain("别的任务");
+    expect(list.textContent).not.toContain("收件箱任务");
+
+    // Collapsed by default, and each row opens its own list.
+    expect(screen.queryByRole("navigation", { name: "别的 的未完成任务" })).toBeNull();
+    expect(screen.getByRole("button", { name: "收起项目 杂事" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("offers no disclosure for a project with nothing left to do", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    vi.mocked(tasksApi.listTasks).mockResolvedValue([
+      task("t1", { projectId: "p1", completedAt: "2026-09-15T10:00:00Z" }),
+      task("t2", { projectId: "p1", parentTaskId: "t1" }),
+    ]);
+    renderShell();
+
+    await screen.findByRole("link", { name: "杂事" });
+    // Wait for the shell's task load, or the absence below proves nothing.
+    await waitFor(() => expect(tasksState.loaded).toBe(true));
+    expect(screen.queryByRole("button", { name: /项目 杂事/ })).toBeNull();
+  });
+
+  it("opens the task detail from a task row in the tree", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    vi.mocked(tasksApi.listTasks).mockResolvedValue([
+      task("t1", { projectId: "p1", title: "写周报" }),
+    ]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "展开项目 杂事" }));
+    // The same task is also a row in 今天, so the click has to start on the
+    // sidebar's own copy.
+    const list = await screen.findByRole("navigation", { name: "杂事 的未完成任务" });
+    fireEvent.click(within(list).getByRole("button", { name: "写周报" }));
+
+    expect(screen.getByRole("dialog").textContent).toContain("写周报");
   });
 
   it("lists an archived namespace's projects under it, not in the flat archive", async () => {
