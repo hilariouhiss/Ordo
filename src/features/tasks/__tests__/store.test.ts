@@ -262,6 +262,56 @@ describe("tasks store", () => {
       expect(store.scopeRows("project:p1")).toEqual([]);
     });
 
+    it("setAll 重新推导已装载的项目范围（跨窗口新建从这条路进来）", () => {
+      // 项目页先装载：范围里只有当时的那一行。
+      store.installPage(
+        "project:p1",
+        {
+          rows: [task("t1", { projectId: "p1" })],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      // 快捷添加窗口在 p1 里建了 t2：本窗口靠 `reloadTasks` 的整表快照得知。
+      store.setAll(
+        [
+          task("t1", { projectId: "p1" }),
+          task("t2", { projectId: "p1" }),
+          task("other", { projectId: "p2" }),
+        ],
+        [],
+      );
+
+      // 范围已装载，`ensureScope` 会短路，切走再回来也修不好，所以快照必须自己
+      // 把新行带进范围——成员关系就是这个 `projectId` 谓词，顺序就是快照的顺序。
+      expect(store.scopeRows("project:p1").map((row) => row.id)).toEqual(["t1", "t2"]);
+      // 没装载过的项目范围不凭空造。
+      expect(store.scopeRows("project:p2")).toEqual([]);
+    });
+
+    it("installPage 清掉本次页面里那些行的旧阻塞计数", () => {
+      const page = (blocked: Array<{ taskId: string; count: number }>) => ({
+        rows: [task("t1", { projectId: "p1" })],
+        children: [],
+        related: [],
+        blocked,
+        hasMore: false,
+        cursor: null,
+      });
+
+      store.installPage("project:p1", page([{ taskId: "t1", count: 1 }]), false);
+      expect(store.blockedCountOf("t1")).toBe(1);
+
+      // 前置完成了：这一页不再返回这个 id，旧数字必须跟着消失。
+      store.installPage("project:p1", page([]), false);
+      expect(store.blockedCountOf("t1")).toBe(0);
+    });
+
     it("同一个项目的整行 patch 不改范围顺序（改标题不该把行挪到尾）", () => {
       store.installPage(
         "project:p1",

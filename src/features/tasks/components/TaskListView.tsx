@@ -3,7 +3,7 @@ import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid"
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
 import { completeTask, softDeleteTask, uncompleteTask, updateTask } from "../hooks";
 import { blockersOf, buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
-import { getTask, parentTitleOf, tasks, tasksState } from "../store";
+import { childrenOf, getTask, parentTitleOf, tasks, tasksState } from "../store";
 import type { Priority, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
 import { SubtaskRow } from "./SubtaskRow";
@@ -62,28 +62,6 @@ const PRIORITY_FILTER_OPTIONS: Array<{ value: Priority | "all"; label: string }>
  */
 const FILTER_CLASS =
   "flex h-8 select-none items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:text-foreground focus-ring";
-
-/**
- * Children of every task in the snapshot, keyed by parent id and sorted by
- * `sortOrder` — the same order `childrenOf` hands back, built in one pass.
- *
- * Asking `childrenOf` per row instead would be O(n²) over the render pass:
- * it filters (and sorts) the whole snapshot every call, and the 10k-row
- * virtualization case in `task-views.test.tsx` is exactly that shape.
- */
-function groupChildren(tasks: readonly Task[]): Map<string, Task[]> {
-  const byParent = new Map<string, Task[]>();
-  for (const task of tasks) {
-    if (task.parentTaskId === null) continue;
-    const siblings = byParent.get(task.parentTaskId);
-    if (siblings) siblings.push(task);
-    else byParent.set(task.parentTaskId, [task]);
-  }
-  for (const siblings of byParent.values()) {
-    siblings.sort((a, b) => (a.sortOrder < b.sortOrder ? -1 : a.sortOrder > b.sortOrder ? 1 : 0));
-  }
-  return byParent;
-}
 
 export interface TaskListViewProps {
   /** Page title. Omitted where a parent header already names the view (the
@@ -174,9 +152,6 @@ export function TaskListView(props: TaskListViewProps) {
     const live = liveSet(tasks());
     const index = buildIndex(tasksState.dependencies, live);
     const done = completionSet(tasks());
-    // One pass for the children and one lookup table: both are per-render-pass
-    // derivations, like the dependency index above.
-    const childrenByParent = groupChildren(tasks());
     const matched = visible();
     const blockedOf = (task: Task) =>
       task.completedAt === null && isBlocked(index, done, task.id);
@@ -192,7 +167,9 @@ export function TaskListView(props: TaskListViewProps) {
         });
         continue;
       }
-      const children = childrenByParent.get(task.id) ?? [];
+      // The store's own child index, not the `all` snapshot: this list may be a
+      // scope page (the project detail), which the snapshot need not cover.
+      const children = childrenOf(task.id);
       out.push({
         kind: "task",
         task,

@@ -295,6 +295,9 @@ export function installPage(scope: string, page: TaskPage, append: boolean): voi
       for (const task of page.rows) insertRow(draft, task);
       for (const task of page.children) insertRow(draft, task);
       for (const ref of page.related) draft.related[ref.id] = ref;
+      // 这一页对自己的 id 是权威的：行不再被阻塞时服务端根本不返回它，所以先清掉
+      // 本页那些行的旧计数，再写回返回来的。
+      for (const task of [...page.rows, ...page.children]) delete draft.blocked[task.id];
       for (const entry of page.blocked) draft.blocked[entry.taskId] = entry.count;
 
       const current = append ? (draft.scopes[scope] ?? []) : [];
@@ -326,6 +329,17 @@ export function setAll(tasks: Task[], tags: Tag[]): void {
       draft.childrenByParent = {};
       for (const task of tasks) insertRow(draft, task);
       draft.scopes.all = tasks.map((task) => task.id);
+      // 别的窗口新建的任务从这条路进来（快捷添加窗口有自己的 store，本窗口靠
+      // `reloadTasks` 的整表快照得知），而 `ensureScope` 对已装载的范围短路，所以
+      // 每个**已装载**的项目范围都从这份快照重新推导 id 列表：成员关系就是行的
+      // `projectId` 一个字段，顺序就是快照自己的顺序。其余范围不动。
+      for (const scope of Object.keys(draft.scopes)) {
+        if (!scope.startsWith("project:")) continue;
+        const projectId = scope.slice("project:".length);
+        draft.scopes[scope] = tasks
+          .filter((task) => task.projectId === projectId)
+          .map((task) => task.id);
+      }
       draft.tags = tags;
       draft.loaded = true;
       draft.scopeMeta.all = {

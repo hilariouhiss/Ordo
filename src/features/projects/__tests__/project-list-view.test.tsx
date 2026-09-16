@@ -161,6 +161,50 @@ describe("ProjectListView", () => {
     ).toBe("50");
   });
 
+  // 冷启动直接落在项目路由时 `all` 快照可能还没有：子行计数和子行本身都必须由
+  // 项目范围自己的行走 store 的子行索引回答，不能回头读整库快照。
+  it("只装载项目范围时也算得出子行计数、列得出子行", () => {
+    seedProject([
+      task("t1", { title: "父任务" }),
+      task("c1", { title: "子任务", parentTaskId: "t1", completedAt: "2026-09-09T10:00:00Z" }),
+    ]);
+
+    renderView();
+
+    expect(screen.getByText("1/1")).toBeTruthy();
+    expect(screen.getByText("子任务 1/1 已完成")).toBeTruthy();
+    // 规则 A：范围内的子行把父行打开，子行直接列在父行下面。
+    expect(screen.getByText("子任务")).toBeTruthy();
+  });
+
+  it("装载失败显示错误面板，「重试」再拉一次并渲染任务", async () => {
+    vi.mocked(api.listTasksByProject).mockRejectedValueOnce({
+      code: "db",
+      message: "数据库连接锁失效",
+    });
+
+    renderView();
+
+    const pane = await screen.findByRole("alert");
+    expect(pane.textContent).toContain("加载失败");
+    expect(pane.textContent).toContain("数据库连接锁失效");
+    expect(screen.queryByText("任务 t1")).toBeNull();
+
+    vi.mocked(api.listTasksByProject).mockResolvedValue({
+      rows: [task("t1")],
+      children: [],
+      related: [],
+      blocked: [],
+      hasMore: false,
+      cursor: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+    // `force = true`：失败的范围保持未装载，重试按钮把装载器再跑一次。
+    await waitFor(() => expect(screen.getByText("任务 t1")).toBeTruthy());
+    expect(api.listTasksByProject).toHaveBeenCalledTimes(2);
+  });
+
   it("updates the completion rate live when a task is checked", async () => {
     seedProject([task("t1"), task("t2")]);
     renderView();

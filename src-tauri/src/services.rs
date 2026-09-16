@@ -400,8 +400,9 @@ fn rows_with_tags(tasks: Vec<Task>, links: &HashMap<Uuid, Vec<Uuid>>) -> Vec<Tas
 
 /// Turns one scope's rows into a `TaskPage`: the children the rows did not
 /// bring, the parent titles for children whose parent is off-scope, and the
-/// open-prerequisite count of every row. One definition, shared by every scope
-/// (today the project scope, later the four views).
+/// open-prerequisite count of every unfinished row (§4 invariant 3: a completed
+/// row reports none). One definition, shared by every scope (today the project
+/// scope, later the four views).
 fn task_page(conn: &Connection, rows: Vec<Task>) -> Result<TaskPage, AppError> {
     let row_ids: Vec<Uuid> = rows.iter().map(|task| task.id).collect();
     let parent_ids: Vec<Uuid> = rows
@@ -430,8 +431,18 @@ fn task_page(conn: &Connection, rows: Vec<Task>) -> Result<TaskPage, AppError> {
         .collect();
     let related = tasks::titles_of(conn, &missing)?;
 
+    // 规范 §4 不变量 3：完成的行不报未完成前置（视图本地也是这么置零的），所以
+    // 页面自己的载荷要先按「已完成」过滤一遍 `blocked_counts` 的结果。
+    let completed: HashSet<Uuid> = rows
+        .iter()
+        .chain(children.iter())
+        .filter(|task| task.completed_at.is_some())
+        .map(|task| task.id)
+        .collect();
+
     let blocked = tasks::blocked_counts(conn, &all_ids)?
         .into_iter()
+        .filter(|(task_id, _)| !completed.contains(task_id))
         .map(|(task_id, count)| TaskBlocked { task_id, count })
         .collect();
 
@@ -3164,6 +3175,39 @@ mod tests {
         // 未知项目给空页，不报错：深层链接/已删除项目由项目行本身兜住。
         let empty = list_tasks_by_project(&conn, Uuid::new_v4()).unwrap();
         assert!(empty.rows.is_empty());
+    }
+
+    /// 规范 §4 不变量 3：完成的行不再报未完成前置——视图本地就是这么置零的，
+    /// 页面的载荷不能跟它唱反调。同一个前置的未完成行照旧报 1。
+    #[test]
+    fn task_page_drops_completed_rows_from_blocked() {
+        let conn = conn();
+        let project = make_project(&conn, "阻塞项目");
+        let project_task = |title: &str| {
+            create_task(
+                &conn,
+                NewTask {
+                    project_id: Some(project.id),
+                    ..make_new_task(title)
+                },
+            )
+            .unwrap()
+        };
+        let prerequisite = project_task("前置");
+        let open = project_task("未完成");
+        let done = project_task("已完成");
+        add_dependency(&conn, dependency(open.id, prerequisite.id)).unwrap();
+        add_dependency(&conn, dependency(done.id, prerequisite.id)).unwrap();
+        complete_task(&conn, done.id).unwrap();
+
+        let page = list_tasks_by_project(&conn, project.id).unwrap();
+
+        let counts: Vec<(Uuid, i64)> = page
+            .blocked
+            .iter()
+            .map(|entry| (entry.task_id, entry.count))
+            .collect();
+        assert_eq!(counts, vec![(open.id, 1)], "完成的行不再带未完成前置计数");
     }
 
     fn first_column(conn: &Connection, project_id: Uuid) -> BoardColumn {
