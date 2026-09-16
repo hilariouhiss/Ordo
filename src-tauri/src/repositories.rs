@@ -289,6 +289,138 @@ pub mod tasks {
         )
     }
 
+    /// A sort key is scoped: a top-level task lives among the top-level tasks
+    /// of its own `column_id`, a child among its parent's other children (and a
+    /// child's `column_id` is always NULL). The `IS NULL` half of the top-level
+    /// predicate is load-bearing — without it a new column-less task would
+    /// append into the children's key range.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct SortScope {
+        pub column_id: Option<Uuid>,
+        pub parent_id: Option<Uuid>,
+    }
+
+    /// The scope's two columns as bound values; `None` binds as NULL. The SQL
+    /// always writes `IS ?n` — SQLite's `IS` holds for both NULL and a value,
+    /// so top-level rows and children share one statement and one query plan.
+    fn scope_params(scope: SortScope) -> (Option<String>, Option<String>) {
+        (
+            scope.column_id.map(|id| id.to_string()),
+            scope.parent_id.map(|id| id.to_string()),
+        )
+    }
+
+    /// The scope's last sort key — what a new row appends after. One backwards
+    /// index seek; the write path used to hydrate the whole table for this.
+    pub fn last_sort_key(conn: &Connection, scope: SortScope) -> Result<Option<String>, AppError> {
+        let (column_id, parent_id) = scope_params(scope);
+        query_one(
+            conn,
+            "SELECT sort_order FROM tasks \
+             WHERE column_id IS ?1 AND parent_task_id IS ?2 AND deleted_at IS NULL \
+             ORDER BY sort_order DESC LIMIT 1",
+            params![column_id, parent_id],
+            |row| Ok(row.get::<_, String>(0)?),
+        )
+    }
+
+    /// The scope's first key strictly greater than `key`; `exclude` keeps the
+    /// row being moved out of its own neighbour lookup.
+    pub fn next_sort_key(
+        conn: &Connection,
+        scope: SortScope,
+        exclude: Option<Uuid>,
+        key: &str,
+    ) -> Result<Option<String>, AppError> {
+        let (column_id, parent_id) = scope_params(scope);
+        query_one(
+            conn,
+            "SELECT sort_order FROM tasks \
+             WHERE column_id IS ?1 AND parent_task_id IS ?2 AND deleted_at IS NULL \
+               AND id IS NOT ?3 AND sort_order > ?4 \
+             ORDER BY sort_order LIMIT 1",
+            params![column_id, parent_id, exclude.map(|id| id.to_string()), key],
+            |row| Ok(row.get::<_, String>(0)?),
+        )
+    }
+
+    /// The scope's last key strictly smaller than `key`.
+    pub fn prev_sort_key(
+        conn: &Connection,
+        scope: SortScope,
+        exclude: Option<Uuid>,
+        key: &str,
+    ) -> Result<Option<String>, AppError> {
+        let (column_id, parent_id) = scope_params(scope);
+        query_one(
+            conn,
+            "SELECT sort_order FROM tasks \
+             WHERE column_id IS ?1 AND parent_task_id IS ?2 AND deleted_at IS NULL \
+               AND id IS NOT ?3 AND sort_order < ?4 \
+             ORDER BY sort_order DESC LIMIT 1",
+            params![column_id, parent_id, exclude.map(|id| id.to_string()), key],
+            |row| Ok(row.get::<_, String>(0)?),
+        )
+    }
+
+    /// Whether `key` belongs to this scope — the membership check reorder and
+    /// board moves do before trusting a client-supplied neighbour key.
+    pub fn sort_key_in_scope(
+        conn: &Connection,
+        scope: SortScope,
+        key: &str,
+    ) -> Result<bool, AppError> {
+        let (column_id, parent_id) = scope_params(scope);
+        query_one(
+            conn,
+            "SELECT EXISTS(SELECT 1 FROM tasks \
+             WHERE column_id IS ?1 AND parent_task_id IS ?2 AND deleted_at IS NULL \
+               AND sort_order = ?3)",
+            params![column_id, parent_id, key],
+            |row| Ok(row.get::<_, bool>(0)?),
+        )
+        .map(|found| found.unwrap_or(false))
+    }
+
+    /// `key`'s 0-based index in the scope, counted with `exclude` removed. Only
+    /// a key-exhaustion rebalance needs a position at all.
+    pub fn index_of_sort_key(
+        conn: &Connection,
+        scope: SortScope,
+        exclude: Option<Uuid>,
+        key: &str,
+    ) -> Result<usize, AppError> {
+        let (column_id, parent_id) = scope_params(scope);
+        query_one(
+            conn,
+            "SELECT COUNT(*) FROM tasks \
+             WHERE column_id IS ?1 AND parent_task_id IS ?2 AND deleted_at IS NULL \
+               AND id IS NOT ?3 AND sort_order < ?4",
+            params![column_id, parent_id, exclude.map(|id| id.to_string()), key],
+            |row| Ok(row.get::<_, i64>(0)? as usize),
+        )
+        .map(|count| count.unwrap_or(0))
+    }
+
+    /// Every key of the scope, in list order. Loaded only when the key space is
+    /// exhausted and the whole scope has to be re-spread.
+    pub fn scope_sort_keys(
+        conn: &Connection,
+        scope: SortScope,
+        exclude: Option<Uuid>,
+    ) -> Result<Vec<(Uuid, String)>, AppError> {
+        let (column_id, parent_id) = scope_params(scope);
+        query_all(
+            conn,
+            "SELECT id, sort_order FROM tasks \
+             WHERE column_id IS ?1 AND parent_task_id IS ?2 AND deleted_at IS NULL \
+               AND id IS NOT ?3 \
+             ORDER BY sort_order, created_at, id",
+            params![column_id, parent_id, exclude.map(|id| id.to_string())],
+            |row| Ok((parse_uuid(row.get("id")?)?, row.get("sort_order")?)),
+        )
+    }
+
     /// A parent's children in `sort_order`; live rows only.
     pub fn list_by_parent(conn: &Connection, parent_id: Uuid) -> Result<Vec<Task>, AppError> {
         query_all(
@@ -1741,6 +1873,8 @@ mod tests {
     use crate::db;
     use crate::models::{BackupData, LegacySubtask, RepeatFreq};
     use chrono::TimeZone;
+    use rusqlite::params_from_iter;
+    use rusqlite::types::Value;
 
     fn conn() -> Connection {
         db::test_conn()
@@ -1776,6 +1910,171 @@ mod tests {
         assert!(
             !plan.contains("SCAN tasks"),
             "list_live scans tasks instead of seeking: {plan}"
+        );
+    }
+
+    /// Like [`plan_of`], with the statement's parameters bound: the scope-key
+    /// queries are parameterised, so explaining them unbound would not be the
+    /// plan the app actually runs.
+    fn plan_with(conn: &Connection, sql: &str, bound: &[Value]) -> String {
+        let mut stmt = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .expect("prepare explain");
+        let details: Vec<String> = stmt
+            .query_map(params_from_iter(bound.iter()), |row| {
+                row.get::<_, String>("detail")
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        details.join(" | ")
+    }
+
+    /// The write path's sort-key lookups must all be a seek on
+    /// `idx_tasks_scope_sort`. They used to hydrate the whole table through
+    /// `tasks::list()` (8–11 ms per create at 2825 rows, growing with the
+    /// table); this is the assertion that keeps the index load-bearing.
+    #[test]
+    fn task_scope_sort_queries_seek_the_index() {
+        let conn = conn();
+        let null = Value::Null;
+        let text = |value: &str| Value::Text(value.to_string());
+        let cases: Vec<(&str, &str, Vec<Value>)> = vec![
+            (
+                "last_sort_key",
+                "SELECT sort_order FROM tasks WHERE column_id IS ?1 AND parent_task_id IS ?2 \
+                 AND deleted_at IS NULL ORDER BY sort_order DESC LIMIT 1",
+                vec![null.clone(), null.clone()],
+            ),
+            (
+                "last_sort_key (a parent's children)",
+                "SELECT sort_order FROM tasks WHERE column_id IS ?1 AND parent_task_id IS ?2 \
+                 AND deleted_at IS NULL ORDER BY sort_order DESC LIMIT 1",
+                vec![null.clone(), text("parent")],
+            ),
+            (
+                "next_sort_key",
+                "SELECT sort_order FROM tasks WHERE column_id IS ?1 AND parent_task_id IS ?2 \
+                 AND deleted_at IS NULL AND id IS NOT ?3 AND sort_order > ?4 \
+                 ORDER BY sort_order LIMIT 1",
+                vec![null.clone(), null.clone(), text("id"), text("n")],
+            ),
+            (
+                "prev_sort_key",
+                "SELECT sort_order FROM tasks WHERE column_id IS ?1 AND parent_task_id IS ?2 \
+                 AND deleted_at IS NULL AND id IS NOT ?3 AND sort_order < ?4 \
+                 ORDER BY sort_order DESC LIMIT 1",
+                vec![null.clone(), null.clone(), text("id"), text("n")],
+            ),
+            (
+                "index_of_sort_key",
+                "SELECT COUNT(*) FROM tasks WHERE column_id IS ?1 AND parent_task_id IS ?2 \
+                 AND deleted_at IS NULL AND id IS NOT ?3 AND sort_order < ?4",
+                vec![null.clone(), null.clone(), text("id"), text("n")],
+            ),
+            (
+                "scope_sort_keys",
+                "SELECT id, sort_order FROM tasks WHERE column_id IS ?1 AND parent_task_id IS ?2 \
+                 AND deleted_at IS NULL AND id IS NOT ?3 ORDER BY sort_order, created_at, id",
+                vec![null.clone(), null.clone(), text("id")],
+            ),
+        ];
+
+        for (label, sql, bound) in cases {
+            let plan = plan_with(&conn, sql, &bound);
+            assert!(
+                plan.contains("SEARCH tasks USING INDEX idx_tasks_scope_sort"),
+                "{label} does not seek idx_tasks_scope_sort: {plan}"
+            );
+        }
+    }
+
+    /// A scope is `(column_id, parent_id)` together, and `exclude` keeps the
+    /// row that is being moved out of its own neighbour lookup.
+    #[test]
+    fn task_scope_sort_queries_answer_by_scope() {
+        let conn = conn();
+        let top = sample_task("n");
+        let child_a = Task {
+            parent_task_id: Some(top.id),
+            sort_order: "n".into(),
+            ..sample_task("n")
+        };
+        let child_b = Task {
+            parent_task_id: Some(top.id),
+            sort_order: "o".into(),
+            ..sample_task("o")
+        };
+        for task in [&top, &child_a, &child_b] {
+            tasks::insert(&conn, task).unwrap();
+        }
+
+        let top_scope = tasks::SortScope {
+            column_id: None,
+            parent_id: None,
+        };
+        let child_scope = tasks::SortScope {
+            column_id: None,
+            parent_id: Some(top.id),
+        };
+
+        // Two scopes, two key sequences: a child starts over at "n" and never
+        // sees the top-level keys.
+        assert_eq!(
+            tasks::last_sort_key(&conn, top_scope).unwrap(),
+            Some("n".into())
+        );
+        assert_eq!(
+            tasks::last_sort_key(&conn, child_scope).unwrap(),
+            Some("o".into())
+        );
+        assert_eq!(
+            tasks::next_sort_key(&conn, child_scope, None, "n").unwrap(),
+            Some("o".into())
+        );
+        assert_eq!(
+            tasks::next_sort_key(&conn, child_scope, None, "o").unwrap(),
+            None
+        );
+        assert_eq!(
+            tasks::prev_sort_key(&conn, child_scope, None, "o").unwrap(),
+            Some("n".into())
+        );
+        assert_eq!(
+            tasks::prev_sort_key(&conn, child_scope, None, "n").unwrap(),
+            None
+        );
+        assert!(tasks::sort_key_in_scope(&conn, child_scope, "o").unwrap());
+        assert!(!tasks::sort_key_in_scope(&conn, top_scope, "o").unwrap());
+        assert_eq!(
+            tasks::index_of_sort_key(&conn, child_scope, None, "o").unwrap(),
+            1
+        );
+        assert_eq!(
+            tasks::scope_sort_keys(&conn, child_scope, None).unwrap(),
+            vec![(child_a.id, "n".into()), (child_b.id, "o".into())]
+        );
+
+        // Excluding the first child drops it from the sequence and from the
+        // index count.
+        assert_eq!(
+            tasks::scope_sort_keys(&conn, child_scope, Some(child_a.id)).unwrap(),
+            vec![(child_b.id, "o".into())]
+        );
+        assert_eq!(
+            tasks::index_of_sort_key(&conn, child_scope, Some(child_a.id), "o").unwrap(),
+            0
+        );
+
+        // A soft-deleted row belongs to no scope.
+        conn.execute(
+            "UPDATE tasks SET deleted_at = ?1 WHERE id = ?2",
+            rusqlite::params!["2026-09-16T00:00:00Z", child_b.id.to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            tasks::last_sort_key(&conn, child_scope).unwrap(),
+            Some("n".into())
         );
     }
 

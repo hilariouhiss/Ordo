@@ -1,0 +1,13 @@
+-- 排序键是按范围生成的：顶层任务的范围是「同一 column_id 且 parent_task_id IS NULL」，
+-- 子行的范围是「同一 parent_task_id」（子行的 column_id 恒为 NULL）。
+--
+-- 写入路径过去为了拿「范围内最后一个键」要 `tasks::list()` 整表 hydrate 再在 Rust 里
+-- 过滤（2825 行时 create 已 8–11 ms，随总行数线性增长），reorder/move 同理要先把整个
+-- 兄弟范围读出来才够挑邻居。这条索引把三件事都变成一次 seek：范围内最后一个键、
+-- 某键的紧邻键、某键的存在性与下标。
+--
+-- 列序 = 范围的两列等值谓词在前、排序键在后：索引本身按 sort_order 有序，所以
+-- `ORDER BY sort_order` 不必再排，反向扫一遍就是「最后一个键」。范围谓词写成
+-- `column_id IS ?1 AND parent_task_id IS ?2`——`IS` 对 NULL 与具体值都成立，顶层与
+-- 子行共用一条 SQL、同一个计划（计划断言见 repositories::tests）。
+CREATE INDEX idx_tasks_scope_sort ON tasks(column_id, parent_task_id, sort_order);
