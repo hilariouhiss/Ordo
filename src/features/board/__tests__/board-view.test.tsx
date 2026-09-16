@@ -59,6 +59,20 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
+/**
+ * Seeds the project's scope before render. The board itself never loads tasks —
+ * `ProjectListView` guarantees the scope, and a deep link to the board is
+ * covered by that same call — so a standalone `BoardView` reads whatever the
+ * test put in the scope.
+ */
+function seedProject(tasks: Task[], projectId = "proj-1") {
+  tasksStore.installPage(
+    `project:${projectId}`,
+    { rows: tasks, children: [], related: [], blocked: [], hasMore: false, cursor: null },
+    false,
+  );
+}
+
 function renderBoard() {
   boardStore.setColumns("proj-1", [
     column("c1", { name: "待办" }),
@@ -82,15 +96,12 @@ describe("BoardView", () => {
     );
 
   it("renders columns with their ordered task cards", () => {
+    seedProject([
+      task("t1", { columnId: "c1", sortOrder: "n" }),
+      task("t2", { columnId: "c1", sortOrder: "o" }),
+      task("t3", { columnId: "c2", sortOrder: "n", completedAt: "2026-09-09T10:00:00Z" }),
+    ]);
     renderBoard();
-    tasksStore.setAll(
-      [
-        task("t1", { columnId: "c1", sortOrder: "n" }),
-        task("t2", { columnId: "c1", sortOrder: "o" }),
-        task("t3", { columnId: "c2", sortOrder: "n", completedAt: "2026-09-09T10:00:00Z" }),
-      ],
-      [],
-    );
 
     // Column headers show names and live card counts.
     expect(screen.getByText("待办")).toBeTruthy();
@@ -106,43 +117,40 @@ describe("BoardView", () => {
   });
 
   it("shows every project task: no column means the first lane, 完成 the done one", () => {
+    seedProject([
+      // Created in the 列表 view: it carries no column at all, and used to be
+      // invisible here.
+      task("list-made", { columnId: null, title: "列表里建的任务" }),
+      // 取消完成 left it pointing at the done column; it is open again, so it
+      // belongs to the first open lane and not to 已完成.
+      task("reopened", { columnId: "c2", title: "取消完成的任务" }),
+      // Completed from the list: the stamp alone puts it in 已完成, whatever
+      // column it was sitting in.
+      task("finished", {
+        columnId: "c1",
+        title: "列表里完成的任务",
+        completedAt: "2026-09-14T09:00:00Z",
+      }),
+    ]);
     renderBoard();
-    tasksStore.setAll(
-      [
-        // Created in the 列表 view: it carries no column at all, and used to be
-        // invisible here.
-        task("list-made", { columnId: null, title: "列表里建的任务" }),
-        // 取消完成 left it pointing at the done column; it is open again, so it
-        // belongs to the first open lane and not to 已完成.
-        task("reopened", { columnId: "c2", title: "取消完成的任务" }),
-        // Completed from the list: the stamp alone puts it in 已完成, whatever
-        // column it was sitting in.
-        task("finished", {
-          columnId: "c1",
-          title: "列表里完成的任务",
-          completedAt: "2026-09-14T09:00:00Z",
-        }),
-      ],
-      [],
-    );
 
     expect(laneIds("c1")).toEqual(["list-made", "reopened"]);
     expect(laneIds("c2")).toEqual(["finished"]);
   });
 
   it("shows only this project's tasks: the fallback lane is not a catch-all", () => {
-    renderBoard();
+    // 收件箱任务：没有项目，也没有列。两个「没有」都让 `laneOf` 回落到第一个
+    // 开放列，于是它曾经出现在每个项目的看板上。现在看板只读项目范围——它
+    // 待在自己的 `all` 范围里，到不了这块看板。
     tasksStore.setAll(
       [
-        task("mine", { columnId: "c1" }),
-        // 收件箱任务：没有项目，也没有列。两个「没有」都让 `laneOf` 回落到第一个
-        // 开放列，于是它曾经出现在每个项目的看板上——而列表视图按 projectId
-        // 过滤，从来不显示它。
         task("inbox", { projectId: null, columnId: null, title: "收件箱里的任务" }),
         task("other-project", { projectId: "proj-2", columnId: null, title: "别的项目的任务" }),
       ],
       [],
     );
+    seedProject([task("mine", { columnId: "c1" })]);
+    renderBoard();
 
     expect(laneIds("c1")).toEqual(["mine"]);
     expect(screen.queryByText("收件箱里的任务")).toBeNull();
@@ -150,16 +158,13 @@ describe("BoardView", () => {
   });
 
   it("renders only top-level tasks as cards and badges their children", () => {
+    seedProject([
+      task("t1", { columnId: "c1" }),
+      // The child carries the parent's column on purpose: the board must drop
+      // it because of `parentTaskId`, not because it happens to have none.
+      task("c1-child", { parentTaskId: "t1", columnId: "c1", title: "子任务" }),
+    ]);
     renderBoard();
-    tasksStore.setAll(
-      [
-        task("t1", { columnId: "c1" }),
-        // The child carries the parent's column on purpose: the board must drop
-        // it because of `parentTaskId`, not because it happens to have none.
-        task("c1-child", { parentTaskId: "t1", columnId: "c1", title: "子任务" }),
-      ],
-      [],
-    );
 
     expect(document.querySelector('[data-task-id="t1"]')).toBeTruthy();
     expect(document.querySelector('[data-task-id="c1-child"]')).toBeNull();
@@ -167,8 +172,8 @@ describe("BoardView", () => {
   });
 
   it("quick-completes a card through the checkbox", () => {
+    seedProject([task("t1", { columnId: "c1" })]);
     renderBoard();
-    tasksStore.setAll([task("t1", { columnId: "c1" })], []);
 
     fireEvent.click(screen.getByRole("checkbox", { name: "完成 任务 t1" }));
 
@@ -176,8 +181,8 @@ describe("BoardView", () => {
   });
 
   it("shows the insertion indicator while dragging and persists the drop", async () => {
+    seedProject([task("t1", { columnId: "c1" })]);
     renderBoard();
-    tasksStore.setAll([task("t1", { columnId: "c1" })], []);
 
     const card = document.querySelector('[data-task-id="t1"]') as HTMLElement;
     fireEvent.dragStart(card);

@@ -11,6 +11,16 @@ import type { Task } from "../../tasks/types";
 
 vi.mock("../../tasks/api", () => ({
   listTasks: vi.fn(),
+  // Defaults to an empty page: an unseeded test gets an empty scope instead of
+  // crashing `installPage` on `undefined.rows`.
+  listTasksByProject: vi.fn().mockResolvedValue({
+    rows: [],
+    children: [],
+    related: [],
+    blocked: [],
+    hasMore: false,
+    cursor: null,
+  }),
   createTask: vi.fn(),
   updateTask: vi.fn(),
   completeTask: vi.fn(),
@@ -73,6 +83,19 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
+/**
+ * Seeds the project's scope *before* render: `ensureScope` then short-circuits
+ * on `loaded`, exactly as it does after the first load, so the view's own load
+ * never reaches the mocked API.
+ */
+function seedProject(tasks: Task[], projectId = "proj-1") {
+  tasksStore.installPage(
+    `project:${projectId}`,
+    { rows: tasks, children: [], related: [], blocked: [], hasMore: false, cursor: null },
+    false,
+  );
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {
@@ -98,16 +121,14 @@ afterEach(cleanup);
 
 describe("ProjectListView", () => {
   it("shows the project header and the completion rate of its tasks only", () => {
-    renderView();
+    // The other scopes are loaded too (the shell's `all` snapshot); the page
+    // reads only its own, so neither one is listed or counted here.
     tasksStore.setAll(
-      [
-        task("t1"),
-        task("t2", { completedAt: "2026-09-09T10:00:00Z" }),
-        task("inbox", { projectId: null }),
-        task("other", { projectId: "proj-2" }),
-      ],
+      [task("inbox", { projectId: null }), task("other", { projectId: "proj-2" })],
       [],
     );
+    seedProject([task("t1"), task("t2", { completedAt: "2026-09-09T10:00:00Z" })]);
+    renderView();
 
     expect(screen.getByText("项目 proj-1")).toBeTruthy();
     expect(screen.getByText("项目说明")).toBeTruthy();
@@ -127,15 +148,12 @@ describe("ProjectListView", () => {
   // §8.5: the header counts top-level tasks only — a child is a step inside its
   // parent, and counting both would report the same work twice.
   it("leaves child tasks out of the completion rate", () => {
+    seedProject([
+      task("t1", { completedAt: "2026-09-09T10:00:00Z" }),
+      task("t2"),
+      task("child", { parentTaskId: "t2" }),
+    ]);
     renderView();
-    tasksStore.setAll(
-      [
-        task("t1", { completedAt: "2026-09-09T10:00:00Z" }),
-        task("t2"),
-        task("child", { parentTaskId: "t2" }),
-      ],
-      [],
-    );
 
     expect(screen.getByText("1 / 2 已完成")).toBeTruthy();
     expect(
@@ -144,8 +162,8 @@ describe("ProjectListView", () => {
   });
 
   it("updates the completion rate live when a task is checked", async () => {
+    seedProject([task("t1"), task("t2")]);
     renderView();
-    tasksStore.setAll([task("t1"), task("t2")], []);
     const pending = deferred<Task>();
     vi.mocked(api.completeTask).mockReturnValue(pending.promise);
 
@@ -166,8 +184,8 @@ describe("ProjectListView", () => {
   });
 
   it("creates new tasks assigned to this project", async () => {
+    seedProject([]);
     renderView();
-    tasksStore.setAll([], []);
     vi.mocked(api.createTask).mockResolvedValue(task("new-1"));
 
     fireEvent.click(screen.getByRole("button", { name: /新建任务/ }));
@@ -180,18 +198,17 @@ describe("ProjectListView", () => {
   });
 
   it("re-sorts rows when the tag sort mode is chosen", async () => {
+    seedProject([
+      task("b-tag", { tagIds: ["t-b"], sortOrder: "n" }),
+      task("a-tag", { tagIds: ["t-a"], sortOrder: "o" }),
+      task("none", { sortOrder: "p" }),
+    ]);
+    // The tag mode sorts by tag *name*, so the rows have to be there too.
+    tasksStore.replaceTags([
+      { id: "t-b", name: "工作", color: null, createdAt: "", updatedAt: "", deletedAt: null },
+      { id: "t-a", name: "生活", color: null, createdAt: "", updatedAt: "", deletedAt: null },
+    ]);
     renderView();
-    tasksStore.setAll(
-      [
-        task("b-tag", { tagIds: ["t-b"], sortOrder: "n" }),
-        task("a-tag", { tagIds: ["t-a"], sortOrder: "o" }),
-        task("none", { sortOrder: "p" }),
-      ],
-      [
-        { id: "t-b", name: "工作", color: null, createdAt: "", updatedAt: "", deletedAt: null },
-        { id: "t-a", name: "生活", color: null, createdAt: "", updatedAt: "", deletedAt: null },
-      ],
-    );
 
     const rowOrder = () =>
       [...document.querySelectorAll("[data-task-id]")].map(
@@ -203,5 +220,21 @@ describe("ProjectListView", () => {
 
     // CJK names sort by code point: 工作 (U+5DE5) before 生活 (U+751F).
     await waitFor(() => expect(rowOrder()).toEqual(["b-tag", "a-tag", "none"]));
+  });
+
+  it("未播种时自己把项目范围拉回来（深层链接）", async () => {
+    vi.mocked(api.listTasksByProject).mockResolvedValue({
+      rows: [task("t1")],
+      children: [],
+      related: [],
+      blocked: [],
+      hasMore: false,
+      cursor: null,
+    });
+
+    renderView();
+
+    await waitFor(() => expect(screen.getByText("任务 t1")).toBeTruthy());
+    expect(api.listTasksByProject).toHaveBeenCalledWith("proj-1");
   });
 });

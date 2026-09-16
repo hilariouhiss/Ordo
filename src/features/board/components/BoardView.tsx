@@ -3,7 +3,7 @@ import { CircleAlert } from "lucide-solid";
 import { Button, EmptyState } from "../../../common/components";
 import { TaskDetailDialog } from "../../tasks/components/TaskDetailDialog";
 import { completeTask, uncompleteTask } from "../../tasks/hooks";
-import { tasks } from "../../tasks/store";
+import { scopeRows } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import { sortTasks } from "../../tasks/view-filters";
 import { laneOf, splitLanes } from "../lanes";
@@ -46,20 +46,13 @@ export function BoardView(props: { projectId: string }) {
 
   const columns = () => getColumns(props.projectId);
   const lanes = () => splitLanes(columns());
-  // The lane rules (`../lanes`) decide where each task shows; the board never
-  // hides one *of this project's tasks*. The store holds every task, and a task
-  // outside this project has no `columnId` here, so `laneOf` would fall back to
-  // the first open lane and put it on this board — the project filter is what
-  // keeps the board showing the same tasks as the list beside it.
-  // §8.4 keeps children out: a child has no `columnId` of its own — it lives
-  // inside its parent, which is where its progress shows.
+  // The scope *is* this project, so no `projectId` filter is needed here: a task
+  // outside it cannot reach this board. §8.4 keeps children out — a child has no
+  // `columnId` of its own, it lives inside its parent.
   const tasksOf = (columnId: string) =>
     sortTasks(
-      tasks().filter(
-        (task) =>
-          task.projectId === props.projectId &&
-          task.parentTaskId === null &&
-          laneOf(task, lanes())?.id === columnId,
+      scopeRows(`project:${props.projectId}`).filter(
+        (task) => task.parentTaskId === null && laneOf(task, lanes())?.id === columnId,
       ),
       "manual",
     );
