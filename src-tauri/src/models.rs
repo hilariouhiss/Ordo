@@ -708,6 +708,17 @@ pub struct ProjectProgress {
     pub completed: i64,
 }
 
+/// One live project's unfinished top-level task count (`project:unfinishedCounts`),
+/// the sidebar's disclosure arrow. Archived projects are included — their rows
+/// carry the same arrow — which is why this is not `stats:projectProgress`
+/// (that tally skips them).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUnfinished {
+    pub project_id: Uuid,
+    pub unfinished: i64,
+}
+
 /// Dimension `stats:timeDistribution` splits tracked time by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

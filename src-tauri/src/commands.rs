@@ -16,10 +16,10 @@ use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
     BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment, NewNamespace,
-    NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, Reorder, SearchHit, Tag,
-    TaskPage, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint,
-    TrendQuery, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask,
-    UpdateTimeEntry,
+    NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, ProjectUnfinished,
+    Reorder, SearchHit, Tag, TaskPage, TaskWithTags, TimeDistribution, TimeDistributionQuery,
+    TimeEntry, TrendPoint, TrendQuery, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag,
+    UpdateTask, UpdateTimeEntry,
 };
 use crate::services;
 
@@ -174,6 +174,11 @@ pub fn project_archive(db: State<'_, Db>, project_id: Uuid) -> Result<Project, A
 #[tauri::command(rename = "project:restore")]
 pub fn project_restore(db: State<'_, Db>, project_id: Uuid) -> Result<Project, AppError> {
     with_conn(&db, |conn| services::restore_project(conn, project_id))
+}
+
+#[tauri::command(rename = "project:unfinishedCounts")]
+pub fn project_unfinished_counts(db: State<'_, Db>) -> Result<Vec<ProjectUnfinished>, AppError> {
+    with_conn(&db, services::project_unfinished_counts)
 }
 
 // --- namespace:* -----------------------------------------------------------

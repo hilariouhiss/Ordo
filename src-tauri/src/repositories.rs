@@ -16,8 +16,8 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BoardColumn, Comment, Dependency, Namespace, Priority, Project, ProjectStatus, ReminderKind,
-    RepeatRule, Setting, Tag, Task, TaskRef, TimeEntry,
+    BoardColumn, Comment, Dependency, Namespace, Priority, Project, ProjectStatus,
+    ProjectUnfinished, ReminderKind, RepeatRule, Setting, Tag, Task, TaskRef, TimeEntry,
 };
 
 const TASK_COLUMNS: &str = "id, project_id, title, note, priority, column_id, due_at, \
@@ -899,6 +899,35 @@ pub mod projects {
             project_from_row,
         )
     }
+
+    /// Every live project's unfinished top-level task count, by name. One
+    /// aggregate answers the whole sidebar: the arrow only asks "is this zero",
+    /// so no per-project round trip and no task rows on the wire.
+    pub fn unfinished_counts(conn: &Connection) -> Result<Vec<ProjectUnfinished>, AppError> {
+        query_all(conn, UNFINISHED_COUNTS_SQL, &[], |row| {
+            Ok(ProjectUnfinished {
+                project_id: parse_uuid(row.get("project_id")?)?,
+                unfinished: row.get("unfinished")?,
+            })
+        })
+    }
+
+    /// Children are filtered inside the join, not after it: a project whose
+    /// tasks are all children must still come back with a zero count. Archived
+    /// projects stay in (their rows render the arrow too), which is the one
+    /// difference from `stats::PROJECT_PROGRESS_SQL`.
+    ///
+    /// `t.id IS NOT NULL` guards the outer join's placeholder row: on it every
+    /// `t.*` column is NULL, so `t.completed_at IS NULL` alone would read the
+    /// empty project as one unfinished task.
+    pub const UNFINISHED_COUNTS_SQL: &str = "SELECT p.id AS project_id, \
+                COUNT(CASE WHEN t.id IS NOT NULL AND t.completed_at IS NULL THEN 1 END) \
+                    AS unfinished \
+         FROM projects p \
+         LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL \
+              AND t.parent_task_id IS NULL \
+         WHERE p.deleted_at IS NULL \
+         GROUP BY p.id ORDER BY p.name COLLATE NOCASE, p.id";
 
     /// Full-row update; returns false when the project is missing or deleted.
     pub fn update(conn: &Connection, project: &Project) -> Result<bool, AppError> {
@@ -3338,5 +3367,17 @@ mod tests {
         let titles = tasks::titles_of(&conn, &[other.id]).unwrap();
         assert_eq!(titles.len(), 1);
         assert_eq!(titles[0].title, other.title);
+    }
+
+    /// 侧边栏箭头的聚合走 `idx_tasks_project`（每个项目一次索引 seek），
+    /// 不是把 tasks 整表扫一遍。
+    #[test]
+    fn unfinished_counts_seek_the_project_index() {
+        let conn = conn();
+        let plan = plan_with(&conn, projects::UNFINISHED_COUNTS_SQL, &[]);
+        assert!(
+            plan.contains("SEARCH t USING INDEX idx_tasks_project"),
+            "unfinished_counts does not seek the project index: {plan}"
+        );
     }
 }

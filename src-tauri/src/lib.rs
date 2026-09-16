@@ -50,6 +50,7 @@ pub fn run() {
             commands::project_update,
             commands::project_archive,
             commands::project_restore,
+            commands::project_unfinished_counts,
             commands::namespace_list,
             commands::namespace_create,
             commands::namespace_update,

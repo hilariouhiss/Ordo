@@ -488,6 +488,9 @@ mod tests {
         timed("project:list", BUDGET_MS, &mut over, || {
             services::list_projects(&conn).unwrap()
         });
+        timed("project:unfinishedCounts", BUDGET_MS, &mut over, || {
+            services::project_unfinished_counts(&conn).unwrap()
+        });
         timed("namespace:list", BUDGET_MS, &mut over, || {
             services::list_namespaces(&conn).unwrap()
         });

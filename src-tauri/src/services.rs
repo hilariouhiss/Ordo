@@ -24,8 +24,8 @@ use crate::error::AppError;
 use crate::models::{
     BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment,
     NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project,
-    ProjectProgress, ProjectStatus, Reminder, ReminderKind, Reorder, RepeatFreq, RepeatRule,
-    SearchHit, SearchHitKind, Tag, Task, TaskBlocked, TaskKey, TaskPage, TaskWithTags,
+    ProjectProgress, ProjectStatus, ProjectUnfinished, Reminder, ReminderKind, Reorder, RepeatFreq,
+    RepeatRule, SearchHit, SearchHitKind, Tag, Task, TaskBlocked, TaskKey, TaskPage, TaskWithTags,
     TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateComment,
     UpdateNamespace, UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
@@ -921,6 +921,12 @@ fn validate_dependency(
 
 pub fn list_projects(conn: &Connection) -> Result<Vec<Project>, AppError> {
     projects::list(conn)
+}
+
+/// `project:unfinishedCounts` — every live project's unfinished top-level task
+/// count, for the sidebar's disclosure arrow.
+pub fn project_unfinished_counts(conn: &Connection) -> Result<Vec<ProjectUnfinished>, AppError> {
+    projects::unfinished_counts(conn)
 }
 
 /// Creates a project plus its default kanban columns (待办/进行中/已完成,
@@ -3175,6 +3181,54 @@ mod tests {
         // 未知项目给空页，不报错：深层链接/已删除项目由项目行本身兜住。
         let empty = list_tasks_by_project(&conn, Uuid::new_v4()).unwrap();
         assert!(empty.rows.is_empty());
+    }
+
+    /// 侧边栏箭头的口径：只数顶层、只数未完成、含归档项目、空项目回 0。
+    #[test]
+    fn unfinished_counts_count_top_level_rows_of_every_live_project() {
+        let conn = conn();
+        let active = make_project(&conn, "进行中");
+        let archived = make_project(&conn, "已归档");
+        archive_project(&conn, archived.id).unwrap();
+        let empty = make_project(&conn, "空项目");
+
+        let open = create_task(
+            &conn,
+            NewTask {
+                project_id: Some(active.id),
+                ..make_new_task("待办")
+            },
+        )
+        .unwrap();
+        let done = create_task(
+            &conn,
+            NewTask {
+                project_id: Some(active.id),
+                ..make_new_task("做完的")
+            },
+        )
+        .unwrap();
+        complete_task(&conn, done.id).unwrap();
+        // 子行不计，即使它自己未完成。
+        make_child(&conn, &open, "子行");
+        create_task(
+            &conn,
+            NewTask {
+                project_id: Some(archived.id),
+                ..make_new_task("归档里的待办")
+            },
+        )
+        .unwrap();
+
+        let counts: HashMap<Uuid, i64> = project_unfinished_counts(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.project_id, row.unfinished))
+            .collect();
+
+        assert_eq!(counts.get(&active.id), Some(&1), "只数未完成顶层行");
+        assert_eq!(counts.get(&archived.id), Some(&1), "归档项目同样有箭头");
+        assert_eq!(counts.get(&empty.id), Some(&0), "空项目回 0，不回缺失");
     }
 
     /// 规范 §4 不变量 3：完成的行不再报未完成前置——视图本地就是这么置零的，
