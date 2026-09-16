@@ -24,7 +24,7 @@
 
 ## 2. 表与字段
 
-最终形态（V1–V9 全部应用后）共 11 张表 + 2 张 FTS5 虚表。
+最终形态（V1–V10 全部应用后）共 11 张表 + 2 张 FTS5 虚表。
 
 ### 2.1 业务实体
 
@@ -88,7 +88,7 @@
 - **没有任何字段用 `skip_serializing_if`** → 可空字段在线上始终出现（键集合稳定，值为 `null`）。
 - 三处**承重的** `#[serde(default)]`（缺了会让整份旧文档解析失败）：`Project.namespace_id`（pre-V5 没有该键）、`Task.parent_task_id`（pre-V7 没有该键）、`LegacySubtask.priority`（pre-V4 没有该列，默认 `none`）。
 
-## 3. 迁移史（V1–V9）
+## 3. 迁移史（V1–V10）
 
 | 版本 | 文件 | 做了什么 | 为什么 |
 | --- | --- | --- | --- |
@@ -101,6 +101,7 @@
 | **V7** | `V7__task_hierarchy.sql` | `tasks` 加自引用列 `parent_task_id` + `idx_tasks_parent`；把 `subtasks` 行搬进 `tasks`；`subtask_dependencies` 边改写进 `task_dependencies`；`subtask_reminders` 标记并进 `task_reminders`；删三张子任务表 | 子任务与任务的列几乎重合，却各自要一套命令、依赖边、提醒标记与前端缓存。**不重建 `tasks`**：`task_search` 是按 rowid 记录的外部内容表，重建会打散索引并丢掉触发器，所以只做 `ALTER TABLE ADD COLUMN` + 迁移 `INSERT` |
 | **V8** | `V8__no_orphan_children.sql` | 把「存活子任务挂在已软删父任务下」的行补上父任务自己的删除戳（`COALESCE`；已有删除戳的不动） | V7 照搬 `subtasks` 时没有校验父任务死活，这类孤儿会出现在 `task:list` 里并触发提醒。父任务不在，子任务就跟着走，且父子在同一时刻消失 |
 | **V9** | `V9__stats_top_level_index.sql` | 新增复合索引 `idx_tasks_parent_completed(parent_task_id, completed_at)` | 统计加上 `parent_task_id IS NULL` 等值谓词后，规划器改用 `idx_tasks_parent` 整索引扫描，丢掉了 `completed_at` 的范围 seek（查询计划断言当场失败）。等值列前置、范围列后置，把「顶层任务 + 时间范围」放回同一次 seek |
+| **V10** | `V10__task_scope_sort_index.sql` | 新增复合索引 `idx_tasks_scope_sort(column_id, parent_task_id, sort_order)` | 写入路径过去为了拿「范围内最后一个键」整表 hydrate（`tasks::list()`）再在 Rust 里过滤，成本随总行数线性增长（2825 行时 `task:create` 8.11 ms；50k 行会到几百 ms）。范围 = `column_id` + `parent_task_id` 两列合起来，这条索引把「最后一个键 / 紧邻键 / 存在性 / 下标」都变成一次 seek |
 
 ### 3.1 V7 的搬迁映射（细节）
 
@@ -128,11 +129,14 @@ V2–V9 之后的索引清单：
 | `idx_time_entries_started_at` | `time_entries(started_at)` | 时间分布的范围扫描 + 分桶 |
 | `idx_task_dependencies_depends_on` | `task_dependencies(depends_on)` | **承重**：反向查询「谁在等我」与环检测 |
 | `idx_projects_namespace` | `projects(namespace_id)` | 按命名空间取项目 |
+| `idx_tasks_scope_sort` | `tasks(column_id, parent_task_id, sort_order)` | **V10**：排序键是按范围的（顶层看 `column_id + parent_task_id IS NULL`，子行看 `parent_task_id`）。写入路径要的三件事——范围内最后一个键、某键的紧邻键、某键的存在性与下标——各一次 seek |
 | `tags.name` 上的 `UNIQUE COLLATE NOCASE` | `tags(name)` | 标签重名判定（不区分大小写） |
 
 **查询计划由单测断言**：`repositories::stats::tests::statistics_queries_are_index_backed` 用 `EXPLAIN QUERY PLAN` + 代表性绑定值，要求出现这些子串——趋势 `SEARCH tasks USING INDEX idx_tasks_parent_completed`；分桶与项目份额 `SEARCH e USING INDEX idx_time_entries_started_at`；项目进度 `SEARCH t USING INDEX idx_tasks_project`。全表 SCAN 即测试失败（不是运行时断言）。改动统计 SQL 或索引时必须同步跑这些测试。
 
 同一条规矩也管着走**启动路径**的依赖读：`repositories::tests::dependencies_live_edges_seek_the_primary_key` 要求 `task_dependencies` 的两个端点各是一次 seek，且不出现 `SCAN tasks`。这条断言有来历：谓词写成 `IN (SELECT id FROM tasks WHERE deleted_at IS NULL)` 时，规划器会对每条边重扫一遍 `tasks`（2825 个任务时实测 637 ms，`EXISTS` 版本 0.9 ms），而 `dependency:listAll` 每次启动都要跑（[ARCHITECTURE](./ARCHITECTURE.md)§6.1）。
+
+写入路径的范围键查询同样有计划断言：`repositories::tests::task_scope_sort_queries_seek_the_index` 要求 `last_sort_key` / `next_sort_key` / `prev_sort_key` / `index_of_sort_key` / `scope_sort_keys` 都走 `idx_tasks_scope_sort`（范围谓词一律写成 `column_id IS ?1 AND parent_task_id IS ?2`——`IS` 对 NULL 与具体值都成立，顶层与子行共用一条 SQL）。改造前这些查询靠 `tasks::list()` 整表 hydrate：2825 行时 `task:create` 8.11 ms，8k 档 0.09 ms、50k 档 0.10 ms（三档实测见 [ARCHITECTURE](./ARCHITECTURE.md)§6.1）。
 
 **已知的索引取舍**（V9 注释里记着）：`idx_tasks_completed_at` 保留为全表口径的通用索引；`idx_tasks_parent` 保留——它的前缀查询已被复合索引覆盖，但它本身更窄，仍是 `list_by_parent` 那类查询的自然选择。只按 `completed_at` 建的部分索引，规划器不选。
 
@@ -153,7 +157,7 @@ V2–V9 之后的索引清单：
 }
 ```
 
-- **`version` 是备份格式版本（当前 4），不是迁移版本（当前 V9）**。升到 4 是因为子任务变成了任务行——v3 时代的构建会忽略 `parentTaskId`。导入拒绝比当前更新的版本，接受更旧的版本。
+- **`version` 是备份格式版本（当前 4），不是迁移版本（当前 V10）**。升到 4 是因为子任务变成了任务行——v3 时代的构建会忽略 `parentTaskId`。导入拒绝比当前更新的版本，接受更旧的版本。
 - `data` 的 11 个键全部带 `#[serde(default)]`，所以 v1/v2 文档（没有 `namespaces`、没有 `dependencies`）仍能解析：缺该键即空列表，其项目全部落在根级。
 - **`subtasks` 是 pre-V7 文档的遗留位**：导出永远写空数组（子任务已经在 `tasks` 里），导入时非空数组按 V7 的同一套映射落成子任务行（`project_id` 跟父任务、`column_id` 空、`done` 为真时 `completed_at` 取 `updated_at`、`priority` 默认 `none`）。
 - **`task_reminders` 不入备份**：那些标记只用于提醒去重，会由调度器与迁移自然重建。

@@ -2,7 +2,7 @@
 
 ## What this is
 
-`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 43 commands (`src-tauri/src/commands.rs`); schema is at migration V9.
+`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 43 commands (`src-tauri/src/commands.rs`); schema is at migration V10.
 
 Outstanding verification work (animation/accessibility review, three-platform checks) is listed in `docs/DECISIONS.md`§4. The performance targets are measured — see `docs/ARCHITECTURE.md`§6.1.
 
@@ -34,7 +34,7 @@ Outstanding verification work (animation/accessibility review, three-platform ch
 - **`docs/README.md`** — orientation: what Ordo is, the glossary, and which part to read next.
 - **`docs/PRODUCT.md`** — user-visible behavior: tasks and the single-level child-task rules, the four views, projects and the board, namespaces, reminders, dependencies and soft blocking, time tracking, search, statistics, desktop capabilities, and the non-functional targets. Read before implementing a feature or changing behavior.
 - **`docs/ARCHITECTURE.md`** — structure: layering and module boundaries, the full directory layout, state management and the optimistic data flow, routes, the design system, the command and event surface, build/capability conventions, and the gotcha list. Read before changing structure, module boundaries, or the command surface.
-- **`docs/DATA.md`** — tables and fields, the V1–V9 migration history, indexes and asserted query plans, the backup document format, and the stats definitions. Read before touching the data model, adding a migration, or changing an aggregate query.
+- **`docs/DATA.md`** — tables and fields, the V1–V10 migration history, indexes and asserted query plans, the backup document format, and the stats definitions. Read before touching the data model, adding a migration, or changing an aggregate query.
 - **`docs/DECISIONS.md`** — ADRs and the **ID index**: source comments refer to work by ID (`R7c`, `V7`, `D-02`, `ST-01`, `BV-03`…), so look the ID up here. §4 lists the outstanding gaps.
 
 **Rule: keep docs in sync with code.** Behavior changes update `PRODUCT.md`; a structure, module-boundary, command-surface, or design-system change updates `ARCHITECTURE.md`; a data-model, migration, backup-format, or stats-definition change updates `DATA.md`; a new decision or ID updates `DECISIONS.md` — each in the same commit as the code. Doc claims must be checkable against the code: if the two disagree, the code wins and the doc gets fixed. Don't add planning or historical documents; outstanding work belongs in `DECISIONS.md`§4.
