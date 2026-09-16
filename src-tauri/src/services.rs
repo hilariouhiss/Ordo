@@ -191,6 +191,11 @@ fn spawn_next_instance(
 /// When the append would exceed [`MAX_SORT_KEY_LEN`], also returns fresh keys
 /// for every existing sibling (a local rebalance via [`sort::spread`]); the
 /// caller persists them in the same transaction as the insert.
+///
+/// The caller hands in the sibling list, which suits the small global
+/// sequences (`projects`, `namespaces`). Tasks go through [`append_task_key`]:
+/// their scopes can hold tens of thousands of rows, so asking for the whole
+/// list up front is what this function must not be used for.
 fn append_key(siblings: &[(Uuid, String)]) -> Result<(String, Vec<(Uuid, String)>), AppError> {
     if siblings.is_empty() {
         return Ok((sort::first(), Vec::new()));
@@ -207,6 +212,28 @@ fn append_key(siblings: &[(Uuid, String)]) -> Result<(String, Vec<(Uuid, String)
         .map(|((id, _), key)| (*id, key))
         .collect();
     Ok((new_key, rebalanced))
+}
+
+/// Appending key for a task scope: ask for the scope's **last key** (one index
+/// seek) and only load the whole scope when the key would overflow and the
+/// siblings have to be re-spread. The old form hydrated every task row, every
+/// column, before either branch.
+///
+/// No "exclude self": a re-parented row only joins its new scope when
+/// `tasks::update` writes it, so it cannot show up in the target scope's keys
+/// yet.
+fn append_task_key(
+    conn: &Connection,
+    scope: tasks::SortScope,
+) -> Result<(String, Vec<(Uuid, String)>), AppError> {
+    let Some(last) = tasks::last_sort_key(conn, scope)? else {
+        return Ok((sort::first(), Vec::new()));
+    };
+    let key = sort::after(&last)?;
+    if key.len() <= MAX_SORT_KEY_LEN {
+        return Ok((key, Vec::new()));
+    }
+    append_key(&tasks::scope_sort_keys(conn, scope, None)?)
 }
 
 /// An insertion slot resolved from `prev`/`next` against a sibling list.
@@ -371,26 +398,15 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
     };
 
     // `sort_order` keys are per sibling scope, not one global sequence: a child
-    // and a column-less top-level task both start at `first()`. "The siblings"
-    // therefore means two different sets — a child appends after its parent's
-    // other children, a top-level task after the tasks of its column. The second
-    // filter needs `parent_task_id IS NULL` because a child's `column_id` is
-    // NULL — without it, a new column-less task would append into the children's
-    // key range.
-    let all = tasks::list(conn)?;
-    let siblings: Vec<(Uuid, String)> = match input.parent_task_id {
-        Some(parent_id) => all
-            .into_iter()
-            .filter(|t| t.parent_task_id == Some(parent_id))
-            .map(|t| (t.id, t.sort_order))
-            .collect(),
-        None => all
-            .into_iter()
-            .filter(|t| t.column_id == column_id && t.parent_task_id.is_none())
-            .map(|t| (t.id, t.sort_order))
-            .collect(),
+    // and a column-less top-level task both start at `first()`. The scope is
+    // `(column_id, parent_task_id)` together, and the top-level half needs
+    // `parent_task_id IS NULL` because a child's `column_id` is NULL — without
+    // it, a new column-less task would append into the children's key range.
+    let scope = tasks::SortScope {
+        column_id,
+        parent_id: input.parent_task_id,
     };
-    let (sort_order, rebalanced) = append_key(&siblings)?;
+    let (sort_order, rebalanced) = append_task_key(conn, scope)?;
 
     validate_tag_ids(conn, &tag_ids)?;
     for (id, key) in &rebalanced {
@@ -542,18 +558,14 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
         tasks::set_children_project(&tx, id, task.project_id, now)?;
     }
     if reparented {
-        let siblings: Vec<(Uuid, String)> = match task.parent_task_id {
-            Some(parent_id) => tasks::list_by_parent(&tx, parent_id)?,
-            None => tasks::list(&tx)?
-                .into_iter()
-                .filter(|t| t.column_id == task.column_id && t.parent_task_id.is_none())
-                .collect(),
-        }
-        .into_iter()
-        .filter(|t| t.id != id)
-        .map(|t| (t.id, t.sort_order))
-        .collect();
-        let (sort_order, rebalanced) = append_key(&siblings)?;
+        // The row joins its new scope in this same transaction, so it is not in
+        // that scope's key sequence yet — appending after the last key of the
+        // scope is enough, and the scope itself is only read on a rebalance.
+        let scope = tasks::SortScope {
+            column_id: task.column_id,
+            parent_id: task.parent_task_id,
+        };
+        let (sort_order, rebalanced) = append_task_key(&tx, scope)?;
         for (sibling_id, key) in &rebalanced {
             if !tasks::set_sort_order(&tx, *sibling_id, key, now)? {
                 return Err(not_found("任务", *sibling_id));
@@ -1686,6 +1698,34 @@ mod tests {
             dependent_id,
             prerequisite_id,
         }
+    }
+
+    /// 键是按范围链下去的：子行有自己的序列（从 `first()` 重新开始），追加只看
+    /// **本范围**的最后一个键——不再为了这个把整张表 hydrate 一遍。
+    #[test]
+    fn append_key_chains_within_its_own_scope() {
+        let conn = conn();
+        let parent = make_task(&conn, "父");
+        let sibling = make_task(&conn, "同层");
+        assert_eq!(parent.sort_order, "n");
+        assert_eq!(sibling.sort_order, "o");
+
+        let first_child = make_child(&conn, &parent, "子一");
+        let second_child = make_child(&conn, &parent, "子二");
+        assert_eq!(first_child.sort_order, "n", "子行的序列从 first() 重新开始");
+        assert_eq!(second_child.sort_order, "o");
+        assert_eq!(
+            tasks::last_sort_key(
+                &conn,
+                tasks::SortScope {
+                    column_id: None,
+                    parent_id: None
+                }
+            )
+            .unwrap(),
+            Some("o".into()),
+            "顶层范围的最后一个键没有被两个子行影响"
+        );
     }
 
     #[test]
