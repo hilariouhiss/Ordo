@@ -153,6 +153,7 @@ src/
 - **`--*-solid` / `--*-foreground` 成对**：成对的是填充按钮的前景/背景；单独的那个 token 是当作**文字**用的，按在页面背景上的对比度调过。不要拿 `--danger` 当按钮底色再配白字。
 - **优先级没有自己的 token**：高/中直接复用 `danger`/`warning`（原来的 `--priority-*` 存的是完全相同的值），低用中性灰。优先级走 `Badge` 的 `variant`，不靠调用方传 `class` 覆盖颜色。
 - **不要用 `class` 去覆盖原语里已有的同类工具类**。Tailwind 按 CSS 源码顺序（而非 class 属性顺序）解决同属性冲突，例如 `.text-muted-foreground` 排在 `.text-danger` 之后、`.bg-surface-hover` 排在 `.bg-danger/12` 之后、`.w-full` 排在 `.w-28` 之后——这些覆盖会静默失效并渲染出错误的颜色或宽度。需要不同外观时，给原语加一个 `variant`（或先把原语里冗余的基础类删掉，比如 `Select.Trigger` 上那个多余的 `w-full`）。
+- **弹窗只有正文滚动**：`Dialog.Content` 是 `overflow-hidden` 的 flex 容器（高度上限 `max-h-[85dvh]`），标题/描述/关闭按钮留在原处，每个弹窗把自己的正文标成 `min-h-0 flex-1 overflow-y-auto`。整体滚动会让长弹窗的标题栏一起滚出视口，而 `overflow` 不能由调用方用 `class` 覆盖（Tailwind 按源码顺序解析，`overflow-y-auto` 排在 `overflow-hidden` 之后），所以这条规则写在 `common/components/dialog.tsx` 里。
 - **圆角规则**：`sm`(6) 徽章/复选框/行内标记；`md`(8) 按钮/输入框/列表行；`lg`(12) 面板/看板列/浮层；`xl`(16) 整块弹窗。
 - **字号按桌面密度定**：正文 13px（`text-sm`）、次要信息 12px（`text-xs`）、徽章 11px（`text-2xs`）、页面标题 17px（`text-lg`）。数字全局 `font-variant-numeric: tabular-nums`——这个应用里的数字（日期、计数、时长、百分比）几乎都是按列读的，等比数字在这里从来不是对的默认值。
 - 深色/浅色主题都可切换、可跟随系统；组件只引用 Token，不写死色值。
@@ -193,7 +194,7 @@ scheduler.rs    ← 后台提醒线程（R-01）：定时调用 services::scan_r
   tag:list, tag:create, tag:update, tag:delete
   project:list, project:create, project:update, project:archive, project:restore
   namespace:list, namespace:create, namespace:update, namespace:archive, namespace:restore
-  board:listColumns, board:addColumn, board:updateColumn, board:deleteColumn, board:moveTask
+  board:listColumns, board:moveTask
   search:query
   comment:list, comment:create, comment:update, comment:delete
   time:list, time:create, time:update, time:delete, time:start, time:stop
@@ -245,7 +246,7 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 | --- | --- |
 | **Namespace** | name, description, color, icon, status(active/archived), sort_order(字典序键)；项目经可空外键 `projects.namespace_id` 归属至多一个命名空间 |
 | **Project** | name, description, color, icon, namespace_id(可空→根级), status(active/archived), sort_order(字典序键)；无截止日期（R2：截止属于任务，V6 删列） |
-| **Task** | project_id(可空→收件箱), title, note, priority, column_id, due_at, completed_at, repeat_rule, complexity(1–5，可空), parent_task_id(可空→子任务，单层), tagIds(关联标签，随 task:list 返回), sort_order(字典序键，按所属列表/看板列内排序) |
+| **Task** | project_id(可空→收件箱), title, note, priority, column_id, due_at, completed_at, repeat_rule, complexity(1–5，可空), parent_task_id(可空→子任务，单层), tagIds(关联标签，随 task:list 及每个返回任务行的命令一起返回), sort_order(字典序键，按所属列表/看板列内排序) |
 | **TaskDependency** | task_id, depends_on（一张 `task_dependencies`，两端都是任务；纯连接表，方向为「依赖方 → 前置」） |
 | **Tag / TaskTag** | name, color / task_id, tag_id |
 | **Comment** | task_id, body |
@@ -253,7 +254,9 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 | **BoardColumn** | project_id, name, position(字典序键), is_done(标识完成列) |
 | **Settings** | key, value（JSON） |
 
-**看板列建模**：项目默认三列「待办 / 进行中 / 已完成」由 `BoardColumn` 行表示；`Task.column_id` 指向具体列，`is_done` 标记「完成」列以驱动 `completed_at` 与进度统计。收件箱任务 `column_id` 为空。
+**看板列建模**：项目固定三列「待办 / 进行中 / 已完成」，由 `create_project` 在同一事务内写入的 `BoardColumn` 行表示（`is_done` 标记「完成」列）；`Task.column_id` 指向具体列。列只读——命令面只有 `board:listColumns` 与 `board:moveTask`，没有增删改名，`is_done` 也不会被改写，因此「哪一列是完成列」对每个项目都是确定的。收件箱任务与子任务的 `column_id` 为空。
+
+**看板即视图（P-05）**：看板不持有任务，它把项目的任务按状态分到三列（`src/features/board/lanes.ts` 的纯函数规则，有表驱动单测）：`completedAt` 非空的任务进完成列（所以列表里勾选完成、详情弹窗里完成、拖进完成列三条路径的结果一致）；未完成的任务进 `column_id` 指向的开放列；没有列或列已不存在（列表视图里新建、历史数据）的进第一个开放列——任务永远不会因为「没被拖过」而从看板上消失。取消完成不做写入：任务的 `column_id` 一直留着，于是它自动回到原来那一列。拖拽仍是唯一的写路径（`board:moveTask`：改 `column_id` + 按 `is_done` 联动 `completed_at` + 写排序键），拖入完成列即完成、拖出即取消完成，与列表侧的勾选完全对齐。
 
 **手动排序（字典序键）说明**：`sort_order` / `position` 采用字典序字符串键，语义是「用户手动拖拽后的位置」。它与视图级的「按优先级 / 按截止日期」即时排序正交——后者用 `createMemo` 派生计算、不落库；前者才是持久化的自定义顺序，仅在「手动排序」模式下作为默认展示顺序。中间键的生成用后端统一实现（`services`/`lib` 中的 `between(a, b)` 工具），前端只传「目标前驱/后继键」，保证算法一致。
 
@@ -316,7 +319,7 @@ Task    * ──── 1 BoardColumn （任务所属看板列）
 | 1 | 前端内存 store + 乐观更新 | 交互 <50ms、无 IPC 往返卡顿，契合「丝滑」目标 | 按需实时 IPC：简单但每次交互有延迟，统计/搜索体验差 |
 | 2 | Feature-based 目录组织 | 领域边界清晰，随功能增长可维护 | Layer-based：跨领域同层随规模膨胀 |
 | 3 | repositories 用纯函数而非 trait | 简单够用，in-memory SQLite 测试比 mock 可靠 | trait + mock：首版引入过早（YAGNI） |
-| 4 | 看板列存 `BoardColumn` 表 | 支持自定义列，进度统计有明确「完成列」锚点 | 固定 status 字符串：无法支持自定义列（P0 需求） |
+| 4 | 看板列存 `BoardColumn` 表（项目固定三列，只读） | 进度统计有明确「完成列」锚点，「进行中」有真实身份可拖拽；列不再增删改名，`is_done` 恒定 | 固定 status 字符串：`column_id` 无处可比对、迁移要重写任务行；可自定义列：与「看板只是任务的另一种展示」冲突，且删列/改完成列会让完成状态失去归宿 |
 | 5 | 动效仅 CSS transform/opacity，不引动画库 | 体积小、GPU 友好、可控 | 动画库：增加体积，违背 NFR |
 | 6 | 主键/时间戳后端生成 | 权威一致，便于未来同步 | 前端生成：多端/同步时易冲突 |
 | 7 | 排序用字典序字符串键（fractional indexing） | 任意位置插入无需重排已有行，拖拽持久化成本 O(1) | 连续整数：中间插入需重排一批行，成本高 |

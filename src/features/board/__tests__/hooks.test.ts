@@ -13,9 +13,6 @@ import type { BoardColumn } from "../types";
 
 vi.mock("../api", () => ({
   listBoardColumns: vi.fn(),
-  addBoardColumn: vi.fn(),
-  updateBoardColumn: vi.fn(),
-  deleteBoardColumn: vi.fn(),
   moveTask: vi.fn(),
 }));
 
@@ -86,93 +83,6 @@ describe("loadColumns", () => {
 
     expect(ok).toBe(false);
     expect(notifications()).toHaveLength(1);
-  });
-});
-
-describe("createColumn", () => {
-  it("shows a trimmed optimistic column, then reconciles", async () => {
-    store.setColumns("proj-1", [column("a")]);
-    vi.mocked(api.addBoardColumn).mockResolvedValue(
-      column("real-1", { name: "评审", position: "o" }),
-    );
-
-    const created = await hooks.createColumn("proj-1", "  评审  ");
-
-    expect(created?.id).toBe("real-1");
-    expect(api.addBoardColumn).toHaveBeenCalledWith({ projectId: "proj-1", name: "评审" });
-    expect(store.getColumns("proj-1").map((c) => c.id)).toEqual(["a", "real-1"]);
-  });
-
-  it("removes the optimistic column and notifies on failure", async () => {
-    store.setColumns("proj-1", [column("a")]);
-    vi.mocked(api.addBoardColumn).mockRejectedValue({ code: "validation", message: "无效" });
-
-    const created = await hooks.createColumn("proj-1", "评审");
-
-    expect(created).toBeNull();
-    expect(store.getColumns("proj-1").map((c) => c.id)).toEqual(["a"]);
-    expect(notifications()).toHaveLength(1);
-  });
-});
-
-describe("updateColumn", () => {
-  it("patches name and isDone optimistically and reconciles", async () => {
-    store.setColumns("proj-1", [column("a", { name: "待办" })]);
-    vi.mocked(api.updateBoardColumn).mockResolvedValue(column("a", { name: "完成", isDone: true }));
-
-    const saved = await hooks.updateColumn("a", { name: "完成", isDone: true });
-
-    expect(saved?.isDone).toBe(true);
-    expect(store.getColumn("a")?.name).toBe("完成");
-    expect(store.getColumn("a")?.isDone).toBe(true);
-  });
-
-  it("rolls back when the backend rejects the write", async () => {
-    store.setColumns("proj-1", [column("a", { name: "待办" })]);
-    vi.mocked(api.updateBoardColumn).mockRejectedValue({ code: "validation", message: "无效" });
-
-    const saved = await hooks.updateColumn("a", { name: "  " });
-
-    expect(saved).toBeNull();
-    expect(store.getColumn("a")?.name).toBe("待办");
-  });
-});
-
-describe("deleteColumn", () => {
-  it("removes the column and detaches its tasks; rollback restores both", async () => {
-    store.setColumns("proj-1", [column("a"), column("b")]);
-    tasksStore.setAll(
-      [task("t1", { columnId: "a" }), task("t2", { columnId: "b" })],
-      [],
-    );
-    const pending = new Promise<void>((resolve) => {
-      vi.mocked(api.deleteBoardColumn).mockImplementation(() => {
-        resolve();
-        return Promise.reject(new Error("boom"));
-      });
-    });
-
-    const removed = hooks.deleteColumn("a");
-    await pending;
-
-    // While in flight: column gone, its tasks detached.
-    expect(store.getColumns("proj-1").map((c) => c.id)).toEqual(["b"]);
-    expect(tasksStore.getTask("t1")?.columnId).toBeNull();
-    expect(tasksStore.getTask("t2")?.columnId).toBe("b");
-
-    await removed;
-
-    // Failure rolled everything back.
-    expect(store.getColumns("proj-1").map((c) => c.id)).toEqual(["a", "b"]);
-    expect(tasksStore.getTask("t1")?.columnId).toBe("a");
-    expect(notifications()).toHaveLength(1);
-
-    // And a successful delete sticks.
-    vi.mocked(api.deleteBoardColumn).mockResolvedValue();
-    const ok = await hooks.deleteColumn("a");
-    expect(ok).toBe(true);
-    expect(store.getColumns("proj-1").map((c) => c.id)).toEqual(["b"]);
-    expect(tasksStore.getTask("t1")?.columnId).toBeNull();
   });
 });
 

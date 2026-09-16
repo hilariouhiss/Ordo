@@ -92,7 +92,10 @@ export function NamespaceEditorDialog(props: NamespaceEditorDialogProps) {
           </Dialog.Description>
           <Dialog.CloseButton aria-label="关闭" />
 
-          <form class="mt-4 flex flex-col gap-4" onSubmit={handleSubmit}>
+          <form
+            class="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+            onSubmit={handleSubmit}
+          >
             <TextField.Root
               value={name()}
               onChange={(value) => {

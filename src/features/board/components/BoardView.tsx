@@ -1,20 +1,24 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
-import { CircleAlert, Plus } from "lucide-solid";
-import { Button, EmptyState, TextField } from "../../../common/components";
+import { CircleAlert } from "lucide-solid";
+import { Button, EmptyState } from "../../../common/components";
 import { TaskDetailDialog } from "../../tasks/components/TaskDetailDialog";
 import { completeTask, uncompleteTask } from "../../tasks/hooks";
 import { tasksState } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import { sortTasks } from "../../tasks/view-filters";
-import { createColumn, deleteColumn, loadColumns, moveTaskToColumn, updateColumn } from "../hooks";
+import { laneOf, splitLanes } from "../lanes";
+import { loadColumns, moveTaskToColumn } from "../hooks";
 import { getColumns, hasColumns } from "../store";
 import { BoardColumnView } from "./BoardColumnView";
 
 /**
- * Kanban board (P-05): the project's columns as droppable lanes plus the
- * add-column flow. Cards drag via the native Drag API — nothing re-renders
- * or reflows during dragover except the absolute-positioned insertion line,
- * and one `board:moveTask` call persists column + order on drop.
+ * Kanban board (P-05): the project's columns as droppable lanes. Cards drag via
+ * the native Drag API — nothing re-renders or reflows during dragover except
+ * the absolute-positioned insertion line, and one `board:moveTask` call
+ * persists column + order on drop.
+ *
+ * Lanes are a *presentation* of the project's tasks (`../lanes`), so what the
+ * list shows and what the board shows are the same tasks in the same state.
  */
 export function BoardView(props: { projectId: string }) {
   const [failed, setFailed] = createSignal(false);
@@ -22,8 +26,6 @@ export function BoardView(props: { projectId: string }) {
   const [draggingTaskId, setDraggingTaskId] = createSignal<string | null>(null);
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<Task | null>(null);
-  const [addingColumn, setAddingColumn] = createSignal(false);
-  const [newColumnName, setNewColumnName] = createSignal("");
 
   // Load on mount and whenever the project switches into an uncached board.
   createEffect(
@@ -43,12 +45,14 @@ export function BoardView(props: { projectId: string }) {
   }
 
   const columns = () => getColumns(props.projectId);
+  const lanes = () => splitLanes(columns());
+  // The lane rules (`../lanes`) decide where each task shows; the board never
+  // hides one. §8.4 keeps children out: a child has no `columnId` of its own —
+  // it lives inside its parent, which is where its progress shows.
   const tasksOf = (columnId: string) =>
     sortTasks(
-      // §8.4: a lane holds top-level tasks only. A child has no `columnId` of
-      // its own — it lives inside its parent, which is where its progress shows.
       tasksState.tasks.filter(
-        (task) => task.parentTaskId === null && task.columnId === columnId,
+        (task) => task.parentTaskId === null && laneOf(task, lanes())?.id === columnId,
       ),
       "manual",
     );
@@ -70,27 +74,6 @@ export function BoardView(props: { projectId: string }) {
     const prev = index > 0 ? target[index - 1].sortOrder : null;
     const next = index < target.length ? target[index].sortOrder : null;
     void moveTaskToColumn(taskId, columnId, prev, next);
-  }
-
-  function handleRename(columnId: string, name: string): void {
-    void updateColumn(columnId, { name });
-  }
-
-  function handleToggleDone(columnId: string, isDone: boolean): void {
-    void updateColumn(columnId, { isDone });
-  }
-
-  function handleDelete(columnId: string): void {
-    void deleteColumn(columnId);
-  }
-
-  function commitAddColumn(event: SubmitEvent): void {
-    event.preventDefault();
-    const name = newColumnName().trim();
-    if (!name) return;
-    void createColumn(props.projectId, name);
-    setNewColumnName("");
-    setAddingColumn(false);
   }
 
   return (
@@ -125,49 +108,9 @@ export function BoardView(props: { projectId: string }) {
                 onDropTask={handleDrop}
                 onToggleComplete={toggleComplete}
                 onOpenDetail={openDetail}
-                onRename={handleRename}
-                onToggleDone={(column) => handleToggleDone(column.id, !column.isDone)}
-                onDelete={(column) => handleDelete(column.id)}
               />
             )}
           </For>
-
-          <Show
-            when={!addingColumn()}
-            fallback={
-              <form
-                class="flex w-72 shrink-0 flex-col gap-2 self-start rounded-xl bg-sunken p-3"
-                onSubmit={commitAddColumn}
-              >
-                <TextField.Root value={newColumnName()} onChange={setNewColumnName}>
-                  <TextField.Label>新建列</TextField.Label>
-                  <TextField.Input placeholder="例如：评审" />
-                </TextField.Root>
-                <div class="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setAddingColumn(false)}
-                  >
-                    取消
-                  </Button>
-                  <Button type="submit" size="sm">
-                    添加
-                  </Button>
-                </div>
-              </form>
-            }
-          >
-            <button
-              type="button"
-              class="flex w-72 shrink-0 items-center justify-center gap-1.5 self-start rounded-xl border border-dashed border-border-strong py-3 text-sm text-muted-foreground transition duration-150 ease-out hover:border-primary hover:text-primary focus-ring"
-              onClick={() => setAddingColumn(true)}
-            >
-              <Plus size={15} aria-hidden="true" />
-              添加列
-            </button>
-          </Show>
         </div>
       </div>
 

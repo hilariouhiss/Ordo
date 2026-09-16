@@ -170,10 +170,7 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay />
-        <Dialog.Content
-          aria-labelledby="tag-manager-title"
-          class="max-h-[85vh] overflow-y-auto"
-        >
+        <Dialog.Content aria-labelledby="tag-manager-title">
           <Dialog.Title id="tag-manager-title">管理标签</Dialog.Title>
           <Dialog.Description>
             新建、重命名、换色或删除标签；删除会从所有任务上移除该标签。
@@ -206,7 +203,10 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
             />
           </form>
 
-          <ul class="mt-4 flex flex-col border-t border-border" aria-label="标签列表">
+          <ul
+            class="mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto border-t border-border"
+            aria-label="标签列表"
+          >
             <Show
               when={tasksState.tags.length > 0}
               fallback={

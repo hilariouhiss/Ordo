@@ -6,25 +6,10 @@
 
 import { COMMANDS, invokeCommand } from "../../common/ipc";
 import type { Task } from "../tasks/types";
-import type { BoardColumn, NewBoardColumn, UpdateBoardColumn } from "./types";
+import type { BoardColumn } from "./types";
 
 export function listBoardColumns(projectId: string): Promise<BoardColumn[]> {
   return invokeCommand(COMMANDS.board.listColumns, { projectId });
-}
-
-export function addBoardColumn(payload: NewBoardColumn): Promise<BoardColumn> {
-  return invokeCommand(COMMANDS.board.addColumn, { payload });
-}
-
-export function updateBoardColumn(
-  columnId: string,
-  payload: UpdateBoardColumn,
-): Promise<BoardColumn> {
-  return invokeCommand(COMMANDS.board.updateColumn, { columnId, payload });
-}
-
-export function deleteBoardColumn(columnId: string): Promise<void> {
-  return invokeCommand(COMMANDS.board.deleteColumn, { columnId });
 }
 
 /** `prev`/`next` are the target column's sort keys around the drop slot

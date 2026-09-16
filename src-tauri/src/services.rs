@@ -22,12 +22,12 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewBoardColumn,
-    NewComment, NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project,
+    BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment,
+    NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project,
     ProjectProgress, ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit,
     SearchHitKind, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry,
-    TrendPoint, TrendQuery, UpdateBoardColumn, UpdateComment, UpdateNamespace, UpdateProject,
-    UpdateTag, UpdateTask, UpdateTimeEntry,
+    TrendPoint, TrendQuery, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask,
+    UpdateTimeEntry,
 };
 use crate::repositories::{
     backup, board_columns, comments, dependencies, namespaces, projects, reminders, search, stats,
@@ -309,6 +309,29 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskWithTags>, AppError> {
             TaskWithTags { task, tag_ids }
         })
         .collect())
+}
+
+/// Wraps one task row in the shape every task-returning command answers with:
+/// the row plus its tag links (`task:list`'s own shape, see [`TaskWithTags`]).
+///
+/// The frontend store keeps one `Task` per row and reads `tagIds` off it
+/// unconditionally — editor chips, board badges, the tag filter — so a command
+/// that answered with a bare row would leave the field undefined there and the
+/// next read of it (`[...task.tagIds]`) would throw.
+pub fn task_with_tags(conn: &Connection, task: Task) -> Result<TaskWithTags, AppError> {
+    let tag_ids = task_tags::list_tags_for_task(conn, task.id)?
+        .into_iter()
+        .map(|tag| tag.id)
+        .collect();
+    Ok(TaskWithTags { task, tag_ids })
+}
+
+/// [`task_with_tags`] for a whole run of rows (`task:reorder`).
+pub fn tasks_with_tags(conn: &Connection, tasks: Vec<Task>) -> Result<Vec<TaskWithTags>, AppError> {
+    tasks
+        .into_iter()
+        .map(|task| task_with_tags(conn, task))
+        .collect()
 }
 
 /// Creates a task (plus tag links and initial subtasks) in one transaction;
@@ -907,77 +930,6 @@ pub fn list_board_columns(
     project_id: Uuid,
 ) -> Result<Vec<BoardColumn>, AppError> {
     board_columns::list_by_project(conn, project_id)
-}
-
-/// Appends a new active column at the end of the project's board.
-pub fn add_board_column(conn: &Connection, input: NewBoardColumn) -> Result<BoardColumn, AppError> {
-    if projects::get(conn, input.project_id)?.is_none() {
-        return Err(not_found("项目", input.project_id));
-    }
-    let name = validated_name(&input.name)?;
-    let now = Utc::now();
-    let siblings: Vec<(Uuid, String)> = board_columns::list_by_project(conn, input.project_id)?
-        .into_iter()
-        .map(|c| (c.id, c.position))
-        .collect();
-    let (position, rebalanced) = append_key(&siblings)?;
-
-    let tx = conn.unchecked_transaction()?;
-    for (id, key) in &rebalanced {
-        if !board_columns::set_position(&tx, *id, key, now)? {
-            return Err(not_found("看板列", *id));
-        }
-    }
-    let column = BoardColumn {
-        id: Uuid::new_v4(),
-        project_id: input.project_id,
-        name,
-        position,
-        is_done: false,
-        created_at: now,
-        updated_at: now,
-        deleted_at: None,
-    };
-    board_columns::insert(&tx, &column)?;
-    tx.commit()?;
-    Ok(column)
-}
-
-/// Renames a column and/or toggles its done flag (`board:updateColumn`).
-pub fn update_board_column(
-    conn: &Connection,
-    id: Uuid,
-    patch: UpdateBoardColumn,
-) -> Result<BoardColumn, AppError> {
-    let mut column = board_columns::get(conn, id)?.ok_or_else(|| not_found("看板列", id))?;
-    if let Some(name) = &patch.name {
-        column.name = validated_name(name)?;
-    }
-    if let Some(is_done) = patch.is_done {
-        column.is_done = is_done;
-    }
-    column.updated_at = Utc::now();
-    if !board_columns::update(conn, &column)? {
-        return Err(not_found("看板列", id));
-    }
-    Ok(column)
-}
-
-/// Soft-deletes a column and detaches its tasks (their `column_id` clears,
-/// so they stay in the project's list view instead of vanishing with the
-/// board).
-pub fn delete_board_column(conn: &Connection, id: Uuid) -> Result<(), AppError> {
-    if board_columns::get(conn, id)?.is_none() {
-        return Err(not_found("看板列", id));
-    }
-    let now = Utc::now();
-    let tx = conn.unchecked_transaction()?;
-    tasks::clear_column(&tx, id, now)?;
-    if !board_columns::soft_delete(&tx, id, now)? {
-        return Err(not_found("看板列", id));
-    }
-    tx.commit()?;
-    Ok(())
 }
 
 /// `board:moveTask` — moves a task into a column at a slot within one
@@ -3371,71 +3323,17 @@ mod tests {
     }
 
     #[test]
-    fn board_columns_add_update_and_delete_detaches_tasks() {
+    fn a_project_board_comes_with_three_ordered_columns() {
         let conn = conn();
         let project = make_project(&conn, "看板项目");
-        assert_eq!(list_board_columns(&conn, project.id).unwrap().len(), 3);
-
-        let extra = add_board_column(
-            &conn,
-            NewBoardColumn {
-                project_id: project.id,
-                name: "评审".into(),
-            },
-        )
-        .unwrap();
-        assert!(!extra.is_done);
         let columns = list_board_columns(&conn, project.id).unwrap();
-        assert_eq!(columns.len(), 4);
-        assert_eq!(columns.last().unwrap().id, extra.id, "new column appends");
+        assert_eq!(
+            columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["待办", "进行中", "已完成"]
+        );
         assert!(columns.windows(2).all(|w| w[0].position < w[1].position));
-
-        let err = add_board_column(
-            &conn,
-            NewBoardColumn {
-                project_id: Uuid::new_v4(),
-                name: "孤儿列".into(),
-            },
-        )
-        .unwrap_err();
-        assert_eq!(err.code(), "not_found");
-
-        let renamed = update_board_column(
-            &conn,
-            extra.id,
-            UpdateBoardColumn {
-                name: Some("验收".into()),
-                is_done: Some(true),
-            },
-        )
-        .unwrap();
-        assert_eq!(renamed.name, "验收");
-        assert!(renamed.is_done);
-        assert_eq!(
-            update_board_column(
-                &conn,
-                extra.id,
-                UpdateBoardColumn {
-                    name: Some("  ".into()),
-                    is_done: None,
-                },
-            )
-            .unwrap_err()
-            .code(),
-            "validation"
-        );
-
-        // Deleting the column detaches its tasks instead of stranding them.
-        let task = make_column_task(&conn, &extra, "在列任务");
-        delete_board_column(&conn, extra.id).unwrap();
-        assert_eq!(
-            delete_board_column(&conn, extra.id).unwrap_err().code(),
-            "not_found"
-        );
-        assert_eq!(list_board_columns(&conn, project.id).unwrap().len(), 3);
-        let detached = tasks::get(&conn, task.id).unwrap().unwrap();
-        assert_eq!(detached.column_id, None);
-        assert_eq!(detached.project_id, Some(project.id));
+        assert_eq!(columns.iter().filter(|c| c.is_done).count(), 1);
+        assert!(columns.last().unwrap().is_done);
     }
 
     #[test]

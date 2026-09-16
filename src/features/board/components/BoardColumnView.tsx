@@ -1,6 +1,5 @@
 import { For, Show, createSignal } from "solid-js";
-import { CheckCircle2, MoreHorizontal, Pencil, Trash2 } from "lucide-solid";
-import { Button, DropdownMenu, TextField, iconButtonClass } from "../../../common/components";
+import { CheckCircle2 } from "lucide-solid";
 import type { Task } from "../../tasks/types";
 import type { BoardColumn } from "../types";
 import { BoardCard } from "./BoardCard";
@@ -18,15 +17,16 @@ export interface BoardColumnViewProps {
   onDropTask: (columnId: string, index: number) => void;
   onToggleComplete: (task: Task) => void;
   onOpenDetail: (task: Task) => void;
-  onRename: (columnId: string, name: string) => void;
-  onToggleDone: (column: BoardColumn) => void;
-  onDelete: (column: BoardColumn) => void;
 }
 
 /**
  * One board column (P-05): a droppable card list with an absolutely
  * positioned insertion line. The line never shifts layout (position:absolute
  * + paint-only updates), so dragging stays transform-only at frame rate.
+ *
+ * The column is the project's own row, with no management controls: 待办 /
+ * 进行中 / 已完成 come with the project, so the header only names the lane,
+ * counts it and flags the done one.
  *
  * The column is a `bg-sunken` well with no border. That gives the board three
  * readable planes — page, well, card — which a bordered box on a nearly
@@ -37,8 +37,6 @@ export function BoardColumnView(props: BoardColumnViewProps) {
   // Insertion point while a card hovers over this column: index within the
   // task list plus the indicator's Y offset inside the list container.
   const [insert, setInsert] = createSignal<{ index: number; y: number } | null>(null);
-  const [renaming, setRenaming] = createSignal(false);
-  const [renameValue, setRenameValue] = createSignal("");
   let listRef: HTMLDivElement | undefined;
 
   function indexFromEvent(event: DragEvent): { index: number; y: number } {
@@ -74,17 +72,6 @@ export function BoardColumnView(props: BoardColumnViewProps) {
     props.onDropTask(props.column.id, at.index);
   }
 
-  function startRename(): void {
-    setRenameValue(props.column.name);
-    setRenaming(true);
-  }
-
-  function commitRename(): void {
-    const name = renameValue().trim();
-    if (name && name !== props.column.name) props.onRename(props.column.id, name);
-    setRenaming(false);
-  }
-
   return (
     <section
       aria-label={`看板列 ${props.column.name}`}
@@ -92,64 +79,13 @@ export function BoardColumnView(props: BoardColumnViewProps) {
       class="flex w-72 shrink-0 flex-col rounded-xl bg-sunken"
     >
       <header class="flex items-center gap-1.5 px-2.5 py-2">
-        <Show
-          when={!renaming()}
-          fallback={
-            <form
-              class="flex min-w-0 flex-1 items-center gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                commitRename();
-              }}
-            >
-              <TextField.Root value={renameValue()} onChange={setRenameValue} class="min-w-0 flex-1">
-                <TextField.Label class="sr-only">重命名列 {props.column.name}</TextField.Label>
-                <TextField.Input aria-label={`重命名列 ${props.column.name}`} />
-              </TextField.Root>
-              <Button type="submit" size="sm">
-                保存
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setRenaming(false)}>
-                取消
-              </Button>
-            </form>
-          }
-        >
-          <span class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-foreground">
-            {props.column.name}
-          </span>
-        </Show>
+        <span class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-foreground">
+          {props.column.name}
+        </span>
         <span class="shrink-0 text-xs text-subtle-foreground">{props.tasks().length}</span>
         <Show when={props.column.isDone}>
           <CheckCircle2 size={14} class="shrink-0 text-primary" aria-label="完成列" />
         </Show>
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger
-            aria-label={`列操作：${props.column.name}`}
-            class={iconButtonClass}
-          >
-            <MoreHorizontal size={15} aria-hidden="true" />
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content>
-              <DropdownMenu.Item onSelect={startRename}>
-                <Pencil size={14} aria-hidden="true" />
-                重命名
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => props.onToggleDone(props.column)}>
-                <CheckCircle2 size={14} aria-hidden="true" />
-                {props.column.isDone ? "取消完成列" : "设为完成列"}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                class="text-danger data-[highlighted]:bg-danger/10"
-                onSelect={() => props.onDelete(props.column)}
-              >
-                <Trash2 size={14} aria-hidden="true" />
-                删除列
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
       </header>
 
       <div

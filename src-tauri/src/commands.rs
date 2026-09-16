@@ -15,11 +15,10 @@ use uuid::Uuid;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewBoardColumn, NewComment,
-    NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit,
-    Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint,
-    TrendQuery, UpdateBoardColumn, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag,
-    UpdateTask, UpdateTimeEntry,
+    BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment, NewNamespace,
+    NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit, Tag,
+    TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
+    UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::services;
 
@@ -41,6 +40,11 @@ pub fn greet(name: &str) -> String {
 }
 
 // --- task:* ----------------------------------------------------------------
+//
+// Every command below that answers with a task row answers with `TaskWithTags`
+// — the row's own fields plus its `tagIds`, the shape `task:list` already has.
+// The frontend keeps one `Task` per row and reads `tagIds` off it
+// unconditionally, so a bare row would leave the field undefined in the store.
 
 #[tauri::command(rename = "task:list")]
 pub fn task_list(db: State<'_, Db>) -> Result<Vec<TaskWithTags>, AppError> {
@@ -48,8 +52,10 @@ pub fn task_list(db: State<'_, Db>) -> Result<Vec<TaskWithTags>, AppError> {
 }
 
 #[tauri::command(rename = "task:create")]
-pub fn task_create(db: State<'_, Db>, payload: NewTask) -> Result<Task, AppError> {
-    with_conn(&db, |conn| services::create_task(conn, payload))
+pub fn task_create(db: State<'_, Db>, payload: NewTask) -> Result<TaskWithTags, AppError> {
+    with_conn(&db, |conn| {
+        services::task_with_tags(conn, services::create_task(conn, payload)?)
+    })
 }
 
 #[tauri::command(rename = "task:update")]
@@ -57,13 +63,17 @@ pub fn task_update(
     db: State<'_, Db>,
     task_id: Uuid,
     payload: UpdateTask,
-) -> Result<Task, AppError> {
-    with_conn(&db, |conn| services::update_task(conn, task_id, payload))
+) -> Result<TaskWithTags, AppError> {
+    with_conn(&db, |conn| {
+        services::task_with_tags(conn, services::update_task(conn, task_id, payload)?)
+    })
 }
 
 #[tauri::command(rename = "task:complete")]
-pub fn task_complete(db: State<'_, Db>, task_id: Uuid) -> Result<Task, AppError> {
-    with_conn(&db, |conn| services::complete_task(conn, task_id))
+pub fn task_complete(db: State<'_, Db>, task_id: Uuid) -> Result<TaskWithTags, AppError> {
+    with_conn(&db, |conn| {
+        services::task_with_tags(conn, services::complete_task(conn, task_id)?)
+    })
 }
 
 #[tauri::command(rename = "task:softDelete")]
@@ -72,8 +82,10 @@ pub fn task_soft_delete(db: State<'_, Db>, task_id: Uuid) -> Result<(), AppError
 }
 
 #[tauri::command(rename = "task:restore")]
-pub fn task_restore(db: State<'_, Db>, task_id: Uuid) -> Result<Task, AppError> {
-    with_conn(&db, |conn| services::restore_task(conn, task_id))
+pub fn task_restore(db: State<'_, Db>, task_id: Uuid) -> Result<TaskWithTags, AppError> {
+    with_conn(&db, |conn| {
+        services::task_with_tags(conn, services::restore_task(conn, task_id)?)
+    })
 }
 
 /// Moves a task between its siblings (`prev`/`next` are the neighbours' sort
@@ -84,9 +96,9 @@ pub fn task_reorder(
     task_id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Vec<Task>, AppError> {
+) -> Result<Vec<TaskWithTags>, AppError> {
     with_conn(&db, |conn| {
-        services::reorder_task(conn, task_id, prev, next)
+        services::tasks_with_tags(conn, services::reorder_task(conn, task_id, prev, next)?)
     })
 }
 
@@ -205,32 +217,8 @@ pub fn board_list_columns(
     with_conn(&db, |conn| services::list_board_columns(conn, project_id))
 }
 
-#[tauri::command(rename = "board:addColumn")]
-pub fn board_add_column(
-    db: State<'_, Db>,
-    payload: NewBoardColumn,
-) -> Result<BoardColumn, AppError> {
-    with_conn(&db, |conn| services::add_board_column(conn, payload))
-}
-
-#[tauri::command(rename = "board:updateColumn")]
-pub fn board_update_column(
-    db: State<'_, Db>,
-    column_id: Uuid,
-    payload: UpdateBoardColumn,
-) -> Result<BoardColumn, AppError> {
-    with_conn(&db, |conn| {
-        services::update_board_column(conn, column_id, payload)
-    })
-}
-
-#[tauri::command(rename = "board:deleteColumn")]
-pub fn board_delete_column(db: State<'_, Db>, column_id: Uuid) -> Result<(), AppError> {
-    with_conn(&db, |conn| services::delete_board_column(conn, column_id))
-}
-
-/// `prev`/`next` are the target column's sort keys around the slot (either
-/// may be omitted at the ends).
+/// Moves a task into a column at the slot between `prev`/`next` (either side
+/// optional at the ends); returns the task with its tag links.
 #[tauri::command(rename = "board:moveTask")]
 pub fn board_move_task(
     db: State<'_, Db>,
@@ -238,9 +226,12 @@ pub fn board_move_task(
     column_id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Task, AppError> {
+) -> Result<TaskWithTags, AppError> {
     with_conn(&db, |conn| {
-        services::move_task(conn, task_id, column_id, prev, next)
+        services::task_with_tags(
+            conn,
+            services::move_task(conn, task_id, column_id, prev, next)?,
+        )
     })
 }
 

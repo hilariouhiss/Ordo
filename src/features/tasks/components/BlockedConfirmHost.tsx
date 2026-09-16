@@ -49,7 +49,7 @@ export function BlockedConfirmHost() {
               </Dialog.Description>
               <Dialog.CloseButton aria-label="关闭" />
 
-              <ul class="mt-3.5 flex flex-col gap-1.5">
+              <ul class="mt-3.5 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
                 <For each={pending().blockers}>
                   {(blocker) => (
                     <li class="truncate rounded-md bg-surface-hover px-2.5 py-1.5 text-sm text-muted-foreground">

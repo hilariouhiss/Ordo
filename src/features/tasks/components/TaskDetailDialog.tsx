@@ -124,86 +124,95 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
             </Dialog.Title>
             <Dialog.Description>任务详情与子任务</Dialog.Description>
             <Dialog.CloseButton aria-label="关闭" />
-  
-            <div class="mt-3.5 flex flex-wrap items-center gap-1.5">
-              <Show when={priority()}>
-                {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
-              </Show>
-              <Show when={complexityLabel(task().complexity)}>
-                {(label) => <Badge variant="outline">{label()}</Badge>}
-              </Show>
-              <Show when={!completed() && blockers() > 0}>
-                {/* Same split as the list row: the compact text is the sighted
-                    label, the sentence behind it is what gets announced. */}
-                <Badge variant="warning">
-                  <Lock size={11} aria-hidden="true" />
-                  <span aria-hidden="true">阻塞中 · 还差 {blockers()} 项</span>
-                  <span class="sr-only">阻塞中，还有 {blockers()} 项前置未完成</span>
-                </Badge>
-              </Show>
-              <Show when={task().repeatRule}>
-                {(rule) => (
-                  <Badge variant="outline" class={rule().paused ? "opacity-60" : ""}>
-                    <Repeat size={11} aria-hidden="true" />
-                    {describeRepeatRule(rule())}
+
+            {/* Everything between the header and the action row scrolls; the
+                row itself stays put at the bottom of the panel. */}
+            <div class="mt-3.5 flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <Show when={priority()}>
+                  {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
+                </Show>
+                <Show when={complexityLabel(task().complexity)}>
+                  {(label) => <Badge variant="outline">{label()}</Badge>}
+                </Show>
+                <Show when={!completed() && blockers() > 0}>
+                  {/* Same split as the list row: the compact text is the sighted
+                      label, the sentence behind it is what gets announced. */}
+                  <Badge variant="warning">
+                    <Lock size={11} aria-hidden="true" />
+                    <span aria-hidden="true">阻塞中 · 还差 {blockers()} 项</span>
+                    <span class="sr-only">阻塞中，还有 {blockers()} 项前置未完成</span>
                   </Badge>
-                )}
+                </Show>
+                <Show when={task().repeatRule}>
+                  {(rule) => (
+                    <Badge variant="outline" class={rule().paused ? "opacity-60" : ""}>
+                      <Repeat size={11} aria-hidden="true" />
+                      {describeRepeatRule(rule())}
+                    </Badge>
+                  )}
+                </Show>
+                <Show when={task().dueAt}>
+                  <Badge variant={isOverdue(task().dueAt, now()) ? "danger" : "outline"}>
+                    {formatDueLabel(task().dueAt, now())}
+                  </Badge>
+                </Show>
+                <For each={task().tagIds}>
+                  {(tagId) => (
+                    <Show when={getTag(tagId)}>
+                      {(tag) => (
+                        <Badge variant="outline">
+                          <span
+                            class="size-1.5 rounded-full"
+                            style={{
+                              "background-color": tag().color ?? "var(--muted-foreground)",
+                            }}
+                          />
+                          {tag().name}
+                        </Badge>
+                      )}
+                    </Show>
+                  )}
+                </For>
+              </div>
+
+              <Show when={task().note}>
+                <p class="mt-3.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                  {task().note}
+                </p>
               </Show>
-              <Show when={task().dueAt}>
-                <Badge variant={isOverdue(task().dueAt, now()) ? "danger" : "outline"}>
-                  {formatDueLabel(task().dueAt, now())}
-                </Badge>
-              </Show>
-              <For each={task().tagIds}>
-                {(tagId) => (
-                  <Show when={getTag(tagId)}>
-                    {(tag) => (
-                      <Badge variant="outline">
-                        <span
-                          class="size-1.5 rounded-full"
-                          style={{ "background-color": tag().color ?? "var(--muted-foreground)" }}
-                        />
-                        {tag().name}
-                      </Badge>
-                    )}
-                  </Show>
-                )}
-              </For>
+
+              <div class="mt-5 border-t border-border pt-5">
+                <TaskDependencies taskId={task().id} />
+              </div>
+
+              <div class="mt-5 border-t border-border pt-5">
+                <SubtaskList
+                  taskId={task().id}
+                  onOpenDetail={(child) => setViewingChildId(child.id)}
+                  onEdit={props.onEdit}
+                />
+              </div>
+
+              <div class="mt-5 border-t border-border pt-5">
+                <Show
+                  when={hasComments(task().id)}
+                  fallback={<SectionLoading label="评论加载中…" />}
+                >
+                  <CommentList taskId={task().id} />
+                </Show>
+              </div>
+
+              <div class="mt-5 border-t border-border pt-5">
+                <Show
+                  when={hasTimeEntries(task().id)}
+                  fallback={<SectionLoading label="时间记录加载中…" />}
+                >
+                  <TimeTracker taskId={task().id} />
+                </Show>
+              </div>
             </div>
-  
-            <Show when={task().note}>
-              <p class="mt-3.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                {task().note}
-              </p>
-            </Show>
-  
-            <div class="mt-5 border-t border-border pt-5">
-              <TaskDependencies taskId={task().id} />
-            </div>
-  
-            <div class="mt-5 border-t border-border pt-5">
-              <SubtaskList
-                taskId={task().id}
-                onOpenDetail={(child) => setViewingChildId(child.id)}
-                onEdit={props.onEdit}
-              />
-            </div>
-  
-            <div class="mt-5 border-t border-border pt-5">
-              <Show when={hasComments(task().id)} fallback={<SectionLoading label="评论加载中…" />}>
-                <CommentList taskId={task().id} />
-              </Show>
-            </div>
-  
-            <div class="mt-5 border-t border-border pt-5">
-              <Show
-                when={hasTimeEntries(task().id)}
-                fallback={<SectionLoading label="时间记录加载中…" />}
-              >
-                <TimeTracker taskId={task().id} />
-              </Show>
-            </div>
-  
+
             <div class="mt-6 flex items-center justify-end gap-2 border-t border-border pt-4">
               <Button variant="destructive-ghost" onClick={remove}>
                 删除

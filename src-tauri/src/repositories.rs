@@ -423,22 +423,6 @@ pub mod tasks {
         )?;
         Ok(affected == 1)
     }
-
-    /// Clears `column_id` on every task still pointing at the column (used
-    /// when a board column is deleted; soft delete doesn't fire the FK's ON
-    /// DELETE SET NULL). Covers soft-deleted tasks too, so a restored task
-    /// never re-enters a column that no longer exists.
-    pub fn clear_column(
-        conn: &Connection,
-        column_id: Uuid,
-        at: DateTime<Utc>,
-    ) -> Result<usize, AppError> {
-        let affected = conn.execute(
-            "UPDATE tasks SET column_id = NULL, updated_at = ?1 WHERE column_id = ?2",
-            params![at, column_id.to_string()],
-        )?;
-        Ok(affected)
-    }
 }
 
 /// Tag CRUD (`tags` table). `name` is `UNIQUE COLLATE NOCASE`.
@@ -832,46 +816,6 @@ pub mod board_columns {
             params![project_id.to_string()],
             board_column_from_row,
         )
-    }
-
-    /// Full-row update; returns false when the column is missing or deleted.
-    pub fn update(conn: &Connection, column: &BoardColumn) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "UPDATE board_columns SET name = ?1, position = ?2, is_done = ?3, updated_at = ?4 \
-             WHERE id = ?5 AND deleted_at IS NULL",
-            params![
-                column.name,
-                column.position,
-                column.is_done,
-                column.updated_at,
-                column.id.to_string(),
-            ],
-        )?;
-        Ok(affected == 1)
-    }
-
-    /// Targeted `position` write used by service-level rebalances.
-    pub fn set_position(
-        conn: &Connection,
-        id: Uuid,
-        position: &str,
-        at: DateTime<Utc>,
-    ) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "UPDATE board_columns SET position = ?1, updated_at = ?2 \
-             WHERE id = ?3 AND deleted_at IS NULL",
-            params![position, at, id.to_string()],
-        )?;
-        Ok(affected == 1)
-    }
-
-    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
-        let affected = conn.execute(
-            "UPDATE board_columns SET deleted_at = ?1, updated_at = ?1 \
-             WHERE id = ?2 AND deleted_at IS NULL",
-            params![at, id.to_string()],
-        )?;
-        Ok(affected == 1)
     }
 }
 
@@ -2543,35 +2487,6 @@ mod tests {
             vec![other_project]
         );
         assert_eq!(board_columns::get(&conn, done.id).unwrap().unwrap(), done);
-
-        // Full-row update covers the rename/reposition/is_done toggle.
-        let mut edited = first.clone();
-        edited.name = "进行中".into();
-        edited.position = "m".into();
-        edited.is_done = false;
-        edited.updated_at = ts(2);
-        assert!(board_columns::update(&conn, &edited).unwrap());
-        assert_eq!(
-            board_columns::get(&conn, first.id).unwrap().unwrap(),
-            edited
-        );
-
-        // Targeted position write for service-level rebalances.
-        assert!(board_columns::set_position(&conn, mid.id, "q", ts(3)).unwrap());
-        assert_eq!(
-            board_columns::get(&conn, mid.id).unwrap().unwrap().position,
-            "q"
-        );
-        assert!(!board_columns::set_position(&conn, Uuid::new_v4(), "q", ts(3)).unwrap());
-
-        // Soft delete hides the column from its project's board.
-        assert!(board_columns::soft_delete(&conn, mid.id, ts(4)).unwrap());
-        assert!(!board_columns::soft_delete(&conn, mid.id, ts(5)).unwrap());
-        assert_eq!(board_columns::get(&conn, mid.id).unwrap(), None);
-        assert_eq!(
-            board_columns::list_by_project(&conn, project_a.id).unwrap(),
-            vec![edited, done]
-        );
     }
 
     fn insert_comment(conn: &Connection, task_id: Uuid, body: &str) {

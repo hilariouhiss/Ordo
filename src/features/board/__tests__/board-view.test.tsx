@@ -12,7 +12,6 @@ import type { Task } from "../../tasks/types";
 
 vi.mock("../hooks", () => ({
   loadColumns: vi.fn(),
-  createColumn: vi.fn(),
   updateColumn: vi.fn(),
   deleteColumn: vi.fn(),
   moveTaskToColumn: vi.fn(),
@@ -77,6 +76,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("BoardView", () => {
+  const laneIds = (columnId: string): (string | null)[] =>
+    [...document.querySelectorAll(`[data-column-id="${columnId}"] [data-task-id]`)].map(
+      (el) => el.getAttribute("data-task-id"),
+    );
+
   it("renders columns with their ordered task cards", () => {
     renderBoard();
     tasksStore.setAll(
@@ -84,7 +88,6 @@ describe("BoardView", () => {
         task("t1", { columnId: "c1", sortOrder: "n" }),
         task("t2", { columnId: "c1", sortOrder: "o" }),
         task("t3", { columnId: "c2", sortOrder: "n", completedAt: "2026-09-09T10:00:00Z" }),
-        task("inbox", { columnId: null }),
       ],
       [],
     );
@@ -96,10 +99,35 @@ describe("BoardView", () => {
     expect(screen.getByText("1")).toBeTruthy();
     expect(screen.getByText("任务 t1")).toBeTruthy();
     expect(screen.getByText("任务 t3")).toBeTruthy();
-    // Tasks without a column do not appear on the board.
-    expect(screen.queryByText("任务 inbox")).toBeNull();
+    // Cards follow the lane's own order.
+    expect(laneIds("c1")).toEqual(["t1", "t2"]);
     // The done column is flagged.
     expect(screen.getByLabelText("完成列")).toBeTruthy();
+  });
+
+  it("shows every project task: no column means the first lane, 完成 the done one", () => {
+    renderBoard();
+    tasksStore.setAll(
+      [
+        // Created in the 列表 view: it carries no column at all, and used to be
+        // invisible here.
+        task("list-made", { columnId: null, title: "列表里建的任务" }),
+        // 取消完成 left it pointing at the done column; it is open again, so it
+        // belongs to the first open lane and not to 已完成.
+        task("reopened", { columnId: "c2", title: "取消完成的任务" }),
+        // Completed from the list: the stamp alone puts it in 已完成, whatever
+        // column it was sitting in.
+        task("finished", {
+          columnId: "c1",
+          title: "列表里完成的任务",
+          completedAt: "2026-09-14T09:00:00Z",
+        }),
+      ],
+      [],
+    );
+
+    expect(laneIds("c1")).toEqual(["list-made", "reopened"]);
+    expect(laneIds("c2")).toEqual(["finished"]);
   });
 
   it("renders only top-level tasks as cards and badges their children", () => {
@@ -126,36 +154,6 @@ describe("BoardView", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "完成 任务 t1" }));
 
     expect(tasksHooks.completeTask).toHaveBeenCalledWith("t1");
-  });
-
-  it("adds a column through the inline form", async () => {
-    renderBoard();
-    tasksStore.setAll([], []);
-
-    fireEvent.click(screen.getByRole("button", { name: /添加列/ }));
-    fireEvent.input(await screen.findByLabelText("新建列"), { target: { value: "评审" } });
-    fireEvent.click(screen.getByRole("button", { name: "添加" }));
-
-    await waitFor(() =>
-      expect(boardHooks.createColumn).toHaveBeenCalledWith("proj-1", "评审"),
-    );
-  });
-
-  it("renames a column through the header menu", async () => {
-    renderBoard();
-    tasksStore.setAll([], []);
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: "列操作：待办" }));
-    const item = await screen.findByRole("menuitem", { name: "重命名" });
-    fireEvent.pointerUp(item);
-    fireEvent.input(await screen.findByLabelText("重命名列 待办"), {
-      target: { value: "进行中" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() =>
-      expect(boardHooks.updateColumn).toHaveBeenCalledWith("c1", { name: "进行中" }),
-    );
   });
 
   it("shows the insertion indicator while dragging and persists the drop", async () => {

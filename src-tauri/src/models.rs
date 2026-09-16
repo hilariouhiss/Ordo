@@ -567,23 +567,6 @@ pub struct UpdateNamespace {
     pub icon: Patch<String>,
 }
 
-/// `board:addColumn` — the new column always appends at the end and starts
-/// active (`is_done = false`); the done flag is a later `board:updateColumn`
-/// switch.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NewBoardColumn {
-    pub project_id: Uuid,
-    pub name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateBoardColumn {
-    pub name: Option<String>,
-    pub is_done: Option<bool>,
-}
-
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewComment {

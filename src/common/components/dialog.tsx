@@ -33,12 +33,19 @@ function Overlay(props: ComponentProps<typeof KDialog.Overlay>) {
 function Content(props: ComponentProps<typeof KDialog.Content>) {
   const [local, rest] = splitProps(props, ["class"]);
   // No border: at this elevation the shadow carries the separation, and a
-  // hairline on top of a shadow is the generic "card" look. `max-h` +
-  // `overflow-y-auto` are defaults so no dialog can grow past the viewport.
+  // hairline on top of a shadow is the generic "card" look.
+  //
+  // The panel itself never scrolls (`max-h` + `overflow-hidden`); the body
+  // below the header does, and each dialog marks that body with
+  // `min-h-0 flex-1 overflow-y-auto`. Scrolling the whole panel is what used
+  // to drag the title (and the close button pinned to its corner) off the top
+  // of a long dialog. A `class` cannot do that from the outside: Tailwind
+  // resolves `overflow-*` by source order, and `overflow-y-auto` is emitted
+  // after `overflow-hidden`.
   return (
     <KDialog.Content
       {...rest}
-      class={`animate-surface-in fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl bg-elevated p-5 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-elevated p-5 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }

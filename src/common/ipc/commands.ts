@@ -41,9 +41,6 @@ export const COMMANDS = {
   },
   board: {
     listColumns: "board:listColumns",
-    addColumn: "board:addColumn",
-    updateColumn: "board:updateColumn",
-    deleteColumn: "board:deleteColumn",
     moveTask: "board:moveTask",
   },
   search: {

@@ -14,16 +14,6 @@ import * as tasksStore from "../tasks/store";
 import type { Task } from "../tasks/types";
 import * as api from "./api";
 import * as store from "./store";
-import type { BoardColumn, UpdateBoardColumn } from "./types";
-
-/** Prefix for optimistic ids; never collides with backend UUIDs. */
-const TEMP_PREFIX = "optimistic-";
-let tempSeq = 0;
-
-function nextTempId(): string {
-  tempSeq += 1;
-  return `${TEMP_PREFIX}${Date.now().toString(36)}-${tempSeq}`;
-}
 
 /** Normalizes any thrown value, surfaces it as an error notification. */
 function reportFailure(error: unknown): null {
@@ -77,91 +67,6 @@ export async function loadColumns(projectId: string): Promise<boolean> {
 }
 
 // --- columns -----------------------------------------------------------------
-
-/** Appends a new active column at the end of the project's board. */
-export function createColumn(projectId: string, name: string): Promise<BoardColumn | null> {
-  const tempId = nextTempId();
-  const now = new Date().toISOString();
-  const optimisticColumn: BoardColumn = {
-    id: tempId,
-    projectId,
-    name: name.trim(),
-    position: "\uffff",
-    isDone: false,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-  };
-
-  return optimistic(
-    () => store.upsertColumn(projectId, optimisticColumn),
-    () => store.removeColumn(tempId),
-    async () => {
-      const created = await api.addBoardColumn({ projectId, name: optimisticColumn.name });
-      store.removeColumn(tempId);
-      store.upsertColumn(projectId, created);
-      return created;
-    },
-  );
-}
-
-/** Renames a column and/or toggles its done flag. */
-export function updateColumn(
-  columnId: string,
-  patch: UpdateBoardColumn,
-): Promise<BoardColumn | null> {
-  const current = store.getColumn(columnId);
-  if (!current) return Promise.resolve(missingEntity("看板列"));
-  const before: BoardColumn = { ...current };
-
-  const optimisticPatch: Partial<BoardColumn> = { updatedAt: new Date().toISOString() };
-  if (patch.name !== undefined) optimisticPatch.name = patch.name.trim();
-  if (patch.isDone !== undefined) optimisticPatch.isDone = patch.isDone;
-
-  return optimistic(
-    () => store.patchColumn(columnId, optimisticPatch),
-    () => store.patchColumn(columnId, before),
-    async () => {
-      const saved = await api.updateBoardColumn(columnId, patch);
-      store.patchColumn(columnId, saved);
-      return saved;
-    },
-  );
-}
-
-/**
- * Soft-deletes a column and optimistically detaches its tasks (the backend
- * clears their `column_id` too), so cards don't linger on a vanished column.
- */
-export function deleteColumn(columnId: string): Promise<boolean | null> {
-  const current = store.getColumn(columnId);
-  if (!current) return Promise.resolve(missingEntity("看板列"));
-  const snapshot: BoardColumn = { ...current };
-  const projectId = current.projectId;
-  const index = store.getColumns(projectId).findIndex((column) => column.id === columnId);
-  const affected: Array<{ taskId: string; columnId: string | null }> = tasksStore.tasksState.tasks
-    .filter((task) => task.columnId === columnId)
-    .map((task) => ({ taskId: task.id, columnId: task.columnId }));
-
-  return optimistic(
-    () => {
-      store.removeColumn(columnId);
-      for (const { taskId } of affected) {
-        tasksStore.patchTask(taskId, { columnId: null });
-      }
-    },
-    () => {
-      store.insertColumnAt(projectId, index, snapshot);
-      for (const { taskId, columnId: previous } of affected) {
-        tasksStore.patchTask(taskId, { columnId: previous });
-      }
-    },
-    async () => {
-      await api.deleteBoardColumn(columnId);
-      return true;
-    },
-  );
-}
 
 // --- moving tasks ------------------------------------------------------------
 

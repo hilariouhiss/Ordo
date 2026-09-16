@@ -14,13 +14,3 @@ export interface BoardColumn {
   updatedAt: string;
   deletedAt: string | null;
 }
-
-export interface NewBoardColumn {
-  projectId: string;
-  name: string;
-}
-
-export interface UpdateBoardColumn {
-  name?: string;
-  isDone?: boolean;
-}
