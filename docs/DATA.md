@@ -116,11 +116,11 @@ V2–V9 之后的索引清单：
 
 | 索引 | 表 | 用途 |
 | --- | --- | --- |
-| `idx_tasks_project` | `tasks(project_id)` | 项目内任务、`stats:projectProgress` 的 join |
+| `idx_tasks_project` | `tasks(project_id)` | `list_by_project`（项目范围的取行）、`stats:projectProgress` 的 join |
 | `idx_tasks_column` | `tasks(column_id)` | 看板列取值 |
 | `idx_tasks_due_at` | `tasks(due_at)` | 提醒扫描的候选窗口 |
 | `idx_tasks_completed_at` | `tasks(completed_at)` | 全表口径的完成时间范围（趋势的通用索引） |
-| `idx_tasks_parent` | `tasks(parent_task_id)` | `list_by_parent` 一类的前缀查询 |
+| `idx_tasks_parent` | `tasks(parent_task_id)` | `list_by_parent` 与 `list_children_of`（范围页要带的子行）一类的前缀查询 |
 | `idx_tasks_parent_completed` | `tasks(parent_task_id, completed_at)` | **V9**：顶层任务 + 时间范围走同一次 seek |
 | `idx_board_columns_project` | `board_columns(project_id, position)` | 按项目取列并排序 |
 | `idx_task_tags_tag` | `task_tags(tag_id)` | 按标签反查任务、标签维度的时间分布 |
@@ -137,6 +137,8 @@ V2–V9 之后的索引清单：
 同一条规矩也管着走**启动路径**的依赖读：`repositories::tests::dependencies_live_edges_seek_the_primary_key` 要求 `task_dependencies` 的两个端点各是一次 seek，且不出现 `SCAN tasks`。这条断言有来历：谓词写成 `IN (SELECT id FROM tasks WHERE deleted_at IS NULL)` 时，规划器会对每条边重扫一遍 `tasks`（2825 个任务时实测 637 ms，`EXISTS` 版本 0.9 ms），而 `dependency:listAll` 每次启动都要跑（[ARCHITECTURE](./ARCHITECTURE.md)§6.1）。
 
 写入路径的范围键查询同样有计划断言：`repositories::tests::task_scope_sort_queries_seek_the_index` 要求 `last_sort_key` / `next_sort_key` / `prev_sort_key` / `index_of_sort_key` / `scope_sort_keys` 都走 `idx_tasks_scope_sort`（范围谓词一律写成 `column_id IS ?1 AND parent_task_id IS ?2`——`IS` 对 NULL 与具体值都成立，顶层与子行共用一条 SQL）。改造前这些查询靠 `tasks::list()` 整表 hydrate：2825 行时 `task:create` 8.11 ms，8k 档 0.09 ms、50k 档 0.10 ms（三档实测见 [ARCHITECTURE](./ARCHITECTURE.md)§6.1）。
+
+范围页要的五条查询也有计划断言：`repositories::tests::project_scope_queries_seek_their_indexes` 要求 `list_by_project` / `list_children_of` / `blocked_counts` / `task_tags::list_for_tasks` / `titles_of` 都不出现 `SCAN`（各自走 `SEARCH`），并单独钉住 `blocked_counts` 的起手是 `SEARCH d USING PRIMARY KEY`。最后一环有来历：谓词写成 `JOIN tasks p` 时规划器从 `tasks` 起手、借 `idx_tasks_completed_at`（`completed_at IS NULL` 命中几乎整表）逐行回探 `d`——50k 档验收库上一个 375 行的项目页实测 3.3 s，`EXISTS` 版本 0.2 ms，与上面 `dependencies::LIVE_SQL` 是同一个坑。通用断言看不出这个形状：它也是「两次 `SEARCH`、没有 `SCAN`」，所以快慢两种写法都能过那圈循环，得单独钉测试计划里起手的那张表。
 
 **已知的索引取舍**（V9 注释里记着）：`idx_tasks_completed_at` 保留为全表口径的通用索引；`idx_tasks_parent` 保留——它的前缀查询已被复合索引覆盖，但它本身更窄，仍是 `list_by_parent` 那类查询的自然选择。只按 `completed_at` 建的部分索引，规划器不选。
 

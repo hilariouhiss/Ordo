@@ -103,11 +103,13 @@ src/
 ### 2.3 状态管理
 
 - 使用 **Solid `createStore`**，每个领域一个 store 文件（`features/*/store.ts`）。
-- **任务/项目/标签/命名空间/时间记录**：领域 store 持有全量数据，是前端的事实来源。
+- **任务 store 是「按 id 的表 + 具名范围」**（`features/tasks/store.ts`）：`byId` 一张表，范围（`all`、`project:<id>`）只存 id 数组，同一行被多个范围指向时也只有一份，编辑不会留下两份会互相漂移的副本。项目、标签、命名空间、时间记录仍是各自领域的全量 store。
 - **UI 状态**（侧边栏折叠、当前路由激活态、主题、弹窗开合、拖拽中态）放 `common/stores/` 或组件内 signal，与业务数据分离。
 - 派生数据用 Solid 的 `createMemo` 从 store 计算，**不重复存储**：今日任务、项目完成率、统计聚合、命名空间分组、阻塞状态都是派生量。
 - **任务树随启动全量载入**：`loadAll` 一次取回全部存活任务（**含子任务**——子任务就是 `parent_task_id` 非空的行）、标签与依赖边。列表要在折叠状态下就显示「谁有子任务、做完几项」，逐行懒加载会变成 N 次 IPC；层级只有一层，一次全表查询就能带走整棵树。
-- **批量载入只发生在启动**：会话中途的刷新走 `reloadTasks`（重拉任务与标签，整表替换）。它替换的就是权威快照本身，没有第二份需要防覆盖的副本。
+- **`all` 快照的批量载入只发生在启动**：会话中途的刷新走 `reloadTasks`（重拉任务与标签，整表替换）。它替换的就是权威快照本身，没有第二份需要防覆盖的副本；项目范围不走这条路，它由 `ensureScope` 单独装载。
+- **范围按需装载，`ensureScope` 是唯一入口**（`hooks.ts`）：已装载就立即返回，同一范围的并发调用复用同一个请求（导航重挂载会同时发起两次），失败写进 `scopeMeta[scope].error` 并让范围保持未装载——下一次调用会重试；`force = true` 是错误面板「重试」按钮走的路径。**项目详情与看板读 `project:<id>` 范围**（`scopeRows` / `scopeMetaOf`），其余界面过渡期仍读 `all`（`tasks()`）。
+- **项目范围的成员关系由行的 `projectId` 直接判定**（`store.ts` 的 `indexProjectScope` / `unindexProjectScope`）：`upsertTask`（新建，或行的 `projectId` 变了）、`patchTask`（同上）、`insertTaskAt`（软删回滚把行放回原位）负责把行搬进搬出**已装载**的项目范围，`removeTask` 则把该 id 从每个范围里摘掉。没装载过的项目范围不凭空造，等它自己装载时再从服务端取。
 - **子任务没有独立命令，也没有按需拉取**：`task:create` 的 `subtaskTitles` 由后端在同一事务里插成子行，这些 id 不在创建响应里，所以创建成功后补拉一次 `reloadTasks`；除此之外整棵树一直在 store 里，详情弹窗直接按父 id 过滤，没有加载态。
 - **不存在父任务已删的孤儿行**：软删除父任务会在同一事务里级联软删全部子任务（恢复同理），迁移与备份导入也已清掉历史孤儿，所以载入路径不需要额外的「父任务是否还活着」谓词。
 
@@ -226,11 +228,11 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 命令统一放在 `commands.rs`，命名 `<domain>:<action>`，Rust 侧用 `#[tauri::command(rename = "task:list")]` 注册（函数名保持合法标识符如 `task_list`）；参数键为 camelCase（Tauri 2 默认，`task_id` → `taskId`）。前端字符串常量集中在 `src/common/ipc/commands.ts`，避免散落魔法字符串。
 
-后端**实际注册 43 个命令**（`lib.rs` 的 `invoke_handler`）：
+后端**实际注册 44 个命令**（`lib.rs` 的 `invoke_handler`）：
 
 | 域 | 命令 |
 | --- | --- |
-| task | `list` `create` `update` `complete` `softDelete` `restore` `reorder` |
+| task | `list` `listByProject` `create` `update` `complete` `softDelete` `restore` `reorder` |
 | dependency | `listAll` `add` `remove` |
 | tag | `list` `create` `update` `delete` |
 | project | `list` `create` `update` `archive` `restore` |
@@ -245,7 +247,9 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 约定：每个命令返回 `Result<T, AppError>`；**任何返回任务行的命令都返回 `TaskWithTags`**（`Task` 字段打平在顶层 + 一个 `tagIds` 键），前端无条件读 `tagIds`，所以没有哪个写路径可以只回裸行。`board:listColumns` 对不存在的项目返回空数组（不报错），`comment:list` / `time:list` 也不校验任务存在。
 
-**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（43 个）。
+**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（44 个）。
+
+`task:listByProject` 返回 `TaskPage`（§4 的载荷）：`rows` + 该带的 `children` + 范围外的父 `related` + 每行的未完成前置计数 `blocked`。项目范围**不分页**——项目详情的工具栏筛选与排序作用在整个项目上，与它此前自己过滤全量快照时的行为一致。
 
 `task:reorder` 与 `board:moveTask` 返回 `{ moved, rebalanced }`：被移动的行 + 被重写的排序键。键耗尽触发的重排会重写整个范围，所以那些行必须回给调用方；普通路径下 `rebalanced` 是空数组，一次索引 seek 就够（旧实现回整个兄弟范围，载荷随范围大小增长）。
 
@@ -438,6 +442,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `task:reorder` | 0.12 ms | 0.04 ms | 0.04 ms | 50 ms |
 | `board:moveTask` | 0.19 ms | 0.08 ms | 0.08 ms | 50 ms |
 | `task:list`（整树读，平均） | 15.96 ms | 56.26 ms | 338.72 ms | 50 ms |
+| `task:listByProject`（项目范围的读，平均） | 0.69 ms | 1.23 ms | 3.43 ms | 50 ms |
 
 写入路径三档都是常数级：V10 之前 `task:create` 是 8.11 ms 且随总行数线性涨（排序键要取「兄弟范围内最后一个键」，而那个范围只能靠整表 hydrate 得到），`idx_tasks_scope_sort` 之后是一次索引 seek。`task:list` 仍是整树读，8k 档起超预算——它就是「按范围懒加载」要拆掉的那条命令（[DECISIONS](./DECISIONS.md)§4）。
 
