@@ -5,7 +5,7 @@ import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
 import { complexityLabel } from "../complexity";
 import { blockersOf, buildIndex, completionSet, liveSet } from "../dependencies";
 import { describeRepeatRule } from "../repeat";
-import { getTag, getTask, hasComments, hasTimeEntries, tasksState } from "../store";
+import { getTag, getTask, hasComments, hasTimeEntries, tasks, tasksState } from "../store";
 import type { Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
 import { PRIORITY_BADGES } from "./TaskItemRow";
@@ -67,8 +67,8 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
   // on the task's own completion for the same reason (a task finished through
   // 「仍要完成」 is not waiting for anything any more).
   const blockers = createMemo(() => {
-    const index = buildIndex(tasksState.dependencies, liveSet(tasksState.tasks));
-    const done = completionSet(tasksState.tasks);
+    const index = buildIndex(tasksState.dependencies, liveSet(tasks()));
+    const done = completionSet(tasks());
     return blockersOf(index, done, task().id).length;
   });
 

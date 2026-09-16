@@ -1,49 +1,118 @@
 /**
- * Full-data task store (module-level `createStore`, mirroring the `ui.ts`
- * store conventions). Holds every live task/tag plus lazily cached comment
- * and time-entry lists; views derive their subsets from `tasksState`.
+ * Task store: a **by-id table over named scopes**.
  *
- * A child task is a plain row in `tasks` (R7c): there is no second collection
- * to keep in sync, so `childrenOf` and friends are filters, not caches.
+ * One row per task (`byId`), scopes hold ids only — a task that is in 今天 and
+ * in a project is a single row both scopes point at, so an edit cannot leave
+ * two copies to disagree.
  *
- * Mutators below are the data layer's plumbing — components change state
- * through `hooks.ts`, never directly.
+ * For now `task:list` is still the only source of data and it fills a scope
+ * called `all`; the read sites go through `tasks()`, which is the old
+ * `tasksState.tasks` array re-derived. As `task:listByProject` /
+ * `task:listView` land, the surfaces move to their own scopes one at a time,
+ * and `all` + `tasks()` go away with the last one.
+ *
+ * Mutators are the data layer's plumbing — components change state through
+ * `hooks.ts`, never directly.
  */
 
 import { createStore, produce } from "solid-js/store";
 import { edgeEquals } from "./dependencies";
-import type { Comment, Dependency, Tag, Task, TimeEntry } from "./types";
+import type {
+  Comment,
+  Dependency,
+  Tag,
+  Task,
+  TaskKey,
+  TaskPage,
+  TaskRef,
+  TimeEntry,
+} from "./types";
+
+/** A scope's loading state. `cursor` is the keyset cursor for its next page. */
+export interface ScopeMeta {
+  loaded: boolean;
+  loading: boolean;
+  hasMore: boolean;
+  cursor: string | null;
+  error: string | null;
+}
 
 export interface TasksState {
-  /** All live tasks, ordered by `sortOrder` as returned by `task:list`. */
-  tasks: Task[];
+  /** The canonical table: exactly one row per task. */
+  byId: Record<string, Task>;
+  /** Named scopes → ordered ids (`all` / `project:<id>` / `view:<view>`). */
+  scopes: Record<string, string[]>;
+  /** Per-scope loading state. */
+  scopeMeta: Record<string, ScopeMeta>;
+  /** parentId → child ids (a scope page's `children` plus any matched child). */
+  childrenByParent: Record<string, string[]>;
+  /** id → `{ id, title }`: parent titles for rows whose parent is off-scope. */
+  related: Record<string, TaskRef>;
+  /** taskId → unfinished prerequisite count (the server's number). */
+  blocked: Record<string, number>;
   /** All live tags, ordered by name (case-insensitive). */
   tags: Tag[];
-  /** All live dependency edges, loaded with the task list. */
+  /** Every live dependency edge, loaded with the task snapshot (until the
+   * dependency read is scoped too). */
   dependencies: Dependency[];
   /** Comment cache per task, filled on demand by `loadComments`. */
   commentsByTask: Record<string, Comment[]>;
   /** Time-entry cache per task, filled on demand by `loadTimeEntries`;
    * most recent first, as `time:list` returns them. */
   timeEntriesByTask: Record<string, TimeEntry[]>;
-  /** Whether the initial `loadAll` completed successfully. */
+  /** Whether the transitional `all` scope has loaded. */
   loaded: boolean;
 }
 
-const [state, setState] = createStore<TasksState>({
-  tasks: [],
-  tags: [],
-  dependencies: [],
-  commentsByTask: {},
-  timeEntriesByTask: {},
-  loaded: false,
-});
+function emptyState(): TasksState {
+  return {
+    byId: {},
+    scopes: {},
+    scopeMeta: {},
+    childrenByParent: {},
+    related: {},
+    blocked: {},
+    tags: [],
+    dependencies: [],
+    commentsByTask: {},
+    timeEntriesByTask: {},
+    loaded: false,
+  };
+}
+
+const [state, setState] = createStore<TasksState>(emptyState());
 
 /** Reactive store state; read from components, mutate through hooks. */
 export const tasksState = state;
 
+/** Mirrors the SQL `ORDER BY sort_order, created_at, id`. */
+const bySortOrder = (a: Task, b: Task) => {
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder < b.sortOrder ? -1 : 1;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+};
+
+/**
+ * The `all` scope's rows in key order — the transitional stand-in for the old
+ * `tasksState.tasks`. Every read site goes through this until its own scope
+ * lands; then it is deleted along with `task:list`.
+ *
+ * Sorted here, not kept sorted: the sort key is the only truth about order
+ * (the same `sort_order, created_at, id` that `task:list` orders by), so a
+ * reorder that patches one key is reflected everywhere at once.
+ */
+export function tasks(): Task[] {
+  const ids = state.scopes.all ?? [];
+  const rows: Task[] = [];
+  for (const id of ids) {
+    const task = state.byId[id];
+    if (task) rows.push(task);
+  }
+  return rows.sort(bySortOrder);
+}
+
 export function getTask(id: string): Task | undefined {
-  return state.tasks.find((task) => task.id === id);
+  return state.byId[id];
 }
 
 export function getTag(id: string): Tag | undefined {
@@ -51,24 +120,41 @@ export function getTag(id: string): Tag | undefined {
 }
 
 /**
- * A parent's children, in `sortOrder`. The whole hierarchy arrives in one
- * `task:list` snapshot (R7c), so this is a filter — there is no cache, no
- * loading state, and no second protocol to keep in sync.
+ * A parent's children in `sortOrder`. The index is filled by the scope pages
+ * that carried them (R7c: a child is a plain row, so this is a lookup, never a
+ * second load).
  */
 export function childrenOf(taskId: string): Task[] {
-  return state.tasks
-    .filter((task) => task.parentTaskId === taskId)
-    .sort((a, b) => (a.sortOrder < b.sortOrder ? -1 : a.sortOrder > b.sortOrder ? 1 : 0));
+  return (state.childrenByParent[taskId] ?? [])
+    .map((id) => state.byId[id])
+    .filter((task): task is Task => task !== undefined)
+    .sort(bySortOrder);
 }
 
-/** Top-level tasks, in the store's own order. */
+/** Top-level tasks across the loaded scopes, in the `all` scope's order. */
 export function topLevelTasks(): Task[] {
-  return state.tasks.filter((task) => task.parentTaskId === null);
+  return tasks().filter((task) => task.parentTaskId === null);
 }
 
-/** Whether a task has children — the disclosure arrow and the badge. */
+/** Whether a task has children — the disclosure arrow, the drop rule, the badge. */
 export function hasChildren(taskId: string): boolean {
-  return state.tasks.some((task) => task.parentTaskId === taskId);
+  return (state.childrenByParent[taskId] ?? []).length > 0;
+}
+
+/** Unfinished prerequisite count as the backend counted it on the last load. */
+export function blockedCountOf(taskId: string): number {
+  return state.blocked[taskId] ?? 0;
+}
+
+/**
+ * The 父任务 prefix of a standalone child row: the page's `related` ref when the
+ * parent is off-scope, the loaded row when it is on-scope, and the old
+ * fallback when neither knows it.
+ */
+export function parentTitleOf(childId: string): string {
+  const parentId = state.byId[childId]?.parentTaskId;
+  if (!parentId) return "（已删除）";
+  return state.related[parentId]?.title ?? state.byId[parentId]?.title ?? "（已删除）";
 }
 
 export function getComments(taskId: string): Comment[] {
@@ -89,15 +175,100 @@ export function hasTimeEntries(taskId: string): boolean {
   return taskId in state.timeEntriesByTask;
 }
 
-/** Index of a task in the ordered list, or -1. */
+/** Index of a task in the transitional `all` scope, or -1. */
 export function taskIndex(id: string): number {
-  return state.tasks.findIndex((task) => task.id === id);
+  return (state.scopes.all ?? []).indexOf(id);
+}
+
+// --- scope plumbing ----------------------------------------------------------
+
+function indexChild(draft: TasksState, parentId: string, childId: string): void {
+  const siblings = draft.childrenByParent[parentId] ?? [];
+  if (!siblings.includes(childId)) {
+    draft.childrenByParent[parentId] = [...siblings, childId];
+  }
+}
+
+function unindexChild(draft: TasksState, parentId: string, childId: string): void {
+  const siblings = draft.childrenByParent[parentId];
+  if (siblings) {
+    draft.childrenByParent[parentId] = siblings.filter((id) => id !== childId);
+  }
+}
+
+/** The row's parent changed (filed under another task, or promoted): move it. */
+function moveChildIndex(
+  draft: TasksState,
+  childId: string,
+  from: string | null,
+  to: string | null,
+): void {
+  if (from === to) return;
+  if (from !== null) unindexChild(draft, from, childId);
+  if (to !== null) indexChild(draft, to, childId);
+}
+
+/** Puts one row in the table and in its parent's child index. */
+function insertRow(draft: TasksState, task: Task): void {
+  draft.byId[task.id] = task;
+  if (task.parentTaskId !== null) indexChild(draft, task.parentTaskId, task.id);
+}
+
+/**
+ * Installs one scope page. `append` continues a paged scope (the cursor walks
+ * forward); otherwise the scope's id list is replaced by this page's rows.
+ *
+ * `children` never enters the render list: a child that both matched the
+ * predicate and rides under its parent would otherwise be listed twice.
+ */
+export function installPage(scope: string, page: TaskPage, append: boolean): void {
+  setState(
+    produce((draft: TasksState) => {
+      for (const task of page.rows) insertRow(draft, task);
+      for (const task of page.children) insertRow(draft, task);
+      for (const ref of page.related) draft.related[ref.id] = ref;
+      for (const entry of page.blocked) draft.blocked[entry.taskId] = entry.count;
+
+      const current = append ? (draft.scopes[scope] ?? []) : [];
+      const merged = [...current];
+      for (const task of page.rows) {
+        if (!merged.includes(task.id)) merged.push(task.id);
+      }
+      draft.scopes[scope] = merged;
+
+      draft.scopeMeta[scope] = {
+        loaded: true,
+        loading: false,
+        hasMore: page.hasMore,
+        cursor: page.cursor,
+        error: null,
+      };
+      if (scope === "all") draft.loaded = true;
+    }),
+  );
 }
 
 // --- mutators (data-layer plumbing; see module docs) -------------------------
 
+/** Transitional: the `task:list` snapshot fills the `all` scope. */
 export function setAll(tasks: Task[], tags: Tag[]): void {
-  setState({ tasks, tags, loaded: true });
+  setState(
+    produce((draft: TasksState) => {
+      draft.byId = {};
+      draft.childrenByParent = {};
+      for (const task of tasks) insertRow(draft, task);
+      draft.scopes.all = tasks.map((task) => task.id);
+      draft.tags = tags;
+      draft.loaded = true;
+      draft.scopeMeta.all = {
+        loaded: true,
+        loading: false,
+        hasMore: false,
+        cursor: null,
+        error: null,
+      };
+    }),
+  );
 }
 
 /** Replaces the whole edge set (the dependency load's own snapshot). */
@@ -128,13 +299,19 @@ export function removeDependencyEdge(edge: Dependency): void {
 
 export function upsertTask(task: Task): void {
   setState(
-    "tasks",
-    produce((list: Task[]) => {
-      const index = list.findIndex((item) => item.id === task.id);
-      if (index === -1) {
-        list.push(task);
-      } else {
-        list[index] = task;
+    produce((draft: TasksState) => {
+      const previous = draft.byId[task.id];
+      const isNew = previous === undefined;
+      if (previous && previous.parentTaskId !== task.parentTaskId) {
+        moveChildIndex(draft, task.id, previous.parentTaskId, task.parentTaskId);
+      }
+      insertRow(draft, task);
+      // Transitional: `all` feeds the views, so a brand-new row (the optimistic
+      // create) has to show up right away — even before any snapshot loaded,
+      // exactly as it did when the store held a plain array.
+      if (isNew) {
+        const ids = draft.scopes.all ?? [];
+        if (!ids.includes(task.id)) draft.scopes.all = [...ids, task.id];
       }
     }),
   );
@@ -142,47 +319,62 @@ export function upsertTask(task: Task): void {
 
 export function patchTask(id: string, patch: Partial<Task>): void {
   setState(
-    "tasks",
-    produce((list: Task[]) => {
-      const task = list.find((item) => item.id === id);
-      if (task) Object.assign(task, patch);
+    produce((draft: TasksState) => {
+      const task = draft.byId[id];
+      if (!task) return;
+      const previousParent = task.parentTaskId;
+      Object.assign(task, patch);
+      if ("parentTaskId" in patch) {
+        moveChildIndex(draft, id, previousParent, task.parentTaskId);
+      }
     }),
   );
 }
 
 export function removeTask(id: string): void {
-  setState("tasks", (list) => list.filter((task) => task.id !== id));
+  setState(
+    produce((draft: TasksState) => {
+      const parentId = draft.byId[id]?.parentTaskId ?? null;
+      delete draft.byId[id];
+      if (parentId !== null) unindexChild(draft, parentId, id);
+      for (const scope of Object.keys(draft.scopes)) {
+        draft.scopes[scope] = draft.scopes[scope].filter((item) => item !== id);
+      }
+    }),
+  );
 }
 
+/** Transitional: the soft-delete rollback puts a row back at its old index. */
 export function insertTaskAt(index: number, task: Task): void {
   setState(
-    "tasks",
-    produce((list: Task[]) => {
-      list.splice(Math.min(Math.max(index, 0), list.length), 0, task);
+    produce((draft: TasksState) => {
+      insertRow(draft, task);
+      const ids = draft.scopes.all ?? [];
+      ids.splice(Math.min(Math.max(index, 0), ids.length), 0, task.id);
+      draft.scopes.all = ids;
     }),
   );
 }
 
 /**
- * Installs the authoritative sibling run `task:reorder` returns: every row is
- * replaced and the run is re-spliced where its first row already sat.
- *
- * The whole returned list has to be taken, not a patch per row — a key
- * exhaustion rebalance rewrites every sibling's key. `topLevelTasks` hands out
- * the array's own order, so the drag has to land here and not only in the keys;
- * runs from other scopes keep their slots, since their keys were not rewritten.
+ * Installs the authoritative outcome of a reorder or board move: the moved row
+ * plus every key the backend rewrote (a key-exhaustion rebalance rewrites the
+ * whole scope). Order on screen comes from the client-side sort, so patching
+ * the keys is enough — the scope's id list stays as it is.
  */
-export function installTaskOrder(ordered: Task[]): void {
+export function applyReorder(moved: Task, rebalanced: TaskKey[]): void {
   setState(
-    "tasks",
-    produce((list: Task[]) => {
-      const ids = new Set(ordered.map((task) => task.id));
-      const at = list.findIndex((task) => ids.has(task.id));
-      const rest = list.filter((task) => !ids.has(task.id));
-      // A run of rows the store has never seen yet (the brief's empty-store
-      // case) has no first row to anchor to; it lands at the end, in order.
-      rest.splice(at === -1 ? rest.length : Math.min(at, rest.length), 0, ...ordered);
-      list.splice(0, list.length, ...rest);
+    produce((draft: TasksState) => {
+      const previous = draft.byId[moved.id];
+      if (previous && previous.parentTaskId !== moved.parentTaskId) {
+        moveChildIndex(draft, moved.id, previous.parentTaskId, moved.parentTaskId);
+      }
+      insertRow(draft, moved);
+      for (const row of rebalanced) {
+        if (row.id === moved.id) continue;
+        const task = draft.byId[row.id];
+        if (task) task.sortOrder = row.sortOrder;
+      }
     }),
   );
 }
@@ -275,12 +467,5 @@ export function removeTimeEntry(taskId: string, id: string): void {
 
 /** Resets the store to its pristine state (test seam). */
 export function resetTasksStore(): void {
-  setState({
-    tasks: [],
-    tags: [],
-    dependencies: [],
-    commentsByTask: {},
-    timeEntriesByTask: {},
-    loaded: false,
-  });
+  setState(emptyState());
 }

@@ -1,5 +1,5 @@
 import { Show, createMemo } from "solid-js";
-import { tasksState } from "../../store";
+import { tasks as allTasks, tasksState } from "../../store";
 import { viewInbox } from "../../view-filters";
 import { SORT_OPTIONS, TaskListView } from "../TaskListView";
 import { LoadErrorPane, LoadingPane } from "./ViewState";
@@ -7,7 +7,7 @@ import { useViewData } from "./useViewData";
 
 export function InboxView() {
   const { failed, retry } = useViewData();
-  const tasks = createMemo(() => viewInbox(tasksState.tasks));
+  const tasks = createMemo(() => viewInbox(allTasks()));
 
   return (
     <Show

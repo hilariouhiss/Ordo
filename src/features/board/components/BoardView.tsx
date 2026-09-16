@@ -3,7 +3,7 @@ import { CircleAlert } from "lucide-solid";
 import { Button, EmptyState } from "../../../common/components";
 import { TaskDetailDialog } from "../../tasks/components/TaskDetailDialog";
 import { completeTask, uncompleteTask } from "../../tasks/hooks";
-import { tasksState } from "../../tasks/store";
+import { tasks } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import { sortTasks } from "../../tasks/view-filters";
 import { laneOf, splitLanes } from "../lanes";
@@ -55,7 +55,7 @@ export function BoardView(props: { projectId: string }) {
   // inside its parent, which is where its progress shows.
   const tasksOf = (columnId: string) =>
     sortTasks(
-      tasksState.tasks.filter(
+      tasks().filter(
         (task) =>
           task.projectId === props.projectId &&
           task.parentTaskId === null &&

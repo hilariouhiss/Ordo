@@ -102,7 +102,7 @@ const TASK_ID = "task-1";
 /** Puts children under the task under test: one snapshot, one collection — a
  * child is a row in `tasks`, so there is no cache to seed. */
 function seedChildren(...children: Task[]): void {
-  store.setAll([...store.tasksState.tasks, ...children], []);
+  store.setAll([...store.tasks(), ...children], []);
 }
 
 function renderDetail(fixture: Task = taskFixture(TASK_ID)) {
@@ -356,11 +356,10 @@ describe("TaskDetailDialog", () => {
     );
     // The backend owns both the keys and the positions, so the hook installs
     // the run it returns instead of guessing the order optimistically.
-    vi.mocked(api.reorderTask).mockResolvedValue([
-      childFixture("s2", { sortOrder: "a" }),
-      childFixture("s1", { sortOrder: "b" }),
-      childFixture("s3", { sortOrder: "c" }),
-    ]);
+    vi.mocked(api.reorderTask).mockResolvedValue({
+      moved: childFixture("s2", { sortOrder: "a" }),
+      rebalanced: [{ id: "s1", sortOrder: "b" }],
+    });
 
     renderDetail();
 
@@ -377,11 +376,10 @@ describe("TaskDetailDialog", () => {
       childFixture("s2", { sortOrder: "b" }),
       childFixture("s3", { sortOrder: "c" }),
     );
-    vi.mocked(api.reorderTask).mockResolvedValue([
-      childFixture("s1", { sortOrder: "a" }),
-      childFixture("s3", { sortOrder: "b" }),
-      childFixture("s2", { sortOrder: "c" }),
-    ]);
+    vi.mocked(api.reorderTask).mockResolvedValue({
+      moved: childFixture("s2", { sortOrder: "c" }),
+      rebalanced: [{ id: "s3", sortOrder: "b" }],
+    });
 
     renderDetail();
 

@@ -1,6 +1,6 @@
 import { Show, createMemo, createSignal } from "solid-js";
 import { Select } from "../../../../common/components";
-import { tasksState } from "../../store";
+import { tasks as allTasks, tasksState } from "../../store";
 import { viewUpcoming } from "../../view-filters";
 import { SORT_OPTIONS, TaskListView } from "../TaskListView";
 import { LoadErrorPane, LoadingPane } from "./ViewState";
@@ -15,7 +15,7 @@ export function UpcomingView() {
   const { failed, retry } = useViewData();
   const [now] = createSignal(new Date());
   const [days, setDays] = createSignal(7);
-  const tasks = createMemo(() => viewUpcoming(tasksState.tasks, days(), now()));
+  const tasks = createMemo(() => viewUpcoming(allTasks(), days(), now()));
 
   const selectedRange = () =>
     RANGE_OPTIONS.find((option) => option.value === String(days())) ?? RANGE_OPTIONS[0];

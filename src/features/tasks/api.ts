@@ -6,6 +6,7 @@
 
 import { COMMANDS, invokeCommand } from "../../common/ipc";
 import type {
+  Reorder,
   Comment,
   Dependency,
   NewComment,
@@ -52,7 +53,7 @@ export function reorderTask(
   taskId: string,
   prev: string | null,
   next: string | null,
-): Promise<Task[]> {
+): Promise<Reorder> {
   return invokeCommand(COMMANDS.task.reorder, { taskId, prev, next });
 }
 

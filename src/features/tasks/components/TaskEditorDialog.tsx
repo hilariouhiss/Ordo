@@ -22,7 +22,7 @@ import {
 import { PRIORITY_OPTIONS } from "../priority";
 import { REPEAT_FREQ_OPTIONS, REPEAT_FREQ_UNITS } from "../repeat";
 import { canAcceptChild } from "../hierarchy";
-import { getTag, getTask, hasChildren, tasksState } from "../store";
+import { getTag, getTask, hasChildren, tasks, tasksState } from "../store";
 import type { Priority, RepeatFreq, RepeatRule, Task } from "../types";
 import { TagManagerDialog } from "./TagManagerDialog";
 
@@ -113,7 +113,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
     const editing = props.task;
     return [
       NO_PARENT,
-      ...tasksState.tasks
+      ...tasks()
         .filter(
           (item) =>
             item.parentTaskId === null &&

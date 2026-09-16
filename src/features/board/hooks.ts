@@ -135,9 +135,9 @@ function applyMove(
     () => tasksStore.patchTask(taskId, optimisticPatch),
     () => tasksStore.patchTask(taskId, before),
     async () => {
-      const saved = await api.moveTask(taskId, columnId, prev, next);
-      tasksStore.patchTask(taskId, saved);
-      return saved;
+      const result = await api.moveTask(taskId, columnId, prev, next);
+      tasksStore.applyReorder(result.moved, result.rebalanced);
+      return result.moved;
     },
   );
 }

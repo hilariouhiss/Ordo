@@ -4,7 +4,7 @@ import { z } from "zod";
 import { Button, Dialog, TextField } from "../../../common/components";
 import { randomColor } from "../../../common/colors";
 import { createTag, deleteTag, updateTag } from "../hooks";
-import { tasksState } from "../store";
+import { tasks, tasksState } from "../store";
 import type { Tag } from "../types";
 
 /**
@@ -104,7 +104,7 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
   const [deletingId, setDeletingId] = createSignal<string | null>(null);
 
   const usageCount = (tagId: string): number =>
-    tasksState.tasks.filter((task) => task.tagIds.includes(tagId)).length;
+    tasks().filter((task) => task.tagIds.includes(tagId)).length;
 
   function startEdit(tag: Tag): void {
     setEditingId(tag.id);

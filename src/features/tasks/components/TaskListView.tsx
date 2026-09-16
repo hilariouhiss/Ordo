@@ -3,7 +3,7 @@ import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid"
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
 import { completeTask, softDeleteTask, uncompleteTask, updateTask } from "../hooks";
 import { blockersOf, buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
-import { getTask, tasksState } from "../store";
+import { getTask, parentTitleOf, tasks, tasksState } from "../store";
 import type { Priority, Task } from "../types";
 import { applyFilter, sortTasks, type SortMode } from "../view-filters";
 import { SubtaskRow } from "./SubtaskRow";
@@ -171,13 +171,12 @@ export function TaskListView(props: TaskListViewProps) {
   // per pass, here, and each row is then answered from them: the per-row cost is
   // that row's own prerequisite count, not the size of the graph.
   const rows = createMemo<ListRow[]>(() => {
-    const live = liveSet(tasksState.tasks);
+    const live = liveSet(tasks());
     const index = buildIndex(tasksState.dependencies, live);
-    const done = completionSet(tasksState.tasks);
+    const done = completionSet(tasks());
     // One pass for the children and one lookup table: both are per-render-pass
     // derivations, like the dependency index above.
-    const childrenByParent = groupChildren(tasksState.tasks);
-    const byId = new Map(tasksState.tasks.map((task) => [task.id, task]));
+    const childrenByParent = groupChildren(tasks());
     const matched = visible();
     const blockedOf = (task: Task) =>
       task.completedAt === null && isBlocked(index, done, task.id);
@@ -189,7 +188,7 @@ export function TaskListView(props: TaskListViewProps) {
           kind: "child",
           task,
           blocked: blockedOf(task),
-          parentTitle: byId.get(task.parentTaskId)?.title ?? "（已删除）",
+          parentTitle: parentTitleOf(task.id),
         });
         continue;
       }

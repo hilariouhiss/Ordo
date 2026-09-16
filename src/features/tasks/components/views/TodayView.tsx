@@ -1,5 +1,5 @@
 import { Show, createMemo, createSignal } from "solid-js";
-import { tasksState } from "../../store";
+import { tasks as allTasks, tasksState } from "../../store";
 import { viewToday } from "../../view-filters";
 import { SORT_OPTIONS, TaskListView } from "../TaskListView";
 import { LoadErrorPane, LoadingPane } from "./ViewState";
@@ -10,7 +10,7 @@ export function TodayView() {
   // Fixed at mount: crossing midnight mid-session refreshes on the next
   // store change rather than silently reordering rows.
   const [now] = createSignal(new Date());
-  const tasks = createMemo(() => viewToday(tasksState.tasks, now()));
+  const tasks = createMemo(() => viewToday(allTasks(), now()));
 
   return (
     <Show

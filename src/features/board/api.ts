@@ -5,7 +5,7 @@
  */
 
 import { COMMANDS, invokeCommand } from "../../common/ipc";
-import type { Task } from "../tasks/types";
+import type { Reorder } from "../tasks/types";
 import type { BoardColumn } from "./types";
 
 export function listBoardColumns(projectId: string): Promise<BoardColumn[]> {
@@ -19,6 +19,6 @@ export function moveTask(
   columnId: string,
   prev: string | null,
   next: string | null,
-): Promise<Task> {
+): Promise<Reorder> {
   return invokeCommand(COMMANDS.board.moveTask, { taskId, columnId, prev, next });
 }

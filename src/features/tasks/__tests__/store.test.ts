@@ -42,7 +42,7 @@ describe("tasks store", () => {
 
   it("starts unloaded and empty", () => {
     expect(store.tasksState.loaded).toBe(false);
-    expect(store.tasksState.tasks).toEqual([]);
+    expect(store.tasks()).toEqual([]);
     expect(store.tasksState.tags).toEqual([]);
   });
 
@@ -60,7 +60,7 @@ describe("tasks store", () => {
     store.upsertTask(task("c"));
     store.upsertTask(task("a", { title: "改名" }));
 
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    expect(store.tasks().map((item) => item.id)).toEqual(["a", "b", "c"]);
     expect(store.getTask("a")?.title).toBe("改名");
   });
 
@@ -80,28 +80,139 @@ describe("tasks store", () => {
     const snapshot = task("b");
 
     store.removeTask("b");
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "c"]);
+    expect(store.tasks().map((item) => item.id)).toEqual(["a", "c"]);
 
     store.insertTaskAt(1, snapshot);
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    expect(store.tasks().map((item) => item.id)).toEqual(["a", "b", "c"]);
 
     // Out-of-range indices are clamped, not fatal.
     store.insertTaskAt(99, task("z"));
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "b", "c", "z"]);
+    expect(store.tasks().map((item) => item.id)).toEqual(["a", "b", "c", "z"]);
   });
 
-  it("installTaskOrder installs the whole run where its first row sat", () => {
-    store.setAll(
-      [task("other"), task("t1", { sortOrder: "m" }), task("t2", { sortOrder: "n" })],
-      [],
-    );
+  it("applyReorder patches the moved row and the keys the backend rewrote", () => {
+    store.setAll([task("t1", { sortOrder: "n" }), task("t2", { sortOrder: "o" })], []);
 
-    store.installTaskOrder([task("t2", { sortOrder: "a" }), task("t1", { sortOrder: "b" })]);
+    store.applyReorder(task("t2", { sortOrder: "a" }), [{ id: "t1", sortOrder: "b" }]);
 
-    // The rows move, not only their keys: a rebalance rewrote both.
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["other", "t2", "t1"]);
-    expect(store.getTask("t1")?.sortOrder).toBe("b");
     expect(store.getTask("t2")?.sortOrder).toBe("a");
+    expect(store.getTask("t1")?.sortOrder).toBe("b");
+    // `tasks()` sorts by key, so the patched keys alone put t2 first — the
+    // scope's id list never has to be re-spliced.
+    expect(store.tasks().map((item) => item.id)).toEqual(["t2", "t1"]);
+  });
+
+  describe("范围与规范表", () => {
+    it("installPage 把行放进 byId，并按 id 去重范围列表", () => {
+      store.installPage(
+        "view:today",
+        {
+          rows: [task("t1", { title: "父标题" }), task("t2")],
+          children: [task("c1", { parentTaskId: "t1" })],
+          related: [{ id: "p9", title: "范围外的父" }],
+          blocked: [{ taskId: "t1", count: 2 }],
+          hasMore: true,
+          cursor: "cur-1",
+        },
+        false,
+      );
+
+      expect(store.tasksState.scopes["view:today"]).toEqual(["t1", "t2"]);
+      expect(store.getTask("c1")?.parentTaskId).toBe("t1");
+      expect(store.tasksState.childrenByParent.t1).toEqual(["c1"]);
+      expect(store.parentTitleOf("c1")).toBe("父标题");
+      expect(store.blockedCountOf("t1")).toBe(2);
+      expect(store.tasksState.scopeMeta["view:today"]).toMatchObject({
+        loaded: true,
+        hasMore: true,
+        cursor: "cur-1",
+        error: null,
+      });
+
+      // 追加一页：id 去重，游标推进。
+      store.installPage(
+        "view:today",
+        {
+          rows: [task("t2"), task("t3")],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        true,
+      );
+      expect(store.tasksState.scopes["view:today"]).toEqual(["t1", "t2", "t3"]);
+      expect(store.tasksState.scopeMeta["view:today"]).toMatchObject({
+        hasMore: false,
+        cursor: null,
+      });
+    });
+
+    it("同一行只存一份：范围只持 id", () => {
+      store.setAll([task("t1", { title: "旧标题" })], []);
+      store.installPage(
+        "project:p1",
+        {
+          rows: [task("t1", { title: "新标题" })],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      expect(store.getTask("t1")?.title).toBe("新标题");
+      expect(store.tasks()[0]?.title).toBe("新标题");
+    });
+
+    it("childrenOf 按 sortOrder 排序，且知道父在范围外时的标题", () => {
+      store.installPage(
+        "view:today",
+        {
+          rows: [task("c1", { parentTaskId: "p9", sortOrder: "o" })],
+          children: [task("c2", { parentTaskId: "p9", sortOrder: "n" })],
+          related: [{ id: "p9", title: "范围外的父" }],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      expect(store.childrenOf("p9").map((row) => row.id)).toEqual(["c2", "c1"]);
+      expect(store.parentTitleOf("c1")).toBe("范围外的父");
+      expect(store.parentTitleOf("t-missing")).toBe("（已删除）");
+    });
+
+    it("removeTask 把它从每个范围与子行索引里摘掉", () => {
+      store.setAll([task("t1"), task("c1", { parentTaskId: "t1" })], []);
+      store.installPage(
+        "view:today",
+        {
+          rows: [task("t1")],
+          children: [],
+          related: [],
+          blocked: [],
+          hasMore: false,
+          cursor: null,
+        },
+        false,
+      );
+
+      store.removeTask("t1");
+
+      expect(store.getTask("t1")).toBeUndefined();
+      // Gone from every scope; its child is a row of its own and stays.
+      expect(store.tasks().map((row) => row.id)).toEqual(["c1"]);
+      expect(store.tasksState.scopes["view:today"]).toEqual([]);
+
+      // Removing the child clears it out of its parent's child index too.
+      store.removeTask("c1");
+      expect(store.childrenOf("t1")).toEqual([]);
+    });
   });
 
   it("tag mutators keep the list in sync", () => {
@@ -160,7 +271,7 @@ describe("tasks store", () => {
     store.resetTasksStore();
 
     expect(store.tasksState.loaded).toBe(false);
-    expect(store.tasksState.tasks).toEqual([]);
+    expect(store.tasks()).toEqual([]);
     expect(store.tasksState.tags).toEqual([]);
   });
 });

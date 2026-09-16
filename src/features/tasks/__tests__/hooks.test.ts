@@ -119,7 +119,7 @@ describe("loadAll", () => {
     const ok = await hooks.loadAll();
 
     expect(ok).toBe(true);
-    expect(store.tasksState.tasks).toHaveLength(2);
+    expect(store.tasks()).toHaveLength(2);
     expect(store.tasksState.tags).toHaveLength(1);
     expect(store.tasksState.loaded).toBe(true);
   });
@@ -172,7 +172,9 @@ describe("reloadTasks", () => {
     const ok = await hooks.reloadTasks();
 
     expect(ok).toBe(true);
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "new", "child"]);
+    // `tasks()` is key-ordered (these rows share a key, so it falls back to
+    // created-at), not insertion-ordered.
+    expect(store.tasks().map((item) => item.id)).toEqual(["a", "child", "new"]);
     expect(store.tasksState.tags).toHaveLength(1);
     // The refresh carries the tree with it, so a child written elsewhere is
     // visible without a second load.
@@ -201,7 +203,7 @@ describe("createTask", () => {
     vi.mocked(api.createTask).mockReturnValue(pending.promise);
 
     const call = hooks.createTask({ title: "  新任务  ", tagIds: ["t1"] });
-    const optimistic = store.tasksState.tasks.find((item) => item.title === "新任务");
+    const optimistic = store.tasks().find((item) => item.title === "新任务");
     expect(optimistic).toBeTruthy();
     expect(optimistic?.id.startsWith("optimistic-")).toBe(true);
     expect(optimistic?.tagIds).toEqual(["t1"]);
@@ -211,7 +213,7 @@ describe("createTask", () => {
     const result = await call;
 
     expect(result).toEqual(authoritative);
-    expect(store.tasksState.tasks.some((item) => item.id.startsWith("optimistic-"))).toBe(
+    expect(store.tasks().some((item) => item.id.startsWith("optimistic-"))).toBe(
       false,
     );
     expect(store.getTask("real-1")?.title).toBe("新任务");
@@ -226,7 +228,7 @@ describe("createTask", () => {
     const result = await hooks.createTask({ title: "  " });
 
     expect(result).toBeNull();
-    expect(store.tasksState.tasks).toEqual([]);
+    expect(store.tasks()).toEqual([]);
     expect(notifications()[0]).toMatchObject({ message: "标题不能为空", code: "validation" });
   });
 
@@ -370,7 +372,7 @@ describe("softDeleteTask / restoreTask", () => {
     const result = await hooks.softDeleteTask("a");
 
     expect(result).toBe(true);
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["b"]);
+    expect(store.tasks().map((item) => item.id)).toEqual(["b"]);
   });
 
   it("re-inserts at the original position on failure", async () => {
@@ -380,7 +382,7 @@ describe("softDeleteTask / restoreTask", () => {
     const result = await hooks.softDeleteTask("b");
 
     expect(result).toBeNull();
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    expect(store.tasks().map((item) => item.id)).toEqual(["a", "b", "c"]);
   });
 
   it("restores a deleted task with the authoritative row", async () => {
@@ -400,7 +402,7 @@ describe("softDeleteTask / restoreTask", () => {
     const restored = await hooks.restoreTask("missing");
 
     expect(restored).toBeNull();
-    expect(store.tasksState.tasks).toEqual([]);
+    expect(store.tasks()).toEqual([]);
     expect(notifications()[0]?.message).toBe("任务不存在");
   });
 });
@@ -435,10 +437,10 @@ describe("层级", () => {
     const result = await hooks.softDeleteTask("p1");
 
     expect(result).toBeNull();
-    // `state.tasks` is the manual order (`sortOrder` as `task:list` returned
-    // it), so the rollback restores it row for row: appending the children
-    // would reshuffle the list on a delete that never happened.
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["c1", "x1", "p1"]);
+    // Every row comes back with the key it had. `tasks()` is key-ordered, so
+    // the rollback only has to restore rows and keys — not positions.
+    expect(store.tasks().map((item) => item.id)).toEqual(["c1", "p1", "x1"]);
+    expect(store.getTask("x1")?.sortOrder).toBe(store.getTask("p1")?.sortOrder);
   });
 
   it("restoring a parent re-reads the list so its children come back too", async () => {
@@ -461,28 +463,36 @@ describe("层级", () => {
 });
 
 describe("reorderTask", () => {
-  it("posts the neighbour keys and returns the authoritative siblings", async () => {
-    const ordered = [task("t2"), task("t1")];
-    vi.mocked(api.reorderTask).mockResolvedValue(ordered);
+  it("posts the neighbour keys and installs the keys the backend rewrote", async () => {
+    store.setAll([task("t1", { sortOrder: "n" }), task("t2", { sortOrder: "o" })], []);
+    vi.mocked(api.reorderTask).mockResolvedValue({
+      moved: task("t1", { sortOrder: "m" }),
+      rebalanced: [{ id: "t2", sortOrder: "a" }],
+    });
 
     const result = await hooks.reorderTask("t1", null, "m");
 
     expect(api.reorderTask).toHaveBeenCalledWith("t1", null, "m");
-    expect(result?.map((item) => item.id)).toEqual(["t2", "t1"]);
-    expect(store.tasksState.tasks.map((item) => item.id)).toEqual(["t2", "t1"]);
+    expect(result?.id).toBe("t1");
+    expect(result?.sortOrder).toBe("m");
+    expect(store.getTask("t1")?.sortOrder).toBe("m");
+    expect(store.getTask("t2")?.sortOrder).toBe("a");
+    // Keys are the order: t1 now sorts before t2, with no re-splicing of the
+    // scope's id list involved.
+    expect(store.tasks().map((item) => item.id)).toEqual(["t2", "t1"]);
   });
 
-  it("hands the new order to the derivation a view reads, not just the keys", async () => {
+  it("hands the rewritten keys to the derivation a view reads", async () => {
     store.setAll([task("t1", { sortOrder: "m" }), task("t2", { sortOrder: "n" })], []);
-    vi.mocked(api.reorderTask).mockResolvedValue([
-      task("t2", { sortOrder: "a" }),
-      task("t1", { sortOrder: "b" }),
-    ]);
+    vi.mocked(api.reorderTask).mockResolvedValue({
+      moved: task("t1", { sortOrder: "b" }),
+      rebalanced: [{ id: "t2", sortOrder: "a" }],
+    });
 
     await hooks.reorderTask("t1", null, "m");
 
-    // `topLevelTasks` keeps the store's own order, so replacing the rows in
-    // place would leave the pre-drag order on screen until the next load.
+    // `tasks()` sorts by key, so patching the two keys is enough for every
+    // reader — no re-splicing of the scope list involved.
     expect(store.topLevelTasks().map((item) => item.id)).toEqual(["t2", "t1"]);
   });
 });

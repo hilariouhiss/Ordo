@@ -49,7 +49,7 @@ import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
 import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
 import { loadAll as loadTasks, reloadTasks, updateTask } from "../features/tasks/hooks";
-import { getTask, tasksState } from "../features/tasks/store";
+import { getTask, tasks, tasksState } from "../features/tasks/store";
 import { isCompleted } from "../features/tasks/view-filters";
 
 type NavPath =
@@ -290,7 +290,7 @@ function ProjectItem(props: {
 }) {
   const [open, setOpen] = createSignal(false);
   const unfinished = createMemo(() =>
-    tasksState.tasks.filter(
+    tasks().filter(
       (task) =>
         task.projectId === props.project.id &&
         task.parentTaskId === null &&

@@ -220,8 +220,8 @@ export function parkIfBlocked(
   title: string,
   run: () => Promise<unknown>,
 ): boolean {
-  const index = buildIndex(store.tasksState.dependencies, liveSet(store.tasksState.tasks));
-  const done = completionSet(store.tasksState.tasks);
+  const index = buildIndex(store.tasksState.dependencies, liveSet(store.tasks()));
+  const done = completionSet(store.tasks());
   const blockers = blockersOf(index, done, id);
   if (blockers.length === 0) return false;
   requestBlockedConfirm({
@@ -330,16 +330,16 @@ export function reorderTask(
   taskId: string,
   prev: string | null,
   next: string | null,
-): Promise<Task[] | null> {
+): Promise<Task | null> {
   return optimistic(
     () => {},
     () => {},
     async () => {
-      const ordered = await api.reorderTask(taskId, prev, next);
-      // Installed as one run: the backend owns both the keys and the positions,
-      // so pasting rows one by one would leave the pre-drag order on screen.
-      store.installTaskOrder(ordered);
-      return ordered;
+      const result = await api.reorderTask(taskId, prev, next);
+      // The backend owns both the keys and the order it rewrote; screen order
+      // comes from the client-side sort, so patching the keys is enough.
+      store.applyReorder(result.moved, result.rebalanced);
+      return result.moved;
     },
   );
 }
@@ -398,7 +398,7 @@ export function deleteTag(tagId: string): Promise<boolean | null> {
   if (!current) return Promise.resolve(missingEntity("标签"));
   const snapshot: Tag = { ...current };
   const index = store.tasksState.tags.findIndex((tag) => tag.id === tagId);
-  const affected: Array<{ taskId: string; tagIds: string[] }> = store.tasksState.tasks
+  const affected: Array<{ taskId: string; tagIds: string[] }> = store.tasks()
     .filter((task) => task.tagIds.includes(tagId))
     .map((task) => ({ taskId: task.id, tagIds: [...task.tagIds] }));
 

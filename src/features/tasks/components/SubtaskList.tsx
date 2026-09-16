@@ -9,7 +9,7 @@ import {
   uncompleteTask,
   updateTask,
 } from "../hooks";
-import { childrenOf, tasksState } from "../store";
+import { childrenOf, tasks, tasksState } from "../store";
 import type { Task } from "../types";
 import { buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
 import { formatDueLabel, isOverdue } from "../view-filters";
@@ -48,8 +48,8 @@ export function SubtaskList(props: SubtaskListProps) {
   // per render pass, then a per-row question. A child whose prerequisite is
   // unfinished wears the compact 阻塞中 badge — its prerequisites are ordinary
   // dependency edges now, managed in the child's own detail.
-  const index = createMemo(() => buildIndex(tasksState.dependencies, liveSet(tasksState.tasks)));
-  const done = createMemo(() => completionSet(tasksState.tasks));
+  const index = createMemo(() => buildIndex(tasksState.dependencies, liveSet(tasks())));
+  const done = createMemo(() => completionSet(tasks()));
   const blocked = (child: Task) =>
     child.completedAt === null && isBlocked(index(), done(), child.id);
 

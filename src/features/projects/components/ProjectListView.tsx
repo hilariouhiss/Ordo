@@ -3,7 +3,7 @@ import { Dynamic } from "solid-js/web";
 import { Archive, Pencil, RotateCcw } from "lucide-solid";
 import { Button, Tabs } from "../../../common/components";
 import { getIcon } from "../../../common/icons";
-import { tasksState } from "../../tasks/store";
+import { tasks as allTasks } from "../../tasks/store";
 import { SORT_OPTIONS, TaskListView } from "../../tasks/components/TaskListView";
 import { BoardView } from "../../board/components/BoardView";
 import { archiveProject, restoreProject } from "../hooks";
@@ -25,7 +25,7 @@ export function ProjectListView(props: { project: Project }) {
   // editor) update the header immediately; fall back to the opening snapshot.
   const project = createMemo(() => getProject(props.project.id) ?? props.project);
   const tasks = createMemo(() =>
-    tasksState.tasks.filter((task) => task.projectId === project().id),
+    allTasks().filter((task) => task.projectId === project().id),
   );
 
   const [editorOpen, setEditorOpen] = createSignal(false);

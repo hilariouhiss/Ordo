@@ -90,16 +90,20 @@ describe("moveTaskToColumn", () => {
   it("stamps completed_at entering a done column and clears it leaving", async () => {
     store.setColumns("proj-1", [column("todo"), column("done", { isDone: true, position: "o" })]);
     tasksStore.setAll([task("t1")], []);
-    vi.mocked(api.moveTask).mockResolvedValue(
-      task("t1", { columnId: "done", completedAt: "2026-09-09T12:00:00Z" }),
-    );
+    vi.mocked(api.moveTask).mockResolvedValue({
+      moved: task("t1", { columnId: "done", completedAt: "2026-09-09T12:00:00Z" }),
+      rebalanced: [],
+    });
 
     const moved = await hooks.moveTaskToColumn("t1", "done", null, null);
 
     expect(moved?.completedAt).not.toBeNull();
     expect(tasksStore.getTask("t1")?.columnId).toBe("done");
 
-    vi.mocked(api.moveTask).mockResolvedValue(task("t1", { columnId: "todo" }));
+    vi.mocked(api.moveTask).mockResolvedValue({
+      moved: task("t1", { columnId: "todo" }),
+      rebalanced: [],
+    });
     const back = await hooks.moveTaskToColumn("t1", "todo", null, null);
 
     expect(back?.completedAt).toBeNull();
@@ -112,9 +116,14 @@ describe("moveTaskToColumn", () => {
       [task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z" })],
       [],
     );
-    vi.mocked(api.moveTask).mockResolvedValue(
-      task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z", sortOrder: "o" }),
-    );
+    vi.mocked(api.moveTask).mockResolvedValue({
+      moved: task("t1", {
+        columnId: "done",
+        completedAt: "2026-09-01T08:00:00Z",
+        sortOrder: "o",
+      }),
+      rebalanced: [],
+    });
 
     await hooks.moveTaskToColumn("t1", "done", null, null);
 
@@ -134,7 +143,10 @@ describe("moveTaskToColumn", () => {
     let seenOptimisticOrder: string[] | null = null;
     vi.mocked(api.moveTask).mockImplementation(() => {
       seenOptimisticOrder = [tasksStore.getTask("mover")!.sortOrder];
-      return Promise.resolve(task("mover", { columnId: "c1", sortOrder: "no" }));
+      return Promise.resolve({
+        moved: task("mover", { columnId: "c1", sortOrder: "no" }),
+        rebalanced: [],
+      });
     });
 
     // Drop between a and b: the optimistic key must sort after "n" and before "o".
@@ -191,9 +203,10 @@ describe("moveTaskToColumn 的软阻塞", () => {
 
   it("拖进完成列先停请求，确认后完整重放一次移动", async () => {
     seedBlockedMove();
-    vi.mocked(api.moveTask).mockResolvedValue(
-      task("t1", { columnId: "done", completedAt: "2026-09-09T12:00:00Z" }),
-    );
+    vi.mocked(api.moveTask).mockResolvedValue({
+      moved: task("t1", { columnId: "done", completedAt: "2026-09-09T12:00:00Z" }),
+      rebalanced: [],
+    });
 
     const moved = await hooks.moveTaskToColumn("t1", "done", "n", "o");
 
@@ -218,7 +231,10 @@ describe("moveTaskToColumn 的软阻塞", () => {
 
   it("拖进非完成列不检查前置，直接移动", async () => {
     seedBlockedMove();
-    vi.mocked(api.moveTask).mockResolvedValue(task("t1", { columnId: "todo" }));
+    vi.mocked(api.moveTask).mockResolvedValue({
+      moved: task("t1", { columnId: "todo" }),
+      rebalanced: [],
+    });
 
     const moved = await hooks.moveTaskToColumn("t1", "todo", null, null);
 
@@ -236,9 +252,14 @@ describe("moveTaskToColumn 的软阻塞", () => {
       [],
     );
     tasksStore.setDependencies([{ dependentId: "t1", prerequisiteId: "prereq" }]);
-    vi.mocked(api.moveTask).mockResolvedValue(
-      task("t1", { columnId: "done", completedAt: "2026-09-01T08:00:00Z", sortOrder: "o" }),
-    );
+    vi.mocked(api.moveTask).mockResolvedValue({
+      moved: task("t1", {
+        columnId: "done",
+        completedAt: "2026-09-01T08:00:00Z",
+        sortOrder: "o",
+      }),
+      rebalanced: [],
+    });
 
     const moved = await hooks.moveTaskToColumn("t1", "done", null, null);
 

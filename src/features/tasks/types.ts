@@ -154,3 +154,45 @@ export interface Dependency {
   dependentId: string;
   prerequisiteId: string;
 }
+
+// --- scope pages (lazy loading) ----------------------------------------------
+
+/** A row reference: supplies the title for a standalone child's 父任务 prefix. */
+export interface TaskRef {
+  id: string;
+  title: string;
+}
+
+/** How many of a row's prerequisites are still unfinished (server-computed). */
+export interface TaskBlocked {
+  taskId: string;
+  count: number;
+}
+
+/** One rewritten sort key — a key-exhaustion rebalance rewrites the scope. */
+export interface TaskKey {
+  id: string;
+  sortOrder: string;
+}
+
+/** What `task:reorder` / `board:moveTask` answer with. */
+export interface Reorder {
+  moved: Task;
+  rebalanced: TaskKey[];
+}
+
+/**
+ * One scope query's payload. `children` carries **every** child of the
+ * top-level rows in `rows` (children ignore the view predicate and the toolbar
+ * filters), `related` fills in parent titles for children whose parent is not
+ * in the page, and `blocked` answers the soft-blocking badge without shipping
+ * the dependency graph.
+ */
+export interface TaskPage {
+  rows: Task[];
+  children: Task[];
+  related: TaskRef[];
+  blocked: TaskBlocked[];
+  hasMore: boolean;
+  cursor: string | null;
+}

@@ -4,7 +4,7 @@ import { Link } from "@tanstack/solid-router";
 import { Archive, FolderKanban, MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, iconButtonClass } from "../../../common/components";
 import { getIcon } from "../../../common/icons";
-import { tasksState } from "../../tasks/store";
+import { tasks as allTasks } from "../../tasks/store";
 import { ProjectEditorDialog } from "../../projects/components/ProjectEditorDialog";
 import { ProjectProgress } from "../../projects/components/ProjectProgress";
 import { archiveProject, updateProject } from "../../projects/hooks";
@@ -32,11 +32,11 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
   /** Tasks across every project in the group — the aggregate progress input. */
   const tasks = createMemo(() => {
     const ids = new Set(projects().map((project) => project.id));
-    return tasksState.tasks.filter((task) => task.projectId !== null && ids.has(task.projectId));
+    return allTasks().filter((task) => task.projectId !== null && ids.has(task.projectId));
   });
 
   const tasksOf = (projectId: string) =>
-    tasksState.tasks.filter((task) => task.projectId === projectId);
+    allTasks().filter((task) => task.projectId === projectId);
 
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<Project | null>(null);
