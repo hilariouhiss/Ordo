@@ -2,7 +2,9 @@
 
 ## What this is
 
-`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The full stack is wired up and compiles; all M0 infrastructure F-01–F-08 is implemented (design tokens/theme, routed app shell, component library, typed IPC layer, the V2 SQLite schema with FTS5, domain models/enums, IPC error serialization, and lexicographic sort-key utilities), but business logic is not implemented yet. The only custom command is a demo `greet` that echoes a name back from Rust.
+`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 42 commands (`src-tauri/src/commands.rs`); schema is at migration V9.
+
+Outstanding verification work (performance targets, three-platform checks) is listed in `docs/DECISIONS.md`§4.
 
 ## Stack / layout
 
@@ -26,20 +28,22 @@
 
 ## Documentation
 
-Product and design documents live in `docs/`. Read them before working on the relevant area:
+`docs/` holds one descriptive document set in five parts — it describes what the code **is**, with no plans, milestone tables, or change logs. Read the part that matches the area:
 
-- **`docs/PRD.md`** — product requirements: feature scope, priorities, milestones, and non-functional targets (performance, size, UX). Read before implementing any feature or changing behavior.
-- **`docs/ARCHITECTURE.md`** — application architecture: directory structure, module boundaries, layered data flow, database model, and key design decisions. Read before changing structure, module boundaries, or data model.
-- **`docs/IMPLEMENTATION_PLAN.md`** — task breakdown and implementation plan (M0–M7 milestones with per-task acceptance criteria). Development follows this plan; scope or sequence changes update it in the same commit.
+- **`docs/README.md`** — orientation: what Ordo is, the glossary, and which part to read next.
+- **`docs/PRODUCT.md`** — user-visible behavior: tasks and the single-level child-task rules, the four views, projects and the board, namespaces, reminders, dependencies and soft blocking, time tracking, search, statistics, desktop capabilities, and the non-functional targets. Read before implementing a feature or changing behavior.
+- **`docs/ARCHITECTURE.md`** — structure: layering and module boundaries, the full directory layout, state management and the optimistic data flow, routes, the design system, the command and event surface, build/capability conventions, and the gotcha list. Read before changing structure, module boundaries, or the command surface.
+- **`docs/DATA.md`** — tables and fields, the V1–V9 migration history, indexes and asserted query plans, the backup document format, and the stats definitions. Read before touching the data model, adding a migration, or changing an aggregate query.
+- **`docs/DECISIONS.md`** — ADRs and the **ID index**: source comments refer to work by ID (`R7c`, `V7`, `D-02`, `ST-01`, `BV-03`…), so look the ID up here. §4 lists the outstanding gaps.
 
-**Rule: keep docs in sync with code.** Every change to behavior, scope, data model, or a non-functional target must update the corresponding document in `docs/` in the same commit. Structure/module-boundary changes update `ARCHITECTURE.md`; feature/scope changes update `PRD.md`. If a change introduces a new area that lacks a doc, add one.
+**Rule: keep docs in sync with code.** Behavior changes update `PRODUCT.md`; a structure, module-boundary, command-surface, or design-system change updates `ARCHITECTURE.md`; a data-model, migration, backup-format, or stats-definition change updates `DATA.md`; a new decision or ID updates `DECISIONS.md` — each in the same commit as the code. Doc claims must be checkable against the code: if the two disagree, the code wins and the doc gets fixed. Don't add planning or historical documents; outstanding work belongs in `DECISIONS.md`§4.
 
 ## Backend architecture & conventions
 
 - **Layer rules:** Tauri commands (`commands.rs`) are thin wrappers over services (`services.rs`); services hold business logic and orchestrate repositories (`repositories.rs`); repositories are the *only* layer that writes SQL. Models (`models.rs`) define serde-serializable types. `db.rs` owns connection + migration setup.
 - **Migrations:** add a new `src-tauri/migrations/V<N>__<name>.sql` file (increasing `N`) and it is embedded at compile time via `refinery::embed_migrations!` in `db.rs`. Never edit an already-applied migration — add a new one.
 - **Data conventions:** primary keys are TEXT UUID v4 (`uuid` crate); timestamps ISO-8601 UTC (`chrono`); soft-delete with a nullable `deleted_at` column instead of hard `DELETE`.
-- The SQLite connection is shared as Tauri managed state (`db::Db = Mutex<Connection>`). Commands access it via `State<'_, Db>`.
+- The SQLite connection is shared as Tauri managed state (`db::Db = Arc<Mutex<Connection>>`; the `Arc` is what lets the reminder thread share it with the command handlers). Commands access it via `State<'_, Db>`, and every database access in the process serializes on that one mutex.
 - Errors: return `AppError` (`src-tauri/src/error.rs`) through the layers; it implements `From` for `rusqlite::Error` and `refinery::Error`.
 
 ## Important gotchas
