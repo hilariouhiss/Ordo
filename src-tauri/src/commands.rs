@@ -16,7 +16,7 @@ use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
     BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment, NewNamespace,
-    NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, SearchHit, Tag,
+    NewProject, NewTag, NewTask, NewTimeEntry, Project, ProjectProgress, Reorder, SearchHit, Tag,
     TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery,
     UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
@@ -90,9 +90,9 @@ pub fn task_reorder(
     task_id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Vec<TaskWithTags>, AppError> {
+) -> Result<Reorder, AppError> {
     with_conn(&db, |conn| {
-        services::tasks_with_tags(conn, services::reorder_task(conn, task_id, prev, next)?)
+        services::reorder_task(conn, task_id, prev, next)
     })
 }
 
@@ -220,12 +220,9 @@ pub fn board_move_task(
     column_id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<TaskWithTags, AppError> {
+) -> Result<Reorder, AppError> {
     with_conn(&db, |conn| {
-        services::task_with_tags(
-            conn,
-            services::move_task(conn, task_id, column_id, prev, next)?,
-        )
+        services::move_task(conn, task_id, column_id, prev, next)
     })
 }
 

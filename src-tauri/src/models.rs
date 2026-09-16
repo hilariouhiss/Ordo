@@ -394,6 +394,24 @@ pub struct TaskWithTags {
     pub tag_ids: Vec<Uuid>,
 }
 
+/// One rewritten sort key. A key-exhaustion rebalance rewrites every key in the
+/// scope, so callers need those rows, not just the one that moved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskKey {
+    pub id: Uuid,
+    pub sort_order: String,
+}
+
+/// What `task:reorder` and `board:moveTask` answer with: the moved row plus
+/// every key the call rewrote (empty on the ordinary path, which is one seek).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reorder {
+    pub moved: TaskWithTags,
+    pub rebalanced: Vec<TaskKey>,
+}
+
 /// Which entity produced a search hit (`search:query`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

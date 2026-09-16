@@ -24,10 +24,10 @@ use crate::error::AppError;
 use crate::models::{
     BackupDocument, BackupSummary, BoardColumn, Comment, Dependency, Namespace, NewComment,
     NewNamespace, NewProject, NewTag, NewTask, NewTimeEntry, Patch, Priority, Project,
-    ProjectProgress, ProjectStatus, Reminder, ReminderKind, RepeatFreq, RepeatRule, SearchHit,
-    SearchHitKind, Tag, Task, TaskWithTags, TimeDistribution, TimeDistributionQuery, TimeEntry,
-    TrendPoint, TrendQuery, UpdateComment, UpdateNamespace, UpdateProject, UpdateTag, UpdateTask,
-    UpdateTimeEntry,
+    ProjectProgress, ProjectStatus, Reminder, ReminderKind, Reorder, RepeatFreq, RepeatRule,
+    SearchHit, SearchHitKind, Tag, Task, TaskKey, TaskWithTags, TimeDistribution,
+    TimeDistributionQuery, TimeEntry, TrendPoint, TrendQuery, UpdateComment, UpdateNamespace,
+    UpdateProject, UpdateTag, UpdateTask, UpdateTimeEntry,
 };
 use crate::repositories::{
     backup, board_columns, comments, dependencies, namespaces, projects, reminders, search, stats,
@@ -236,84 +236,108 @@ fn append_task_key(
     append_key(&tasks::scope_sort_keys(conn, scope, None)?)
 }
 
-/// An insertion slot resolved from `prev`/`next` against a sibling list.
-enum Slot {
-    /// A fresh key that fits between the resolved neighbours.
-    Key(String),
-    /// No key fits (`SortError::Exhausted`): rekey every sibling with evenly
-    /// spaced keys, placing the moved item at this index.
-    Rebalance(usize),
-}
-
-/// Resolves the insertion slot between the neighbour sort keys `prev`/`next`
-/// (either side optional at the list ends) within the ordered `siblings`,
-/// which must already exclude the moved item.
+/// The neighbour keys of a slot, resolved from the client's `prev`/`next`.
 ///
-/// One-sided specs are resolved against the current list so the derived
-/// neighbour pair is always tight — a bare `after(prev)` mid-list could
-/// collide with the actual next item's key.
-fn resolve_slot(
-    siblings: &[(Uuid, String)],
+/// A one-sided spec is completed with a range query against the target scope
+/// (the old form loaded the whole sibling list to answer the same question);
+/// both keys must belong to that scope, or the caller gets the same validation
+/// error it always did.
+fn resolve_neighbours(
+    conn: &Connection,
+    scope: tasks::SortScope,
+    exclude: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Slot, AppError> {
+) -> Result<(Option<String>, Option<String>), AppError> {
     if prev.is_none() && next.is_none() {
         return Err(AppError::Validation("需要提供前驱或后继排序键".into()));
     }
-    let position_of = |key: &str| siblings.iter().position(|(_, k)| k == key);
-    let require_sibling = |key: &str| -> Result<usize, AppError> {
-        position_of(key)
-            .ok_or_else(|| AppError::Validation(format!("排序键 {key:?} 不属于目标列表")))
+    let require = |key: &str| -> Result<(), AppError> {
+        if tasks::sort_key_in_scope(conn, scope, key)? {
+            Ok(())
+        } else {
+            Err(AppError::Validation(format!(
+                "排序键 {key:?} 不属于目标列表"
+            )))
+        }
     };
 
-    // Resolve into a tight (prev_key, next_key) pair around the target slot.
-    let prev_key = match &prev {
-        Some(p) => {
-            require_sibling(p)?;
-            Some(p.clone())
+    match (&prev, &next) {
+        (Some(p), Some(n)) => {
+            require(p)?;
+            require(n)?;
+            Ok((Some(p.clone()), Some(n.clone())))
         }
-        None => match &next {
-            Some(n) => require_sibling(n)?
-                .checked_sub(1)
-                .map(|i| siblings[i].1.clone()),
-            None => None,
-        },
-    };
-    let next_key = match &next {
-        Some(n) => {
-            require_sibling(n)?;
-            Some(n.clone())
+        (Some(p), None) => {
+            require(p)?;
+            let n = tasks::next_sort_key(conn, scope, Some(exclude), p)?;
+            Ok((Some(p.clone()), n))
         }
-        None => match &prev {
-            Some(p) => require_sibling(p)?
-                .checked_add(1)
-                .and_then(|i| siblings.get(i))
-                .map(|(_, k)| k.clone()),
-            None => None,
-        },
-    };
+        (None, Some(n)) => {
+            require(n)?;
+            let p = tasks::prev_sort_key(conn, scope, Some(exclude), n)?;
+            Ok((p, Some(n.clone())))
+        }
+        (None, None) => unreachable!("the both-empty case returned above"),
+    }
+}
 
-    let attempt = match (&prev_key, &next_key) {
+/// A key that fits between the resolved neighbours; `None` means the key space
+/// is exhausted and the caller has to re-spread the scope. The branches are the
+/// ones the old `resolve_slot` used to pick its key.
+fn key_between(prev: Option<&str>, next: Option<&str>) -> Result<Option<String>, AppError> {
+    let attempt = match (prev, next) {
         (Some(p), Some(n)) => sort::between(p, n),
         (Some(p), None) => sort::after(p),
         (None, Some(n)) => sort::before(n),
-        (None, None) => unreachable!("at least one of prev/next is given"),
+        (None, None) => unreachable!("resolve_neighbours guarantees one side"),
     };
-
     match attempt {
-        Ok(key) => Ok(Slot::Key(key)),
-        Err(sort::SortError::Exhausted) => {
-            let target = match &prev_key {
-                Some(p) => require_sibling(p).expect("validated above") + 1,
-                None => match &next_key {
-                    Some(n) => require_sibling(n).expect("validated above"),
-                    None => siblings.len(),
-                },
-            };
-            Ok(Slot::Rebalance(target))
-        }
+        Ok(key) => Ok(Some(key)),
+        Err(sort::SortError::Exhausted) => Ok(None),
         Err(e) => Err(e.into()),
     }
+}
+
+/// The exhaustion fallback: re-spread the whole scope and report every key that
+/// was rewritten. Only reached when no key fits between the neighbours — the
+/// one case that genuinely has to touch every sibling.
+fn rebalance_scope(
+    tx: &Connection,
+    scope: tasks::SortScope,
+    id: Uuid,
+    moved_sort_order: &str,
+    prev: Option<&str>,
+    next: Option<&str>,
+    now: DateTime<Utc>,
+) -> Result<Vec<TaskKey>, AppError> {
+    // Where the moved row lands: after its predecessor, or before its
+    // successor, or at the end when it has neither.
+    let target = match prev {
+        Some(p) => tasks::index_of_sort_key(tx, scope, Some(id), p)? + 1,
+        None => match next {
+            Some(n) => tasks::index_of_sort_key(tx, scope, Some(id), n)?,
+            None => tasks::scope_sort_keys(tx, scope, Some(id))?.len(),
+        },
+    };
+
+    let mut ordered = tasks::scope_sort_keys(tx, scope, Some(id))?;
+    ordered.insert(
+        target.min(ordered.len()),
+        (id, moved_sort_order.to_string()),
+    );
+    let fresh = sort::spread(ordered.len());
+    let mut rebalanced = Vec::with_capacity(ordered.len());
+    for ((sibling_id, _), key) in ordered.iter().zip(fresh) {
+        if !tasks::set_sort_order(tx, *sibling_id, &key, now)? {
+            return Err(not_found("任务", *sibling_id));
+        }
+        rebalanced.push(TaskKey {
+            id: *sibling_id,
+            sort_order: key,
+        });
+    }
+    Ok(rebalanced)
 }
 
 // ---------------------------------------------------------------------------
@@ -712,8 +736,8 @@ fn validate_parent(conn: &Connection, parent_id: Uuid) -> Result<Task, AppError>
 
 /// Moves a task between its siblings: `prev`/`next` are the sort keys of the
 /// rows surrounding the target slot (either may be omitted at the list ends).
-/// Returns the sibling set in its new authoritative order, because other rows'
-/// keys change whenever a rebalance kicks in.
+/// Returns the moved row plus every key the move rewrote — a key-exhaustion
+/// rebalance rewrites the whole scope, and the caller has to see those keys.
 ///
 /// The sibling scope follows the hierarchy: a child moves among its parent's
 /// other children, a top-level task among the tasks of its own column.
@@ -722,51 +746,46 @@ pub fn reorder_task(
     id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Vec<Task>, AppError> {
+) -> Result<Reorder, AppError> {
     let moved = tasks::get(conn, id)?.ok_or_else(|| not_found("任务", id))?;
+    let scope = match moved.parent_task_id {
+        Some(parent_id) => tasks::SortScope {
+            column_id: None,
+            parent_id: Some(parent_id),
+        },
+        None => tasks::SortScope {
+            column_id: moved.column_id,
+            parent_id: None,
+        },
+    };
 
     let now = Utc::now();
     let tx = conn.unchecked_transaction()?;
-    let siblings: Vec<(Uuid, String)> = match moved.parent_task_id {
-        Some(parent_id) => tasks::list_by_parent(&tx, parent_id)?,
-        None => tasks::list(&tx)?
-            .into_iter()
-            .filter(|t| t.column_id == moved.column_id && t.parent_task_id.is_none())
-            .collect(),
-    }
-    .into_iter()
-    .filter(|t| t.id != id)
-    .map(|t| (t.id, t.sort_order))
-    .collect();
-
-    match resolve_slot(&siblings, prev, next)? {
-        Slot::Key(key) => {
+    let (prev_key, next_key) = resolve_neighbours(&tx, scope, id, prev, next)?;
+    let rebalanced = match key_between(prev_key.as_deref(), next_key.as_deref())? {
+        Some(key) => {
             if !tasks::set_sort_order(&tx, id, &key, now)? {
                 return Err(not_found("任务", id));
             }
+            Vec::new()
         }
-        Slot::Rebalance(target) => {
-            let mut ordered = siblings;
-            ordered.insert(target.min(ordered.len()), (id, moved.sort_order.clone()));
-            let fresh = sort::spread(ordered.len());
-            for ((sibling_id, _), key) in ordered.iter().zip(fresh) {
-                if !tasks::set_sort_order(&tx, *sibling_id, &key, now)? {
-                    return Err(not_found("任务", *sibling_id));
-                }
-            }
-        }
-    }
+        None => rebalance_scope(
+            &tx,
+            scope,
+            id,
+            &moved.sort_order,
+            prev_key.as_deref(),
+            next_key.as_deref(),
+            now,
+        )?,
+    };
     tx.commit()?;
 
-    let mut list = match moved.parent_task_id {
-        Some(parent_id) => tasks::list_by_parent(conn, parent_id)?,
-        None => tasks::list(conn)?
-            .into_iter()
-            .filter(|t| t.column_id == moved.column_id && t.parent_task_id.is_none())
-            .collect(),
-    };
-    list.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
-    Ok(list)
+    let moved = tasks::get(conn, id)?.ok_or_else(|| not_found("任务", id))?;
+    Ok(Reorder {
+        moved: task_with_tags(conn, moved)?,
+        rebalanced,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -956,7 +975,7 @@ pub fn move_task(
     column_id: Uuid,
     prev: Option<String>,
     next: Option<String>,
-) -> Result<Task, AppError> {
+) -> Result<Reorder, AppError> {
     let mut moved = tasks::get(conn, task_id)?.ok_or_else(|| not_found("任务", task_id))?;
     // A child follows its parent's project and is archived with it; it never
     // lands on a board of its own (§9.4).
@@ -970,13 +989,12 @@ pub fn move_task(
 
     let now = Utc::now();
     let tx = conn.unchecked_transaction()?;
-    // `parent_task_id IS NULL` is load-bearing: a migrated child may still
-    // carry a `column_id`, and it must not join the column's key sequence.
-    let siblings: Vec<(Uuid, String)> = tasks::list(&tx)?
-        .into_iter()
-        .filter(|t| t.column_id == Some(column_id) && t.parent_task_id.is_none() && t.id != task_id)
-        .map(|t| (t.id, t.sort_order))
-        .collect();
+    // The target column's key sequence. `exclude` drops the moved row: a drag
+    // inside one board would otherwise find itself among its own neighbours.
+    let scope = tasks::SortScope {
+        column_id: Some(column_id),
+        parent_id: None,
+    };
 
     let previous_column = moved.column_id;
     // A card dropped on another project's board takes its children with it, so
@@ -999,31 +1017,36 @@ pub fn move_task(
     }
     moved.updated_at = now;
 
-    match resolve_slot(&siblings, prev, next)? {
-        Slot::Key(key) => {
+    let (prev_key, next_key) = resolve_neighbours(&tx, scope, task_id, prev, next)?;
+    let rebalanced = match key_between(prev_key.as_deref(), next_key.as_deref())? {
+        Some(key) => {
             moved.sort_order = key;
             if !tasks::update(&tx, &moved)? {
                 return Err(not_found("任务", task_id));
             }
+            Vec::new()
         }
-        Slot::Rebalance(target) => {
-            let mut ordered = siblings;
-            ordered.insert(
-                target.min(ordered.len()),
-                (task_id, moved.sort_order.clone()),
-            );
-            let fresh = sort::spread(ordered.len());
-            for ((sibling_id, _), key) in ordered.iter().zip(fresh) {
-                if *sibling_id == task_id {
-                    moved.sort_order = key;
-                    if !tasks::update(&tx, &moved)? {
-                        return Err(not_found("任务", task_id));
-                    }
-                } else if !tasks::set_sort_order(&tx, *sibling_id, &key, now)? {
-                    return Err(not_found("任务", *sibling_id));
-                }
+        None => {
+            // The row itself is written first (its column, project and
+            // completion state are this call's business), then the whole scope
+            // is re-spread — the moved row included, through `set_sort_order`,
+            // since its other fields are already persisted.
+            if !tasks::update(&tx, &moved)? {
+                return Err(not_found("任务", task_id));
             }
+            rebalance_scope(
+                &tx,
+                scope,
+                task_id,
+                &moved.sort_order,
+                prev_key.as_deref(),
+                next_key.as_deref(),
+                now,
+            )?
         }
+    };
+    if let Some(row) = rebalanced.iter().find(|row| row.id == task_id) {
+        moved.sort_order = row.sort_order.clone();
     }
 
     // Entering the done column completes the task: a repeating task spawns
@@ -1033,7 +1056,10 @@ pub fn move_task(
     }
 
     tx.commit()?;
-    Ok(moved)
+    Ok(Reorder {
+        moved: task_with_tags(conn, moved)?,
+        rebalanced,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2179,6 +2205,17 @@ mod tests {
         assert_eq!(child.repeat_rule, None);
     }
 
+    /// A scope's rows in list order. `task:reorder` used to answer with this
+    /// list; it now answers with `{ moved, rebalanced }`, so the tests read the
+    /// authoritative copy from the database instead.
+    fn scope_rows(conn: &Connection, scope: tasks::SortScope) -> Vec<Task> {
+        tasks::scope_sort_keys(conn, scope, None)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| tasks::get(conn, id).unwrap().expect("scope row is live"))
+            .collect()
+    }
+
     #[test]
     fn reorder_task_moves_within_the_siblings() {
         let conn = conn();
@@ -2188,8 +2225,20 @@ mod tests {
         let third = make_child(&conn, &parent, "三");
 
         // Move the third before the first: prev = None, next = first's key.
-        let ordered = reorder_task(&conn, third.id, None, Some(first.sort_order.clone())).unwrap();
+        let result = reorder_task(&conn, third.id, None, Some(first.sort_order.clone())).unwrap();
+        assert_eq!(result.moved.task.id, third.id);
+        assert!(
+            result.rebalanced.is_empty(),
+            "no rebalance, so no rewritten keys"
+        );
 
+        let ordered = scope_rows(
+            &conn,
+            tasks::SortScope {
+                column_id: None,
+                parent_id: Some(parent.id),
+            },
+        );
         let titles: Vec<&str> = ordered.iter().map(|task| task.title.as_str()).collect();
         assert_eq!(titles, ["三", "一", "二"]);
         assert_eq!(
@@ -2217,8 +2266,16 @@ mod tests {
         let loose = make_task(&conn, "随手记");
 
         // Move C to the front of the column: prev = None, next = A's key.
-        let ordered = reorder_task(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
+        let result = reorder_task(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
+        assert_eq!(result.moved.task.id, c.id);
 
+        let ordered = scope_rows(
+            &conn,
+            tasks::SortScope {
+                column_id: Some(todo.id),
+                parent_id: None,
+            },
+        );
         let titles: Vec<&str> = ordered.iter().map(|task| task.title.as_str()).collect();
         assert_eq!(titles, ["C", "A", "B"]);
         assert_eq!(
@@ -2701,7 +2758,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(moved.project_id, Some(second.id));
+        assert_eq!(moved.moved.task.project_id, Some(second.id));
         assert_eq!(
             tasks::get(&conn, child.id).unwrap().unwrap().project_id,
             Some(second.id),
@@ -2837,21 +2894,29 @@ mod tests {
             list.iter().map(|s| s.title.as_str()).collect()
         }
 
+        let scope = tasks::SortScope {
+            column_id: None,
+            parent_id: Some(task.id),
+        };
+
         // Move C to the front (before A).
-        let moved = reorder_task(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
-        assert_eq!(titles(&moved), vec!["C", "A", "B"]);
+        reorder_task(&conn, c.id, None, Some(a.sort_order.clone())).unwrap();
+        assert_eq!(titles(&scope_rows(&conn, scope)), vec!["C", "A", "B"]);
 
         // Move A to the end (after B) — a one-sided move whose derived
         // next-neighbour is gone, so the key extends past B.
-        let moved = reorder_task(&conn, a.id, Some(b.sort_order.clone()), None).unwrap();
-        assert_eq!(titles(&moved), vec!["C", "B", "A"]);
+        reorder_task(&conn, a.id, Some(b.sort_order.clone()), None).unwrap();
+        assert_eq!(titles(&scope_rows(&conn, scope)), vec!["C", "B", "A"]);
 
         // Move C into the middle (after B, before A): the derived pair is
         // tight, so a plain `after(B)` could have collided with A's key.
-        let moved = reorder_task(&conn, c.id, Some(b.sort_order.clone()), None).unwrap();
-        assert_eq!(titles(&moved), vec!["B", "C", "A"]);
+        reorder_task(&conn, c.id, Some(b.sort_order.clone()), None).unwrap();
+        let ordered = scope_rows(&conn, scope);
+        assert_eq!(titles(&ordered), vec!["B", "C", "A"]);
         assert!(
-            moved.windows(2).all(|w| w[0].sort_order < w[1].sort_order),
+            ordered
+                .windows(2)
+                .all(|w| w[0].sort_order < w[1].sort_order),
             "keys stay strictly ordered"
         );
     }
@@ -2899,18 +2964,30 @@ mod tests {
         tasks::insert(&conn, &b).unwrap();
 
         // between("a", "aa") is exhausted -> the list is rekeyed.
-        let moved = reorder_task(&conn, c.id, Some("a".into()), Some("aa".into())).unwrap();
-        let titles: Vec<&str> = moved.iter().map(|s| s.title.as_str()).collect();
+        let result = reorder_task(&conn, c.id, Some("a".into()), Some("aa".into())).unwrap();
+        let scope = tasks::SortScope {
+            column_id: None,
+            parent_id: Some(task.id),
+        };
+        let ordered = scope_rows(&conn, scope);
+        let titles: Vec<&str> = ordered.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, vec!["A", "C", "B"]);
         assert!(
-            moved.iter().map(|s| s.sort_order.len()).max().unwrap() <= 2,
+            ordered.iter().map(|s| s.sort_order.len()).max().unwrap() <= 2,
             "rebalance shrinks keys: {:?}",
-            moved
+            ordered
                 .iter()
                 .map(|s| s.sort_order.clone())
                 .collect::<Vec<_>>()
         );
-        assert!(moved.windows(2).all(|w| w[0].sort_order < w[1].sort_order));
+        assert!(ordered
+            .windows(2)
+            .all(|w| w[0].sort_order < w[1].sort_order));
+        // Every key the rebalance rewrote is reported back — the moved row
+        // included, since its key changed with the rest.
+        assert_eq!(result.rebalanced.len(), ordered.len());
+        assert!(result.rebalanced.iter().any(|row| row.id == c.id));
+        assert_eq!(result.moved.task.sort_order, ordered[1].sort_order);
     }
 
     #[test]
@@ -3396,9 +3473,13 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(moved.column_id, Some(done.id));
-        assert_eq!(moved.project_id, Some(project.id));
-        let stamped = moved.completed_at.expect("stamped on entering done column");
+        assert_eq!(moved.moved.task.column_id, Some(done.id));
+        assert_eq!(moved.moved.task.project_id, Some(project.id));
+        let stamped = moved
+            .moved
+            .task
+            .completed_at
+            .expect("stamped on entering done column");
 
         // Moving within the done column keeps the original timestamp.
         let again = move_task(
@@ -3409,7 +3490,7 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(again.completed_at, Some(stamped));
+        assert_eq!(again.moved.task.completed_at, Some(stamped));
 
         // Leaving the done column clears completed_at.
         let anchor = make_column_task(&conn, &todo, "待办锚点");
@@ -3421,8 +3502,8 @@ mod tests {
             Some(anchor.sort_order.clone()),
         )
         .unwrap();
-        assert_eq!(back.completed_at, None);
-        assert_eq!(back.column_id, Some(todo.id));
+        assert_eq!(back.moved.task.completed_at, None);
+        assert_eq!(back.moved.task.column_id, Some(todo.id));
     }
 
     #[test]
@@ -3443,11 +3524,14 @@ mod tests {
             Some(b.sort_order.clone()),
         )
         .unwrap();
-        assert!(moved.sort_order > a.sort_order && moved.sort_order < b.sort_order);
+        assert!(
+            moved.moved.task.sort_order > a.sort_order
+                && moved.moved.task.sort_order < b.sort_order
+        );
 
         // Move C to the front of the column.
         let moved = move_task(&conn, c.id, todo.id, None, Some(a.sort_order.clone())).unwrap();
-        assert!(moved.sort_order < a.sort_order);
+        assert!(moved.moved.task.sort_order < a.sort_order);
 
         let keys = column_task_keys(&conn, todo.id);
         assert!(keys.windows(2).all(|w| w[0] < w[1]), "keys stay ordered");
@@ -3466,7 +3550,7 @@ mod tests {
 
         let moved = move_task(&conn, c.id, todo.id, Some(b.sort_order.clone()), None).unwrap();
         assert!(
-            moved.sort_order > b.sort_order,
+            moved.moved.task.sort_order > b.sort_order,
             "the moved card ignores the stray child's key"
         );
         assert_eq!(
@@ -3507,7 +3591,7 @@ mod tests {
         );
         assert_eq!(
             board.iter().find(|t| t.id == mover.id).unwrap().sort_order,
-            moved.sort_order
+            moved.moved.task.sort_order
         );
     }
 
@@ -4365,8 +4449,8 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(moved.completed_at.is_some());
-        assert_eq!(moved.column_id, Some(done.id));
+        assert!(moved.moved.task.completed_at.is_some());
+        assert_eq!(moved.moved.task.column_id, Some(done.id));
 
         let listed = tasks::list(&conn).unwrap();
         assert_eq!(listed.len(), 3);
@@ -4386,11 +4470,11 @@ mod tests {
             &conn,
             already_done.id,
             done.id,
-            Some(moved.sort_order.clone()),
+            Some(moved.moved.task.sort_order.clone()),
             None,
         )
         .unwrap();
-        assert!(moved_within.completed_at.is_some());
+        assert!(moved_within.moved.task.completed_at.is_some());
         // The within-done move completed the fresh task but spawned nothing
         // (no rule): the board still holds exactly four tasks.
         assert_eq!(tasks::list(&conn).unwrap().len(), 4);
