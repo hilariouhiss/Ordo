@@ -16,7 +16,7 @@ import { normalizeError } from "../../common/ipc";
 import { pushError, pushInfo } from "../../common/stores/notifications";
 import { loadAll as loadNamespaces } from "../namespaces/hooks";
 import { loadAll as loadProjects } from "../projects/hooks";
-import { loadAll as loadTasks } from "../tasks/hooks";
+import { loadAll as loadTasks, loadUnfinishedCounts } from "../tasks/hooks";
 import * as api from "./api";
 import type { BackupSummary } from "./types";
 
@@ -81,8 +81,10 @@ export async function runImport(path: string): Promise<BackupSummary | null> {
     );
     // Every store a restore replaces has to come back: the namespace store
     // gates the other loads (`loaded`), so a stale one would keep resolving
-    // restored projects against the previous machine's namespaces.
-    await Promise.all([loadTasks(), loadProjects(), loadNamespaces()]);
+    // restored projects against the previous machine's namespaces. The counts
+    // come off the rows the restore just replaced, so they come back with them
+    // — and a cross-machine restore hands every project a new id.
+    await Promise.all([loadTasks(), loadProjects(), loadNamespaces(), loadUnfinishedCounts()]);
     return summary;
   } catch (error) {
     return reportFailure(error);

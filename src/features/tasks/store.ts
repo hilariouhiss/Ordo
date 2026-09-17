@@ -177,7 +177,9 @@ export function blockedCountOf(taskId: string): number {
   return state.blocked[taskId] ?? 0;
 }
 
-/** 侧边栏箭头用的每项目未完成顶层行数；服务端没提到的项目按 0（不画箭头）。 */
+/** 侧边栏箭头用的每项目未完成顶层行数；`setUnfinishedCounts` 是合并写而不是
+ * 整表替换，所以服务端这次没提到的项目（已删的那些）留着上一次的数，从没提到
+ * 过的才按 0（不画箭头）。 */
 export function unfinishedCountOf(projectId: string): number {
   return state.unfinishedByProject[projectId] ?? 0;
 }

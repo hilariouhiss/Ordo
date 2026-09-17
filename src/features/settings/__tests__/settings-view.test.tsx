@@ -22,7 +22,10 @@ vi.mock("../api", () => ({
   setAutostart: vi.fn(),
 }));
 
-vi.mock("../../tasks/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
+vi.mock("../../tasks/hooks", () => ({
+  loadAll: vi.fn().mockResolvedValue(true),
+  loadUnfinishedCounts: vi.fn().mockResolvedValue(true),
+}));
 vi.mock("../../projects/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
 vi.mock("../../namespaces/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
 
@@ -104,6 +107,9 @@ describe("SettingsView backup", () => {
     // skipped it would keep resolving the restored projects against the names
     // the previous machine had.
     await waitFor(() => expect(namespaces.loadAll).toHaveBeenCalled());
+    // 计数问的正是被恢复换掉的那张表：同机器恢复保留 id、跨机器恢复换掉全部
+    // id，两种都要重取，否则侧边栏的箭头停在恢复前的数上。
+    await waitFor(() => expect(tasks.loadUnfinishedCounts).toHaveBeenCalled());
     expect(notifications()[0]?.message).toContain("已从备份恢复 12 个任务、2 个项目、1 个命名空间");
   });
 
@@ -119,6 +125,7 @@ describe("SettingsView backup", () => {
     await waitFor(() => expect(api.importBackup).toHaveBeenCalled());
     expect(notifications()[0]?.message).toBe("备份文件无法解析");
     expect(tasks.loadAll).not.toHaveBeenCalled();
+    expect(tasks.loadUnfinishedCounts).not.toHaveBeenCalled();
   });
 
   it("shows the backup path and the restore time after a restore", async () => {
