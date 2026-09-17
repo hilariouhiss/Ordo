@@ -1,8 +1,10 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/solid-router";
+import { listen } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../common/components/__tests__/setup";
+import { EVENTS } from "../../common/ipc/events";
 import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
 import { closeTaskViewer } from "../../common/stores/taskViewer";
 import {
@@ -23,7 +25,7 @@ import {
   setUnfinishedCounts,
   tasksState,
 } from "../../features/tasks/store";
-import type { Task } from "../../features/tasks/types";
+import type { Task, TaskPage } from "../../features/tasks/types";
 import { routeTree } from "../../router";
 
 // The shell subscribes to backend events and loads both stores on mount.
@@ -131,9 +133,20 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
-/** 侧边栏的箭头读这一条聚合；测试直接播种，省掉一次往返。 */
+/** 侧边栏的箭头读这一条聚合；测试把同一个数播种给 store 和挂载时的那次请求，
+ * 断言就不靠「合并写不会抹掉已播种的值」这个副作用。 */
 function seedUnfinished(projectId: string, unfinished: number) {
   setUnfinishedCounts([{ projectId, unfinished }]);
+  vi.mocked(tasksApi.listUnfinishedCounts).mockResolvedValue([{ projectId, unfinished }]);
+}
+
+/** 触发外壳订阅的 `task:created`，就像 quick-add 小窗真的派发了一次。 */
+function fireTaskCreated(): void {
+  const handler = vi
+    .mocked(listen)
+    .mock.calls.find(([event]) => event === EVENTS.taskCreated)?.[1];
+  if (!handler) throw new Error("外壳没有订阅 task:created");
+  handler({} as never);
 }
 
 function renderShell() {
@@ -146,6 +159,9 @@ function renderShell() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // `clearAllMocks` 清调用但不清实现，所以计数聚合的默认值在这里重新钉一次：
+  // 每条测试都从「服务端说没有未完成项」开始，不被上一条的播种带过去。
+  vi.mocked(tasksApi.listUnfinishedCounts).mockResolvedValue([]);
   resetProjectsStore();
   resetNamespacesStore();
   resetTasksStore();
@@ -212,6 +228,25 @@ describe("AppShell sidebar", () => {
     expect(nested.classList.contains("child-indent")).toBe(false);
   });
 
+  // 外壳的两处接线：挂载时取一次计数，quick-add 派发 `task:created` 时再取一次。
+  // 两处都没有断言的话，删掉任何一个（或那行 `listen`）测试仍然是绿的。
+  it("loads the unfinished counts on mount and re-reads them on task:created", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    renderShell();
+
+    await waitFor(() => expect(tasksApi.listUnfinishedCounts).toHaveBeenCalledTimes(1));
+    const taskLoadsBefore = vi.mocked(tasksApi.listTasks).mock.calls.length;
+
+    fireTaskCreated();
+
+    await waitFor(() => expect(tasksApi.listUnfinishedCounts).toHaveBeenCalledTimes(2));
+    // 另一个窗口写的行在这一边的 store 里根本不存在，所以这一笔也要重载整棵树。
+    await waitFor(() =>
+      expect(vi.mocked(tasksApi.listTasks).mock.calls.length).toBeGreaterThan(taskLoadsBefore),
+    );
+  });
+
   // R9: 项目行可展开，列出该项目「顶层 + 未完成」的任务。
   it("expands a project row into its top-level unfinished tasks", async () => {
     vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
@@ -269,7 +304,11 @@ describe("AppShell sidebar", () => {
     vi.mocked(tasksApi.listTasks).mockResolvedValue([
       task("t1", { projectId: "p1", completedAt: "2026-09-15T10:00:00Z" }),
       task("t2", { projectId: "p1", parentTaskId: "t1" }),
+      // 快照里确实留着一行顶层未完成：只有聚合的 0 能把箭头关掉，所以从快照
+      // 里数箭头的实现会在这里长出按钮、让这一条失败。
+      task("t3", { projectId: "p1", title: "还没做的" }),
     ]);
+    seedUnfinished("p1", 0);
     renderShell();
 
     await screen.findByRole("link", { name: "杂事" });
@@ -329,6 +368,37 @@ describe("AppShell sidebar", () => {
     const list = await screen.findByRole("navigation", { name: "杂事 的未完成任务" });
     expect(within(list).getByText("买菜")).toBeTruthy();
     expect(tasksApi.listTasksByProject).toHaveBeenCalledWith("p1");
+  });
+
+  // 展开到列表出现之间隔着一次往返：那一段既没内容也没加载提示，所以那个带
+  // 名字的 landmark 不该先画出来再填。
+  it("范围还在装载时不画那个空的未完成列表", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    let settle: (page: TaskPage) => void = () => {};
+    vi.mocked(tasksApi.listTasksByProject).mockReturnValue(
+      new Promise<TaskPage>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    seedUnfinished("p1", 1);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "展开项目 杂事" }));
+    expect(tasksState.scopeMeta["project:p1"]?.loading).toBe(true);
+    expect(screen.queryByRole("navigation", { name: "杂事 的未完成任务" })).toBeNull();
+
+    settle({
+      rows: [task("t1", { projectId: "p1", title: "写周报" })],
+      children: [],
+      related: [],
+      blocked: [],
+      hasMore: false,
+      cursor: null,
+    });
+
+    const list = await screen.findByRole("navigation", { name: "杂事 的未完成任务" });
+    expect(within(list).getByText("写周报")).toBeTruthy();
   });
 
   it("lists an archived namespace's projects under it, not in the flat archive", async () => {

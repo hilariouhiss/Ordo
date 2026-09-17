@@ -305,6 +305,11 @@ function ProjectItem(props: {
   const scope = () => `project:${props.project.id}`;
   /** 箭头问的就是这一个数：服务端聚合说还有未完成顶层行才画。 */
   const hasUnfinished = () => unfinishedCountOf(props.project.id) > 0;
+  /** 范围落地了吗（成功或失败都算）：没落地就先别画这个带名字的 landmark。 */
+  const scopeSettled = () => {
+    const meta = scopeMetaOf(scope());
+    return meta.loaded || meta.error !== null;
+  };
   const unfinished = createMemo(() =>
     scopeRows(scope()).filter(
       (task) => task.parentTaskId === null && task.completedAt === null,
@@ -336,7 +341,8 @@ function ProjectItem(props: {
           <ProjectLink project={props.project} collapsed={false} muted={props.muted} />
           {props.trailing}
         </div>
-        <Show when={open() && hasUnfinished()}>
+        {/* 装载中不画：一个只有名字、既没内容也没加载提示的 landmark 比晚一帧出现更糟。 */}
+        <Show when={open() && hasUnfinished() && scopeSettled()}>
           <nav
             aria-label={`${props.project.name} 的未完成任务`}
             class="child-indent flex flex-col gap-0.5"
