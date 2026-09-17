@@ -48,9 +48,21 @@ import { archivedProjects, getProject, projectsState } from "../features/project
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
 import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
-import { loadAll as loadTasks, reloadTasks, updateTask } from "../features/tasks/hooks";
-import { getTask, tasks, tasksState } from "../features/tasks/store";
-import { isCompleted } from "../features/tasks/view-filters";
+import * as tasksApi from "../features/tasks/api";
+import {
+  ensureScope,
+  loadAll as loadTasks,
+  loadUnfinishedCounts,
+  reloadTasks,
+  updateTask,
+} from "../features/tasks/hooks";
+import {
+  getTask,
+  scopeMetaOf,
+  scopeRows,
+  tasksState,
+  unfinishedCountOf,
+} from "../features/tasks/store";
 
 type NavPath =
   | "/inbox"
@@ -289,14 +301,23 @@ function ProjectItem(props: {
   trailing?: JSX.Element;
 }) {
   const [open, setOpen] = createSignal(false);
+  /** 这个项目的范围：展开时才装载（箭头来自计数聚合，不需要行）。 */
+  const scope = () => `project:${props.project.id}`;
+  /** 箭头问的就是这一个数：服务端聚合说还有未完成顶层行才画。 */
+  const hasUnfinished = () => unfinishedCountOf(props.project.id) > 0;
   const unfinished = createMemo(() =>
-    tasks().filter(
-      (task) =>
-        task.projectId === props.project.id &&
-        task.parentTaskId === null &&
-        !isCompleted(task),
+    scopeRows(scope()).filter(
+      (task) => task.parentTaskId === null && task.completedAt === null,
     ),
   );
+
+  const toggle = () => {
+    const next = !open();
+    setOpen(next);
+    if (next) {
+      void ensureScope(scope(), () => tasksApi.listTasksByProject(props.project.id));
+    }
+  };
 
   return (
     <Show
@@ -305,17 +326,17 @@ function ProjectItem(props: {
     >
       <div>
         <div class={treeRowClass(props.nested ? 1 : 0)}>
-          <Show when={unfinished().length > 0} fallback={<DisclosureSpacer />}>
+          <Show when={hasUnfinished()} fallback={<DisclosureSpacer />}>
             <Disclosure
               open={open()}
               label={`${open() ? "收起" : "展开"}项目 ${props.project.name}`}
-              onToggle={() => setOpen(!open())}
+              onToggle={toggle}
             />
           </Show>
           <ProjectLink project={props.project} collapsed={false} muted={props.muted} />
           {props.trailing}
         </div>
-        <Show when={open() && unfinished().length > 0}>
+        <Show when={open() && hasUnfinished()}>
           <nav
             aria-label={`${props.project.name} 的未完成任务`}
             class="child-indent flex flex-col gap-0.5"
@@ -332,6 +353,10 @@ function ProjectItem(props: {
                 </button>
               )}
             </For>
+            {/* 范围装载失败时不留一个空壳：说一句，重新展开会自己再试。 */}
+            <Show when={scopeMetaOf(scope()).error !== null && unfinished().length === 0}>
+              <p class="px-1.5 py-1 text-xs text-muted-foreground">任务读不出来</p>
+            </Show>
           </nav>
         </Show>
       </div>
@@ -448,8 +473,10 @@ export default function AppShell() {
     const initialLoads = [
       namespacesState.loaded ? undefined : loadNamespaces(),
       projectsState.loaded ? undefined : loadProjects(),
-      // The tree lists each project's unfinished tasks, so the shell needs the
-      // task snapshot itself — it cannot wait for a task view to mount first.
+      // 侧边栏的项目箭头问的是这一条聚合，不是任务快照。
+      loadUnfinishedCounts(),
+      // The views still read the `all` snapshot, and `getTask` answers the
+      // project rows' drag/drop — only the arrows moved off it.
       tasksState.loaded ? undefined : loadTasks(),
     ];
     // Q-01 性能验收：「首屏可交互」= 外壳的这几笔一次性加载都落地了（失败的也算
@@ -460,7 +487,10 @@ export default function AppShell() {
     // a task filed there stays invisible here until the list is pulled again.
     // Tasks + tags is the whole tree — children are rows in `tasks` (R7c) — so
     // this one pull refreshes parents and children alike.
-    listen(EVENTS.taskCreated, () => void reloadTasks()).catch(() => {});
+    listen(EVENTS.taskCreated, () => {
+      void reloadTasks();
+      void loadUnfinishedCounts();
+    }).catch(() => {});
   });
 
   const openCreateProject = () => {

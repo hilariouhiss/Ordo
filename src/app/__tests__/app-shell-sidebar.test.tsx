@@ -16,7 +16,13 @@ import * as projectsApi from "../../features/projects/api";
 import * as tasksApi from "../../features/tasks/api";
 import { resetProjectsStore } from "../../features/projects/store";
 import type { Project } from "../../features/projects/types";
-import { resetTasksStore, setAll as setTasks, tasksState } from "../../features/tasks/store";
+import {
+  installPage,
+  resetTasksStore,
+  setAll as setTasks,
+  setUnfinishedCounts,
+  tasksState,
+} from "../../features/tasks/store";
 import type { Task } from "../../features/tasks/types";
 import { routeTree } from "../../router";
 
@@ -44,6 +50,14 @@ vi.mock("../../features/projects/api", () => ({
 
 vi.mock("../../features/tasks/api", () => ({
   listTasks: vi.fn().mockResolvedValue([]),
+  listTasksByProject: vi.fn().mockResolvedValue({
+    rows: [],
+    children: [],
+    related: [],
+    blocked: [],
+    hasMore: false,
+    cursor: null,
+  }),
   listUnfinishedCounts: vi.fn().mockResolvedValue([]),
   createTask: vi.fn(),
   updateTask: vi.fn(),
@@ -115,6 +129,11 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     deletedAt: null,
     ...overrides,
   };
+}
+
+/** 侧边栏的箭头读这一条聚合；测试直接播种，省掉一次往返。 */
+function seedUnfinished(projectId: string, unfinished: number) {
+  setUnfinishedCounts([{ projectId, unfinished }]);
 }
 
 function renderShell() {
@@ -208,6 +227,24 @@ describe("AppShell sidebar", () => {
       task("t4", { projectId: "p2", title: "别的任务" }),
       task("t5", { title: "收件箱任务" }),
     ]);
+    // 箭头读计数聚合、列表读项目自己的范围：两样都直接播种，省掉往返。
+    seedUnfinished("p1", 1);
+    installPage(
+      "project:p1",
+      {
+        rows: [
+          task("t1", { projectId: "p1", title: "写周报" }),
+          task("t2", { projectId: "p1", title: "已完成的", completedAt: "2026-09-15T10:00:00Z" }),
+          task("t3", { projectId: "p1", title: "子任务", parentTaskId: "t1" }),
+        ],
+        children: [],
+        related: [],
+        blocked: [],
+        hasMore: false,
+        cursor: null,
+      },
+      false,
+    );
     renderShell();
 
     fireEvent.click(await screen.findByRole("button", { name: "展开项目 杂事" }));
@@ -247,6 +284,19 @@ describe("AppShell sidebar", () => {
     vi.mocked(tasksApi.listTasks).mockResolvedValue([
       task("t1", { projectId: "p1", title: "写周报" }),
     ]);
+    seedUnfinished("p1", 1);
+    installPage(
+      "project:p1",
+      {
+        rows: [task("t1", { projectId: "p1", title: "写周报" })],
+        children: [],
+        related: [],
+        blocked: [],
+        hasMore: false,
+        cursor: null,
+      },
+      false,
+    );
     renderShell();
 
     fireEvent.click(await screen.findByRole("button", { name: "展开项目 杂事" }));
@@ -256,6 +306,29 @@ describe("AppShell sidebar", () => {
     fireEvent.click(within(list).getByRole("button", { name: "写周报" }));
 
     expect(screen.getByRole("dialog").textContent).toContain("写周报");
+  });
+
+  it("展开项目时按需装载它的范围，列表不来自全量快照", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    vi.mocked(tasksApi.listTasksByProject).mockResolvedValue({
+      rows: [task("t1", { projectId: "p1", title: "买菜" })],
+      children: [],
+      related: [],
+      blocked: [],
+      hasMore: false,
+      cursor: null,
+    });
+    seedUnfinished("p1", 1);
+    // 快照里没有这一行：标题只能来自范围。
+    setTasks([], []);
+
+    renderShell();
+    fireEvent.click(await screen.findByRole("button", { name: "展开项目 杂事" }));
+
+    const list = await screen.findByRole("navigation", { name: "杂事 的未完成任务" });
+    expect(within(list).getByText("买菜")).toBeTruthy();
+    expect(tasksApi.listTasksByProject).toHaveBeenCalledWith("p1");
   });
 
   it("lists an archived namespace's projects under it, not in the flat archive", async () => {
