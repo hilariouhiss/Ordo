@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as projectsStore from "../../projects/store";
 import type { Project } from "../../projects/types";
+import * as statsApi from "../../stats/api";
 import { resetTasksStore, setAll as setTasks } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import { NamespaceProjectsView } from "../components/NamespaceProjectsView";
@@ -27,6 +28,16 @@ vi.mock("../../projects/hooks", () => ({
   updateProject: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
+}));
+
+// The page reads its bars from `stats:projectProgress`; mocking the api module
+// (not the hook) is what keeps the real `useProjectProgress` under test while
+// the tallies stay scripted. The default empty tally keeps the cases that do
+// not care about the bars away from the real IPC layer.
+vi.mock("../../stats/api", () => ({
+  projectProgress: vi.fn().mockResolvedValue([]),
+  completionTrend: vi.fn(),
+  timeDistribution: vi.fn(),
 }));
 
 function namespaceFixture(overrides: Partial<Namespace> = {}): Namespace {
@@ -94,10 +105,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("NamespaceProjectsView", () => {
-  it("aggregates the group's task progress from the live stores", () => {
+  // 这一页不再从任务快照里数：汇总和每张卡都读服务端聚合，所以快照里放一组
+  // 与聚合对不上的行，页面上一个都不许出现。
+  it("reads the summary and the cards from the aggregate, not the task snapshot", async () => {
     projectsStore.setAll([project("p1"), project("p2")]);
+    vi.mocked(statsApi.projectProgress).mockResolvedValue([
+      { projectId: "p1", name: "项目 p1", total: 4, completed: 1 },
+      { projectId: "p2", name: "项目 p2", total: 2, completed: 1 },
+    ]);
     setTasks(
-      [task("t1", "p1", true), task("t2", "p1"), task("t3", "p2"), task("t4", null)],
+      [task("t1", "p1"), task("t2", "p1"), task("t3", "p2"), task("t4", null)],
       [],
     );
 
@@ -105,20 +122,44 @@ describe("NamespaceProjectsView", () => {
 
     expect(screen.getByText("工作")).toBeTruthy();
     expect(screen.getByText("主线项目")).toBeTruthy();
-    // 1 of 3 tasks in the group is done; the inbox task is not counted.
-    expect(screen.getByText("1 / 3 已完成")).toBeTruthy();
+
+    // 汇总 = 本命名空间两行之和（1/4 + 1/2），不是快照里的三个未完成任务。
+    await waitFor(() => expect(screen.getByText("2 / 6 已完成")).toBeTruthy());
+    expect(screen.queryByText("0 / 3 已完成")).toBeNull();
+    // 每张卡报自己那一行。
+    expect(screen.getByText("1 / 4 已完成")).toBeTruthy();
+    expect(screen.getByText("1 / 2 已完成")).toBeTruthy();
   });
 
-  // §8.5: both the group summary and each project card count top-level tasks —
-  // a child is a step inside its parent, not a second piece of work.
-  it("leaves child tasks out of the summary and the project cards", () => {
-    projectsStore.setAll([project("p1")]);
-    setTasks([task("t1", "p1", true), { ...task("c1", "p1"), parentTaskId: "t1" }], []);
+  it("sums the group's own projects only, ignoring the rest of the tally", async () => {
+    projectsStore.setAll([project("p1"), project("p2", { namespaceId: "ns2" })]);
+    vi.mocked(statsApi.projectProgress).mockResolvedValue([
+      { projectId: "p1", name: "项目 p1", total: 3, completed: 2 },
+      { projectId: "p2", name: "项目 p2", total: 9, completed: 9 },
+    ]);
 
     render(() => <NamespaceProjectsView namespace={namespaceFixture()} />);
 
-    // The summary and the card each report the same single top-level task.
-    expect(screen.getAllByText("1 / 1 已完成")).toHaveLength(2);
+    // 汇总就是 p1 那一行（卡片与汇总各一处），别的命名空间的行不进来。
+    await waitFor(() => expect(screen.getAllByText("2 / 3 已完成")).toHaveLength(2));
+    expect(screen.queryByText("9 / 9 已完成")).toBeNull();
+  });
+
+  it("leaves the page standing when the aggregate fails", async () => {
+    projectsStore.setAll([project("p1")]);
+    vi.mocked(statsApi.projectProgress).mockRejectedValue({
+      code: "db",
+      message: "数据库连接锁失效",
+    });
+
+    render(() => <NamespaceProjectsView namespace={namespaceFixture()} />);
+
+    // 失败也算落地：不画汇总面板（0 / 0 是「拿到了空聚合」的样子，不是这里），
+    // 项目列表照旧可用。
+    await waitFor(() => expect(statsApi.projectProgress).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText("0 / 0 已完成")).toBeNull();
+    expect(screen.getByRole("link", { name: "项目 p1" })).toBeTruthy();
   });
 
   it("shows the empty state and creates a project inside the namespace", async () => {

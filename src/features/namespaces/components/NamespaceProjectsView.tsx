@@ -4,11 +4,11 @@ import { Link } from "@tanstack/solid-router";
 import { Archive, FolderKanban, MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, iconButtonClass } from "../../../common/components";
 import { getIcon } from "../../../common/icons";
-import { tasks as allTasks } from "../../tasks/store";
 import { ProjectEditorDialog } from "../../projects/components/ProjectEditorDialog";
 import { ProjectProgress } from "../../projects/components/ProjectProgress";
 import { archiveProject, updateProject } from "../../projects/hooks";
 import type { Project } from "../../projects/types";
+import { useProjectProgress } from "../../stats/hooks";
 import { archiveNamespace, restoreNamespace } from "../hooks";
 import { getNamespace, projectsInNamespace } from "../store";
 import type { Namespace } from "../types";
@@ -18,10 +18,12 @@ import { NamespaceEditorDialog } from "./NamespaceEditorDialog";
  * Namespace work area: the group's identity header with an aggregate progress
  * summary, and the projects filed under it.
  *
- * Every number derives from the live stores (projects + tasks), so completing a
- * task moves the group's bar in the same tick — no backend aggregation command
- * and no refresh window. Archived projects are managed from the sidebar's
- * archived section, so this page lists active ones only: one place per project.
+ * The numbers come from `stats:projectProgress` — one aggregate for the whole
+ * page (live projects, top-level tasks only) instead of filtering the global
+ * task snapshot — so the bars do not flicker with the task stores and a cold
+ * start needs no snapshot at all. Archived projects are managed from the
+ * sidebar's archived section, so this page lists active ones only: one place
+ * per project.
  */
 export function NamespaceProjectsView(props: { namespace: Namespace }) {
   // Prefer the live store row so optimistic patches (renames, archive flips)
@@ -29,14 +31,21 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
   const namespace = createMemo(() => getNamespace(props.namespace.id) ?? props.namespace);
   const projects = createMemo(() => projectsInNamespace(namespace().id));
 
-  /** Tasks across every project in the group — the aggregate progress input. */
-  const tasks = createMemo(() => {
+  /** 每项目计数来自服务端聚合（存活项目、顶层任务），不再从任务快照里数。 */
+  const progress = useProjectProgress();
+  const tallyOf = (projectId: string) =>
+    progress.tallies().find((row) => row.projectId === projectId);
+  /** 汇总 = 本命名空间里各项目计数之和（`projects()` 只列存活项目，口径一致）。 */
+  const summary = createMemo(() => {
     const ids = new Set(projects().map((project) => project.id));
-    return allTasks().filter((task) => task.projectId !== null && ids.has(task.projectId));
+    return progress
+      .tallies()
+      .filter((row) => ids.has(row.projectId))
+      .reduce(
+        (acc, row) => ({ total: acc.total + row.total, completed: acc.completed + row.completed }),
+        { total: 0, completed: 0 },
+      );
   });
-
-  const tasksOf = (projectId: string) =>
-    allTasks().filter((task) => task.projectId === projectId);
 
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<Project | null>(null);
@@ -126,8 +135,10 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
           <p class="pb-2 text-xs text-subtle-foreground">
             {projects().length} 个项目 · 汇总进度
           </p>
-          {/* §8.5: only top-level tasks, here and on each project card below. */}
-          <ProjectProgress tasks={tasks().filter((task) => task.parentTaskId === null)} />
+          {/* 聚合没到手（还在路上或失败）就先不画面板，而不是画一个 0 / 0。 */}
+          <Show when={progress.ready() && !progress.failed()}>
+            <ProjectProgress total={summary().total} completed={summary().completed} />
+          </Show>
         </div>
       </header>
 
@@ -173,11 +184,11 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
                       {project.name}
                     </Link>
                     <div class="mt-1.5">
-                      <ProjectProgress
-                        tasks={tasksOf(project.id).filter(
-                          (task) => task.parentTaskId === null,
+                      <Show when={tallyOf(project.id)}>
+                        {(tally) => (
+                          <ProjectProgress total={tally().total} completed={tally().completed} />
                         )}
-                      />
+                      </Show>
                     </div>
                   </div>
 

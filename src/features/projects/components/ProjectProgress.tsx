@@ -1,27 +1,27 @@
 import { createMemo } from "solid-js";
-import type { Task } from "../../tasks/types";
 
 export interface ProjectProgressProps {
-  /** The project's own tasks; the panel derives everything from them. */
-  tasks: Task[];
+  /** 顶层任务总数；口径由调用方决定（项目页传自己范围的行，命名空间页传聚合）。 */
+  total: number;
+  completed: number;
 }
 
 /**
  * Project progress summary (ST-03): the overall bar, the completion rate and
  * how much work is left.
  *
- * Every number derives from the live task list handed in — the project view
- * passes its reactive store slice — so checking a task moves the bar, the
- * rate and the remaining count in the same tick, without a backend round
- * trip. No countdown: projects have no deadline (R2) — task and subtask due
- * dates are where time pressure lives.
+ * The two numbers arrive from the caller — the project view counts its own
+ * scope's rows, the namespace page hands in the server's tally — so the panel
+ * renders whatever口径 the surface above it decided on. No countdown: projects
+ * have no deadline (R2) — task and subtask due dates are where time pressure
+ * lives.
  *
  * The percentage is the project's headline number, so it is set at label size
  * beside the bar rather than tucked away at caption size.
  */
 export function ProjectProgress(props: ProjectProgressProps) {
-  const total = createMemo(() => props.tasks.length);
-  const done = createMemo(() => props.tasks.filter((task) => task.completedAt !== null).length);
+  const total = () => props.total;
+  const done = () => props.completed;
   const remaining = createMemo(() => total() - done());
   const rate = createMemo(() => (total() === 0 ? 0 : Math.round((done() / total()) * 100)));
 

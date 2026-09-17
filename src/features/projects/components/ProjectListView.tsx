@@ -30,6 +30,8 @@ export function ProjectListView(props: { project: Project }) {
   const scope = () => `project:${project().id}`;
   const tasks = createMemo(() => scopeRows(scope()));
   const meta = () => scopeMetaOf(scope());
+  /** 顶层行才进进度条（§8.5：子任务是父任务内部的一步，两边都数会重复计）。 */
+  const topLevel = createMemo(() => tasks().filter((task) => task.parentTaskId === null));
 
   // 深层链接可以第一个落在这里：项目行自己由 AppShell 装载，任务要自己保证。
   // 项目详情是路由参数，切换项目时范围跟着换；`on` 首次即运行，挂载也覆盖。
@@ -135,10 +137,10 @@ export function ProjectListView(props: { project: Project }) {
           </Show>
 
           <div class="mt-4">
-            {/* §8.5: the panel counts the slice it is handed, so the
-                top-level-only filter happens here — a child is a step inside its
-                parent, and counting both would report the same work twice. */}
-            <ProjectProgress tasks={tasks().filter((task) => task.parentTaskId === null)} />
+            <ProjectProgress
+              total={topLevel().length}
+              completed={topLevel().filter((task) => task.completedAt !== null).length}
+            />
           </div>
         </header>
 

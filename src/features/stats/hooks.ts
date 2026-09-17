@@ -1,6 +1,7 @@
 /**
- * Data hook for the statistics view. Statistics is read-only and derived, so
- * there is no store: the view gets its series straight from `useStats`.
+ * Data hooks for the statistics domain. Statistics is read-only and derived, so
+ * there is no store: the stats view gets its series straight from `useStats`,
+ * and a surface that only wants the project tally uses `useProjectProgress`.
  *
  * Two independent loads share one failure flag: the range-dependent series
  * (re-queried whenever the range or the distribution dimension changes) and
@@ -125,4 +126,35 @@ export function useStats(
       void loadRange(range(), groupBy());
     },
   };
+}
+
+export interface ProjectProgressData {
+  /** 每项目计数（只含存活项目、只算顶层任务）。 */
+  tallies: () => ProjectProgress[];
+  /** 已经拿到过响应（成功或失败都算落地）。 */
+  ready: () => boolean;
+  failed: () => boolean;
+}
+
+/**
+ * 只要那一笔项目计数时用它：统计页的 `useStats` 还带着 range、维度与序列
+ * 对齐，命名空间页要的是同一口径（存活项目、顶层任务）的裸聚合。挂载时取
+ * 一次；失败只标记，不弹通知（页面的项目列表照常可用）。
+ */
+export function useProjectProgress(): ProjectProgressData {
+  const [tallies, setTallies] = createSignal<ProjectProgress[]>([]);
+  const [ready, setReady] = createSignal(false);
+  const [failed, setFailed] = createSignal(false);
+
+  onMount(async () => {
+    try {
+      setTallies(await api.projectProgress());
+    } catch {
+      setFailed(true);
+    } finally {
+      setReady(true);
+    }
+  });
+
+  return { tallies, ready, failed };
 }
