@@ -108,7 +108,8 @@ src/
 - 派生数据用 Solid 的 `createMemo` 从 store 计算，**不重复存储**：今日任务、项目完成率、统计聚合、命名空间分组、阻塞状态都是派生量。
 - **任务树随启动全量载入**：`loadAll` 一次取回全部存活任务（**含子任务**——子任务就是 `parent_task_id` 非空的行）、标签与依赖边。列表要在折叠状态下就显示「谁有子任务、做完几项」，逐行懒加载会变成 N 次 IPC；层级只有一层，一次全表查询就能带走整棵树。
 - **`all` 快照的批量载入发生在启动**：会话中途的刷新走 `reloadTasks`（重拉任务与标签，整表替换）。它替换的就是权威快照本身，没有第二份需要防覆盖的副本；**已装载**的项目范围也在这一步用同一份快照重新推导 id 列表（成员关系就是行的 `projectId`，顺序就是快照的顺序），没装载过的范围仍然只由 `ensureScope` 按需装载。
-- **范围按需装载，`ensureScope` 是唯一入口**（`hooks.ts`）：已装载就立即返回，同一范围的并发调用复用同一个请求（导航重挂载会同时发起两次），失败写进 `scopeMeta[scope].error` 并让范围保持未装载——下一次调用会重试；`force = true` 是错误面板「重试」按钮走的路径。**项目详情与看板读 `project:<id>` 范围**（`scopeRows` / `scopeMetaOf`），其余界面过渡期仍读 `all`（`tasks()`）。
+- **范围按需装载，`ensureScope` 是唯一入口**（`hooks.ts`）：已装载就立即返回，同一范围的并发调用复用同一个请求（导航重挂载会同时发起两次），失败写进 `scopeMeta[scope].error` 并让范围保持未装载——下一次调用会重试；`force = true` 是错误面板「重试」按钮走的路径。**已不读 `all` 的界面**是项目详情与看板（读 `project:<id>` 范围，`scopeRows` / `scopeMetaOf`）、侧边栏的项目行（箭头读计数聚合，展开时才装载该项目范围——**首次展开才装载**，所以箭头不依赖任何任务行）与命名空间页（读 `stats:projectProgress`）；其余界面（四个视图等）过渡期仍读 `all`（`tasks()`）。
+- **未完成计数是一张独立的小表**（`store.unfinishedByProject`，`projectId → 未完成顶层行数`）：`loadUnfinishedCounts()`（`hooks.ts`）一次取回全部存活项目的计数，侧边栏的项目行只问它「这个数是不是 0」。外壳挂载时取一次，此后只在**可能改变这个数的写之后**重取：新建、完成、取消完成（`completedAt` 变了）、删除、恢复、改归属项目、改 `parentTaskId`、看板移列，以及 quick-add 在主窗派发的 `task:created`。纯标题/备注/标签/优先级编辑与排序不重取——`updateTask` 的守卫按字段**值**比较而不是按「键在不在」（编辑器每次保存都带上任务自己的 `projectId`，按键比会让每次改名都白跑一趟聚合）。
 - **项目范围的成员关系由行的 `projectId` 直接判定**（`store.ts` 的 `indexProjectScope` / `unindexProjectScope`）：`upsertTask`（新建，或行的 `projectId` 变了）、`patchTask`（同上）、`insertTaskAt`（软删回滚把行放回原位）、`setAll`（刷新时按快照重新派生）负责把行搬进搬出**已装载**的项目范围，`removeTask` 则把该 id 从每个范围里摘掉。没装载过的项目范围不凭空造，等它自己装载时再从服务端取。
 - **子任务没有独立命令，也没有按需拉取**：`task:create` 的 `subtaskTitles` 由后端在同一事务里插成子行，这些 id 不在创建响应里，所以创建成功后补拉一次 `reloadTasks`；除此之外整棵树一直在 store 里，详情弹窗直接按父 id 过滤，没有加载态。
 - **不存在父任务已删的孤儿行**：软删除父任务会在同一事务里级联软删全部子任务（恢复同理），迁移与备份导入也已清掉历史孤儿，所以载入路径不需要额外的「父任务是否还活着」谓词。
@@ -136,7 +137,7 @@ src/
 
 **阻塞是软的**：`completeTask` 只在「完成」时检查未完成前置，命中就**先不写库**，把请求停到 `blocked-confirm.ts`，由 `AppShell` 挂载的唯一 `BlockedConfirmHost` 弹一次确认（取消即丢弃）。**检查收敛在一个门（`hooks.ts` 的 `parkIfBlocked`）上，完成入口有四个**：任务行、详情弹窗、子任务行走的都是 `completeTask`（子任务就是任务行，没有第二个完成函数）；把卡片拖进完成列同样是完成（后端在那里打 `completed_at` 并生成重复实例），所以 `board/hooks.ts` 的 `moveTaskToColumn` 在动手之前先过同一道门。请求自带「确认后要执行的动作」（`BlockedRequest.run`：完成，或整次拖拽移动），宿主只调 `run()`、不按来源分支，写入失败时保留对话框与前置清单；取消完成永不检查。
 
-**命名空间分组同样是派生量**：侧边栏与命名空间页都从 store 派生——`projectsInNamespace(id)`、`ungroupedProjects()`（未归属 + 命名空间已消失的孤儿）、`archivedLooseProjects()` / `archivedProjectsOf(id)`（已归档区的平铺与嵌套口径）。判定归属用**存活命名空间集合**而不是 `namespaceId` 是否为空。每个项目只出现在一处：分组行、根级平铺、已归档平铺、或已归档分组，四者互斥。
+**命名空间分组同样是派生量**：分组与项目列表都从 store 派生——`projectsInNamespace(id)`、`ungroupedProjects()`（未归属 + 命名空间已消失的孤儿）、`archivedLooseProjects()` / `archivedProjectsOf(id)`（已归档区的平铺与嵌套口径）；但两处画在项目行上的**数字不来自这个 store**——侧边栏项目行的展开箭头读 `project:unfinishedCounts`，命名空间页的进度条读 `stats:projectProgress`（§2.3、§3.2）。判定归属用**存活命名空间集合**而不是 `namespaceId` 是否为空。每个项目只出现在一处：分组行、根级平铺、已归档平铺、或已归档分组，四者互斥。
 
 ### 2.5 路由
 
@@ -228,14 +229,14 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 命令统一放在 `commands.rs`，命名 `<domain>:<action>`，Rust 侧用 `#[tauri::command(rename = "task:list")]` 注册（函数名保持合法标识符如 `task_list`）；参数键为 camelCase（Tauri 2 默认，`task_id` → `taskId`）。前端字符串常量集中在 `src/common/ipc/commands.ts`，避免散落魔法字符串。
 
-后端**实际注册 44 个命令**（`lib.rs` 的 `invoke_handler`）：
+后端**实际注册 45 个命令**（`lib.rs` 的 `invoke_handler`）：
 
 | 域 | 命令 |
 | --- | --- |
 | task | `list` `listByProject` `create` `update` `complete` `softDelete` `restore` `reorder` |
 | dependency | `listAll` `add` `remove` |
 | tag | `list` `create` `update` `delete` |
-| project | `list` `create` `update` `archive` `restore` |
+| project | `list` `unfinishedCounts` `create` `update` `archive` `restore` |
 | namespace | `list` `create` `update` `archive` `restore` |
 | board | `listColumns` `moveTask` |
 | search | `query` |
@@ -247,7 +248,9 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 约定：每个命令返回 `Result<T, AppError>`；**任何返回任务行的命令都返回 `TaskWithTags`**（`Task` 字段打平在顶层 + 一个 `tagIds` 键），前端无条件读 `tagIds`，所以没有哪个写路径可以只回裸行。`board:listColumns` 对不存在的项目返回空数组（不报错），`comment:list` / `time:list` 也不校验任务存在。
 
-**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（44 个）。
+**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（45 个）。
+
+`project:unfinishedCounts` 一次给出**每个存活项目**（含归档）未完成顶层任务的个数，供侧边栏项目行的展开箭头判断「还有没有未完成项」；它刻意不复用 `stats:projectProgress`——后者是统计页的口径，跳过归档项目。
 
 `task:listByProject` 返回 `TaskPage`：`rows` + 该带的 `children` + 范围外的父 `related` + 每行的未完成前置计数 `blocked`。项目范围**不分页**——项目详情的工具栏筛选与排序作用在整个项目上，与它此前自己过滤全量快照时的行为一致。
 
@@ -443,10 +446,11 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `board:moveTask` | 0.19 ms | 0.08 ms | 0.08 ms | 50 ms |
 | `task:list`（整树读，平均） | 15.96 ms | 56.26 ms | 338.72 ms | 50 ms |
 | `task:listByProject`（项目范围的读，平均） | 0.69 ms | 1.23 ms | 3.43 ms | 50 ms |
+| `project:unfinishedCounts`（每项目未完成顶层行数，平均） | 0.38 ms | 4.51 ms | 12.38 ms | 50 ms |
 
 写入路径三档都是常数级：V10 之前 `task:create` 是 8.11 ms 且随总行数线性涨（排序键要取「兄弟范围内最后一个键」，而那个范围只能靠整表 hydrate 得到），`idx_tasks_scope_sort` 之后是一次索引 seek。`task:list` 仍是整树读，8k 档起超预算——它就是「按范围懒加载」要拆掉的那条命令（[DECISIONS](./DECISIONS.md)§4）。
 
-**规模对启动的影响**（同一份二进制，`ORDO_DB` 指向对应档的验收库）：2825 行首屏 997–1045 ms（Rust 侧 576 ms、页面 634 ms；与上面那次会话的差在机器状态——`webview-main` 这段与本分支代码无关，本次 423 ms、上次 320–338 ms）；70025 行首屏 **27.1 s**，Rust 侧仍是 545 ms，其余全在页面：整树过 IPC（单条命令约 1.4 s）加前端按行派生（侧边栏每个项目行都在整表上过滤）。这条路径同样是按范围懒加载的替换对象。
+**规模对启动的影响**（同一份二进制，`ORDO_DB` 指向对应档的验收库）：2825 行首屏 997–1045 ms（Rust 侧 576 ms、页面 634 ms；与上面那次会话的差在机器状态——`webview-main` 这段与本分支代码无关，本次 423 ms、上次 320–338 ms）；70025 行首屏 **3.7 s**（Rust 侧到后端就绪 580 ms，其余全在页面：页面 3296 ms，其中最贵的一笔是整树过 IPC，`task:list` 自报 1491 ms）。侧边栏的项目行读的是计数聚合而不是任务行，不再为每个项目过滤一遍整表；整树本身仍是这条启动路径上最贵的一笔，所以它同样是按范围懒加载的替换对象。
 
 **两处缺口与可选手段**：热启动超出目标约 1.5–1.7 倍。能省的两处都要付代价——把 quick-add 小窗改成按下快捷键时才建（省约 123 ms，代价是第一次唤出要等 WebView 起来，D-02 特意没这么做），或启动时不拉整棵树（省约 270 ms，与 [DECISIONS](./DECISIONS.md)§1.2「`task:list` 一次带走整棵树」冲突）。两项都没做，理由与缺口记在 [DECISIONS](./DECISIONS.md)§4。
 

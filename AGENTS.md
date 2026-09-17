@@ -2,7 +2,7 @@
 
 ## What this is
 
-`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 44 commands (`src-tauri/src/commands.rs`); schema is at migration V10.
+`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 45 commands (`src-tauri/src/commands.rs`); schema is at migration V10.
 
 Outstanding verification work (animation/accessibility review, three-platform checks) is listed in `docs/DECISIONS.md`§4. The performance targets are measured — see `docs/ARCHITECTURE.md`§6.1.
 
