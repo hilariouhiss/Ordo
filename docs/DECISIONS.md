@@ -106,7 +106,7 @@
 | **Q-03** | 三端兼容验证 | **未完成** —— 见 §4 |
 | **Q-04** | 文档同步 | **本次整合即此项** —— 见 §4 |
 | **Q-05** | 质量收口 | 已落地 —— 测试全绿；已删除脚手架期的 demo 命令 `greet`、`settings:*` 死常量与占位用例 `src/__tests__/example.test.ts`；根 `README.md` 已补 |
-| **Q-06** | 全仓代码审查 | **审查已完成，修复进行中** —— 待修清单见 §4.1 |
+| **Q-06** | 全仓代码审查 | **审查已完成，修复进行中** —— 状态清单见 §4.1 |
 
 ### 2.2 变更需求（v1 迭代）
 
@@ -174,35 +174,36 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低）；QA-01 已修，余 22 项待修/知悉，逐项问题与修复方向见 §4.1 | 剩余问题集中在看板/统计的异步守卫与乐观更新脚手架重复两处；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 1 项（QA-01）；剩余问题集中在看板/统计的异步守卫与乐观更新脚手架重复两处；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
 审查覆盖后端全部模块（`services.rs`/`repositories.rs`/`db.rs`/`scheduler.rs`/`sort.rs` 等精读）、前端 `app`/`features/tasks`/`common` 精读与其余 feature、构建配置与迁移；当日 `cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`cargo test`（169 项）、`tsc --noEmit`、`vitest`（542 项）全绿。未发现 Critical：无数据损坏路径、无注入面（FTS 引号转义、LIKE 通配符转义、搜索摘要按段落渲染而非 `innerHTML` 均已核）。`QA-xx` 编号只在本清单内使用，不进源码注释。
 
-| 编号 | 级别 | 位置 | 问题与修复方向 |
-| --- | --- | --- | --- |
-| QA-02 | 中 | `features/tasks/components/views/TodayView.tsx` | 「今天」冻结在挂载时刻（`now` 信号无 setter），跨天后视图不刷新，注释声称的缓解机制不存在；列表/详情的逾期徽标同模式（装饰性）。改分钟级 tick 或 focus 重算，并修正注释 |
-| QA-03 | 中 | `features/board/components/BoardView.tsx` | `failed` 未按项目隔离：路由切项目后，前一项目在途加载的失败响应会给当前项目盖错误页。补请求序号守卫（搜索/统计/未完成计数已有现成范式） |
-| QA-04 | 中 | `features/stats/`（`StatsView.tsx` + `hooks.ts`） | 粒度切换时 `bucketKeys` 立即按新 range 计算、points 仍是旧 range 的，周/日键无交集 → 图表归零一拍，违反 hooks 自述的「旧数据留屏」不变量。keys 与 points 配对存储，或切换期间骨架屏 |
-| QA-05 | 中 | `src/common/optimistic.ts` 及全部调用点 | 整行快照回滚：同行两个重叠写中第一个失败时，回滚会抹掉第二个已成功的乐观状态，UI 与后端不一致直到下次整表刷新。按字段回滚，或失败后局部 reload 该实体 |
-| QA-06 | 中 | `tasks/hooks.ts`、`board/hooks.ts`、`settings/hooks.ts` 对 `common/optimistic.ts`；`projects/hooks.ts` 对 `namespaces/hooks.ts` | 乐观脚手架一份正本三份逐字拷贝（约 66 行，临时 id 计数器各自独立，跨域唯一性承诺已失效）；projects 与 namespaces 的 hooks/store/编辑器约 90% 相同（约 200 行）。拷贝收敛回正本，CRUD 钩子抽工厂 |
-| QA-07 | 中 | `features/tasks/components/TaskListView.tsx` + `virtual-list.tsx` | 任意 store 变更让 `rows()` 产出全新包装对象、VirtualList 再包一层 `{item, index}`，`For` 按引用键控 → 可见行（含 Kobalte 下拉菜单）整体销毁重建而非打补丁。包装对象按 task id 记忆化 |
-| QA-08 | 中 | `features/settings/hooks.ts` | 恢复成功后的整批重载与导入本身同一 try：重载失败被报成导入失败，内存仍是旧数据且无「不重新导入就能重试」的出口。导入与重载分开报告 |
-| QA-09 | 中 | `features/tasks/hooks.ts` | `restoreTask` 只刷任务与标签、不拉 `dependency:listAll`：恢复行的阻塞徽标与完成确认门读到陈旧边集，直到下次 `loadAll`。恢复路径补拉依赖边 |
-| QA-10 | 中 | `vitest.config.ts`、`package.json` | vitest 未设 `setupFiles` 且默认 node 环境：34 个测试文件手写环境注记、31 个手动 import setup（漏一个即微妙坏测试）；`vitest.config.ts` 不在任何 tsconfig 的 include 里，typecheck 不覆盖；约 2 万行 TS 无 linter。配置收敛（setupFiles 或 workspace 拆分环境）+ 引入 eslint/biome |
-| QA-11 | 低 | `src-tauri/src/db.rs` | 未显式 `PRAGMA foreign_keys = ON`，依赖 rusqlite bundled 构建的默认值（`foreign_keys_are_enforced` 测试可证）；换系统 SQLite 即静默失去全部 FK 约束。init 里显式 `pragma_update`，顺带评估 WAL/busy_timeout |
-| QA-12 | 低 | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | 服务层未强制两条不变量：`update_task` 不拒绝给子任务写 `columnId`（违反「子任务不上看板」，且该行会脱离自己的排序 scope 查询）；`create_task` 不校验 column 与 project 同属。当前前端无触发路径，属权威层防御缺口 |
-| QA-13 | 低 | `src-tauri/src/services.rs`（`next_due`） | 重复任务锚定 `due_at`（PRODUCT §2.4 的既定语义）：补完成逾期多日的任务，下一实例生来已逾期、逐周期追赶。可复议「滚动到未来」 |
-| QA-14 | 低 | `src-tauri/src/commands.rs`（`backup:*`） | `backup:import/export` 为同步命令：大库导入长持主线程与全局连接锁，期间全部命令与提醒扫描排队。改 async + `spawn_blocking` |
-| QA-15 | 低 | `features/tasks/reminders.ts` | 窗口隐藏期间触发的提醒只保留最后一条（单值 `pending`），先到的点击定位丢失（toast 仍在，可恢复）。改队列 |
-| QA-16 | 低 | `features/tasks/store.ts` | `setUnfinishedCounts` 注释称合并写、实现是整表替换（替换才正确：已删项目的箭头会消失）。改注释，防「按注释修代码」回退 |
-| QA-17 | 低 | `app/AppShell.tsx` | `loadAll` 无在途去重：外壳与首个视图启动时各发一次（`loaded` 在在途时仍为 false）；`ensureScope` 的 `inFlightScopes` 已解决同类问题。数据无损，浪费两轮 IPC |
-| QA-18 | 低 | `features/tasks/components/TagManagerDialog.tsx` | `usageCount` 每个标签行过滤并重排整个任务快照，O(tags × n log n)/次更新（对话框开着时随每次 store 变更触发）。一次 `createMemo` 建 `Map<tagId, count>` |
-| QA-19 | 低 | `app/AppShell.tsx`、`features/tasks/reminders.ts` | 应用级 `listen`/`focus` 监听从不清理（`QuickAddWindow.tsx` 有正确的 disposed 范式）。生产无害，HMR 与测试泄漏 |
-| QA-20 | 低 | `src-tauri/tauri.conf.json` | CSP 为 null（模板默认）。已核全部动态内容走 Solid 转义、搜索摘要按段落渲染，无注入路径；备份导入是唯一外来数据面，属防御性加固项 |
-| QA-21 | 低 | `src-tauri/src/commands.rs`（`with_conn`） | 连接锁中毒后所有命令永久返回「锁失效」（dev 构建下 panic 后需重启；release 的 `panic = "abort"` 使其实际不可达）。知悉项，可不修 |
-| QA-22 | 低 | 后端全局 | 日志仅 `eprintln!`，无分级与落盘。桌面单机可接受；排障需求出现时引入 `tauri-plugin-log` |
-| QA-23 | 低 | `package.json`、`vitest.config.ts` | `@tailwindcss/vite`/`tailwindcss` 为构建期依赖却在 `dependencies`；vitest transform 占近半测试耗时（提示开 `fsModuleCache: true`） |
+| 编号 | 级别 | 一句话描述 | 是否解决 | 位置 | 问题与修复方向 |
+| --- | --- | --- | --- | --- | --- |
+| QA-01 | 高 | 窗口拉高后虚拟列表新暴露区域空白，滚动后才恢复 | **已解决**（68b77a8） | `src/common/components/virtual-list.tsx` | `onMount` 挂 `ResizeObserver`，回调复用 `handleScroll` 重采样几何，`onCleanup` 断开；回归测试以记录型 stub 手动派发 resize |
+| QA-02 | 中 | 「今天」冻结在挂载时刻，跨天后视图不刷新 | 未解决 | `features/tasks/components/views/TodayView.tsx` | `now` 信号无 setter，注释声称的缓解机制不存在；列表/详情的逾期徽标同模式（装饰性）。改分钟级 tick 或 focus 重算，并修正注释 |
+| QA-03 | 中 | 看板切换项目后，前项目的失败响应给当前项目盖错误页 | 未解决 | `features/board/components/BoardView.tsx` | `failed` 未按项目隔离。补请求序号守卫（搜索/统计/未完成计数已有现成范式） |
+| QA-04 | 中 | 统计粒度切换时图表归零一拍 | 未解决 | `features/stats/`（`StatsView.tsx` + `hooks.ts`） | `bucketKeys` 立即按新 range 计算、points 仍是旧 range 的，周/日键无交集，违反 hooks 自述的「旧数据留屏」不变量。keys 与 points 配对存储，或切换期间骨架屏 |
+| QA-05 | 中 | 乐观更新的整行回滚会覆盖同行的并发成功写 | 未解决 | `src/common/optimistic.ts` 及全部调用点 | 同行两个重叠写中第一个失败时，回滚抹掉第二个已成功的乐观状态，UI 与后端不一致直到下次整表刷新。按字段回滚，或失败后局部 reload 该实体 |
+| QA-06 | 中 | 乐观脚手架三份逐字拷贝，projects/namespaces 约 90% 重复 | 未解决 | `tasks/hooks.ts`、`board/hooks.ts`、`settings/hooks.ts` 对 `common/optimistic.ts`；`projects/hooks.ts` 对 `namespaces/hooks.ts` | 约 66 行拷贝使临时 id 计数器各自独立、跨域唯一性承诺失效；projects 与 namespaces 的 hooks/store/编辑器约 200 行雷同。拷贝收敛回正本，CRUD 钩子抽工厂 |
+| QA-07 | 中 | 任意 store 变更导致全部可见任务行销毁重建 | 未解决 | `features/tasks/components/TaskListView.tsx` + `virtual-list.tsx` | `rows()` 产出全新包装对象、VirtualList 再包一层 `{item, index}`，`For` 按引用键控 → 可见行（含 Kobalte 下拉菜单）整体重建而非打补丁。包装对象按 task id 记忆化 |
+| QA-08 | 中 | 恢复成功但重载失败被误报为导入失败 | 未解决 | `features/settings/hooks.ts` | 恢复后的整批重载与导入同一 try，重载失败时无「不重新导入就能重试」的出口。导入与重载分开报告 |
+| QA-09 | 中 | 恢复任务后依赖边不刷新，阻塞状态陈旧 | 未解决 | `features/tasks/hooks.ts` | `restoreTask` 只刷任务与标签、不拉 `dependency:listAll`，直到下次 `loadAll`。恢复路径补拉依赖边 |
+| QA-10 | 中 | vitest 样板散落 34 个测试文件，全仓无 linter | 未解决 | `vitest.config.ts`、`package.json` | 未设 `setupFiles` 且默认 node 环境：34 个文件手写环境注记、31 个手动 import setup；`vitest.config.ts` 不在任何 tsconfig include 里；约 2 万行 TS 无 linter。配置收敛（setupFiles 或 workspace 拆分环境）+ 引入 eslint/biome |
+| QA-11 | 低 | 未显式开启外键 PRAGMA，依赖 bundled 默认值 | 未解决 | `src-tauri/src/db.rs` | 换系统 SQLite 即静默失去全部 FK 约束（`foreign_keys_are_enforced` 测试可证 bundled 默认值）。init 里显式 `pragma_update`，顺带评估 WAL/busy_timeout |
+| QA-12 | 低 | 服务层不拒绝子任务写 `columnId` 等列一致性缺口 | 未解决 | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | `update_task` 不拒绝给子任务写 `columnId`（违反「子任务不上看板」，行会脱离自己的排序 scope）；`create_task` 不校验 column 与 project 同属。当前前端无触发路径，属权威层防御缺口 |
+| QA-13 | 低 | 补完成逾期的重复任务会生成已逾期实例 | 未解决（产品取舍，可复议） | `src-tauri/src/services.rs`（`next_due`） | 锚定 `due_at` 是 PRODUCT §2.4 的既定语义，代价是逐周期追赶。可复议「滚动到未来」 |
+| QA-14 | 低 | 备份导入同步长持主线程与连接锁 | 未解决 | `src-tauri/src/commands.rs`（`backup:*`） | 大库导入期间全部命令与提醒扫描排队。改 async + `spawn_blocking` |
+| QA-15 | 低 | 隐藏窗口期间的挂起提醒只保留最后一条 | 未解决 | `features/tasks/reminders.ts` | 单值 `pending` 使先到的点击定位丢失（toast 仍在，可恢复）。改队列 |
+| QA-16 | 低 | `setUnfinishedCounts` 注释与实现相反 | 未解决 | `features/tasks/store.ts` | 注释称合并写、实现是整表替换（替换才正确：已删项目的箭头会消失）。改注释，防「按注释修代码」回退 |
+| QA-17 | 低 | 启动时 `loadAll` 双发，无在途去重 | 未解决 | `app/AppShell.tsx` | 外壳与首个视图各发一次（`loaded` 在在途时仍为 false）；`ensureScope` 的 `inFlightScopes` 已解决同类问题。数据无损，浪费两轮 IPC |
+| QA-18 | 低 | 标签用量统计每次全量过滤并排序任务快照 | 未解决 | `features/tasks/components/TagManagerDialog.tsx` | `usageCount` 为 O(tags × n log n)/次更新（对话框开着时随每次 store 变更触发）。一次 `createMemo` 建 `Map<tagId, count>` |
+| QA-19 | 低 | 应用级 `listen`/`focus` 监听从不清理 | 未解决 | `app/AppShell.tsx`、`features/tasks/reminders.ts` | `QuickAddWindow.tsx` 有正确的 disposed 范式。生产无害，HMR 与测试泄漏 |
+| QA-20 | 低 | CSP 为 null（渲染路径已核安全） | 未解决 | `src-tauri/tauri.conf.json` | 模板默认。全部动态内容走 Solid 转义、搜索摘要按段落渲染，无注入路径；备份导入是唯一外来数据面，属防御性加固项 |
+| QA-21 | 低 | 连接锁中毒后所有命令永久失败 | 不修（知悉项） | `src-tauri/src/commands.rs`（`with_conn`） | dev 构建下 panic 后需重启；release 的 `panic = "abort"` 使其实际不可达 |
+| QA-22 | 低 | 日志仅 `eprintln!`，无分级与落盘 | 未解决 | 后端全局 | 桌面单机可接受；排障需求出现时引入 `tauri-plugin-log` |
+| QA-23 | 低 | tailwind 依赖分类错误、vitest transform 慢 | 未解决 | `package.json`、`vitest.config.ts` | `@tailwindcss/vite`/`tailwindcss` 为构建期依赖却在 `dependencies`；vitest transform 占近半测试耗时（提示开 `fsModuleCache: true`） |
 
 修复顺序建议：QA-02 先行（用户可见且改动小）；其次守卫与错误分流（QA-03/04/08/09）；再去重与渲染热路径（QA-05–07）与工程配套（QA-10）；其余低级别随手修。
