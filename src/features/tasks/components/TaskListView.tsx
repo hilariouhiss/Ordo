@@ -35,8 +35,19 @@ type ListRow =
       childDone: number;
       /** Prerequisites still unfinished; 0 means the row is not blocked. */
       blockerCount: number;
+      /** The row just entered the list: play its entry animation. */
+      animates: boolean;
+      /** Stagger for a subtask group unfolding, in ms; 0 for a top-level row. */
+      enterDelay: number;
     }
-  | { kind: "child"; task: Task; blocked: boolean; parentTitle: string | null };
+  | {
+      kind: "child";
+      task: Task;
+      blocked: boolean;
+      parentTitle: string | null;
+      animates: boolean;
+      enterDelay: number;
+    };
 
 export type SortOption = { value: SortMode; label: string };
 
@@ -145,7 +156,8 @@ export function TaskListView(props: TaskListViewProps) {
   const isOpen = (id: string) => Boolean(expanded()[id]) || autoOpen().has(id);
 
   /** Whether two rows say the same thing on screen: the same task object and
-   * the same derived numbers, which is what lets the older wrapper be reused. */
+   * the same derived numbers, which is what lets the older wrapper be reused.
+   * The entry-animation fields are not part of "the same thing" — see `keep`. */
   function sameRow(previous: ListRow, next: ListRow): boolean {
     if (previous.kind !== next.kind || previous.task !== next.task) return false;
     if (previous.kind === "child" && next.kind === "child") {
@@ -173,6 +185,15 @@ export function TaskListView(props: TaskListViewProps) {
    */
   let rowCache = new Map<string, ListRow>();
 
+  /**
+   * Ids that have been on screen already. The entry animation is for a row that
+   * *enters the list* — newly matching a filter, an unfolded subtask, a task
+   * created elsewhere — never for one the virtualizer re-mounted after a scroll
+   * (that would flicker the whole window on every flick of the wheel). An id
+   * drops out of the set with the row, so re-entering replays it.
+   */
+  let entered = new Set<string>();
+
   const rows = createMemo<ListRow[]>(() => {
     const live = liveSet(tasks());
     const index = buildIndex(tasksState.dependencies, live);
@@ -181,10 +202,28 @@ export function TaskListView(props: TaskListViewProps) {
     const blockedOf = (task: Task) =>
       task.completedAt === null && isBlocked(index, done, task.id);
     const kept = new Map<string, ListRow>();
+    /** Which ids have now been seen, i.e. the next set of `entered`. */
+    const seen = new Set<string>();
+    const entryOf = (id: string, delay: number) => ({
+      animates: !entered.has(id),
+      enterDelay: delay,
+    });
     const keep = (row: ListRow): ListRow => {
       const previous = rowCache.get(row.task.id);
-      const stable = previous !== undefined && sameRow(previous, row) ? previous : row;
+      // A row already on screen keeps its wrapper even when it needs patching,
+      // and it keeps its entry-animation verdict with it: that verdict belongs to
+      // the pass the row appeared in, and letting it flip from one pass to the
+      // next would hand `For` a fresh wrapper — rebuilding the row, which drops
+      // focus and any open row menu, and which `task-views.test.tsx` asserts
+      // against. So a patched row is carried over as the next pass's baseline.
+      const stable =
+        previous === undefined
+          ? row
+          : sameRow(previous, row)
+            ? previous
+            : { ...row, animates: previous.animates, enterDelay: previous.enterDelay };
       kept.set(row.task.id, stable);
+      seen.add(row.task.id);
       return stable;
     };
 
@@ -197,6 +236,7 @@ export function TaskListView(props: TaskListViewProps) {
             task,
             blocked: blockedOf(task),
             parentTitle: parentTitleOf(task.id),
+            ...entryOf(task.id, 0),
           }),
         );
         continue;
@@ -215,20 +255,31 @@ export function TaskListView(props: TaskListViewProps) {
           // 「仍要完成」, and its prerequisite may still be open).
           blockerCount:
             task.completedAt === null ? blockersOf(index, done, task.id).length : 0,
+          ...entryOf(task.id, 0),
         }),
       );
       // Children ignore the toolbar filters (§8.6): they are context for the
       // parent row, and hiding one would leave its 0/2 badge lying.
       if (children.length === 0 || !isOpen(task.id)) continue;
-      for (const child of children) {
+      children.forEach((child, order) => {
+        // Unfolding a group cascades instead of slamming six rows down at once.
+        // Capped at the third row: a longer delay would outlast the 200ms
+        // animation itself and read as a stutter, not a cascade.
         out.push(
-          keep({ kind: "child", task: child, blocked: blockedOf(child), parentTitle: null }),
+          keep({
+            kind: "child",
+            task: child,
+            blocked: blockedOf(child),
+            parentTitle: null,
+            ...entryOf(child.id, Math.min(order, 3) * 20),
+          }),
         );
-      }
+      });
     }
     // Rows that left the list are not coming back as the same wrapper; dropping
     // them keeps the cache bounded by what is on screen.
     rowCache = kept;
+    entered = seen;
     return out;
   });
 
@@ -453,6 +504,7 @@ export function TaskListView(props: TaskListViewProps) {
                 blockerCount={row.blockerCount}
                 expanded={isOpen(row.task.id)}
                 autoExpanded={autoOpen().has(row.task.id)}
+                enterDelay={row.animates ? row.enterDelay : null}
                 onToggleExpand={toggleExpand}
                 onToggleComplete={toggleComplete}
                 onOpenDetail={openDetail}
@@ -465,6 +517,7 @@ export function TaskListView(props: TaskListViewProps) {
                 task={row.task}
                 parentTitle={row.parentTitle}
                 blocked={row.blocked}
+                enterDelay={row.animates ? row.enterDelay : null}
                 onToggleDone={toggleChild}
                 onOpenDetail={openDetail}
                 onOpenParent={openParent}

@@ -233,7 +233,7 @@
 | --- | --- |
 | UI | 统一设计系统（Tailwind v4 `@theme` Token）；Kobalte 无样式原语自建组件，避免第三方 UI 库的「模板感」；一套灰 + 一个强调色；平面四层分层；排版按桌面密度；深色/浅色主题 |
 | 运行流畅 | 主界面交互 60fps，长列表虚拟滚动；数据读写走 Rust 后端命令，前端不阻塞主线程 |
-| 动效 | 仅用 CSS `transform` / `opacity` / 独立 `scale`·`translate`；微交互 150–300ms；遵循「减少动态效果」；不做退场动画 |
+| 动效 | 仅用 CSS `transform` / `opacity` / 独立 `scale`·`translate`（唯一例外：侧边栏折叠动画的 `width`）；微交互 150–300ms；遵循「减少动态效果」；不做退场动画 |
 | 体积 | Windows 安装包 < 30 MB（压缩后 < 15 MB），macOS / Linux 同量级 |
 | 响应 | 冷启动（首屏可交互）< 1.5s，热启动 < 0.5s；任务/项目操作命令往返 < 50ms；统计查询秒级返回 |
 | 平台 | Windows / macOS / Linux 三端一致体验；全局快捷键与托盘按平台适配；差异清单见 [ARCHITECTURE](./ARCHITECTURE.md)§6.3 |

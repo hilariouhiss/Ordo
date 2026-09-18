@@ -51,6 +51,10 @@ export interface TaskItemRowProps {
    * so the row drops its disclosure control instead of offering 收起 that
    * cannot fold anything away. */
   autoExpanded: boolean;
+  /** Play the row's entry animation with this stagger, in ms (`0` included);
+   * `null` (the default) for a row that was already on screen — a scroll that
+   * re-mounts it must not re-run the animation. */
+  enterDelay?: number | null;
   onToggleExpand: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   /** Clicking the title opens the task detail (subtasks live there). */
@@ -77,10 +81,16 @@ export function TaskItemRow(props: TaskItemRowProps) {
       // a large target, and highlighting all of it is what tells the eye which
       // row the trailing ⋯ button belongs to.
       class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-150 hover:bg-surface-hover/60"
+      classList={{
+        "bg-primary/10 ring-1 ring-inset ring-primary/40": childOver(),
+        "animate-row-in": props.enterDelay !== null,
+      }}
+      style={
+        props.enterDelay ? { "animation-delay": `${props.enterDelay}ms` } : undefined
+      }
       data-task-id={props.task.id}
       // The drop highlight is a ring, not a border: a border would change the
       // row's box and shove the 56px rhythm the virtualizer assumes.
-      classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": childOver() }}
       // R7b: the row is the drag source for "move this task to another
       // project" — the sidebar's project rows are the drop targets. Touch
       // input already needs the platform's own long-press before a drag

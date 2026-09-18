@@ -11,6 +11,10 @@ export interface SubtaskRowProps {
   parentTitle?: string | null;
   /** Whether an unfinished prerequisite is holding this child back. */
   blocked: boolean;
+  /** Play the row's entry animation with this stagger, in ms (`0` included);
+   * `null` (the default) for a row that was already on screen — a scroll that
+   * re-mounts it must not re-run the animation. */
+  enterDelay?: number | null;
   onToggleDone: (task: Task, done: boolean) => void;
   /** A child is a task with its own detail (R7c), so the title opens *that*,
    * not the parent's. */
@@ -41,6 +45,10 @@ export function SubtaskRow(props: SubtaskRowProps) {
     // biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it
     <div
       class="flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-150 hover:bg-surface-hover/60"
+      classList={{ "animate-row-in": props.enterDelay !== null }}
+      style={
+        props.enterDelay ? { "animation-delay": `${props.enterDelay}ms` } : undefined
+      }
       data-subtask-id={props.task.id}
       // R7b/§9.4: a child is a task, so it is a drag source like any other row
       // — dragging it onto a sidebar project row moves it into that project and

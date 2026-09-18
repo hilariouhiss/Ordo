@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { Link, Outlet } from "@tanstack/solid-router";
+import { Link, Outlet, useRouterState } from "@tanstack/solid-router";
 import {
   BarChart3,
   CalendarClock,
@@ -94,10 +94,19 @@ function BrandMark() {
  * footer cluster and the nav cannot drift apart.
  */
 function navRowClass(collapsed: boolean): string {
-  return `flex items-center gap-2.5 rounded-md text-sm transition duration-150 ease-out focus-ring ${
+  return `flex items-center gap-2.5 rounded-md text-sm transition-colors duration-150 ease-out focus-ring ${
     collapsed ? "size-8 justify-center" : "px-2.5 py-1.5"
   }`;
 }
+
+/**
+ * The sidebar's own row of the motion rules: the rail is the one thing in the
+ * app whose *spatial* change is worth animating, so `width` is the single
+ * layout property on the transition allow-list (see `index.css`'s note and
+ * `common/__tests__/design-constraints.test.ts`). 200ms is fast enough that the
+ * reflow it costs never reads as lag.
+ */
+const SIDEBAR_RAIL_CLASS = "transition-[width] duration-200 ease-out";
 
 /**
  * Row geometry for the project tree. A row's content column must not depend on
@@ -117,12 +126,12 @@ function treeRowClass(level: 0 | 1): string {
 
 /** The `Link` half of such a row: the slot already spent the leading padding. */
 const TREE_CONTENT_CLASS =
-  "flex items-center gap-2.5 rounded-md text-sm transition duration-150 ease-out focus-ring ml-0.5 py-1.5 pr-2.5";
+  "flex items-center gap-2.5 rounded-md text-sm transition-colors duration-150 ease-out focus-ring ml-0.5 py-1.5 pr-2.5";
 
 /** A row's unfinished-task list: the shared indent step, with the title landing
  * under the project's name rather than under its icon. */
 const TREE_LEAF_CLASS =
-  "flex w-full items-center rounded-md py-1 pl-1.5 pr-2 text-sm text-muted-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring";
+  "flex w-full items-center rounded-md py-1 pl-1.5 pr-2 text-sm text-muted-foreground transition-colors duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring";
 
 /**
  * The disclosure chevron that opens a group: 20px wide, not the shared 28px
@@ -451,6 +460,12 @@ function NamespaceRow(props: {
 
 export default function AppShell() {
   const collapsed = () => sidebarCollapsed();
+  /**
+   * The current path, as the identity of what `<Outlet/>` renders. The router
+   * hands back a fresh location object on every navigation, so this tracks the
+   * pathname alone.
+   */
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<Project | null>(null);
   const [archivedOpen, setArchivedOpen] = createSignal(false);
@@ -535,7 +550,7 @@ export default function AppShell() {
 
       <aside
         aria-label="侧边栏导航"
-        class={`flex shrink-0 flex-col border-r border-border bg-surface ${
+        class={`flex shrink-0 flex-col border-r border-border bg-surface ${SIDEBAR_RAIL_CLASS} ${
           collapsed() ? "w-13" : "w-56"
         }`}
       >
@@ -772,9 +787,19 @@ export default function AppShell() {
       {/* No shell-level header: each view renders its own, inline with its
           toolbar. A 56px bar holding nothing but the page title, above a view
           that already rendered the same word, cost a strip of chrome and a
-          duplicate heading on every route. */}
+          duplicate heading on every route.
+
+          `keyed` is what replays the entry animation: Solid drops the wrapper
+          on a path change, and a fresh element runs its animation from the
+          start. That is also why the wrapper carries `h-full` — every view's
+          own root is `h-full`, and a box-less wrapper would leave them
+          resolving that against nothing. */}
       <main id="ordo-main" class="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <Outlet />
+        <Show when={pathname()} keyed>
+          <div class="h-full animate-view-in">
+            <Outlet />
+          </div>
+        </Show>
       </main>
 
       <ProjectEditorDialog

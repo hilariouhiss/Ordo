@@ -186,6 +186,7 @@ src/
 - **`child-indent` 是内联子列表的唯一缩进规则**：子项内容相对父项右移 20px，缩进带中线画 1px `border-strong` 引导线。虚拟化的行式子列表（`SubtaskRow` 的 `w-5` 槽位）用行内槽位表达同一条规则——两者的步长与线色必须保持一致。整页/卡片式子列表不缩进。
 - **`skeleton`** 骨架屏的微光扫过：一个 `::after` 上的固定渐变沿独立的 `translate` 扫过（合成器动画，不重绘；全局「减少动态效果」规则把它压成静止的实心块）。
 - **浮层入场动画** `animate-fade-in` / `animate-surface-in` / `animate-toast-in`。
+- **内容入场动画** `animate-view-in`（换路由时整屏视图入场，由 `AppShell` 里 keyed 的包壳重放）、`animate-row-in`（行进入列表时淡入上移，展开子任务组时按 `[animation-delay:Nms]` 级联）。两者都**只在行/视图真正进入时**播放：虚拟滚动把行重新挂载时不重放，否则每一次滚轮都会闪一屏（`TaskListView` 用一份「已在屏上出现过的 id」集合判定）。
 - **`scrim-blur`** 弹窗遮罩的 2px 背景模糊。手写而不是用 `backdrop-blur-[2px]`：后者只输出无前缀的 `backdrop-filter`，而 WebKit（macOS 与 Linux 两端的 webview）长期只认 `-webkit-backdrop-filter`，无前缀写法要到 Safari 18 才有——只用工具类的话，三端里恰好只有 Windows 看得到这层模糊。
 - **`.date-field`** 的 `::-webkit-datetime-edit` 隐藏规则（配合 `DateField` 组件）。
 - 滚动条样式：`::-webkit-scrollbar` 系列（Tauri 渲染在 WebView2/Chromium 上）+ 标准属性兜底；透明边框 + `background-clip` 把滑块缩进成浮动胶囊。
@@ -197,6 +198,7 @@ src/
 - 长列表用**虚拟滚动**（`common/components/virtual-list.tsx`，自研轻量实现）。
 - 看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
 - **动效只允许** CSS `transform` / `opacity` / 独立的 `scale`·`translate` 属性；时长 150–300ms；遵循 `prefers-reduced-motion`（由 `index.css` 的全局 `@media` 规则统一兜底，组件里不再逐处写 `motion-reduce:*`）。**「动效」指的是位移类动画**：布局属性（`width`/`height`/`top`）与 `transform` 之外的位移都禁止，`transition-colors` 这类颜色/描边的交叉淡入不在禁令内（它是静态状态的反馈，不是动效）。这几条由 `common/__tests__/design-constraints.test.ts` 扫源码断言——新增属性、时长或关键帧都要同时改那张白名单。
+- **唯一的例外是侧边栏宽度**：折叠/展开时 `width` 在 224px 与 52px 之间过渡（`AppShell` 的 `SIDEBAR_RAIL_CLASS`，200ms）。它确实是布局属性、会逐帧 reflow，所以只允许出现在这一处：白名单里也只放行 `transition-[width]` 一项，再加第二个布局属性就要同时改测试与本条。侧边栏的文字标签只在展开时挂载，配 `transition-opacity` 让它们随轨道变宽淡入（收起仍是瞬时消失——没有 presence，退场动画不会触发）。
 - **浮层只做入场动画，不做退场动画**：Kobalte 的 presence 会等动画结束才卸载元素，一个没触发的退场动画会留下一层看不见但吃掉所有点击的遮罩。入场动画必须写在 `scale` / `translate` 长属性上而非 `transform`：Kobalte 用 `transform: translate(...)` 定位浮层，动画里写 `transform` 会在结束时把浮层弹回原点。
 - 所有可点元素都有 hover 与按下反馈（按下用 `scale` 收缩）；加载态用骨架屏而不是纯文字，骨架形状对齐最终布局。
 - **键盘等价入口**：拖放（R7a/R7b/R7c、看板换列）各自都有一个不用鼠标的入口——项目编辑器选命名空间、任务编辑器选父任务与所属项目、看板卡片 ⋯ 菜单的「移到 X」。新增拖放能力时必须同时给出这条路径，`TaskItemRow` / `BoardCard` / `BoardColumnView` 上的 `noStaticElementInteractions` 忽略注释写的就是这条约定。
@@ -395,7 +397,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | --- | --- |
 | UI 现代 | Tailwind `@theme` 统一 Token；Kobalte 自建组件避免「模板感」；深浅主题 |
 | 运行流畅（60fps） | 内存 store 免 IPC 往返；长列表虚拟滚动；派生数据用 `createMemo` |
-| 动效丝滑 | 仅 `transform`/`opacity`/`scale`/`translate`；150–300ms 自然缓动；`prefers-reduced-motion` 全局兜底 |
+| 动效丝滑 | 仅 `transform`/`opacity`/`scale`/`translate`（唯一例外：侧边栏 `width`）；150–300ms 自然缓动；`prefers-reduced-motion` 全局兜底 |
 | 体积小（<30 MB） | Tauri release 优化（LTO/strip/panic=abort/codegen-units=1）；路由懒加载按需打包；不引重型库（无动画/图表/DnD/UI 库）；图表自绘 SVG；虚拟滚动自研；不打包 Web 字体 |
 | 响应快 | 冷启动（全量加载在预算内）；命令往返 <50ms；统计走聚合索引秒级返回；FTS5 全文检索 |
 | 三端一致 | 同一份前端代码；全局快捷键与托盘按平台适配（macOS `⌘⇧Space`）；平台差异、运行时前置条件与验收清单见 §6.3 |

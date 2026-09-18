@@ -55,17 +55,55 @@ describe("animation constraints", () => {
   });
 
   it("only transitions compositor-friendly properties", () => {
+    // `transition` is Tailwind's colour/decoration default set, and the
+    // `transition-<property>` utilities name one property each. `width` is the
+    // one deliberate exception — the sidebar rail (AppShell) — and the only
+    // layout property allowed to move; the animation rules in
+    // `docs/ARCHITECTURE.md`§2.6 and the 动效 row of the non-functional targets
+    // carry the same exception, so a second one means updating all three.
     const allowed = new Set([
-      "transition",
-      "transition-colors",
-      "transition-opacity",
-      "transition-transform",
+      "color",
+      "background-color",
+      "border-color",
+      "outline-color",
+      "text-decoration-color",
+      "fill",
+      "stroke",
+      "opacity",
+      "transform",
+      "width",
     ]);
-    const tokens = new Set<string>();
-    for (const { text } of sources) {
-      for (const match of text.matchAll(/transition(?:-[\w[\]]+)?/g)) tokens.add(match[0]);
+    // Each token is read as the set of properties Tailwind's utility of that
+    // name actually transitions; anything that is not a property name (a bare
+    // `transition-all`) fails.
+    const COLOR_SET = [
+      "color",
+      "background-color",
+      "border-color",
+      "outline-color",
+      "text-decoration-color",
+      "fill",
+      "stroke",
+    ];
+    const sets: Record<string, string[]> = {
+      transition: COLOR_SET,
+      "transition-colors": COLOR_SET,
+      "transition-opacity": ["opacity"],
+      "transition-transform": ["transform"],
+      "transition-[width]": ["width"],
+    };
+    const offenders: string[] = [];
+    for (const { file, text } of sources) {
+      text.split("\n").forEach((line, index) => {
+        for (const match of line.matchAll(/(?<![\w-])transition(?:-[\w[\]]+)?/g)) {
+          const properties = sets[match[0]];
+          if (!properties || properties.some((property) => !allowed.has(property))) {
+            offenders.push(`src${file}:${index + 1} ${line.trim()}`);
+          }
+        }
+      });
     }
-    expect([...tokens].filter((token) => !allowed.has(token)).sort()).toEqual([]);
+    expect([...new Set(offenders)].sort()).toEqual([]);
   });
 
   it("only animates opacity, scale, translate or transform", () => {
