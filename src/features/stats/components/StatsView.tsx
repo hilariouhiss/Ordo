@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { Button, EmptyState, Skeleton } from "../../../common/components";
 import { formatDuration } from "../../tasks/time";
 import { useStats } from "../hooks";
-import { RANGE_OPTIONS, bucketKeys, parseDayKey, rangeSpec, type StatsRangeKey } from "../series";
+import { RANGE_OPTIONS, parseDayKey, rangeSpec, type StatsRangeKey } from "../series";
 import type { TimeGroupBy } from "../types";
 import { BarList } from "./BarList";
 import { CalendarHeatmap } from "./CalendarHeatmap";
@@ -41,7 +41,6 @@ export function StatsView() {
   const [rangeKey, setRangeKey] = createSignal<StatsRangeKey>("7d");
   const [groupBy, setGroupBy] = createSignal<TimeGroupBy>("project");
   const range = createMemo(() => rangeSpec(rangeKey()));
-  const keys = createMemo(() => bucketKeys(range()));
   const stats = useStats(range, groupBy);
 
   const completed = createMemo(() => sum(stats.trend()));
@@ -149,7 +148,7 @@ export function StatsView() {
                   <span class="text-xs text-subtle-foreground">共 {completed()} 个完成</span>
                 </div>
                 <LineChart
-                  keys={keys()}
+                  keys={stats.keys()}
                   values={stats.trend()}
                   formatKey={axisLabel}
                   formatValue={(value) => `${value} 个`}
@@ -161,7 +160,7 @@ export function StatsView() {
                 <h2 class="pb-3 text-sm font-semibold tracking-tight text-foreground">
                   日历热力图
                 </h2>
-                <CalendarHeatmap days={range().days} values={stats.daily()} />
+                <CalendarHeatmap days={stats.days()} values={stats.daily()} />
               </section>
 
               <section aria-label="项目进度" class={PANEL_CLASS}>
@@ -202,7 +201,7 @@ export function StatsView() {
                   记录时长趋势
                 </h3>
                 <LineChart
-                  keys={keys()}
+                  keys={stats.keys()}
                   values={stats.tracked()}
                   formatKey={axisLabel}
                   formatValue={formatDuration}

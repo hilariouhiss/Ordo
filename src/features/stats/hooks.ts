@@ -8,20 +8,26 @@
  * the project tallies (fetched once — they do not depend on the range).
  * Out-of-order responses are dropped by request sequence, so switching ranges
  * quickly can never paint a stale window; until a new response lands the
- * previous one stays on screen instead of blanking the charts.
+ * previous one stays on screen instead of blanking the charts — axis included,
+ * because each answer carries the bucket labels it was loaded for.
  */
 
-import { createEffect, createMemo, createSignal, on, onMount } from "solid-js";
+import { createEffect, createSignal, on, onMount } from "solid-js";
 import * as api from "./api";
 import { bucketKeys, fillSeries, type StatsRange } from "./series";
 import type { ProjectProgress, TimeDistribution, TimeGroupBy, TrendPoint } from "./types";
 
 export interface StatsData {
-  /** Completions per axis bucket, aligned with `bucketKeys(range)`. */
+  /** Axis labels the two series below were bucketed for, not the range the
+   * view currently has selected: the two only match once the answer lands. */
+  keys: () => string[];
+  /** Local days the heatmap covers, same contract as `keys`. */
+  days: () => string[];
+  /** Completions per axis bucket, aligned with `keys()`. */
   trend: () => number[];
-  /** Completions per local day, aligned with `range.days` (heatmap). */
+  /** Completions per local day, aligned with `days()` (heatmap). */
   daily: () => number[];
-  /** Tracked seconds per axis bucket, aligned with `bucketKeys(range)`. */
+  /** Tracked seconds per axis bucket, aligned with `keys()`. */
   tracked: () => number[];
   /** Tracked time per project/tag over the range. */
   shares: () => TimeDistribution["groups"];
@@ -33,27 +39,38 @@ export interface StatsData {
   retry: () => void;
 }
 
-/** Values of `points` for `keys`, as the chart series want them. */
-function series(
-  keys: () => string[],
-  points: () => TrendPoint[],
-): () => number[] {
-  return () => fillSeries(keys(), points().map((point) => ({
-    bucket: point.bucket,
-    value: point.completed,
-  })));
+/**
+ * One range's answer, stored as a unit. The axis labels travel with the points
+ * they were computed for, so a range switch cannot pair the new axis with the
+ * old response — every bucket of the new axis is absent from the old points,
+ * and the charts would read as a screen of zeros until the answer landed.
+ */
+interface RangeAnswer {
+  keys: string[];
+  days: string[];
+  trend: TrendPoint[];
+  daily: TrendPoint[];
+  distribution: TimeDistribution;
+}
+
+const NO_ANSWER: RangeAnswer = {
+  keys: [],
+  days: [],
+  trend: [],
+  daily: [],
+  distribution: { groups: [], buckets: [] },
+};
+
+/** Buckets of `points` as the chart series want them. */
+function values(points: readonly TrendPoint[]): { bucket: string; value: number }[] {
+  return points.map((point) => ({ bucket: point.bucket, value: point.completed }));
 }
 
 export function useStats(
   range: () => StatsRange,
   groupBy: () => TimeGroupBy,
 ): StatsData {
-  const [trendPoints, setTrendPoints] = createSignal<TrendPoint[]>([]);
-  const [dailyPoints, setDailyPoints] = createSignal<TrendPoint[]>([]);
-  const [distribution, setDistribution] = createSignal<TimeDistribution>({
-    groups: [],
-    buckets: [],
-  });
+  const [answer, setAnswer] = createSignal<RangeAnswer>(NO_ANSWER);
   const [projects, setProjects] = createSignal<ProjectProgress[]>([]);
   const [ready, setReady] = createSignal(false);
   const [failed, setFailed] = createSignal(false);
@@ -75,9 +92,13 @@ export function useStats(
         api.timeDistribution({ ...spec, groupBy: dimension }),
       ]);
       if (request !== seq) return;
-      setTrendPoints(trend);
-      setDailyPoints(days);
-      setDistribution(shares);
+      setAnswer({
+        keys: bucketKeys(spec),
+        days: spec.days,
+        trend,
+        daily: days,
+        distribution: shares,
+      });
       setFailed(false);
       setReady(true);
     } catch {
@@ -104,19 +125,19 @@ export function useStats(
     void loadProjects();
   });
 
-  const keys = createMemo(() => bucketKeys(range()));
-  const buckets = createMemo(() =>
-    distribution().buckets.map((point) => ({ bucket: point.bucket, value: point.seconds })),
-  );
+  const buckets = () =>
+    answer().distribution.buckets.map((point) => ({
+      bucket: point.bucket,
+      value: point.seconds,
+    }));
 
   return {
-    trend: series(keys, trendPoints),
-    daily: () => fillSeries(range().days, dailyPoints().map((point) => ({
-      bucket: point.bucket,
-      value: point.completed,
-    }))),
-    tracked: () => fillSeries(keys(), buckets()),
-    shares: () => distribution().groups,
+    keys: () => answer().keys,
+    days: () => answer().days,
+    trend: () => fillSeries(answer().keys, values(answer().trend)),
+    daily: () => fillSeries(answer().days, values(answer().daily)),
+    tracked: () => fillSeries(answer().keys, buckets()),
+    shares: () => answer().distribution.groups,
     projects,
     ready,
     failed,

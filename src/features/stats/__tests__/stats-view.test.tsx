@@ -127,6 +127,21 @@ describe("StatsView", () => {
     );
   });
 
+  it("keeps one range's axis and values paired while the next range loads", async () => {
+    render(() => <StatsView />);
+    expect(await screen.findByText("共 3 个完成")).toBeTruthy();
+    expect(document.querySelectorAll("[data-day]")).toHaveLength(7);
+
+    // The new range's queries never answer: the panel has to keep showing the
+    // 7-day data it already has, axis included. Re-labelling the old points
+    // with the year's week axis reads as "共 0 个完成" over an empty chart.
+    vi.mocked(api.completionTrend).mockReturnValue(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("button", { name: "本年" }));
+
+    expect(screen.getByText("共 3 个完成")).toBeTruthy();
+    expect(document.querySelectorAll("[data-day]")).toHaveLength(7);
+  });
+
   it("surfaces a failed load and retries it", async () => {
     vi.mocked(api.completionTrend).mockRejectedValueOnce({ code: "db", message: "统计读取失败" });
 
