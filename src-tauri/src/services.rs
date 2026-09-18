@@ -2510,7 +2510,10 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error.code(), "validation");
-        assert_eq!(tasks::get(&conn, loose.id).unwrap().unwrap().parent_task_id, None);
+        assert_eq!(
+            tasks::get(&conn, loose.id).unwrap().unwrap().parent_task_id,
+            None
+        );
     }
 
     /// Clearing is always fine — that is how a task is taken off a board.

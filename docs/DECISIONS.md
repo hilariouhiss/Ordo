@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 17 项（QA-01–12、15–20、23）；QA-13 为产品取舍（维持现状）、QA-14/22 待做、QA-21 知悉不修；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 19 项（QA-01–12、14–20、23）；QA-13 是产品取舍（现维持现状，见该行）、QA-21/22 为知悉不修；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -192,10 +192,10 @@
 | QA-08 | 中 | 恢复成功但重载失败被误报为导入失败 | **已解决** | `features/settings/hooks.ts` | 导入与重载拆成两段：恢复已落库就不再走导入的失败分支，重载失败另报（并提示重开应用），`runImport` 仍返回摘要，页面照样显示恢复结果 |
 | QA-09 | 中 | 恢复任务后依赖边不刷新，阻塞状态陈旧 | **已解决** | `features/tasks/hooks.ts` | `dependency:listAll` 只返回两端都存活的边，所以任务在回收站期间该边不在任何快照里；`restoreTask` 的刷新由 `reloadTasks` 改为 `loadAll`，把被唤醒的边一起取回 |
 | QA-10 | 中 | vitest 样板散落 34 个测试文件，全仓无 linter | **已解决** | `vitest.config.ts`、`biome.json`、`tsconfig.node.json`、`package.json` | 环境注记（35 处）与 setup 手动导入（32 处）删掉：`vitest.config.ts` 统一 `environment: "jsdom"` + `setupFiles`（纯逻辑测试在 jsdom 下照样跑，全量时间从 80 s 降到 50 s）；引入 Biome（`pnpm lint`，recommended 规则、不启用格式化），当前 0 error / 10 warning（测试里的 `!` 断言），6 处拖放容器按「整行/整卡就是拖源」写了带理由的忽略注释；`vitest.config.ts` 纳入 `tsconfig.node.json` 并由 `pnpm typecheck` 一并检查 |
-| QA-11 | 低 | 未显式开启外键 PRAGMA，依赖 bundled 默认值 | 未解决 | `src-tauri/src/db.rs` | 换系统 SQLite 即静默失去全部 FK 约束（`foreign_keys_are_enforced` 测试可证 bundled 默认值）。init 里显式 `pragma_update`，顺带评估 WAL/busy_timeout |
-| QA-12 | 低 | 服务层不拒绝子任务写 `columnId` 等列一致性缺口 | 未解决 | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | `update_task` 不拒绝给子任务写 `columnId`（违反「子任务不上看板」，行会脱离自己的排序 scope）；`create_task` 不校验 column 与 project 同属。当前前端无触发路径，属权威层防御缺口 |
+| QA-11 | 低 | 未显式开启外键 PRAGMA，依赖 bundled 默认值 | **已解决** | `src-tauri/src/db.rs` | `configure()` 显式 `pragma_update(foreign_keys, ON)`，`init` 与 `test_conn` 都过一遍；新增用例先把外键关掉再断言 configure 打开（不靠 linked SQLite 的默认值）。WAL/busy_timeout 评估后不设：全进程一条连接一个锁，没有读写竞争要仲裁，WAL 还会在用户被告知「这就是数据库」的文件旁散出 `-wal`/`-shm` |
+| QA-12 | 低 | 服务层不拒绝子任务写 `columnId` 等列一致性缺口 | **已解决** | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | `update_task` 的列补丁移到父任务判定之后：子任务拿列（含同一补丁里既给父又给列）一律 validation，清列照常；新增 `validate_column` 供创建路径校验「列存在且属于该项目」。四个用例覆盖（子任务写列、同补丁给父给列、清列、跨项目/不存在的列） |
 | QA-13 | 低 | 补完成逾期的重复任务会生成已逾期实例 | 未解决（产品取舍，可复议） | `src-tauri/src/services.rs`（`next_due`） | 锚定 `due_at` 是 PRODUCT §2.4 的既定语义，代价是逐周期追赶。可复议「滚动到未来」 |
-| QA-14 | 低 | 备份导入同步长持主线程与连接锁 | 未解决 | `src-tauri/src/commands.rs`（`backup:*`） | 大库导入期间全部命令与提醒扫描排队。改 async + `spawn_blocking` |
+| QA-14 | 低 | 备份导入同步长持主线程与连接锁 | **已解决**（残留见下） | `src-tauri/src/commands.rs`（`backup:*`） | 两个命令改 async，把整库读写放进 `spawn_blocking`（`blocking()` 包装，含 join 失败归一化），大库导入不再占着命令派发线程。**残留**：连接互斥锁仍会让别的命令与提醒扫描排队——SQLite 单写者、单连接是既定形状，要并行得先改成连接池 |
 | QA-15 | 低 | 隐藏窗口期间的挂起提醒只保留最后一条 | **已解决** | `features/tasks/reminders.ts` | `pending` 改成队列（`pendingReminders()` 给全量、`pendingReminder()` 给最旧一条），每次 focus 定位队首，其余留下等下一次 focus，不再互相覆盖 |
 | QA-16 | 低 | `setUnfinishedCounts` 注释与实现相反 | **已解决**（复核后结论与审查相反） | `features/tasks/store.ts` | 实测：Solid 的 `setState` 对对象值是**逐键合并**，所以是「注释对、实现是合并写」，审查把两者说反了。按审查期望的行为（已删项目的残留计数要消失）改成显式 `reconcile` 整表替换，并加了钉住替换语义的用例；`UNFINISHED_COUNTS_SQL` 本就返回全部存活项目（含 0），替换不会丢掉在屏上的数字 |
 | QA-17 | 低 | 启动时 `loadAll` 双发，无在途去重 | **已解决** | `features/tasks/hooks.ts` | 在 `loadAll` 里做在途复用（`inFlightLoadAll`，落地即清），外壳与首个视图共用一笔请求；已落地的那次不缓存，下一次调用仍是真的重载 |
@@ -203,7 +203,7 @@
 | QA-19 | 低 | 应用级 `listen`/`focus` 监听从不清理 | **已解决** | `app/AppShell.tsx`、`features/tasks/reminders.ts` | `subscribeToReminders()` 改为同步返回 disposer（Tauri 订阅落地前后都处理：已 dispose 就把订阅直接交给 runtime 退订），外壳的两处订阅都用 `onCleanup` 收尾 |
 | QA-20 | 低 | CSP 为 null（渲染路径已核安全） | 未解决 | `src-tauri/tauri.conf.json` | 模板默认。全部动态内容走 Solid 转义、搜索摘要按段落渲染，无注入路径；备份导入是唯一外来数据面，属防御性加固项 |
 | QA-21 | 低 | 连接锁中毒后所有命令永久失败 | 不修（知悉项） | `src-tauri/src/commands.rs`（`with_conn`） | dev 构建下 panic 后需重启；release 的 `panic = "abort"` 使其实际不可达 |
-| QA-22 | 低 | 日志仅 `eprintln!`，无分级与落盘 | 未解决 | 后端全局 | 桌面单机可接受；排障需求出现时引入 `tauri-plugin-log` |
+| QA-22 | 低 | 日志仅 `eprintln!`，无分级与落盘 | 不修（知悉项） | 后端全局 | 评估后维持：五处 `eprintln!` 覆盖的是真正需要留痕的失败路径（快捷键注册、通知/事件发送、提醒扫描），`perf.rs` 的 `println!` 是验收输出。单机桌面没有排障需求时引入插件只增加一条能力面；真出现支持请求再上 `tauri-plugin-log` 落盘 |
 | QA-23 | 低 | tailwind 依赖分类错误、vitest transform 慢 | **已解决** | `package.json`、`vitest.config.ts` | `@tailwindcss/vite`/`tailwindcss` 移入 `devDependencies`（只参与构建，`pnpm build` 复核）；vitest 开 `fsModuleCache: true`，transform 从占测试耗时约六成降到约五成、全量 80 s → 50 s |
 
 修复顺序建议：QA-02 先行（用户可见且改动小）；其次守卫与错误分流（QA-03/04/08/09）；再去重与渲染热路径（QA-05–07）与工程配套（QA-10）；其余低级别随手修。

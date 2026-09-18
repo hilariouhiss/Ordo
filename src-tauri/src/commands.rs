@@ -34,6 +34,19 @@ fn with_conn<T>(
     f(&conn)
 }
 
+/// Runs blocking database work off the async runtime. A panicked or cancelled
+/// blocking task becomes an error instead of a command that never answers.
+async fn blocking<T>(
+    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError>
+where
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| AppError::Db(format!("后台任务未能完成：{error}")))?
+}
+
 // --- task:* ----------------------------------------------------------------
 //
 // Every command below that answers with a task row answers with `TaskWithTags`
@@ -326,14 +339,23 @@ pub fn time_stop(db: State<'_, Db>, entry_id: Uuid) -> Result<TimeEntry, AppErro
 
 // --- backup:* --------------------------------------------------------------
 
+// Both commands read or write the whole database *and* the filesystem, so they
+// run on the blocking pool rather than an async worker: a large import must not
+// hold the command dispatcher while it parses and writes (QA-14). The
+// connection mutex still queues them behind (and ahead of) every other command
+// — SQLite has one writer, and one connection behind one lock is the shape the
+// rest of the app is built on.
+
 #[tauri::command(rename = "backup:export")]
-pub fn backup_export(db: State<'_, Db>, path: String) -> Result<BackupSummary, AppError> {
-    with_conn(&db, |conn| services::export_backup(conn, Path::new(&path)))
+pub async fn backup_export(db: State<'_, Db>, path: String) -> Result<BackupSummary, AppError> {
+    let db = db.inner().clone();
+    blocking(move || with_conn(&db, |conn| services::export_backup(conn, Path::new(&path)))).await
 }
 
 #[tauri::command(rename = "backup:import")]
-pub fn backup_import(db: State<'_, Db>, path: String) -> Result<BackupSummary, AppError> {
-    with_conn(&db, |conn| services::import_backup(conn, Path::new(&path)))
+pub async fn backup_import(db: State<'_, Db>, path: String) -> Result<BackupSummary, AppError> {
+    let db = db.inner().clone();
+    blocking(move || with_conn(&db, |conn| services::import_backup(conn, Path::new(&path)))).await
 }
 
 #[tauri::command(rename = "stats:trend")]
