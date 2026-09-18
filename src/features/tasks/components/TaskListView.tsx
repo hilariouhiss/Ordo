@@ -144,12 +144,35 @@ export function TaskListView(props: TaskListViewProps) {
    * (`TaskItemRow` hides it), so this drives the chevron and the child rows. */
   const isOpen = (id: string) => Boolean(expanded()[id]) || autoOpen().has(id);
 
-  // After `visible`, not before it: Solid runs a memo's body eagerly as it is
-  // created, so reading `visible` from above its own `const` is a TDZ crash.
-  //
-  // The live set, the dependency index and the completion set are built once
-  // per pass, here, and each row is then answered from them: the per-row cost is
-  // that row's own prerequisite count, not the size of the graph.
+  /** Whether two rows say the same thing on screen: the same task object and
+   * the same derived numbers, which is what lets the older wrapper be reused. */
+  function sameRow(previous: ListRow, next: ListRow): boolean {
+    if (previous.kind !== next.kind || previous.task !== next.task) return false;
+    if (previous.kind === "child" && next.kind === "child") {
+      return previous.blocked === next.blocked && previous.parentTitle === next.parentTitle;
+    }
+    if (previous.kind === "task" && next.kind === "task") {
+      return (
+        previous.childCount === next.childCount &&
+        previous.childDone === next.childDone &&
+        previous.blockerCount === next.blockerCount
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Live set / dependency index / completion set are built once per pass and
+   * every row is answered from them, so a row's cost is its own prerequisite
+   * count rather than the size of the graph.
+   *
+   * The wrappers themselves are remembered by task id: `rows()` re-runs on any
+   * store change, and a fresh object per row would make `For` (keyed by
+   * reference) destroy and rebuild every visible row — losing focus, any open
+   * row menu and the DOM work that was already done (QA-07).
+   */
+  let rowCache = new Map<string, ListRow>();
+
   const rows = createMemo<ListRow[]>(() => {
     const live = liveSet(tasks());
     const index = buildIndex(tasksState.dependencies, live);
@@ -157,39 +180,55 @@ export function TaskListView(props: TaskListViewProps) {
     const matched = visible();
     const blockedOf = (task: Task) =>
       task.completedAt === null && isBlocked(index, done, task.id);
+    const kept = new Map<string, ListRow>();
+    const keep = (row: ListRow): ListRow => {
+      const previous = rowCache.get(row.task.id);
+      const stable = previous !== undefined && sameRow(previous, row) ? previous : row;
+      kept.set(row.task.id, stable);
+      return stable;
+    };
 
     const out: ListRow[] = [];
     for (const task of matched) {
       if (task.parentTaskId !== null) {
-        out.push({
-          kind: "child",
-          task,
-          blocked: blockedOf(task),
-          parentTitle: parentTitleOf(task.id),
-        });
+        out.push(
+          keep({
+            kind: "child",
+            task,
+            blocked: blockedOf(task),
+            parentTitle: parentTitleOf(task.id),
+          }),
+        );
         continue;
       }
       // The store's own child index, not the `all` snapshot: this list may be a
       // scope page (the project detail), which the snapshot need not cover.
       const children = childrenOf(task.id);
-      out.push({
-        kind: "task",
-        task,
-        childCount: children.length,
-        childDone: children.filter((child) => child.completedAt !== null).length,
-        // A finished item is not waiting for anything: it wears no blocked
-        // marker, or 已完成 would contradict itself (the task got there through
-        // 「仍要完成」, and its prerequisite may still be open).
-        blockerCount:
-          task.completedAt === null ? blockersOf(index, done, task.id).length : 0,
-      });
+      out.push(
+        keep({
+          kind: "task",
+          task,
+          childCount: children.length,
+          childDone: children.filter((child) => child.completedAt !== null).length,
+          // A finished item is not waiting for anything: it wears no blocked
+          // marker, or 已完成 would contradict itself (the task got there through
+          // 「仍要完成」, and its prerequisite may still be open).
+          blockerCount:
+            task.completedAt === null ? blockersOf(index, done, task.id).length : 0,
+        }),
+      );
       // Children ignore the toolbar filters (§8.6): they are context for the
       // parent row, and hiding one would leave its 0/2 badge lying.
       if (children.length === 0 || !isOpen(task.id)) continue;
       for (const child of children) {
-        out.push({ kind: "child", task: child, blocked: blockedOf(child), parentTitle: null });
+        out.push(
+          keep({ kind: "child", task: child, blocked: blockedOf(child), parentTitle: null }),
+        );
       }
     }
+    // Rows that left the list are not coming back as the same wrapper; dropping
+    // them keeps the cache bounded by what is on screen.
+    rowCache = kept;
     return out;
   });
 

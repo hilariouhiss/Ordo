@@ -213,6 +213,31 @@ describe("TodayView", () => {
     expect(api.listTasks).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a row's DOM node when an unrelated task joins the store", () => {
+    store.setAll(
+      [
+        task("t1", { dueAt: iso(0, 23), sortOrder: "a" }),
+        task("t2", { dueAt: iso(0, 23), sortOrder: "b" }),
+      ],
+      [],
+    );
+    render(() => <TodayView />);
+
+    const row = screen.getByText("任务 t1").closest("[data-key]");
+    expect(row).toBeTruthy();
+
+    // A store change that does not touch t1 at all: its row must be patched,
+    // not destroyed and rebuilt (the row hosts a dropdown menu, and rebuilding
+    // it drops focus and any open menu).
+    store.upsertTask(task("later", { dueAt: iso(3, 9), sortOrder: "c" }));
+
+    expect(screen.getByText("任务 t1").closest("[data-key]")).toBe(row);
+
+    // …and reusing the row still updates what it shows.
+    store.patchTask("t1", { title: "改过名的任务" });
+    expect(screen.getByText("改过名的任务").closest("[data-key]")).toBe(row);
+  });
+
   it("virtualizes: 10k tasks render only a window of rows", () => {
     const many = Array.from({ length: 10_000 }, (_, i) =>
       task(`big-${String(i).padStart(5, "0")}`, {

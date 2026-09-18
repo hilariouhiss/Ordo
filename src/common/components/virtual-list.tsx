@@ -45,11 +45,30 @@ export function VirtualList<T>(props: VirtualListProps<T>) {
     return { start, end };
   });
 
+  // Wrapper per index, kept across passes while the item in that slot is the
+  // same object. `For` is keyed by reference, so handing it a fresh wrapper for
+  // an unchanged item would destroy and rebuild the row — the caller's item
+  // identity is only worth anything if this layer preserves it too.
+  const rowCache = new Map<number, { item: T; index: number }>();
+
   const visible = createMemo(() => {
     const { start, end } = range();
     const rows: Array<{ item: T; index: number }> = [];
     for (let index = start; index < end; index++) {
-      rows.push({ item: props.items[index], index });
+      const item = props.items[index];
+      const cached = rowCache.get(index);
+      if (cached && cached.item === item) {
+        rows.push(cached);
+        continue;
+      }
+      const row = { item, index };
+      rowCache.set(index, row);
+      rows.push(row);
+    }
+    // Slots outside the window are not coming back into view unread, and an
+    // unbounded map would grow with every scroll through a long list.
+    for (const index of rowCache.keys()) {
+      if (index < start || index >= end) rowCache.delete(index);
     }
     return rows;
   });

@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 8 项（QA-01/02/03/04/05/06/08/09）；剩余集中在渲染热路径（QA-07）与工程配套（QA-10）；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 9 项（QA-01–09）；剩 QA-10 工程配套与低级别项；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -188,7 +188,7 @@
 | QA-04 | 中 | 统计粒度切换时图表归零一拍 | **已解决** | `features/stats/hooks.ts`、`StatsView.tsx` | 一份 range 的答案整体存储（`keys`/`days` 与 points 同一次 `setAnswer` 落地），视图改读 `stats.keys()/days()` 而不是按当前 range 现算，切换期间旧图与旧轴同屏 |
 | QA-05 | 中 | 乐观更新的整行回滚会覆盖同行的并发成功写 | **已解决** | `src/common/optimistic.ts` + 12 个字段补丁调用点 | 新增 `patchRollback`：只快照本次写入会碰的字段，且在**写入前**捕获（store 是就地修改，写在回滚闭包里会读回乐观值）；任务/标签/评论/时间记录/看板移动/项目/命名空间的字段补丁全部改用它 |
 | QA-06 | 中 | 乐观脚手架三份逐字拷贝，projects/namespaces 约 90% 重复 | **已解决** | `src/common/crud-hooks.ts`、`tasks/board/settings/hooks.ts`、`projects/namespaces/hooks.ts` | tasks/board/settings 里三份逐字的 `optimistic`/`reportFailure`/`missingEntity`/`nextTempId` 删掉改从 `common/optimistic` 导入（临时 id 只有一个计数器，跨域唯一性重新成立）；projects 与 namespaces 的 CRUD 流程抽成 `createCrud` 工厂（load/create/update/archive/restore + 写入前捕获的字段级回滚），两边各剩一份「行形状 + 命令名」接线 |
-| QA-07 | 中 | 任意 store 变更导致全部可见任务行销毁重建 | 未解决 | `features/tasks/components/TaskListView.tsx` + `virtual-list.tsx` | `rows()` 产出全新包装对象、VirtualList 再包一层 `{item, index}`，`For` 按引用键控 → 可见行（含 Kobalte 下拉菜单）整体重建而非打补丁。包装对象按 task id 记忆化 |
+| QA-07 | 中 | 任意 store 变更导致全部可见任务行销毁重建 | **已解决** | `features/tasks/components/TaskListView.tsx` + `common/components/virtual-list.tsx` | 两层都按引用键控：`rows()` 按 task id 记忆化包装对象（同任务 + 派生数字相同才复用），`VirtualList` 复用同一个槽位的 `{item,index}` 包装；行内下拉菜单与焦点不再被重建 |
 | QA-08 | 中 | 恢复成功但重载失败被误报为导入失败 | **已解决** | `features/settings/hooks.ts` | 导入与重载拆成两段：恢复已落库就不再走导入的失败分支，重载失败另报（并提示重开应用），`runImport` 仍返回摘要，页面照样显示恢复结果 |
 | QA-09 | 中 | 恢复任务后依赖边不刷新，阻塞状态陈旧 | **已解决** | `features/tasks/hooks.ts` | `dependency:listAll` 只返回两端都存活的边，所以任务在回收站期间该边不在任何快照里；`restoreTask` 的刷新由 `reloadTasks` 改为 `loadAll`，把被唤醒的边一起取回 |
 | QA-10 | 中 | vitest 样板散落 34 个测试文件，全仓无 linter | 未解决 | `vitest.config.ts`、`package.json` | 未设 `setupFiles` 且默认 node 环境：34 个文件手写环境注记、31 个手动 import setup；`vitest.config.ts` 不在任何 tsconfig include 里；约 2 万行 TS 无 linter。配置收敛（setupFiles 或 workspace 拆分环境）+ 引入 eslint/biome |
