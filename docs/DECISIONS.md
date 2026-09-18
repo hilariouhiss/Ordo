@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 20 项（QA-01–20、23）；QA-21/22 为评估后不修（知悉项），QA-20 待定（见该行）；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 20 项（QA-01–19、23）；QA-20（CSP）待定，见该行；QA-21/22 评估后不修（知悉项）。静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -201,7 +201,7 @@
 | QA-17 | 低 | 启动时 `loadAll` 双发，无在途去重 | **已解决** | `features/tasks/hooks.ts` | 在 `loadAll` 里做在途复用（`inFlightLoadAll`，落地即清），外壳与首个视图共用一笔请求；已落地的那次不缓存，下一次调用仍是真的重载 |
 | QA-18 | 低 | 标签用量统计每次全量过滤并排序任务快照 | **已解决** | `features/tasks/components/TagManagerDialog.tsx` | 一个 `createMemo` 建 `Map<tagId, count>`（每行本来要问两次计数），每次 store 变更是 O(n) 而不是 O(tags × n) |
 | QA-19 | 低 | 应用级 `listen`/`focus` 监听从不清理 | **已解决** | `app/AppShell.tsx`、`features/tasks/reminders.ts` | `subscribeToReminders()` 改为同步返回 disposer（Tauri 订阅落地前后都处理：已 dispose 就把订阅直接交给 runtime 退订），外壳的两处订阅都用 `onCleanup` 收尾 |
-| QA-20 | 低 | CSP 为 null（渲染路径已核安全） | 未解决 | `src-tauri/tauri.conf.json` | 模板默认。全部动态内容走 Solid 转义、搜索摘要按段落渲染，无注入路径；备份导入是唯一外来数据面，属防御性加固项 |
+| QA-20 | 低 | CSP 为 null（渲染路径已核安全） | 待定（等实机验证） | `src-tauri/tauri.conf.json` | CSP（Content-Security-Policy）是 WebView 侧的白名单：写明允许加载/执行的来源，注入进来的东西即使进了 DOM 也执行不了。目前 `csp: null` = 不加限制；全部动态内容走 Solid 转义、搜索摘要按段落渲染，没有已知注入路径，所以这是加固项而非缺陷。代价：加完必须在真机跑一遍（`style-src` 需要放开内联样式，`connect-src` 要含 `ipc:`/`http://ipc.localhost`，dev 模式还要放 HMR 的 websocket），配错的表现是白屏——本仓库的自动化测试覆盖不到 WebView 运行时，所以留给人工确认 |
 | QA-21 | 低 | 连接锁中毒后所有命令永久失败 | 不修（知悉项） | `src-tauri/src/commands.rs`（`with_conn`） | dev 构建下 panic 后需重启；release 的 `panic = "abort"` 使其实际不可达 |
 | QA-22 | 低 | 日志仅 `eprintln!`，无分级与落盘 | 不修（知悉项） | 后端全局 | 评估后维持：五处 `eprintln!` 覆盖的是真正需要留痕的失败路径（快捷键注册、通知/事件发送、提醒扫描），`perf.rs` 的 `println!` 是验收输出。单机桌面没有排障需求时引入插件只增加一条能力面；真出现支持请求再上 `tauri-plugin-log` 落盘 |
 | QA-23 | 低 | tailwind 依赖分类错误、vitest transform 慢 | **已解决** | `package.json`、`vitest.config.ts` | `@tailwindcss/vite`/`tailwindcss` 移入 `devDependencies`（只参与构建，`pnpm build` 复核）；vitest 开 `fsModuleCache: true`，transform 从占测试耗时约六成降到约五成、全量 80 s → 50 s |
