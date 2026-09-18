@@ -28,11 +28,18 @@ export function BoardView(props: { projectId: string }) {
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<Task | null>(null);
 
+  // The failure flag belongs to the project on screen, so a load is only
+  // allowed to set it while it is still the current one (QA-03). Leaving a
+  // project invalidates whatever it had in flight, whether or not the board
+  // being entered needs a request of its own.
+  let loadSeq = 0;
+
   // Load on mount and whenever the project switches into an uncached board.
   createEffect(
     on(
       () => props.projectId,
       (projectId) => {
+        loadSeq += 1;
         setFailed(false);
         if (!hasColumns(projectId)) void retry();
       },
@@ -40,8 +47,10 @@ export function BoardView(props: { projectId: string }) {
   );
 
   async function retry(): Promise<void> {
+    const request = ++loadSeq;
     setFailed(false);
     const ok = await loadColumns(props.projectId);
+    if (request !== loadSeq) return;
     setFailed(!ok);
   }
 

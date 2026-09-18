@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../common/components/__tests__/setup";
 import * as boardStore from "../store";
@@ -79,6 +80,15 @@ function renderBoard() {
     column("c2", { name: "已完成", isDone: true, position: "o" }),
   ]);
   render(() => <BoardView projectId="proj-1" />);
+}
+
+/** A promise whose settlement the test decides. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -178,6 +188,30 @@ describe("BoardView", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "完成 任务 t1" }));
 
     expect(tasksHooks.completeTask).toHaveBeenCalledWith("t1");
+  });
+
+  it("drops a switched-away project's failure instead of covering the new board", async () => {
+    const pending = deferred<boolean>();
+    vi.mocked(boardHooks.loadColumns).mockReturnValue(pending.promise);
+    // The project the user switches *to* already has its columns cached, so
+    // nothing new is requested — the only response still in flight is the old
+    // project's.
+    boardStore.setColumns("proj-2", [
+      column("c9", { projectId: "proj-2", name: "P2 待办" }),
+    ]);
+
+    const [projectId, setProjectId] = createSignal("proj-1");
+    render(() => <BoardView projectId={projectId()} />);
+    expect(boardHooks.loadColumns).toHaveBeenCalledWith("proj-1");
+
+    setProjectId("proj-2");
+    expect(screen.getByText("P2 待办")).toBeTruthy();
+
+    pending.resolve(false);
+    await waitFor(() => expect(screen.getByText("P2 待办")).toBeTruthy());
+
+    // proj-1's failure is not proj-2's: no error pane over a board that loaded.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows the insertion indicator while dragging and persists the drop", async () => {

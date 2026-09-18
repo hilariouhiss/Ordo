@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 1 项（QA-01）；剩余问题集中在看板/统计的异步守卫与乐观更新脚手架重复两处；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 3 项（QA-01/02/03）；剩余问题集中在统计的异步守卫与乐观更新脚手架重复两处；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -184,7 +184,7 @@
 | --- | --- | --- | --- | --- | --- |
 | QA-01 | 高 | 窗口拉高后虚拟列表新暴露区域空白，滚动后才恢复 | **已解决**（68b77a8） | `src/common/components/virtual-list.tsx` | `onMount` 挂 `ResizeObserver`，回调复用 `handleScroll` 重采样几何，`onCleanup` 断开；回归测试以记录型 stub 手动派发 resize |
 | QA-02 | 中 | 「今天」冻结在挂载时刻，跨天后视图不刷新 | **已解决** | `src/common/clock.ts`、`TodayView.tsx` 等五个调用点 | 新增 `createNow()`：分钟 tick + `focus` 重算，`onCleanup` 随组件释放；五个冻结的 `now` 信号与 `SubtaskList` 的渲染期 `new Date()` 全部改读它，今天/未来视图的日界与逾期徽标随之刷新 |
-| QA-03 | 中 | 看板切换项目后，前项目的失败响应给当前项目盖错误页 | 未解决 | `features/board/components/BoardView.tsx` | `failed` 未按项目隔离。补请求序号守卫（搜索/统计/未完成计数已有现成范式） |
+| QA-03 | 中 | 看板切换项目后，前项目的失败响应给当前项目盖错误页 | **已解决** | `features/board/components/BoardView.tsx` | 请求序号守卫：切换项目即作废在途请求（新项目有缓存不发请求时也作废），只有仍是当前项目的那次响应能写 `failed` |
 | QA-04 | 中 | 统计粒度切换时图表归零一拍 | 未解决 | `features/stats/`（`StatsView.tsx` + `hooks.ts`） | `bucketKeys` 立即按新 range 计算、points 仍是旧 range 的，周/日键无交集，违反 hooks 自述的「旧数据留屏」不变量。keys 与 points 配对存储，或切换期间骨架屏 |
 | QA-05 | 中 | 乐观更新的整行回滚会覆盖同行的并发成功写 | 未解决 | `src/common/optimistic.ts` 及全部调用点 | 同行两个重叠写中第一个失败时，回滚抹掉第二个已成功的乐观状态，UI 与后端不一致直到下次整表刷新。按字段回滚，或失败后局部 reload 该实体 |
 | QA-06 | 中 | 乐观脚手架三份逐字拷贝，projects/namespaces 约 90% 重复 | 未解决 | `tasks/hooks.ts`、`board/hooks.ts`、`settings/hooks.ts` 对 `common/optimistic.ts`；`projects/hooks.ts` 对 `namespaces/hooks.ts` | 约 66 行拷贝使临时 id 计数器各自独立、跨域唯一性承诺失效；projects 与 namespaces 的 hooks/store/编辑器约 200 行雷同。拷贝收敛回正本，CRUD 钩子抽工厂 |
