@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 19 项（QA-01–12、14–20、23）；QA-13 是产品取舍（现维持现状，见该行）、QA-21/22 为知悉不修；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 20 项（QA-01–20、23）；QA-21/22 为评估后不修（知悉项），QA-20 待定（见该行）；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -194,7 +194,7 @@
 | QA-10 | 中 | vitest 样板散落 34 个测试文件，全仓无 linter | **已解决** | `vitest.config.ts`、`biome.json`、`tsconfig.node.json`、`package.json` | 环境注记（35 处）与 setup 手动导入（32 处）删掉：`vitest.config.ts` 统一 `environment: "jsdom"` + `setupFiles`（纯逻辑测试在 jsdom 下照样跑，全量时间从 80 s 降到 50 s）；引入 Biome（`pnpm lint`，recommended 规则、不启用格式化），当前 0 error / 10 warning（测试里的 `!` 断言），6 处拖放容器按「整行/整卡就是拖源」写了带理由的忽略注释；`vitest.config.ts` 纳入 `tsconfig.node.json` 并由 `pnpm typecheck` 一并检查 |
 | QA-11 | 低 | 未显式开启外键 PRAGMA，依赖 bundled 默认值 | **已解决** | `src-tauri/src/db.rs` | `configure()` 显式 `pragma_update(foreign_keys, ON)`，`init` 与 `test_conn` 都过一遍；新增用例先把外键关掉再断言 configure 打开（不靠 linked SQLite 的默认值）。WAL/busy_timeout 评估后不设：全进程一条连接一个锁，没有读写竞争要仲裁，WAL 还会在用户被告知「这就是数据库」的文件旁散出 `-wal`/`-shm` |
 | QA-12 | 低 | 服务层不拒绝子任务写 `columnId` 等列一致性缺口 | **已解决** | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | `update_task` 的列补丁移到父任务判定之后：子任务拿列（含同一补丁里既给父又给列）一律 validation，清列照常；新增 `validate_column` 供创建路径校验「列存在且属于该项目」。四个用例覆盖（子任务写列、同补丁给父给列、清列、跨项目/不存在的列） |
-| QA-13 | 低 | 补完成逾期的重复任务会生成已逾期实例 | 未解决（产品取舍，可复议） | `src-tauri/src/services.rs`（`next_due`） | 锚定 `due_at` 是 PRODUCT §2.4 的既定语义，代价是逐周期追赶。可复议「滚动到未来」 |
+| QA-13 | 低 | 补完成逾期的重复任务会生成已逾期实例 | **已解决**（复议后改为滚动到未来） | `src-tauri/src/services.rs`（`next_due_after`） | 新增 `next_due_after`：先推进一个周期，若仍在过去就继续推进到第一个未来周期点，并返回推进了几个周期；副本子任务按同一周期数推进以保住与父任务的偏移。PRODUCT §2.4 同步改写。未逾期路径仍是「恰好一个周期」（`next_due` 不变，原有钳制用例保留） |
 | QA-14 | 低 | 备份导入同步长持主线程与连接锁 | **已解决**（残留见下） | `src-tauri/src/commands.rs`（`backup:*`） | 两个命令改 async，把整库读写放进 `spawn_blocking`（`blocking()` 包装，含 join 失败归一化），大库导入不再占着命令派发线程。**残留**：连接互斥锁仍会让别的命令与提醒扫描排队——SQLite 单写者、单连接是既定形状，要并行得先改成连接池 |
 | QA-15 | 低 | 隐藏窗口期间的挂起提醒只保留最后一条 | **已解决** | `features/tasks/reminders.ts` | `pending` 改成队列（`pendingReminders()` 给全量、`pendingReminder()` 给最旧一条），每次 focus 定位队首，其余留下等下一次 focus，不再互相覆盖 |
 | QA-16 | 低 | `setUnfinishedCounts` 注释与实现相反 | **已解决**（复核后结论与审查相反） | `features/tasks/store.ts` | 实测：Solid 的 `setState` 对对象值是**逐键合并**，所以是「注释对、实现是合并写」，审查把两者说反了。按审查期望的行为（已删项目的残留计数要消失）改成显式 `reconcile` 整表替换，并加了钉住替换语义的用例；`UNFINISHED_COUNTS_SQL` 本就返回全部存活项目（含 0），替换不会丢掉在屏上的数字 |

@@ -103,17 +103,67 @@ fn next_due(due: DateTime<Utc>, rule: &RepeatRule) -> DateTime<Utc> {
     }
 }
 
+/// `due` advanced by `periods` recurrence periods, one [`next_due`] at a time.
+/// A period that cannot move the date (a month addition overflowing at the end
+/// of `DateTime`'s range) stops the walk instead of spinning.
+fn advance_periods(due: DateTime<Utc>, rule: &RepeatRule, periods: u32) -> DateTime<Utc> {
+    let mut date = due;
+    for _ in 0..periods {
+        let next = next_due(date, rule);
+        if next <= date {
+            return date;
+        }
+        date = next;
+    }
+    date
+}
+
+/// The next instance's due time, and how many periods the anchor moved.
+///
+/// One period past `due`, and then — when the task was completed after that
+/// instance had already come due — as many further periods as it takes for the
+/// next instance to land in the future (QA-13). Completing a daily task a week
+/// late schedules tomorrow, not a week ago; the alternative (catching up one
+/// period per completion, with the instance born overdue every time) turned a
+/// missed week into seven completions.
+///
+/// The count comes back with the date because the copied subtasks advance by
+/// the *same* number of periods, which is what keeps their offset to the parent.
+///
+/// `ponytail:` the catch-up walks period by period. A row left alone for a
+/// century is a few thousand cheap additions in one transaction; the arithmetic
+/// shortcut is worth writing only if such rows turn up in practice.
+fn next_due_after(
+    due: DateTime<Utc>,
+    rule: &RepeatRule,
+    now: DateTime<Utc>,
+) -> (DateTime<Utc>, u32) {
+    let mut next = next_due(due, rule);
+    let mut periods = 1;
+    while next <= now {
+        let advanced = next_due(next, rule);
+        if advanced <= next {
+            break;
+        }
+        next = advanced;
+        periods += 1;
+    }
+    (next, periods)
+}
+
 /// Spawns the next instance of a completed repeating task inside the
-/// caller's transaction: one period past the task's due time, carrying over
+/// caller's transaction: one period past the task's due time — or the first
+/// occurrence after `now`, if the task was completed late — carrying over
 /// title/note/priority/project/complexity/tags and the rule itself, appended
 /// to `column_id`'s scope. Subtasks are copied as child task rows with their
 /// attributes but reset to uncompleted, their due dates advanced by the same
-/// period. Repeats anchored to nothing (`due_at = None`) or paused rules
-/// complete without spawning.
+/// number of periods. Repeats anchored to nothing (`due_at = None`) or paused
+/// rules complete without spawning.
 fn spawn_next_instance(
     conn: &Connection,
     task: &Task,
     column_id: Option<Uuid>,
+    now: DateTime<Utc>,
 ) -> Result<(), AppError> {
     let Some(rule) = task.repeat_rule else {
         return Ok(());
@@ -130,10 +180,12 @@ fn spawn_next_instance(
         .map(|tag| tag.id)
         .collect();
 
-    // Copies keep the subtask's attributes; `due_at` advances by the same
-    // period as the parent (a copy whose date stayed put would be born
-    // overdue). Dependency edges are deliberately NOT inherited: they would
+    // Copies keep the subtask's attributes; `due_at` advances by the same number
+    // of periods as the parent (a copy whose date stayed put would be born
+    // overdue, and one that advanced by a different count would drift away from
+    // the parent). Dependency edges are deliberately NOT inherited: they would
     // point at the previous instance's rows.
+    let (parent_due, periods) = next_due_after(due, &rule, now);
     let originals = tasks::list_by_parent(conn, task.id)?;
 
     let spawned = create_task_in_tx(
@@ -144,7 +196,7 @@ fn spawn_next_instance(
             priority: Some(task.priority),
             project_id: task.project_id,
             column_id,
-            due_at: Some(next_due(due, &rule)),
+            due_at: Some(parent_due),
             complexity: task.complexity,
             tag_ids,
             subtask_titles: Vec::new(),
@@ -170,7 +222,9 @@ fn spawn_next_instance(
                 note: original.note,
                 priority: original.priority,
                 column_id: None,
-                due_at: original.due_at.map(|date| next_due(date, &rule)),
+                due_at: original
+                    .due_at
+                    .map(|date| advance_periods(date, &rule, periods)),
                 completed_at: None,
                 repeat_rule: original.repeat_rule,
                 complexity: original.complexity,
@@ -720,7 +774,7 @@ pub fn complete_task(conn: &Connection, id: Uuid) -> Result<Task, AppError> {
     if !tasks::update(&tx, &task)? {
         return Err(not_found("任务", id));
     }
-    spawn_next_instance(&tx, &task, task.column_id)?;
+    spawn_next_instance(&tx, &task, task.column_id, now)?;
     tx.commit()?;
     Ok(task)
 }
@@ -1172,7 +1226,7 @@ pub fn move_task(
     // Entering the done column completes the task: a repeating task spawns
     // its next instance back into the column it came from.
     if entered_done {
-        spawn_next_instance(&tx, &moved, previous_column)?;
+        spawn_next_instance(&tx, &moved, previous_column, now)?;
     }
 
     tx.commit()?;
@@ -4436,6 +4490,62 @@ mod tests {
         );
     }
 
+    /// Completing an overdue repeat must not hand the user an instance that is
+    /// already late: it lands on the first occurrence after the completion.
+    #[test]
+    fn a_late_completion_schedules_the_next_instance_in_the_future() {
+        let rule = RepeatRule {
+            freq: RepeatFreq::Daily,
+            interval: 1,
+            paused: false,
+        };
+        let due = Utc.with_ymd_and_hms(2026, 1, 1, 9, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 1, 8, 10, 0, 0).unwrap();
+
+        let (next, periods) = next_due_after(due, &rule, now);
+
+        assert_eq!(next, Utc.with_ymd_and_hms(2026, 1, 9, 9, 0, 0).unwrap());
+        assert_eq!(
+            periods, 8,
+            "seven days late, so eight periods from the anchor"
+        );
+        assert!(next > now);
+    }
+
+    #[test]
+    fn an_on_time_completion_still_moves_exactly_one_period() {
+        let rule = RepeatRule {
+            freq: RepeatFreq::Weekly,
+            interval: 2,
+            paused: false,
+        };
+        let due = Utc.with_ymd_and_hms(2026, 1, 1, 9, 0, 0).unwrap();
+
+        // Completed before the instance came due: nothing to catch up on.
+        let (next, periods) = next_due_after(due, &rule, due - chrono::Duration::hours(3));
+
+        assert_eq!(next, due + chrono::Duration::weeks(2));
+        assert_eq!(periods, 1);
+    }
+
+    /// The anchor still advances a period at a time, so the month-end clamp
+    /// compounds (Jan 31 → Feb 28 → Mar 28) instead of jumping back to the 31st.
+    #[test]
+    fn monthly_catch_up_walks_period_by_period() {
+        let rule = RepeatRule {
+            freq: RepeatFreq::Monthly,
+            interval: 1,
+            paused: false,
+        };
+        let due = Utc.with_ymd_and_hms(2026, 1, 31, 9, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 3, 15, 9, 0, 0).unwrap();
+
+        let (next, periods) = next_due_after(due, &rule, now);
+
+        assert_eq!(next, Utc.with_ymd_and_hms(2026, 3, 28, 9, 0, 0).unwrap());
+        assert_eq!(periods, 2);
+    }
+
     #[test]
     fn repeat_rules_validate_on_create_and_update() {
         let conn = conn();
@@ -4547,7 +4657,9 @@ mod tests {
             },
         )
         .unwrap();
-        let due = Utc.with_ymd_and_hms(2026, 9, 11, 18, 0, 0).unwrap();
+        // Far enough ahead that this instance is not overdue: the catch-up path
+        // (QA-13) has its own test below.
+        let due = Utc::now() + chrono::Duration::days(1);
         let rule = RepeatRule {
             freq: RepeatFreq::Daily,
             interval: 1,
@@ -4612,6 +4724,60 @@ mod tests {
         assert_eq!(listed.len(), 3);
         assert_eq!(listed[2].due_at, Some(due + chrono::Duration::days(2)));
         assert_eq!(completed_task_count(&conn), 2);
+    }
+
+    #[test]
+    fn completing_an_overdue_repeat_lands_the_next_instance_in_the_future() {
+        let conn = conn();
+        let now = Utc::now();
+        let due = now - chrono::Duration::days(5);
+        let rule = RepeatRule {
+            freq: RepeatFreq::Daily,
+            interval: 1,
+            paused: false,
+        };
+        let task = create_task(
+            &conn,
+            NewTask {
+                due_at: Some(due),
+                repeat_rule: Some(rule),
+                ..make_new_task("每日复盘")
+            },
+        )
+        .unwrap();
+        // A child due two hours before its parent keeps that offset.
+        create_task(
+            &conn,
+            NewTask {
+                due_at: Some(due - chrono::Duration::hours(2)),
+                parent_task_id: Some(task.id),
+                ..make_new_task("看数据")
+            },
+        )
+        .unwrap();
+
+        complete_task(&conn, task.id).unwrap();
+
+        let spawned = list_tasks(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| {
+                candidate.task.parent_task_id.is_none() && candidate.task.id != task.id
+            })
+            .expect("the repeat instance must exist")
+            .task;
+        let spawned_due = spawned.due_at.expect("the instance keeps a due date");
+        assert!(
+            spawned_due > now,
+            "a late completion must not hand back an overdue instance: {spawned_due}"
+        );
+
+        let copied = tasks::list_by_parent(&conn, spawned.id).unwrap();
+        assert_eq!(
+            copied[0].due_at,
+            Some(spawned_due - chrono::Duration::hours(2)),
+            "a copied subtask advances the same number of periods as its parent"
+        );
     }
 
     #[test]
