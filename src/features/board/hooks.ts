@@ -7,41 +7,17 @@
  * a view over tasks); column CRUD mutates this feature's column cache.
  */
 
-import { normalizeError } from "../../common/ipc";
-import { patchRollback } from "../../common/optimistic";
-import { pushError } from "../../common/stores/notifications";
+import {
+  missingEntity,
+  optimistic,
+  patchRollback,
+  reportFailure,
+} from "../../common/optimistic";
 import { loadUnfinishedCounts, parkIfBlocked } from "../tasks/hooks";
 import * as tasksStore from "../tasks/store";
 import type { Task } from "../tasks/types";
 import * as api from "./api";
 import * as store from "./store";
-
-/** Normalizes any thrown value, surfaces it as an error notification. */
-function reportFailure(error: unknown): null {
-  const normalized = normalizeError(error);
-  pushError(normalized.message, normalized.code);
-  return null;
-}
-
-/** Applies `apply`, runs `action`, reconciles; rolls back + notifies on failure. */
-async function optimistic<T>(
-  apply: () => void,
-  rollback: () => void,
-  action: () => Promise<T>,
-): Promise<T | null> {
-  apply();
-  try {
-    return await action();
-  } catch (error) {
-    rollback();
-    return reportFailure(error);
-  }
-}
-
-function missingEntity(what: string): null {
-  pushError(`${what}不存在或数据已刷新，请重试`);
-  return null;
-}
 
 /**
  * Temporary sort key for the optimistic step — good enough for one render

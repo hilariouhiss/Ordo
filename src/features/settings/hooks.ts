@@ -12,7 +12,7 @@
 
 import { format } from "date-fns";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { normalizeError } from "../../common/ipc";
+import { reportFailure } from "../../common/optimistic";
 import { pushError, pushInfo } from "../../common/stores/notifications";
 import { loadAll as loadNamespaces } from "../namespaces/hooks";
 import { loadAll as loadProjects } from "../projects/hooks";
@@ -23,12 +23,6 @@ import type { BackupSummary } from "./types";
 /** Default file name offered by the save dialog. */
 export function backupFileName(now: Date = new Date()): string {
   return `ordo-backup-${format(now, "yyyyMMdd-HHmmss")}.json`;
-}
-
-function reportFailure(error: unknown): null {
-  const normalized = normalizeError(error);
-  pushError(normalized.message, normalized.code);
-  return null;
 }
 
 /** Save dialog; `null` when the user dismisses it. */

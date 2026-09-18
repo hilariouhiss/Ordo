@@ -9,9 +9,14 @@
  */
 
 import { normalizeError } from "../../common/ipc";
-import { patchRollback } from "../../common/optimistic";
+import {
+  missingEntity,
+  nextTempId,
+  optimistic,
+  patchRollback,
+  reportFailure,
+} from "../../common/optimistic";
 import { randomColor } from "../../common/colors";
-import { pushError } from "../../common/stores/notifications";
 import * as api from "./api";
 import { requestBlockedConfirm } from "./blocked-confirm";
 import { blockersOf, buildIndex, completionSet, edgeEquals, liveSet } from "./dependencies";
@@ -32,42 +37,6 @@ import type {
   UpdateTimeEntry,
   NewTimeEntry,
 } from "./types";
-
-/** Prefix for optimistic ids; never collides with backend UUIDs. */
-const TEMP_PREFIX = "optimistic-";
-let tempSeq = 0;
-
-function nextTempId(): string {
-  tempSeq += 1;
-  return `${TEMP_PREFIX}${Date.now().toString(36)}-${tempSeq}`;
-}
-
-/** Normalizes any thrown value, surfaces it as an error notification. */
-function reportFailure(error: unknown): null {
-  const normalized = normalizeError(error);
-  pushError(normalized.message, normalized.code);
-  return null;
-}
-
-/** Applies `apply`, runs `action`, reconciles; rolls back + notifies on failure. */
-async function optimistic<T>(
-  apply: () => void,
-  rollback: () => void,
-  action: () => Promise<T>,
-): Promise<T | null> {
-  apply();
-  try {
-    return await action();
-  } catch (error) {
-    rollback();
-    return reportFailure(error);
-  }
-}
-
-function missingEntity(what: string): null {
-  pushError(`${what}不存在或数据已刷新，请重试`);
-  return null;
-}
 
 // --- loading -----------------------------------------------------------------
 
