@@ -21,14 +21,16 @@ function Portal(props: ComponentProps<typeof KDialog.Portal>) {
 /*
  * The scrim is a tinted dark (the neutral hue, not pure black) so the dimmed
  * page keeps its colour temperature, plus a 2px blur that separates the dialog
- * plane from the content behind it without hiding it outright.
+ * plane from the content behind it without hiding it outright. The blur is
+ * `scrim-blur` rather than `backdrop-blur-[2px]` because the latter is
+ * unprefixed, and WebKit needs the prefix (index.css has the note).
  */
 function Overlay(props: ComponentProps<typeof KDialog.Overlay>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <KDialog.Overlay
       {...rest}
-      class={`animate-fade-in fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] ${local.class ?? ""}`}
+      class={`animate-fade-in scrim-blur fixed inset-0 z-50 bg-overlay ${local.class ?? ""}`}
     />
   );
 }

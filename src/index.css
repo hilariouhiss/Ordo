@@ -365,6 +365,20 @@
 }
 
 /*
+ * Dialog scrim blur.
+ *
+ * Written by hand instead of with `backdrop-blur-[2px]`, which emits the
+ * unprefixed property only: WebKit — the macOS webview and the Linux one — has
+ * been prefix-only for longer than either of them has existed, and unprefixed
+ * `backdrop-filter` only landed in Safari 18. Without the prefixed spelling the
+ * one platform that renders the scrim blur is Windows.
+ */
+@utility scrim-blur {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+/*
  * The one focus indicator. An `outline` rather than a `ring`: it follows the
  * element's own border-radius and needs no `ring-offset`, which paints a gap
  * in the *page* background colour and so looks broken on any surface that is

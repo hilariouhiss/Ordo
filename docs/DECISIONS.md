@@ -103,7 +103,7 @@
 | **BV-03** | 弹窗头部固定 | 已落地 → `common/components/dialog.tsx`、[ARCHITECTURE](./ARCHITECTURE.md)§5-8 |
 | **Q-01** | 性能验收 | 已落地 → [ARCHITECTURE](./ARCHITECTURE.md)§6.1、`scripts/perf-acceptance.ps1`（启动耗时缺口见 §4） |
 | **Q-02** | 动效与无障碍复查 | 已落地 → [ARCHITECTURE](./ARCHITECTURE.md)§6.2、`src/common/__tests__/design-constraints.test.ts`（剩余缺口见 §4.2） |
-| **Q-03** | 三端兼容验证 | **未完成** —— 见 §4 |
+| **Q-03** | 三端兼容验证 | **部分落地** —— Windows 实测 + 三端静态核对，记录见 [ARCHITECTURE](./ARCHITECTURE.md)§6.3；macOS / Linux 真机清单未跑，见 §4.3 |
 | **Q-04** | 文档同步 | **本次整合即此项** —— 见 §4 |
 | **Q-05** | 质量收口 | 已落地 —— 测试全绿；已删除脚手架期的 demo 命令 `greet`、`settings:*` 死常量与占位用例 `src/__tests__/example.test.ts`；根 `README.md` 已补 |
 | **Q-06** | 全仓代码审查 | **审查已完成，修复进行中** —— 状态清单见 §4.1 |
@@ -168,7 +168,7 @@
 | --- | --- | --- |
 | **Q-02 复查留下的无障碍缺口** | 7 项：统计刷新没有加载提示、分段控件不是 APG 单选组、图表逐点数据没有文本替代、路由切换不移动焦点、搜索框不是 combobox、快速输入小窗没有可聚焦的提交按钮 | 这些都**可用**（键盘能走到、能激活），但离推荐模式有距离；逐项与理由见 §4.2 |
 | **启动耗时未全部达标**（Q-01 验收留下） | 热启动 730–840 ms（目标 0.5 s）；WebView2 运行时缓存冷时冷启动 1619 ms（目标 1.5 s）。构成见 [ARCHITECTURE](./ARCHITECTURE.md)§6.1：WebView2 与窗口 320–1068 ms、页面加载与挂载约 175 ms、首屏数据约 270 ms、quick-add 小窗约 123 ms | 体感是「点图标到看见自己的任务」约 0.7–0.8 s。省时间的两条路都与既有决策冲突——预热小窗是 D-02 有意为之、启动拉整棵树是 §1.2 的取舍——要动就得先推翻那两条 |
-| **Q-03 三端兼容** | Windows/macOS/Linux 的快捷键、托盘、通知、路径行为未逐一验证（Linux 托盘依赖 appindicator 运行时） | 三端一致性未验证 |
+| **Q-03 三端兼容** | Windows 已实测（单实例、托盘驻留、快捷键、通知、备份路径）；macOS / Linux 只做了静态核对与代码修正，真机清单（8 项）未跑 | 平台差异与运行前提已逐项写明并列进 [ARCHITECTURE](./ARCHITECTURE.md)§6.3；未跑的部分见 §4.3，风险是「写下来的结论没在真机上验过」而不是已知不一致 |
 | **Q-04 文档同步** | 本次整合完成了主体：文档集改为描述现状并与代码对齐 | 后续仍需按 [README](./README.md)§5 的规则维护 |
 | **任务数据仍在启动时全量加载** | `task:list` 一次带走整棵树（§1.2 的取舍）：8k 档起超 50 ms 预算（56 ms），70k 行 339 ms；前端首屏 3.7 s（70k 行：Rust 侧到后端就绪 580 ms，其余全在页面，最贵的一笔是整树过 IPC）。写入路径已不随规模涨（三档 0.08–0.10 ms）。项目详情与看板已改为按项目范围取（`task:listByProject`）；侧边栏的展开箭头与命名空间页的数字已不读快照（分别用 `project:unfinishedCounts` 与 `stats:projectProgress`；外壳仍为四个视图载入快照，侧边栏的拖放也还按 `getTask` 在快照里查行）；启动路径与四个视图仍读 `task:list` | 「按范围懒加载」是已定的方向（命令面、store 形状、迁移顺序已定稿）；在那之前 5 万行的库首屏在秒级（11225 行与 70025 行两档实测之间的外推）、超出 1.5 s 的冷启动目标 |
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
@@ -221,3 +221,18 @@
 | 搜索框不是 combobox | 输入框没有 `aria-controls`/`aria-expanded`/方向键结果导航；结果数量与空结果由常驻 `role="status"` 播报 | 结果列表是普通按钮列表而不是 listbox，方向键导航要连带决定选中语义 |
 | 快速输入小窗没有提交按钮 | 只有「回车添加 · Esc 关闭」；表单里只有标题输入框，两个下拉与日期控件在表单外 | D-02 有意做成极简小窗（560×164），加按钮会改窗口形态；回车路径对键盘用户是完整的 |
 | 虚拟列表的滚动条本身不是 Tab 停靠点 | 滚动容器没有 `tabIndex`，方向键滚动依赖焦点在行内控件上（Chromium 会滚动最近的滚动祖先） | 加 `tabIndex` 会多一个 Tab 停靠点且只对这一种容器有意义；当前路径已能滚动 |
+
+### 4.3 Q-03 未跑的真机项（2026-09-18）
+
+Q-03 复查做了什么、改了什么、Windows 上实测到了什么，见 [ARCHITECTURE](./ARCHITECTURE.md)§6.3。下表是**只能在 macOS / Linux 真机上跑**的部分——本机（Windows）连 `cfg(target_os = "macos")` 分支都编译不到，`cargo check` 只覆盖当前目标，所以这些是「代码读了、清单写了、没跑过」。
+
+| 项 | 判定标准 | 没跑的原因 |
+| --- | --- | --- |
+| macOS `Reopen`（Dock 图标叫回窗口） | 关窗到托盘后点 Dock 图标，主窗口回来；点通知激活应用时同样 | 需要 macOS；变体只在 macOS 编译 |
+| macOS 托盘图标外观与菜单 | 菜单栏图标可辨、菜单三项可用 | 同上（`icon_as_template` 有意不开，模板图会把彩色图标渲染成剪影，真机要确认观感） |
+| macOS 通知投递 | 打包 `.app` 后首次提醒弹出并请求授权，后续提醒按类型出现 | 同上（裸二进制运行的提醒可能不投递） |
+| macOS webview 特性下限 | §6.3 的四项探针全 true，遮罩有模糊 | 同上（`@property` 需要 Safari 16.4 级 webview） |
+| Linux 托盘（appindicator） | 左键弹菜单、显示/隐藏/退出三项可用 | 需要 Linux + `libayatana-appindicator3` |
+| Linux 全局快捷键 | X11 会话下 `Ctrl+Shift+Space` 唤出小窗；Wayland 下确认是否注册失败（只记日志） | 需要 Linux；`global-hotkey` 只有 X11 后端 |
+| Linux 单实例的会话总线依赖 | 有会话总线时第二次启动不新开进程；无总线环境（裸 TTY/容器）确认失败形态 | 需要 Linux |
+| Linux 打包与自启 | deb/rpm/AppImage 都能起；AppImage 在无 FUSE 时可用 `--appimage-extract-and-run`；自启写 `~/.config/autostart` | 需要 Linux，且要真打包 |

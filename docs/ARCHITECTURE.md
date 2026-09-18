@@ -186,6 +186,7 @@ src/
 - **`child-indent` 是内联子列表的唯一缩进规则**：子项内容相对父项右移 20px，缩进带中线画 1px `border-strong` 引导线。虚拟化的行式子列表（`SubtaskRow` 的 `w-5` 槽位）用行内槽位表达同一条规则——两者的步长与线色必须保持一致。整页/卡片式子列表不缩进。
 - **`skeleton`** 骨架屏的微光扫过：一个 `::after` 上的固定渐变沿独立的 `translate` 扫过（合成器动画，不重绘；全局「减少动态效果」规则把它压成静止的实心块）。
 - **浮层入场动画** `animate-fade-in` / `animate-surface-in` / `animate-toast-in`。
+- **`scrim-blur`** 弹窗遮罩的 2px 背景模糊。手写而不是用 `backdrop-blur-[2px]`：后者只输出无前缀的 `backdrop-filter`，而 WebKit（macOS 与 Linux 两端的 webview）长期只认 `-webkit-backdrop-filter`，无前缀写法要到 Safari 18 才有——只用工具类的话，三端里恰好只有 Windows 看得到这层模糊。
 - **`.date-field`** 的 `::-webkit-datetime-edit` 隐藏规则（配合 `DateField` 组件）。
 - 滚动条样式：`::-webkit-scrollbar` 系列（Tauri 渲染在 WebView2/Chromium 上）+ 标准属性兜底；透明边框 + `background-clip` 把滑块缩进成浮动胶囊。
 
@@ -295,6 +296,8 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | --- | --- |
 | **系统托盘**（`tray.rs`） | Tauri 核心 Tray API（`tauri` crate 必须开启 `tray-icon` feature）；左键单击切换主窗口显示/隐藏，右键弹菜单「显示主窗口 / 隐藏主窗口 / 退出 Ordo」（`show_menu_on_left_click(false)`）；托盘图标复用打包图标（`default_window_icon()`，缺失时不设置以免托盘不可见） |
 | **关闭即驻留** | `lib.rs` 的 `on_window_event` 拦截**任意窗口**的 `CloseRequested`（`api.prevent_close()` + `hide()`），只有托盘菜单「退出」调 `app.exit(0)` 才真正结束进程 |
+| **第二次启动 = 叫回窗口** | `tauri-plugin-single-instance` 注册在插件链**最前面**（插件自己的要求），回调直接走 `tray::show_main`。托盘应用被再点一次图标是常态：没有它就会开出第二个进程，同时写同一个 SQLite 文件（`busy_timeout` 有意未设，见 QA-11）并多出一个托盘图标。Linux 实现走会话 D-Bus，总线名由 identifier 派生（`com.hiss.ordo.SingleInstance`） |
+| **macOS 重新激活** | `app.run` 的回调里处理 `RunEvent::Reopen`（该变体只在 macOS 上存在，所以整段是 `cfg` 出来的）：窗口留在托盘时点 Dock 图标或 `open -a` 会把主窗口叫回来。Windows / Linux 的对应路径是上面的单实例回调 |
 | **全局快捷键**（`shortcut.rs`） | `tauri-plugin-global-shortcut` 注册**一个**应用级快捷键（macOS `⌘⇧Space`、其他平台 `Ctrl+Shift+Space`），只在按键按下时触发；注册在 Rust 侧，所以不需要 `global-shortcut:*` capability；`Shortcut` 的相等比较包含自增 id，handler 用 `OnceLock` 记忆化以保证与注册时是同一个实例；被其他应用占用时只记日志、不影响启动 |
 | **quick-add 小窗** | 560×164、无边框、不可缩放、置顶、不进任务栏的独立窗口，载入应用自己的 `index.html`（与主窗口同一页面），在 setup 阶段建好并长期隐藏，因此按下即出、没有 webview 冷启动；show + `set_focus` 之后向该窗口定向 `emit_to` 一个 `quick-add:open` 事件——`autofocus` 只在页面加载时生效，而这个页面是在窗口还隐藏时加载的，聚焦必须由事件驱动；该事件同时把输入行与控件复位并重拉一次项目列表（快捷窗有自己的 store，主窗里新建或归档的项目它看不到） |
 | **点走即隐** | 非主窗口的 quick-add 在 `Focused(false)` 时隐藏（无边框窗口没有关闭按钮可点） |
@@ -395,7 +398,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | 动效丝滑 | 仅 `transform`/`opacity`/`scale`/`translate`；150–300ms 自然缓动；`prefers-reduced-motion` 全局兜底 |
 | 体积小（<30 MB） | Tauri release 优化（LTO/strip/panic=abort/codegen-units=1）；路由懒加载按需打包；不引重型库（无动画/图表/DnD/UI 库）；图表自绘 SVG；虚拟滚动自研；不打包 Web 字体 |
 | 响应快 | 冷启动（全量加载在预算内）；命令往返 <50ms；统计走聚合索引秒级返回；FTS5 全文检索 |
-| 三端一致 | 同一份前端代码；全局快捷键与托盘按平台适配（macOS `⌘⇧Space`）；Linux 托盘依赖 appindicator 运行时 |
+| 三端一致 | 同一份前端代码；全局快捷键与托盘按平台适配（macOS `⌘⇧Space`）；平台差异、运行时前置条件与验收清单见 §6.3 |
 
 体积与命令往返已达标、启动耗时未全部达标，实测数字与口径见 §6.1。
 
@@ -485,3 +488,43 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 - **看板拖进空列**：修复前 `board:moveTask` 会以 `需要提供前驱或后继排序键` 拒绝（空列没有可指的邻居），拖进空的「已完成」列必失败；现在两端都为空即追加到该列末尾，键盘入口也复用同一条路径。
 
 留下的缺口见 [DECISIONS](./DECISIONS.md)§4.2。
+
+### 6.3 三端兼容（Q-03）
+
+**怎么验**：Windows 是真机（本次实测了单实例一条，见末尾）；macOS 与 Linux 只有**静态核对**——本机没有这两个平台，`cargo check` 也只编译当前目标，所以 `cfg(target_os = "macos")` 分支连类型检查都过不了。机械可查的那部分留了个测试（`common/__tests__/platform-conformance.test.ts`：打包目标与图标、capability 的窗口列表、单实例注册、macOS `Reopen`、`-webkit-backdrop-filter`），剩下的按末尾清单在真机上过一遍。
+
+**平台适配点**（同一份代码里按平台分叉的全部位置）：
+
+| 表面 | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| 全局快捷键 | `Ctrl+Shift+Space` | `⌘⇧Space` | `Ctrl+Shift+Space`；底层 `global-hotkey` 只有 X11 后端，**Wayland 会话下可能注册不上**（失败只记日志） |
+| 托盘左键 | 切换主窗口显示/隐藏 | 同 Windows | appindicator 只在左键弹菜单（Tauri 的 `show_menu_on_left_click` 在 Linux 是 no-op，`TrayIconEvent::Click` 也不触发），菜单里有同样的显示/隐藏/退出 |
+| 托盘图标 | 打包 `.ico` | 打包 `.icns`（**不做** template image：模板图会把彩色图标渲染成纯色剪影） | 打包 PNG；运行时需要 appindicator（`libayatana-appindicator3`） |
+| 第二次启动 | 单实例回调叫回窗口 | 同 Windows | 同 Windows；实现是会话 D-Bus，**没有会话总线**的环境（裸 TTY、部分容器）会在启动时报错 |
+| 重新激活 | — | `RunEvent::Reopen`（Dock 图标 / `open -a`） | — |
+| 通知 | WinRT toast，需要**已安装**（有注册的 AUMID）；免安装的裸二进制可能不显示 | 需要打包成 `.app` 且用户授权；裸二进制运行的提醒可能不投递 | 走 `org.freedesktop.Notifications`，需要通知守护进程 |
+| 开机自启 | HKCU Run | LaunchAgent（插件默认） | XDG autostart（`~/.config/autostart`） |
+| 数据目录 | `app_data_dir()` 按 identifier 派生：`%APPDATA%\com.hiss.ordo` | `~/Library/Application Support/com.hiss.ordo` | `~/.local/share/com.hiss.ordo` |
+| 滚动条 | `::-webkit-scrollbar` 生效 | WKWebView 走系统覆盖式滚动条，自绘基本不生效（外观差异，不影响功能） | WebKitGTK：同 macOS |
+| 打包产物 | NSIS、MSI | app、dmg | deb、rpm、AppImage（AppImage 需要 FUSE 或 `--appimage-extract-and-run`） |
+
+**前端产物对 webview 的要求**（这部分是扫出来的，不是猜的）：`vite build` 的 CSS 里用了 `oklch()`（55 处）、`color-mix()`（24 处）、`@property`（59 处）与 `dvh`——都是 Tailwind v4 的产物。其中 `@property` 到 2024 年 7 月才成为所有主流引擎的 Baseline（[MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@property)），所以 macOS 与 Linux 两端的 webview 都不能太旧（macOS 大致要 Ventura 一代起；Linux 跟着发行版的 WebKitGTK 走，Tauri 2 自己只要求 webkit2gtk-4.1）。**别按版本号判断，按探针判断**：旧 webview 上的表现是样式整体走样，而不是功能报错，所以真机验收时先跑这一行：
+
+```js
+// DevTools 控制台：四项全 true 才能放心
+["oklch(0.5 0.1 200)", "color-mix(in oklab, red, blue)", "light-dark(#fff,#000)"]
+  .map((v) => CSS.supports("color", v)).concat([CSS.supports("backdrop-filter", "blur(2px)")]);
+```
+
+**真机验收清单**（每端一遍，逐项记结果）：
+
+1. **托盘**：启动 → 关闭主窗口（应在托盘驻留、进程不退）→ 托盘菜单 显示/隐藏/退出 三项；左键手势按上表（Windows/macOS 切换窗口，Linux 弹菜单）。
+2. **快捷键**：任意界面按 `⌘⇧Space` / `Ctrl+Shift+Space` → 小窗即出并聚焦；输入标题回车 → 任务进收件箱且小窗收回；Esc 与点走都只隐藏；改动主窗口数据后小窗能看到新项目。
+3. **第二次启动**：再次启动应用 → 不出现第二个窗口/第二个托盘图标，已有窗口被叫到前台；确认任务栏/程序坞只有一个实例。
+4. **通知**：建一个 1 分钟后的任务，把窗口关到托盘 → 桌面通知出现、文案正确、点通知能把应用叫回来（macOS 走 `Reopen`，Windows 由系统激活应用）。
+5. **路径与文件**：导出备份到 `~/Documents` 之类的位置 → 文件真的在那里、内容是非空 JSON；从该文件恢复 → 数据回来且无需重启；确认数据目录落在上表的位置。
+6. **开机自启**：设置页打开开关 → OS 登录项里出现对应条目（Windows 注册表 Run、macOS 登录项、Linux `~/.config/autostart/*.desktop`）→ 关掉后条目消失（开关始终回读 OS）。
+7. **窗口与输入法**：窗口缩放/最小尺寸、中文输入法下回车提交（IME 组合期间不能提交）、日期控件在三种 webview 下的空值文案与原生选择器可用。
+8. **webview 特性**：跑上面那行控制台探针；顺带看遮罩模糊（弹窗背后的 2px 模糊在 macOS/Linux 上是 `-webkit-backdrop-filter` 提供的）。
+
+**已实测（Windows，2026-09-18）**：单实例——release 二进制（`pnpm tauri build --no-bundle`）在 `ORDO_DB` 指向临时库时连开两次：第一个进程 8 秒后仍在运行，第二个进程 6 秒内自行退出（exit 0），全程 `ordo` 进程数为 1，临时库里迁移已跑完（212 KB）。清单里的其余项都要人眼判断（通知是否弹出、托盘菜单文案、Dock 图标叫回窗口），Windows 上它们随日常使用与 Q-01 的启动验收被反复走到，但没有逐项留档——这次只补了能自动化断言的那一条，其余留给清单。§6.1 记录的是启动与命令往返的数字。

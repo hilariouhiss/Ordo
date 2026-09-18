@@ -21,7 +21,15 @@ pub fn run() {
     // Q-01 的地基：进程起点。之后再没有哪个时刻比这里更早。
     perf::mark_start();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        // First plugin registered, as the plugin asks: the second process has to
+        // be turned away before anything else opens the database. Ordo lives in
+        // the tray, so launching it again is how a user reopens it — the second
+        // launch surfaces the running window instead of starting a second
+        // writer on the same SQLite file (no `busy_timeout`, see QA-11).
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            tray::show_main(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -107,8 +115,20 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // Reopen is macOS-only (the variant does not exist elsewhere): the app is
+    // re-activated — dock icon, `open -a` — while its window is parked in the
+    // tray, and without this nothing happens at all. On Windows and Linux that
+    // way back is a second launch, which `tauri-plugin-single-instance` handles
+    // above by surfacing the running window.
+    app.run(|_app, _event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = _event {
+            tray::show_main(_app);
+        }
+    });
 }
 
 /// Resolves the on-disk location of the SQLite database.
