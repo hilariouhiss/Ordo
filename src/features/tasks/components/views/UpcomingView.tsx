@@ -1,4 +1,5 @@
 import { Show, createMemo, createSignal } from "solid-js";
+import { createNow } from "../../../../common/clock";
 import { Select } from "../../../../common/components";
 import { tasks as allTasks, tasksState } from "../../store";
 import { viewUpcoming } from "../../view-filters";
@@ -13,7 +14,7 @@ const RANGE_OPTIONS = [7, 14, 30].map((days) => ({
 
 export function UpcomingView() {
   const { failed, retry } = useViewData();
-  const [now] = createSignal(new Date());
+  const now = createNow();
   const [days, setDays] = createSignal(7);
   const tasks = createMemo(() => viewUpcoming(allTasks(), days(), now()));
 

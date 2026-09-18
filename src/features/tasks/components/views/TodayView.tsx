@@ -1,4 +1,5 @@
-import { Show, createMemo, createSignal } from "solid-js";
+import { Show, createMemo } from "solid-js";
+import { createNow } from "../../../../common/clock";
 import { tasks as allTasks, tasksState } from "../../store";
 import { viewToday } from "../../view-filters";
 import { SORT_OPTIONS, TaskListView } from "../TaskListView";
@@ -7,9 +8,9 @@ import { useViewData } from "./useViewData";
 
 export function TodayView() {
   const { failed, retry } = useViewData();
-  // Fixed at mount: crossing midnight mid-session refreshes on the next
-  // store change rather than silently reordering rows.
-  const [now] = createSignal(new Date());
+  // A live clock, so a session open across midnight moves the day boundary
+  // with it (QA-02) instead of freezing on the mount-time date.
+  const now = createNow();
   const tasks = createMemo(() => viewToday(allTasks(), now()));
 
   return (

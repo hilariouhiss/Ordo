@@ -129,6 +129,25 @@ describe("TodayView", () => {
     expect(screen.getByText("2 个任务")).toBeTruthy();
   });
 
+  it("re-reads the day boundary when the window regains focus after midnight", () => {
+    store.setAll(
+      [
+        task("tonight", { title: "今晚的活", dueAt: iso(0, 23), sortOrder: "a" }),
+        task("tomorrow", { title: "明早的活", dueAt: iso(1, 9), sortOrder: "b" }),
+      ],
+      [],
+    );
+
+    render(() => <TodayView />);
+    expect(screen.queryByText("明早的活")).toBeNull();
+
+    // The session sat open past midnight with no store change in between.
+    vi.setSystemTime(new Date(2026, 8, 10, 0, 30));
+    window.dispatchEvent(new Event("focus"));
+
+    expect(screen.getByText("明早的活")).toBeTruthy();
+  });
+
   it("completing a task removes it instantly (optimistic) and calls task:complete", async () => {
     const item = task("t1", { dueAt: iso(0, 23) });
     store.setAll([item], []);

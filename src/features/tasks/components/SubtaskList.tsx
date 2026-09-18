@@ -17,6 +17,9 @@ import { PRIORITY_BADGES } from "./TaskItemRow";
 
 export interface SubtaskListProps {
   taskId: string;
+  /** The host's clock, so a child's due badge reads the same instant as the
+   * rows around it (QA-02: reading `new Date()` here froze at row creation). */
+  now: Date;
   /** Opens one child's own detail: a child is a task, so it has one (R7c). */
   onOpenDetail: (task: Task) => void;
   /** Hands one child to the host's editor (the detail dialog opens the same
@@ -194,10 +197,10 @@ export function SubtaskList(props: SubtaskListProps) {
                 </Show>
                 <Show when={child.dueAt}>
                   <Badge
-                    variant={isOverdue(child.dueAt, new Date()) ? "danger" : "outline"}
+                    variant={isOverdue(child.dueAt, props.now) ? "danger" : "outline"}
                     size="sm"
                   >
-                    {formatDueLabel(child.dueAt, new Date())}
+                    {formatDueLabel(child.dueAt, props.now)}
                   </Badge>
                 </Show>
                 <Show when={blocked(child)}>

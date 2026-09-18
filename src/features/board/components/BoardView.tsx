@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
 import { CircleAlert } from "lucide-solid";
 import { Button, EmptyState } from "../../../common/components";
+import { createNow } from "../../../common/clock";
 import { TaskDetailDialog } from "../../tasks/components/TaskDetailDialog";
 import { completeTask, uncompleteTask } from "../../tasks/hooks";
 import { scopeRows } from "../../tasks/store";
@@ -22,7 +23,7 @@ import { BoardColumnView } from "./BoardColumnView";
  */
 export function BoardView(props: { projectId: string }) {
   const [failed, setFailed] = createSignal(false);
-  const [now] = createSignal(new Date());
+  const now = createNow();
   const [draggingTaskId, setDraggingTaskId] = createSignal<string | null>(null);
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<Task | null>(null);

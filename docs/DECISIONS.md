@@ -183,7 +183,7 @@
 | 编号 | 级别 | 一句话描述 | 是否解决 | 位置 | 问题与修复方向 |
 | --- | --- | --- | --- | --- | --- |
 | QA-01 | 高 | 窗口拉高后虚拟列表新暴露区域空白，滚动后才恢复 | **已解决**（68b77a8） | `src/common/components/virtual-list.tsx` | `onMount` 挂 `ResizeObserver`，回调复用 `handleScroll` 重采样几何，`onCleanup` 断开；回归测试以记录型 stub 手动派发 resize |
-| QA-02 | 中 | 「今天」冻结在挂载时刻，跨天后视图不刷新 | 未解决 | `features/tasks/components/views/TodayView.tsx` | `now` 信号无 setter，注释声称的缓解机制不存在；列表/详情的逾期徽标同模式（装饰性）。改分钟级 tick 或 focus 重算，并修正注释 |
+| QA-02 | 中 | 「今天」冻结在挂载时刻，跨天后视图不刷新 | **已解决** | `src/common/clock.ts`、`TodayView.tsx` 等五个调用点 | 新增 `createNow()`：分钟 tick + `focus` 重算，`onCleanup` 随组件释放；五个冻结的 `now` 信号与 `SubtaskList` 的渲染期 `new Date()` 全部改读它，今天/未来视图的日界与逾期徽标随之刷新 |
 | QA-03 | 中 | 看板切换项目后，前项目的失败响应给当前项目盖错误页 | 未解决 | `features/board/components/BoardView.tsx` | `failed` 未按项目隔离。补请求序号守卫（搜索/统计/未完成计数已有现成范式） |
 | QA-04 | 中 | 统计粒度切换时图表归零一拍 | 未解决 | `features/stats/`（`StatsView.tsx` + `hooks.ts`） | `bucketKeys` 立即按新 range 计算、points 仍是旧 range 的，周/日键无交集，违反 hooks 自述的「旧数据留屏」不变量。keys 与 points 配对存储，或切换期间骨架屏 |
 | QA-05 | 中 | 乐观更新的整行回滚会覆盖同行的并发成功写 | 未解决 | `src/common/optimistic.ts` 及全部调用点 | 同行两个重叠写中第一个失败时，回滚抹掉第二个已成功的乐观状态，UI 与后端不一致直到下次整表刷新。按字段回滚，或失败后局部 reload 该实体 |

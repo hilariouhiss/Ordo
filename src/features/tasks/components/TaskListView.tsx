@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { Check, ListFilter, ListTodo, Plus, Tag as TagIcon } from "lucide-solid";
 import { Button, DropdownMenu, EmptyState, Select, VirtualList } from "../../../common/components";
+import { createNow } from "../../../common/clock";
 import { completeTask, softDeleteTask, uncompleteTask, updateTask } from "../hooks";
 import { blockersOf, buildIndex, completionSet, isBlocked, liveSet } from "../dependencies";
 import { childrenOf, getTask, parentTitleOf, tasks, tasksState } from "../store";
@@ -96,8 +97,9 @@ export function TaskListView(props: TaskListViewProps) {
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<Task | null>(null);
   const [managerOpen, setManagerOpen] = createSignal(false);
-  // Captured once so day boundaries don't flap between rows mid-render.
-  const [now] = createSignal(new Date());
+  // One clock per list, so every row in a render pass reads the same instant
+  // and the badges follow the day boundary while the window stays open (QA-02).
+  const now = createNow();
 
   // The view predicate (今天/收件箱/…) already ran; this adds the toolbar
   // filters, and §8.6 decides who they touch: a row that stands on its own is

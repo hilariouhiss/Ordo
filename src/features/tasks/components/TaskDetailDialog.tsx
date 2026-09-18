@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js";
 import { Lock, Repeat } from "lucide-solid";
 import { Badge, Button, Dialog, Skeleton } from "../../../common/components";
+import { createNow } from "../../../common/clock";
 import { completeTask, softDeleteTask, uncompleteTask } from "../hooks";
 import { complexityLabel } from "../complexity";
 import { blockersOf, buildIndex, completionSet, liveSet } from "../dependencies";
@@ -57,7 +58,7 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
   const task = createMemo(() => getTask(props.task.id) ?? props.task);
   const completed = () => task().completedAt !== null;
   const priority = () => PRIORITY_BADGES[task().priority];
-  const [now] = createSignal(new Date());
+  const now = createNow();
   // Per instance, not per dialog: a child's detail stacks this same component
   // on top of its parent's, and two copies of one `id` would make the inner
   // dialog announce the outer one's title.
@@ -189,6 +190,7 @@ export function TaskDetailDialog(props: TaskDetailDialogProps) {
               <div class="mt-5 border-t border-border pt-5">
                 <SubtaskList
                   taskId={task().id}
+                  now={now()}
                   onOpenDetail={(child) => setViewingChildId(child.id)}
                   onEdit={props.onEdit}
                 />
