@@ -12,6 +12,7 @@ import {
   missingEntity,
   nextTempId,
   optimistic,
+  patchRollback,
   reportFailure,
 } from "../../common/optimistic";
 import { randomColor } from "../../common/colors";
@@ -79,7 +80,6 @@ export function updateNamespace(
 ): Promise<Namespace | null> {
   const current = store.getNamespace(namespaceId);
   if (!current) return Promise.resolve(missingEntity("命名空间"));
-  const before: Namespace = { ...current };
 
   const optimisticPatch: Partial<Namespace> = { updatedAt: new Date().toISOString() };
   if (patch.name !== undefined) optimisticPatch.name = patch.name.trim();
@@ -87,9 +87,12 @@ export function updateNamespace(
   if ("color" in patch) optimisticPatch.color = patch.color ?? null;
   if ("icon" in patch) optimisticPatch.icon = patch.icon ?? null;
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
     () => store.patchNamespace(namespaceId, optimisticPatch),
-    () => store.patchNamespace(namespaceId, before),
+    () => store.patchNamespace(namespaceId, rollback),
     async () => {
       const saved = await api.updateNamespace(namespaceId, patch);
       store.patchNamespace(namespaceId, saved);
@@ -103,12 +106,15 @@ export function updateNamespace(
 export function archiveNamespace(namespaceId: string): Promise<Namespace | null> {
   const current = store.getNamespace(namespaceId);
   if (!current) return Promise.resolve(missingEntity("命名空间"));
-  const before: Namespace = { ...current };
   const now = new Date().toISOString();
+  const optimisticPatch: Partial<Namespace> = { status: "archived", updatedAt: now };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchNamespace(namespaceId, { status: "archived", updatedAt: now }),
-    () => store.patchNamespace(namespaceId, before),
+    () => store.patchNamespace(namespaceId, optimisticPatch),
+    () => store.patchNamespace(namespaceId, rollback),
     async () => {
       const saved = await api.archiveNamespace(namespaceId);
       store.patchNamespace(namespaceId, saved);
@@ -121,12 +127,15 @@ export function archiveNamespace(namespaceId: string): Promise<Namespace | null>
 export function restoreNamespace(namespaceId: string): Promise<Namespace | null> {
   const current = store.getNamespace(namespaceId);
   if (!current) return Promise.resolve(missingEntity("命名空间"));
-  const before: Namespace = { ...current };
   const now = new Date().toISOString();
+  const optimisticPatch: Partial<Namespace> = { status: "active", updatedAt: now };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchNamespace(namespaceId, { status: "active", updatedAt: now }),
-    () => store.patchNamespace(namespaceId, before),
+    () => store.patchNamespace(namespaceId, optimisticPatch),
+    () => store.patchNamespace(namespaceId, rollback),
     async () => {
       const saved = await api.restoreNamespace(namespaceId);
       store.patchNamespace(namespaceId, saved);

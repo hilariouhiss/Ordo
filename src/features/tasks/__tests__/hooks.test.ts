@@ -334,15 +334,40 @@ describe("updateTask", () => {
     expect(store.getTask("a")).toEqual(authoritative);
   });
 
+  it("rolls back only the fields it touched, leaving a concurrent write alone", async () => {
+    store.setAll([task("a", { title: "旧标题", priority: "none" })], []);
+    const pending = deferred<Task>();
+    vi.mocked(api.updateTask).mockReturnValue(pending.promise);
+
+    // The rename is in flight…
+    const failing = hooks.updateTask("a", { title: "新标题" });
+
+    // …while a second write on the same row lands and succeeds.
+    vi.mocked(api.updateTask).mockResolvedValue(task("a", { title: "旧标题", priority: "high" }));
+    await hooks.updateTask("a", { priority: "high" });
+
+    pending.reject(appError("db", "写入失败"));
+    await failing;
+
+    expect(store.getTask("a")?.title).toBe("旧标题");
+    // A whole-row rollback would take the priority write down with it, leaving
+    // the screen disagreeing with the database until the next full load.
+    expect(store.getTask("a")?.priority).toBe("high");
+  });
+
   it("restores the exact previous state and notifies on failure", async () => {
     const original = task("a", { note: "旧备注", priority: "low" });
     store.setAll([original], []);
+    // The store takes the fixture by reference and a patch mutates rows in
+    // place, so the expected value has to be its own copy — comparing against
+    // `original` would compare the row with itself.
+    const expected = { ...original };
     vi.mocked(api.updateTask).mockRejectedValue(appError("db", "写入失败"));
 
     const result = await hooks.updateTask("a", { title: "改名", note: null });
 
     expect(result).toBeNull();
-    expect(store.getTask("a")).toEqual(original);
+    expect(store.getTask("a")).toEqual(expected);
     expect(notifications()[0]?.message).toBe("写入失败");
   });
 

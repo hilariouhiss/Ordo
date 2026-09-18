@@ -45,3 +45,21 @@ export function missingEntity(what: string): null {
   pushError(`${what}不存在或数据已刷新，请重试`);
   return null;
 }
+
+/**
+ * The rollback value for a partial patch: the fields that patch touches, as
+ * they are right now.
+ *
+ * A whole-row snapshot is the obvious version of this, and it is wrong: when a
+ * second write lands on the same row while this one is in flight (a rename and
+ * a priority change, say), the failed write's rollback would undo the write
+ * that succeeded — and the screen would then disagree with the database until
+ * the next full load (QA-05).
+ */
+export function patchRollback<T extends object>(current: T, patch: Partial<T>): Partial<T> {
+  const before: Partial<T> = {};
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    before[key] = current[key];
+  }
+  return before;
+}

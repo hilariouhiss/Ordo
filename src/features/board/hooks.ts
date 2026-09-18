@@ -8,6 +8,7 @@
  */
 
 import { normalizeError } from "../../common/ipc";
+import { patchRollback } from "../../common/optimistic";
 import { pushError } from "../../common/stores/notifications";
 import { loadUnfinishedCounts, parkIfBlocked } from "../tasks/hooks";
 import * as tasksStore from "../tasks/store";
@@ -116,7 +117,6 @@ function applyMove(
   if (!task) return Promise.resolve(missingEntity("任务"));
   const column = store.getColumn(columnId);
   if (!column) return Promise.resolve(missingEntity("看板列"));
-  const before: Task = { ...task };
 
   const now = new Date().toISOString();
   const optimisticPatch: Partial<Task> = {
@@ -131,9 +131,12 @@ function applyMove(
     optimisticPatch.completedAt = null;
   }
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(task, optimisticPatch);
   return optimistic(
     () => tasksStore.patchTask(taskId, optimisticPatch),
-    () => tasksStore.patchTask(taskId, before),
+    () => tasksStore.patchTask(taskId, rollback),
     async () => {
       const result = await api.moveTask(taskId, columnId, prev, next);
       tasksStore.applyReorder(result.moved, result.rebalanced);

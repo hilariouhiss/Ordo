@@ -9,6 +9,7 @@
  */
 
 import { normalizeError } from "../../common/ipc";
+import { patchRollback } from "../../common/optimistic";
 import { randomColor } from "../../common/colors";
 import { pushError } from "../../common/stores/notifications";
 import * as api from "./api";
@@ -232,9 +233,12 @@ export function updateTask(taskId: string, patch: UpdateTask): Promise<Task | nu
   if (patch.tagIds !== undefined) optimisticPatch.tagIds = [...patch.tagIds];
   if ("parentTaskId" in patch) optimisticPatch.parentTaskId = patch.parentTaskId ?? null;
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
     () => store.patchTask(taskId, optimisticPatch),
-    () => store.patchTask(taskId, before),
+    () => store.patchTask(taskId, rollback),
     async () => {
       const saved = await api.updateTask(taskId, patch);
       store.patchTask(taskId, saved);
@@ -260,12 +264,15 @@ export function updateTask(taskId: string, patch: UpdateTask): Promise<Task | nu
 function applyCompleteTask(taskId: string): Promise<Task | null> {
   const current = store.getTask(taskId);
   if (!current) return Promise.resolve(missingEntity("任务"));
-  const before: Task = { ...current };
   const now = new Date().toISOString();
+  const optimisticPatch: Partial<Task> = { completedAt: now, updatedAt: now };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchTask(taskId, { completedAt: now, updatedAt: now }),
-    () => store.patchTask(taskId, before),
+    () => store.patchTask(taskId, optimisticPatch),
+    () => store.patchTask(taskId, rollback),
     async () => {
       const saved = await api.completeTask(taskId);
       store.patchTask(taskId, saved);
@@ -455,15 +462,17 @@ export function createTag(input: NewTag): Promise<Tag | null> {
 export function updateTag(tagId: string, patch: UpdateTag): Promise<Tag | null> {
   const current = store.getTag(tagId);
   if (!current) return Promise.resolve(missingEntity("标签"));
-  const before: Tag = { ...current };
 
   const optimisticPatch: Partial<Tag> = { updatedAt: new Date().toISOString() };
   if (patch.name !== undefined) optimisticPatch.name = patch.name.trim();
   if ("color" in patch) optimisticPatch.color = patch.color ?? null;
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
     () => store.patchTag(tagId, optimisticPatch),
-    () => store.patchTag(tagId, before),
+    () => store.patchTag(tagId, rollback),
     async () => {
       const saved = await api.updateTag(tagId, patch);
       store.patchTag(tagId, saved);
@@ -556,12 +565,15 @@ export function updateComment(
 ): Promise<Comment | null> {
   const current = store.getComments(taskId).find((item) => item.id === commentId);
   if (!current) return Promise.resolve(missingEntity("评论"));
-  const before: Comment = { ...current };
   const body = patch.body.trim();
+  const optimisticPatch: Partial<Comment> = { body, updatedAt: new Date().toISOString() };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchComment(taskId, commentId, { body, updatedAt: new Date().toISOString() }),
-    () => store.patchComment(taskId, commentId, before),
+    () => store.patchComment(taskId, commentId, optimisticPatch),
+    () => store.patchComment(taskId, commentId, rollback),
     async () => {
       const saved = await api.updateComment(commentId, { body });
       store.patchComment(taskId, commentId, saved);
@@ -648,7 +660,6 @@ export function updateTimeEntry(
 ): Promise<TimeEntry | null> {
   const current = store.getTimeEntries(taskId).find((item) => item.id === entryId);
   if (!current) return Promise.resolve(missingEntity("时间记录"));
-  const before: TimeEntry = { ...current };
   const optimisticPatch: Partial<TimeEntry> = { updatedAt: new Date().toISOString() };
   if (patch.startedAt !== undefined) optimisticPatch.startedAt = patch.startedAt;
   if (patch.duration !== undefined) {
@@ -657,9 +668,12 @@ export function updateTimeEntry(
     if (startedAt) optimisticPatch.endedAt = entryEnd(startedAt, patch.duration);
   }
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
     () => store.patchTimeEntry(taskId, entryId, optimisticPatch),
-    () => store.patchTimeEntry(taskId, entryId, before),
+    () => store.patchTimeEntry(taskId, entryId, rollback),
     async () => {
       const saved = await api.updateTimeEntry(entryId, patch);
       store.patchTimeEntry(taskId, entryId, saved);
@@ -723,19 +737,21 @@ export function startTimer(taskId: string): Promise<TimeEntry | null> {
 export function stopTimer(taskId: string, entryId: string): Promise<TimeEntry | null> {
   const current = store.getTimeEntries(taskId).find((item) => item.id === entryId);
   if (!current) return Promise.resolve(missingEntity("时间记录"));
-  const before: TimeEntry = { ...current };
   const stoppedAt = Date.now();
   const startedAt = current.startedAt ? Date.parse(current.startedAt) : stoppedAt;
   const stamp = new Date(stoppedAt).toISOString();
+  const optimisticPatch: Partial<TimeEntry> = {
+    endedAt: stamp,
+    duration: Math.max(0, Math.floor((stoppedAt - startedAt) / 1000)),
+    updatedAt: stamp,
+  };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () =>
-      store.patchTimeEntry(taskId, entryId, {
-        endedAt: stamp,
-        duration: Math.max(0, Math.floor((stoppedAt - startedAt) / 1000)),
-        updatedAt: stamp,
-      }),
-    () => store.patchTimeEntry(taskId, entryId, before),
+    () => store.patchTimeEntry(taskId, entryId, optimisticPatch),
+    () => store.patchTimeEntry(taskId, entryId, rollback),
     async () => {
       const stopped = await api.stopTimeEntry(entryId);
       store.patchTimeEntry(taskId, entryId, stopped);

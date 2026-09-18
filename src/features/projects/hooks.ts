@@ -12,6 +12,7 @@ import {
   missingEntity,
   nextTempId,
   optimistic,
+  patchRollback,
   reportFailure,
 } from "../../common/optimistic";
 import { randomColor } from "../../common/colors";
@@ -80,7 +81,6 @@ export function updateProject(
 ): Promise<Project | null> {
   const current = store.getProject(projectId);
   if (!current) return Promise.resolve(missingEntity("项目"));
-  const before: Project = { ...current };
 
   const optimisticPatch: Partial<Project> = { updatedAt: new Date().toISOString() };
   if (patch.name !== undefined) optimisticPatch.name = patch.name.trim();
@@ -89,9 +89,12 @@ export function updateProject(
   if ("icon" in patch) optimisticPatch.icon = patch.icon ?? null;
   if ("namespaceId" in patch) optimisticPatch.namespaceId = patch.namespaceId ?? null;
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
     () => store.patchProject(projectId, optimisticPatch),
-    () => store.patchProject(projectId, before),
+    () => store.patchProject(projectId, rollback),
     async () => {
       const saved = await api.updateProject(projectId, patch);
       store.patchProject(projectId, saved);
@@ -104,12 +107,15 @@ export function updateProject(
 export function archiveProject(projectId: string): Promise<Project | null> {
   const current = store.getProject(projectId);
   if (!current) return Promise.resolve(missingEntity("项目"));
-  const before: Project = { ...current };
   const now = new Date().toISOString();
+  const optimisticPatch: Partial<Project> = { status: "archived", updatedAt: now };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchProject(projectId, { status: "archived", updatedAt: now }),
-    () => store.patchProject(projectId, before),
+    () => store.patchProject(projectId, optimisticPatch),
+    () => store.patchProject(projectId, rollback),
     async () => {
       const saved = await api.archiveProject(projectId);
       store.patchProject(projectId, saved);
@@ -122,12 +128,15 @@ export function archiveProject(projectId: string): Promise<Project | null> {
 export function restoreProject(projectId: string): Promise<Project | null> {
   const current = store.getProject(projectId);
   if (!current) return Promise.resolve(missingEntity("项目"));
-  const before: Project = { ...current };
   const now = new Date().toISOString();
+  const optimisticPatch: Partial<Project> = { status: "active", updatedAt: now };
 
+  // Captured before the write: the store mutates the row in place, so a
+  // snapshot taken inside the rollback would read the optimistic values back.
+  const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchProject(projectId, { status: "active", updatedAt: now }),
-    () => store.patchProject(projectId, before),
+    () => store.patchProject(projectId, optimisticPatch),
+    () => store.patchProject(projectId, rollback),
     async () => {
       const saved = await api.restoreProject(projectId);
       store.patchProject(projectId, saved);
