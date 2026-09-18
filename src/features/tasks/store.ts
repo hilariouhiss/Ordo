@@ -15,7 +15,7 @@
  * `hooks.ts`, never directly.
  */
 
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { edgeEquals } from "./dependencies";
 import type {
   Comment,
@@ -177,9 +177,9 @@ export function blockedCountOf(taskId: string): number {
   return state.blocked[taskId] ?? 0;
 }
 
-/** 侧边栏箭头用的每项目未完成顶层行数；`setUnfinishedCounts` 是合并写而不是
- * 整表替换，所以服务端这次没提到的项目（已删的那些）留着上一次的数，从没提到
- * 过的才按 0（不画箭头）。 */
+/** 侧边栏箭头用的每项目未完成顶层行数，取自 `project:unfinishedCounts` 那一条
+ * 聚合。`setUnfinishedCounts` 是**整表替换**，所以服务端这次没提到的项目读作 0
+ * ——这正是要的结果：项目被删/被归档后它的箭头随之消失，而不是停在旧数字上。 */
 export function unfinishedCountOf(projectId: string): number {
   return state.unfinishedByProject[projectId] ?? 0;
 }
@@ -369,11 +369,19 @@ export function setDependencies(dependencies: Dependency[]): void {
   setState("dependencies", dependencies);
 }
 
-/** Replaces the per-project unfinished counts (one aggregate load). */
+/**
+ * Replaces the per-project unfinished counts (one aggregate load).
+ *
+ * `reconcile`, not a plain assignment: `setState` merges an object value into
+ * the existing one key by key, so a project the server no longer mentions —
+ * a deleted one — would keep its previous number instead of leaving the map
+ * (QA-16). The aggregate reports every live project, zero counts included, so
+ * replacing cannot lose a number that is still on screen.
+ */
 export function setUnfinishedCounts(counts: ProjectUnfinished[]): void {
   setState(
     "unfinishedByProject",
-    Object.fromEntries(counts.map((row) => [row.projectId, row.unfinished])),
+    reconcile(Object.fromEntries(counts.map((row) => [row.projectId, row.unfinished]))),
   );
 }
 

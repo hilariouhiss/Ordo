@@ -98,9 +98,25 @@ export async function loadUnfinishedCounts(): Promise<boolean> {
   }
 }
 
-/** Loads all tasks (children included, with tagIds), tags and every dependency
- * edge; returns success. */
-export async function loadAll(): Promise<boolean> {
+/** 在途的整表装载：外壳与首个视图在启动时各发一次，复用同一笔请求（QA-17）。 */
+let inFlightLoadAll: Promise<boolean> | null = null;
+
+/**
+ * Loads all tasks (children included, with tagIds), tags and every dependency
+ * edge; returns success.
+ *
+ * Concurrent callers share one round trip: the shell and the first view both
+ * ask on mount, and neither has set `loaded` yet when the other asks. A settled
+ * load is not cached — the next call is a real reload.
+ */
+export function loadAll(): Promise<boolean> {
+  inFlightLoadAll ??= runLoadAll().finally(() => {
+    inFlightLoadAll = null;
+  });
+  return inFlightLoadAll;
+}
+
+async function runLoadAll(): Promise<boolean> {
   try {
     const [tasks, tags, dependencies] = await Promise.all([
       api.listTasks(),

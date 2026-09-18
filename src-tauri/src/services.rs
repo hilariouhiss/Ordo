@@ -496,7 +496,7 @@ fn create_task_in_tx(conn: &Connection, input: NewTask) -> Result<Task, AppError
     let column_id = if parent.is_some() {
         None
     } else {
-        input.column_id
+        validate_column(conn, input.column_id, project_id)?
     };
 
     // `sort_order` keys are per sibling scope, not one global sequence: a child
@@ -587,9 +587,6 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
     if let Some(priority) = patch.priority {
         task.priority = priority;
     }
-    if let Patch::Set(column_id) = patch.column_id {
-        task.column_id = column_id;
-    }
     if let Patch::Set(due_at) = patch.due_at {
         task.due_at = due_at;
     }
@@ -639,6 +636,26 @@ pub fn update_task(conn: &Connection, id: Uuid, patch: UpdateTask) -> Result<Tas
         if task.parent_task_id.is_none() {
             task.project_id = project_id;
         }
+    }
+    // Columns are handled after the parent, because the parent decides whether
+    // this row may have one at all. `move_task` refuses a child on a board from
+    // the drag gesture; this is the other door into the same field (QA-12) — a
+    // child that acquires a column leaves its own sort scope, and a column from
+    // another project puts the row on a board that never lists it.
+    if let Patch::Set(column_id) = patch.column_id {
+        if column_id.is_some() && task.parent_task_id.is_some() {
+            return Err(AppError::Validation(
+                "子任务不能移到看板列：它随父任务归档，不上看板".into(),
+            ));
+        }
+        if let Some(column_id) = column_id {
+            let column = board_columns::get(conn, column_id)?
+                .ok_or_else(|| not_found("看板列", column_id))?;
+            if Some(column.project_id) != task.project_id {
+                return Err(AppError::Validation("看板列不属于该任务的项目".into()));
+            }
+        }
+        task.column_id = column_id;
     }
     // A task that moved into another sibling scope leaves its old key behind,
     // where it means nothing: sort keys are per-scope (see `create_task_in_tx`),
@@ -810,6 +827,25 @@ fn validate_parent(conn: &Connection, parent_id: Uuid) -> Result<Task, AppError>
         ));
     }
     Ok(parent)
+}
+
+/// A board column a task may be filed into: it has to exist, and it has to
+/// belong to the task's own project — a column from another project would put
+/// the row on a board that never lists it (QA-12).
+fn validate_column(
+    conn: &Connection,
+    column_id: Option<Uuid>,
+    project_id: Option<Uuid>,
+) -> Result<Option<Uuid>, AppError> {
+    let Some(column_id) = column_id else {
+        return Ok(None);
+    };
+    let column =
+        board_columns::get(conn, column_id)?.ok_or_else(|| not_found("看板列", column_id))?;
+    if Some(column.project_id) != project_id {
+        return Err(AppError::Validation("看板列不属于该任务的项目".into()));
+    }
+    Ok(Some(column_id))
 }
 
 /// Moves a task between its siblings: `prev`/`next` are the sort keys of the
@@ -2421,6 +2457,120 @@ mod tests {
         let error = move_task(&conn, child.id, column.id, None, None).unwrap_err();
 
         assert_eq!(error.code(), "validation");
+    }
+
+    /// The board gesture is not the only way to write a column: `task:update`
+    /// can carry one too, and a child that acquires a column leaves its own
+    /// sort scope and shows up on a lane (QA-12).
+    #[test]
+    fn update_task_refuses_a_column_on_a_child() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+        let column = first_column(&conn, project.id);
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        let error = update_task(
+            &conn,
+            child.id,
+            UpdateTask {
+                column_id: Patch::Set(Some(column.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), "validation");
+        assert_eq!(
+            tasks::get(&conn, child.id).unwrap().unwrap().column_id,
+            None
+        );
+    }
+
+    /// A child that is handed a parent and a column in the same patch is
+    /// contradictory, not "parent wins": the column would be written back the
+    /// moment the row arrived on a board.
+    #[test]
+    fn update_task_refuses_a_column_together_with_a_parent() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+        let column = first_column(&conn, project.id);
+        let parent = make_task(&conn, "写周报");
+        let loose = make_task(&conn, "收集数据");
+
+        let error = update_task(
+            &conn,
+            loose.id,
+            UpdateTask {
+                parent_task_id: Patch::Set(Some(parent.id)),
+                column_id: Patch::Set(Some(column.id)),
+                ..no_patch()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), "validation");
+        assert_eq!(tasks::get(&conn, loose.id).unwrap().unwrap().parent_task_id, None);
+    }
+
+    /// Clearing is always fine — that is how a task is taken off a board.
+    #[test]
+    fn update_task_clears_a_childs_column_without_complaint() {
+        let conn = conn();
+        let parent = make_task(&conn, "写周报");
+        let child = make_child(&conn, &parent, "收集数据");
+
+        let updated = update_task(
+            &conn,
+            child.id,
+            UpdateTask {
+                column_id: Patch::Set(None),
+                ..no_patch()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.column_id, None);
+    }
+
+    /// A column from another project would file the row into a lane its own
+    /// project's board never lists.
+    #[test]
+    fn create_task_rejects_a_column_from_another_project() {
+        let conn = conn();
+        let mine = make_project(&conn, "网站改版");
+        let theirs = make_project(&conn, "读书计划");
+        let foreign = first_column(&conn, theirs.id);
+
+        let error = create_task(
+            &conn,
+            NewTask {
+                project_id: Some(mine.id),
+                column_id: Some(foreign.id),
+                ..make_new_task("写周报")
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), "validation");
+    }
+
+    #[test]
+    fn create_task_rejects_an_unknown_column() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+
+        let error = create_task(
+            &conn,
+            NewTask {
+                project_id: Some(project.id),
+                column_id: Some(Uuid::new_v4()),
+                ..make_new_task("写周报")
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), "not_found");
     }
 
     // --- hierarchy rules ------------------------------------------------------

@@ -124,6 +124,27 @@ describe("loadAll", () => {
     expect(store.tasksState.loaded).toBe(true);
   });
 
+  it("shares one round trip between concurrent callers", async () => {
+    // The shell and the first view both kick off the initial load on mount,
+    // before either has set `loaded` — a second request would be pure waste
+    // (QA-17).
+    const pending = deferred<Task[]>();
+    vi.mocked(api.listTasks).mockReturnValue(pending.promise);
+    vi.mocked(api.listTags).mockResolvedValue([]);
+
+    const shell = hooks.loadAll();
+    const view = hooks.loadAll();
+    pending.resolve([task("a")]);
+
+    expect(await shell).toBe(true);
+    expect(await view).toBe(true);
+    expect(api.listTasks).toHaveBeenCalledTimes(1);
+
+    // Once it has settled the next call is a real reload, not the old promise.
+    await hooks.loadAll();
+    expect(api.listTasks).toHaveBeenCalledTimes(2);
+  });
+
   it("notifies and reports failure when loading fails", async () => {
     vi.mocked(api.listTasks).mockRejectedValue(appError("database", "数据库错误"));
     vi.mocked(api.listTags).mockResolvedValue([]);

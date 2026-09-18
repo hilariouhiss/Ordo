@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-solid";
 import { z } from "zod";
 import { Button, Dialog, TextField } from "../../../common/components";
@@ -103,8 +103,20 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
   const [savingEdit, setSavingEdit] = createSignal(false);
   const [deletingId, setDeletingId] = createSignal<string | null>(null);
 
-  const usageCount = (tagId: string): number =>
-    tasks().filter((task) => task.tagIds.includes(tagId)).length;
+  // One pass over the snapshot for every tag's count. The dialog re-renders on
+  // any store change, and the per-row filter it replaces made each pass
+  // O(tags × tasks) — with the count asked for twice per row (QA-18).
+  const usageCounts = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const task of tasks()) {
+      for (const tagId of task.tagIds) {
+        counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  });
+
+  const usageCount = (tagId: string): number => usageCounts().get(tagId) ?? 0;
 
   function startEdit(tag: Tag): void {
     setEditingId(tag.id);

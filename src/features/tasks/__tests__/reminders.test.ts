@@ -105,8 +105,8 @@ describe("formatReminderMessage", () => {
 });
 
 describe("subscribeToReminders", () => {
-  it("subscribes to reminder events and pushes each as an info notification", async () => {
-    await subscribeToReminders();
+  it("subscribes to reminder events and pushes each as an info notification", () => {
+    subscribeToReminders();
     expect(listenMock).toHaveBeenCalledWith(
       "reminder:triggered",
       expect.any(Function),
@@ -120,14 +120,34 @@ describe("subscribeToReminders", () => {
 
   it("survives environments without a Tauri runtime", async () => {
     listenMock.mockRejectedValue(new Error("no __TAURI_INTERNALS__"));
-    await expect(subscribeToReminders()).resolves.toBeUndefined();
+
+    expect(() => subscribeToReminders()).not.toThrow();
+    await Promise.resolve();
+
     expect(notifications()).toEqual([]);
+  });
+
+  it("undoes both subscriptions when disposed", async () => {
+    const off = vi.fn();
+    listenMock.mockResolvedValue(off);
+
+    const dispose = subscribeToReminders();
+    await Promise.resolve();
+    dispose();
+
+    expect(off).toHaveBeenCalled();
+    // The focus hook goes with it: a disposed subscription must not keep
+    // locating reminders from a listener nothing owns.
+    setHidden(true);
+    reminderHandler()({ payload: reminder() });
+    window.dispatchEvent(new Event("focus"));
+    expect(focusedTaskId()).toBeNull();
   });
 });
 
 describe("click-to-locate (R-02)", () => {
-  it("holds a reminder as pending when it fires while hidden", async () => {
-    await subscribeToReminders();
+  it("holds a reminder as pending when it fires while hidden", () => {
+    subscribeToReminders();
     setHidden(true);
     reminderHandler()({ payload: reminder() });
 
@@ -135,8 +155,8 @@ describe("click-to-locate (R-02)", () => {
     expect(focusedTaskId()).toBeNull();
   });
 
-  it("does not hold reminders that fired while visible", async () => {
-    await subscribeToReminders();
+  it("does not hold reminders that fired while visible", () => {
+    subscribeToReminders();
     reminderHandler()({ payload: reminder() });
 
     expect(pendingReminder()).toBeNull();
@@ -144,7 +164,7 @@ describe("click-to-locate (R-02)", () => {
   });
 
   it("locates the task in the viewer on the next window focus", async () => {
-    await subscribeToReminders();
+    subscribeToReminders();
     setHidden(true);
     reminderHandler()({ payload: reminder() });
 
@@ -155,9 +175,26 @@ describe("click-to-locate (R-02)", () => {
   });
 
   it("locates nothing when focusing without a pending reminder", async () => {
-    await subscribeToReminders();
+    subscribeToReminders();
     await locatePendingReminder();
 
     expect(focusedTaskId()).toBeNull();
+  });
+
+  it("queues a burst of hidden reminders and locates them one focus at a time", async () => {
+    subscribeToReminders();
+    setHidden(true);
+    reminderHandler()({ payload: reminder({ taskId: "first" }) });
+    reminderHandler()({ payload: reminder({ taskId: "second" }) });
+
+    // The first click-to-locate wins the focus it arrived with…
+    await locatePendingReminder();
+    expect(focusedTaskId()).toBe("first");
+
+    // …and the second is still waiting rather than overwritten.
+    closeTaskViewer();
+    await locatePendingReminder();
+    expect(focusedTaskId()).toBe("second");
+    expect(pendingReminder()).toBeNull();
   });
 });

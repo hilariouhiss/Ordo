@@ -392,6 +392,20 @@ describe("tasks store", () => {
       // 没被服务端提到的项目不画箭头。
       expect(store.unfinishedCountOf("p9")).toBe(0);
     });
+
+    it("整表替换：这一轮没提到的项目回到 0（它的箭头该消失）", () => {
+      store.setUnfinishedCounts([
+        { projectId: "p1", unfinished: 2 },
+        { projectId: "gone", unfinished: 5 },
+      ]);
+      expect(store.unfinishedCountOf("gone")).toBe(5);
+
+      // 项目被删/归档后就不再出现在聚合里。合并写会让箭头停在 5 上。
+      store.setUnfinishedCounts([{ projectId: "p1", unfinished: 1 }]);
+
+      expect(store.unfinishedCountOf("p1")).toBe(1);
+      expect(store.unfinishedCountOf("gone")).toBe(0);
+    });
   });
 
   it("tag mutators keep the list in sync", () => {

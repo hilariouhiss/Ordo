@@ -25,11 +25,16 @@ export interface ReminderPayload {
   dueAt: string;
 }
 
-const [pending, setPending] = createSignal<ReminderPayload | null>(null);
+const [pending, setPending] = createSignal<ReminderPayload[]>([]);
 
-/** Reminder fired while the window was hidden, awaiting the next focus. */
-export function pendingReminder(): ReminderPayload | null {
+/** Reminders that fired while the window was hidden, oldest first. */
+export function pendingReminders(): ReminderPayload[] {
   return pending();
+}
+
+/** The oldest of those — the one the next focus locates. */
+export function pendingReminder(): ReminderPayload | null {
+  return pending()[0] ?? null;
 }
 
 /** Human-readable reminder text; the due time renders in the local timezone. */
@@ -51,40 +56,62 @@ export function formatReminderMessage(reminder: ReminderPayload): string {
 
 function handleReminder(reminder: ReminderPayload): void {
   pushInfo(formatReminderMessage(reminder));
-  if (document.hidden) setPending(reminder);
+  // Queued, not overwritten (QA-15): two reminders can fire while the window is
+  // hidden, and a single slot would drop the first one's click-to-locate — the
+  // toast would still be there, but the notification the user clicked would
+  // open nothing.
+  if (document.hidden) setPending((queue) => [...queue, reminder]);
 }
 
 /**
- * Consumes the pending reminder: opens the task viewer on its task (loading
- * the task data first if the store never got populated). Wired to the
- * window `focus` event — clicking the system notification focuses Ordo,
- * which lands the user on the right task.
+ * Consumes the oldest pending reminder: opens the task viewer on its task
+ * (loading the task data first if the store never got populated). Wired to the
+ * window `focus` event — clicking the system notification focuses Ordo, which
+ * lands the user on the right task. Anything still queued stays queued for the
+ * next focus, so a burst of reminders is not silently dropped.
  */
 export async function locatePendingReminder(): Promise<void> {
-  const reminder = pending();
+  const [reminder, ...rest] = pending();
   if (!reminder) return;
-  setPending(null);
+  setPending(rest);
   if (!tasksState.loaded) await loadAll();
   openTaskViewer(reminder.taskId);
 }
 
 /** Clears intake state (test seam). */
 export function resetReminderIntake(): void {
-  setPending(null);
+  setPending([]);
 }
 
 /**
- * Subscribes to backend reminder events for the app's lifetime. Safe to call
- * outside Tauri (plain browser dev server): the subscription simply fails
- * and reminders stay silent there.
+ * Subscribes to backend reminder events and the click-to-locate focus hook,
+ * and returns the disposer that undoes both. Safe to call outside Tauri (plain
+ * browser dev server): the subscription simply fails and reminders stay silent
+ * there — the focus listener is still worth removing on teardown.
  */
-export async function subscribeToReminders(): Promise<void> {
-  try {
-    await listen<ReminderPayload>(EVENTS.reminderTriggered, (event) => {
-      handleReminder(event.payload);
+export function subscribeToReminders(): () => void {
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  const onFocus = () => void locatePendingReminder();
+
+  void listen<ReminderPayload>(EVENTS.reminderTriggered, (event) => {
+    handleReminder(event.payload);
+  })
+    .then((off) => {
+      // Unmounted before the subscription landed: hand the listener straight to
+      // the runtime instead of leaving it attached to a dead app.
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => {
+      // No Tauri runtime available; nothing to clean up.
     });
-    window.addEventListener("focus", () => void locatePendingReminder());
-  } catch {
-    // No Tauri runtime available; nothing to clean up.
-  }
+
+  window.addEventListener("focus", onFocus);
+
+  return () => {
+    disposed = true;
+    unlisten?.();
+    window.removeEventListener("focus", onFocus);
+  };
 }

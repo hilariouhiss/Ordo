@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, onMount, type JSX } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { Link, Outlet } from "@tanstack/solid-router";
 import {
@@ -489,15 +489,28 @@ export default function AppShell() {
     // Q-01 性能验收：「首屏可交互」= 外壳的这几笔一次性加载都落地了（失败的也算
     // 落地，否则一次断网就让验收拿不到数字）。
     void Promise.allSettled(initialLoads).then(markInteractive);
-    void subscribeToReminders();
+    // Both subscriptions are app-lifetime in production; the disposers are what
+    // keeps a remount (HMR, tests) from stacking a second copy of each.
+    onCleanup(subscribeToReminders());
     // The quick-add window (D-02) is a separate webview with its own store, so
     // a task filed there stays invisible here until the list is pulled again.
     // Tasks + tags is the whole tree — children are rows in `tasks` (R7c) — so
     // this one pull refreshes parents and children alike.
-    listen(EVENTS.taskCreated, () => {
+    let stopTaskCreated: (() => void) | undefined;
+    let disposed = false;
+    void listen(EVENTS.taskCreated, () => {
       void reloadTasks();
       void loadUnfinishedCounts();
-    }).catch(() => {});
+    })
+      .then((off) => {
+        if (disposed) off();
+        else stopTaskCreated = off;
+      })
+      .catch(() => {});
+    onCleanup(() => {
+      disposed = true;
+      stopTaskCreated?.();
+    });
   });
 
   const openCreateProject = () => {

@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 11 项（QA-01–10、23）；剩余 11 项低级别（QA-11–20、22）与 1 项知悉不修（QA-21）；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 17 项（QA-01–12、15–20、23）；QA-13 为产品取舍（维持现状）、QA-14/22 待做、QA-21 知悉不修；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -196,11 +196,11 @@
 | QA-12 | 低 | 服务层不拒绝子任务写 `columnId` 等列一致性缺口 | 未解决 | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | `update_task` 不拒绝给子任务写 `columnId`（违反「子任务不上看板」，行会脱离自己的排序 scope）；`create_task` 不校验 column 与 project 同属。当前前端无触发路径，属权威层防御缺口 |
 | QA-13 | 低 | 补完成逾期的重复任务会生成已逾期实例 | 未解决（产品取舍，可复议） | `src-tauri/src/services.rs`（`next_due`） | 锚定 `due_at` 是 PRODUCT §2.4 的既定语义，代价是逐周期追赶。可复议「滚动到未来」 |
 | QA-14 | 低 | 备份导入同步长持主线程与连接锁 | 未解决 | `src-tauri/src/commands.rs`（`backup:*`） | 大库导入期间全部命令与提醒扫描排队。改 async + `spawn_blocking` |
-| QA-15 | 低 | 隐藏窗口期间的挂起提醒只保留最后一条 | 未解决 | `features/tasks/reminders.ts` | 单值 `pending` 使先到的点击定位丢失（toast 仍在，可恢复）。改队列 |
-| QA-16 | 低 | `setUnfinishedCounts` 注释与实现相反 | 未解决 | `features/tasks/store.ts` | 注释称合并写、实现是整表替换（替换才正确：已删项目的箭头会消失）。改注释，防「按注释修代码」回退 |
-| QA-17 | 低 | 启动时 `loadAll` 双发，无在途去重 | 未解决 | `app/AppShell.tsx` | 外壳与首个视图各发一次（`loaded` 在在途时仍为 false）；`ensureScope` 的 `inFlightScopes` 已解决同类问题。数据无损，浪费两轮 IPC |
-| QA-18 | 低 | 标签用量统计每次全量过滤并排序任务快照 | 未解决 | `features/tasks/components/TagManagerDialog.tsx` | `usageCount` 为 O(tags × n log n)/次更新（对话框开着时随每次 store 变更触发）。一次 `createMemo` 建 `Map<tagId, count>` |
-| QA-19 | 低 | 应用级 `listen`/`focus` 监听从不清理 | 未解决 | `app/AppShell.tsx`、`features/tasks/reminders.ts` | `QuickAddWindow.tsx` 有正确的 disposed 范式。生产无害，HMR 与测试泄漏 |
+| QA-15 | 低 | 隐藏窗口期间的挂起提醒只保留最后一条 | **已解决** | `features/tasks/reminders.ts` | `pending` 改成队列（`pendingReminders()` 给全量、`pendingReminder()` 给最旧一条），每次 focus 定位队首，其余留下等下一次 focus，不再互相覆盖 |
+| QA-16 | 低 | `setUnfinishedCounts` 注释与实现相反 | **已解决**（复核后结论与审查相反） | `features/tasks/store.ts` | 实测：Solid 的 `setState` 对对象值是**逐键合并**，所以是「注释对、实现是合并写」，审查把两者说反了。按审查期望的行为（已删项目的残留计数要消失）改成显式 `reconcile` 整表替换，并加了钉住替换语义的用例；`UNFINISHED_COUNTS_SQL` 本就返回全部存活项目（含 0），替换不会丢掉在屏上的数字 |
+| QA-17 | 低 | 启动时 `loadAll` 双发，无在途去重 | **已解决** | `features/tasks/hooks.ts` | 在 `loadAll` 里做在途复用（`inFlightLoadAll`，落地即清），外壳与首个视图共用一笔请求；已落地的那次不缓存，下一次调用仍是真的重载 |
+| QA-18 | 低 | 标签用量统计每次全量过滤并排序任务快照 | **已解决** | `features/tasks/components/TagManagerDialog.tsx` | 一个 `createMemo` 建 `Map<tagId, count>`（每行本来要问两次计数），每次 store 变更是 O(n) 而不是 O(tags × n) |
+| QA-19 | 低 | 应用级 `listen`/`focus` 监听从不清理 | **已解决** | `app/AppShell.tsx`、`features/tasks/reminders.ts` | `subscribeToReminders()` 改为同步返回 disposer（Tauri 订阅落地前后都处理：已 dispose 就把订阅直接交给 runtime 退订），外壳的两处订阅都用 `onCleanup` 收尾 |
 | QA-20 | 低 | CSP 为 null（渲染路径已核安全） | 未解决 | `src-tauri/tauri.conf.json` | 模板默认。全部动态内容走 Solid 转义、搜索摘要按段落渲染，无注入路径；备份导入是唯一外来数据面，属防御性加固项 |
 | QA-21 | 低 | 连接锁中毒后所有命令永久失败 | 不修（知悉项） | `src-tauri/src/commands.rs`（`with_conn`） | dev 构建下 panic 后需重启；release 的 `panic = "abort"` 使其实际不可达 |
 | QA-22 | 低 | 日志仅 `eprintln!`，无分级与落盘 | 未解决 | 后端全局 | 桌面单机可接受；排障需求出现时引入 `tauri-plugin-log` |
