@@ -841,10 +841,17 @@ describe("依赖与软阻塞", () => {
     expect(api.completeTask).toHaveBeenCalledWith("a");
     expect(blockedRequest()).toBeNull();
 
-    // Restoring the prerequisite brings the relation back on its own.
+    // Restoring the prerequisite brings the relation back. `dependency:listAll`
+    // only reports edges whose endpoints are both live, so while `b` sat in the
+    // trash the edge was absent from every snapshot the app loaded — the
+    // restore's own re-read is what puts it back (QA-09).
+    store.setDependencies([]); // the refresh that ran while `b` was deleted
     vi.mocked(api.restoreTask).mockResolvedValue(task("b"));
     vi.mocked(api.listTasks).mockResolvedValue([task("a"), task("b")]);
     vi.mocked(api.listTags).mockResolvedValue([]);
+    vi.mocked(api.listDependencies).mockResolvedValue([
+      { dependentId: "a", prerequisiteId: "b" },
+    ]);
     await hooks.restoreTask("b");
     await waitFor(() => expect(store.getTask("b")).toBeDefined());
 

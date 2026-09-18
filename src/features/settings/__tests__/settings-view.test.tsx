@@ -128,6 +128,34 @@ describe("SettingsView backup", () => {
     expect(tasks.loadUnfinishedCounts).not.toHaveBeenCalled();
   });
 
+  it("reports a failed reload as a reload, not as a failed restore", async () => {
+    openMock.mockResolvedValue("C:\\backups\\from-disk.json");
+    vi.mocked(api.importBackup).mockResolvedValue(
+      summary({ path: "C:\\backups\\from-disk.json" }),
+    );
+    const tasks = await import("../../tasks/hooks");
+    // The restore itself succeeded; the refresh that follows it did not.
+    vi.mocked(tasks.loadAll).mockResolvedValue(false);
+
+    render(() => <SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "从备份恢复" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认恢复" }));
+
+    await waitFor(() =>
+      expect(notifications().some((item) => item.message.includes("已从备份恢复"))).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        notifications().some(
+          (item) => item.kind === "error" && item.message.includes("界面数据"),
+        ),
+      ).toBe(true),
+    );
+    // What the user sees still says the restore landed: nothing here invites a
+    // second import on top of data that is already restored.
+    expect(await screen.findByText(/from-disk\.json/)).toBeTruthy();
+  });
+
   it("shows the backup path and the restore time after a restore", async () => {
     openMock.mockResolvedValue("C:\\backups\\from-disk.json");
     vi.mocked(api.importBackup).mockResolvedValue(

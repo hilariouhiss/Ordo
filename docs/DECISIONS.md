@@ -174,7 +174,7 @@
 | **注释里的 `§` 引用悬空** | 约 32 个源文件引用已删除文档的节号，对照表见 §2.5 | 阅读注释时需回本文档查表 |
 | **备份遗留键 `subtasks`** | 导出永远写空数组，只为让 pre-V7 文档有落点；`LegacySubtask` 类型同样只服务导入 | 兼容性保留，不是缺陷；等不再需要支持 pre-V7 备份时可删 |
 | **悬浮快速入口** | 产品范围里的 P2 能力，未实现（v1 快速入口只有全局快捷键小窗） | 范围外 |
-| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 4 项（QA-01/02/03/04）；剩余问题集中在乐观更新脚手架重复与渲染热路径两处；静态检查与测试全绿，无数据风险 |
+| **Q-06 审查发现** | 全仓代码审查发现 23 项（无 Critical；1 高、9 中、13 低），逐项一句话描述、解决状态与修复方向见 §4.1 | 已修 6 项（QA-01/02/03/04/08/09）；剩余问题集中在乐观更新脚手架重复与渲染热路径两处；静态检查与测试全绿，无数据风险 |
 
 ### 4.1 Q-06 审查发现清单（2026-09-18）
 
@@ -189,8 +189,8 @@
 | QA-05 | 中 | 乐观更新的整行回滚会覆盖同行的并发成功写 | 未解决 | `src/common/optimistic.ts` 及全部调用点 | 同行两个重叠写中第一个失败时，回滚抹掉第二个已成功的乐观状态，UI 与后端不一致直到下次整表刷新。按字段回滚，或失败后局部 reload 该实体 |
 | QA-06 | 中 | 乐观脚手架三份逐字拷贝，projects/namespaces 约 90% 重复 | 未解决 | `tasks/hooks.ts`、`board/hooks.ts`、`settings/hooks.ts` 对 `common/optimistic.ts`；`projects/hooks.ts` 对 `namespaces/hooks.ts` | 约 66 行拷贝使临时 id 计数器各自独立、跨域唯一性承诺失效；projects 与 namespaces 的 hooks/store/编辑器约 200 行雷同。拷贝收敛回正本，CRUD 钩子抽工厂 |
 | QA-07 | 中 | 任意 store 变更导致全部可见任务行销毁重建 | 未解决 | `features/tasks/components/TaskListView.tsx` + `virtual-list.tsx` | `rows()` 产出全新包装对象、VirtualList 再包一层 `{item, index}`，`For` 按引用键控 → 可见行（含 Kobalte 下拉菜单）整体重建而非打补丁。包装对象按 task id 记忆化 |
-| QA-08 | 中 | 恢复成功但重载失败被误报为导入失败 | 未解决 | `features/settings/hooks.ts` | 恢复后的整批重载与导入同一 try，重载失败时无「不重新导入就能重试」的出口。导入与重载分开报告 |
-| QA-09 | 中 | 恢复任务后依赖边不刷新，阻塞状态陈旧 | 未解决 | `features/tasks/hooks.ts` | `restoreTask` 只刷任务与标签、不拉 `dependency:listAll`，直到下次 `loadAll`。恢复路径补拉依赖边 |
+| QA-08 | 中 | 恢复成功但重载失败被误报为导入失败 | **已解决** | `features/settings/hooks.ts` | 导入与重载拆成两段：恢复已落库就不再走导入的失败分支，重载失败另报（并提示重开应用），`runImport` 仍返回摘要，页面照样显示恢复结果 |
+| QA-09 | 中 | 恢复任务后依赖边不刷新，阻塞状态陈旧 | **已解决** | `features/tasks/hooks.ts` | `dependency:listAll` 只返回两端都存活的边，所以任务在回收站期间该边不在任何快照里；`restoreTask` 的刷新由 `reloadTasks` 改为 `loadAll`，把被唤醒的边一起取回 |
 | QA-10 | 中 | vitest 样板散落 34 个测试文件，全仓无 linter | 未解决 | `vitest.config.ts`、`package.json` | 未设 `setupFiles` 且默认 node 环境：34 个文件手写环境注记、31 个手动 import setup；`vitest.config.ts` 不在任何 tsconfig include 里；约 2 万行 TS 无 linter。配置收敛（setupFiles 或 workspace 拆分环境）+ 引入 eslint/biome |
 | QA-11 | 低 | 未显式开启外键 PRAGMA，依赖 bundled 默认值 | 未解决 | `src-tauri/src/db.rs` | 换系统 SQLite 即静默失去全部 FK 约束（`foreign_keys_are_enforced` 测试可证 bundled 默认值）。init 里显式 `pragma_update`，顺带评估 WAL/busy_timeout |
 | QA-12 | 低 | 服务层不拒绝子任务写 `columnId` 等列一致性缺口 | 未解决 | `src-tauri/src/services.rs`（`update_task`/`create_task_in_tx`） | `update_task` 不拒绝给子任务写 `columnId`（违反「子任务不上看板」，行会脱离自己的排序 scope）；`create_task` 不校验 column 与 project 同属。当前前端无触发路径，属权威层防御缺口 |

@@ -384,8 +384,12 @@ export async function restoreTask(taskId: string): Promise<Task | null> {
     store.upsertTask(restored);
     void loadUnfinishedCounts();
     // The server restored the children in the same transaction; the single
-    // returned row cannot carry them, so pull the list once more.
-    void reloadTasks();
+    // returned row cannot carry them, so pull the whole snapshot once more.
+    // The edges come with it, and they have to: a live endpoint is what makes
+    // an edge visible to `dependency:listAll`, so the restore just woke the
+    // ones that were sleeping on this row (QA-09) — a task that depends on it
+    // is blocked again as soon as the edge is back in the store.
+    void loadAll();
     return restored;
   } catch (error) {
     return reportFailure(error);

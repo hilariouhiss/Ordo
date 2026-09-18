@@ -74,21 +74,38 @@ export async function runExport(path: string): Promise<BackupSummary | null> {
  * the restored data without a restart.
  */
 export async function runImport(path: string): Promise<BackupSummary | null> {
+  let summary: BackupSummary;
   try {
-    const summary = await api.importBackup(path);
-    pushInfo(
-      `已从备份恢复 ${summary.counts.tasks} 个任务、${summary.counts.projects} 个项目、${summary.counts.namespaces} 个命名空间`,
-    );
-    // Every store a restore replaces has to come back: the namespace store
-    // gates the other loads (`loaded`), so a stale one would keep resolving
-    // restored projects against the previous machine's namespaces. The counts
-    // come off the rows the restore just replaced, so they come back with them
-    // — and a cross-machine restore hands every project a new id.
-    await Promise.all([loadTasks(), loadProjects(), loadNamespaces(), loadUnfinishedCounts()]);
-    return summary;
+    summary = await api.importBackup(path);
   } catch (error) {
     return reportFailure(error);
   }
+
+  pushInfo(
+    `已从备份恢复 ${summary.counts.tasks} 个任务、${summary.counts.projects} 个项目、${summary.counts.namespaces} 个命名空间`,
+  );
+
+  // Every store a restore replaces has to come back: the namespace store gates
+  // the other loads (`loaded`), so a stale one would keep resolving restored
+  // projects against the previous machine's namespaces. The counts come off the
+  // rows the restore just replaced, so they come back with them — and a
+  // cross-machine restore hands every project a new id.
+  //
+  // Outside the import's own failure path on purpose (QA-08): the restore has
+  // already happened, so reporting a refresh that failed as a failed *import*
+  // would invite the user to import again on top of data that is already
+  // restored. Each loader reports its own failure; this only says which half
+  // of the operation is the broken one.
+  const reloaded = await Promise.all([
+    loadTasks(),
+    loadProjects(),
+    loadNamespaces(),
+    loadUnfinishedCounts(),
+  ]);
+  if (reloaded.includes(false)) {
+    pushError("备份已恢复，但界面数据没能重新载入；重新打开应用即可看到恢复后的内容");
+  }
+  return summary;
 }
 
 /** Whether Ordo starts with the system; `false` when the OS cannot be asked. */
