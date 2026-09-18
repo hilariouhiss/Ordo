@@ -1,4 +1,3 @@
-/** @vitest-environment jsdom */
 import {
   cleanup,
   fireEvent,
@@ -9,7 +8,6 @@ import {
 } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import * as store from "../store";
 import type { Comment, Task, TimeEntry } from "../types";

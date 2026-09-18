@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { addDays, differenceInCalendarDays, startOfDay, startOfYear } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../../common/components/__tests__/setup";
 import * as api from "../api";
 import { StatsView } from "../components/StatsView";
 import { dayKey } from "../series";

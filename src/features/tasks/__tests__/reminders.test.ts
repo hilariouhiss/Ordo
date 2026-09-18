@@ -1,4 +1,3 @@
-/** @vitest-environment jsdom */
 import {
   waitFor,
 } from "@solidjs/testing-library";

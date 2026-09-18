@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import "../../../common/components/__tests__/setup";
 import { ProjectProgress } from "../components/ProjectProgress";
 
 function bar(): string {

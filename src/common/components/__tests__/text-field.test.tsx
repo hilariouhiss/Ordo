@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import "./setup";
 import { TextField } from "../text-field";
 
 describe("TextField", () => {

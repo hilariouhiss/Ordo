@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../../common/components/__tests__/setup";
 import { clearNotifications, notifications } from "../../../common/stores/notifications";
 import * as api from "../api";
 import { SettingsView } from "../components/SettingsView";

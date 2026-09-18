@@ -167,6 +167,7 @@ export default function QuickAddWindow() {
   }
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the element IS the window chrome, and Escape is a window-level shortcut rather than an interaction with it
     <div
       // The window is frameless and sized to its content, so this element IS
       // the window chrome: it draws its own hairline edge and fills the whole

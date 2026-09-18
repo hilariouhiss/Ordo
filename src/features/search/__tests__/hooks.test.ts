@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { createSignal } from "solid-js";
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../../common/components/__tests__/setup";
 
 vi.mock("../api", () => ({
   querySearch: vi.fn(),

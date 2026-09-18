@@ -48,7 +48,9 @@ function Toast(props: { item: AppNotification }) {
 /** Bottom-right stack of in-app notifications (toasts). */
 export function Toaster() {
   return (
-    <div aria-label="通知" class="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
+    // No label of its own: every toast is its own live region (`role="alert"`
+    // or `status`), so a label here would name nothing.
+    <div class="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
       <For each={notifications()}>{(item) => <Toast item={item} />}</For>
     </div>
   );

@@ -88,6 +88,7 @@ export function BoardColumnView(props: BoardColumnViewProps) {
         </Show>
       </header>
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it */}
       <div
         ref={listRef}
         data-drop-zone={props.column.id}

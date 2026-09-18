@@ -20,8 +20,9 @@ Outstanding verification work (animation/accessibility review, three-platform ch
 - `pnpm dev` / `pnpm start` — Vite dev server only (frontend, no Rust window).
 - `pnpm build` — Vite production build of the frontend only (`dist/`).
 - `pnpm serve` — preview the built frontend.
-- `pnpm typecheck` — `tsc --noEmit` (no ESLint/Prettier configured).
-- `pnpm test` — Vitest (unit tests); `pnpm test:watch` for watch mode.
+- `pnpm typecheck` — `tsc --noEmit` over `src/`, plus `tsconfig.node.json` (the Vite/Vitest configs).
+- `pnpm lint` — Biome over `src/` (recommended rules, formatter off; `biome.json`).
+- `pnpm test` — Vitest (unit tests); `pnpm test:watch` for watch mode. `vitest.config.ts` sets the jsdom environment and loads the browser-API setup file, so test files carry no per-file annotations.
 - `pnpm tauri dev` — full app in dev mode (runs `pnpm dev` then launches the Rust window).
 - `pnpm tauri build` — full release build/bundle.
 - Rust (inside `src-tauri/`): `cargo check`, `cargo test`, `cargo build`. No CI runs the linters, so run them by hand — `cargo fmt` (the tree is rustfmt-clean, default config) and `cargo clippy --all-targets -- -D warnings` must both come back silent.

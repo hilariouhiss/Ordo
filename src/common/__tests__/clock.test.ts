@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNow } from "../clock";
-import "../components/__tests__/setup";
 
 // The clock and the tick are faked so the test drives the minute boundary
 // instead of waiting for it; nothing else is, so `waitFor` still works.

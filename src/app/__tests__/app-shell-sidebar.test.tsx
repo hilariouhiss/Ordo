@@ -1,9 +1,7 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/solid-router";
 import { listen } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../common/components/__tests__/setup";
 import { EVENTS } from "../../common/ipc/events";
 import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
 import { closeTaskViewer } from "../../common/stores/taskViewer";

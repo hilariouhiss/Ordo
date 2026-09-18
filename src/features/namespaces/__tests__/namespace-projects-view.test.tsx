@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../../common/components/__tests__/setup";
 import * as projectsStore from "../../projects/store";
 import type { Project } from "../../projects/types";
 import * as statsApi from "../../stats/api";
@@ -15,7 +13,7 @@ import type { Namespace } from "../types";
 // The rows link to the project page; a plain anchor keeps this test free of
 // router plumbing (the AppShell test owns the real router).
 vi.mock("@tanstack/solid-router", () => ({
-  Link: (props: { children?: unknown }) => <a href="#">{props.children as never}</a>,
+  Link: (props: { children?: unknown }) => <a href="/">{props.children as never}</a>,
 }));
 
 vi.mock("../hooks", () => ({

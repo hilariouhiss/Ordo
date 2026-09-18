@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
-import "./setup";
 import { Tooltip } from "../tooltip";
 
 describe("Tooltip", () => {

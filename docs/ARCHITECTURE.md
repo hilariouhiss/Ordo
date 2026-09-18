@@ -311,14 +311,15 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `pnpm dev` / `pnpm start` | Vite 开发服务器（纯前端，无 Rust 窗口） |
 | `pnpm build` | 前端生产构建（`dist/`） |
 | `pnpm serve` | 预览构建产物 |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` / `pnpm test:watch` | Vitest（单元测试） |
+| `pnpm typecheck` | `tsc --noEmit`（`src/` + `tsconfig.node.json` 里的 Vite/Vitest 配置） |
+| `pnpm lint` | Biome 检查 `src/`（recommended 规则，不启用格式化；配置在 `biome.json`） |
+| `pnpm test` / `pnpm test:watch` | Vitest（单元测试；环境与 setup 由 `vitest.config.ts` 统一提供） |
 | `pnpm tauri dev` | 完整应用（跑 `pnpm dev` 后拉起 Rust 窗口） |
 | `pnpm tauri build` | 完整发布构建/打包 |
 | `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
-没有配置 ESLint/Prettier；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.0`；主窗口 1120×740、最小 720×520、居中、`csp: null`。
+前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.0`；主窗口 1120×740、最小 720×520、居中、`csp: null`。
 
 ### 4.2 依赖与版本约束
 

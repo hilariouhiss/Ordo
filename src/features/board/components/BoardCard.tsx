@@ -36,6 +36,7 @@ export function BoardCard(props: BoardCardProps) {
   );
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it
     <div
       draggable={true}
       data-task-id={props.task.id}

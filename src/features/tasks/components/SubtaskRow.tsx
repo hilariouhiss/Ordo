@@ -38,6 +38,7 @@ export function SubtaskRow(props: SubtaskRowProps) {
   const completed = () => props.task.completedAt !== null;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it
     <div
       class="flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
       data-subtask-id={props.task.id}

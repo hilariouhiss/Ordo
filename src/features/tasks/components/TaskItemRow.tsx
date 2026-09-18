@@ -71,6 +71,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
   const [childOver, setChildOver] = createSignal(false);
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it
     <div
       // The whole row lights up on hover, not just the title: at 56px a row is
       // a large target, and highlighting all of it is what tells the eye which

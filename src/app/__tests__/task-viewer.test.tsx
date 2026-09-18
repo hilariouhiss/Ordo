@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../common/components/__tests__/setup";
 import TaskViewer from "../TaskViewer";
 import { closeTaskViewer, openTaskViewer } from "../../common/stores/taskViewer";
 import * as taskStore from "../../features/tasks/store";

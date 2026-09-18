@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
-import "./setup";
 import { Badge } from "../badge";
 
 describe("Badge", () => {

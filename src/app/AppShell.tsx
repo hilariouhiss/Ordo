@@ -395,6 +395,7 @@ function NamespaceRow(props: {
   const draggedProject = (event: DragEvent) => draggedId(event, "project");
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the whole row is the drop target for a dragged project (native Drag API); reordering is also reachable from the row's own menu
     <div
       class={rowClass()}
       classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": projectOver() }}

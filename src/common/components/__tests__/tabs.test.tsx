@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import "./setup";
 import { Tabs } from "../tabs";
 
 describe("Tabs", () => {

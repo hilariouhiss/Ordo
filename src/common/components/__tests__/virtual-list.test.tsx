@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import "./setup";
 import { VirtualList } from "../virtual-list";
 
 const ITEMS = Array.from({ length: 1000 }, (_, index) => `item-${index}`);

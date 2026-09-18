@@ -1,7 +1,5 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "../../../common/components/__tests__/setup";
 import { isoToLocalInputValue } from "../../../common/utils/datetime";
 import { TaskEditorDialog } from "../components/TaskEditorDialog";
 import * as hooks from "../hooks";

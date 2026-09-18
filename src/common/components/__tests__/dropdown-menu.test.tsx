@@ -1,8 +1,6 @@
-/** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import "./setup";
 import { DropdownMenu } from "../dropdown-menu";
 
 describe("DropdownMenu", () => {

@@ -21,15 +21,33 @@ pub type Db = Arc<Mutex<Connection>>;
 /// a shared `Db` handle suitable for `app.manage(...)`.
 pub fn init(path: &Path) -> Result<Db, AppError> {
     let mut conn = Connection::open(path)?;
+    configure(&conn)?;
     embedded::migrations::runner().run(&mut conn)?;
     Ok(Arc::new(Mutex::new(conn)))
 }
 
-/// In-memory SQLite connection with all migrations applied; shared by
-/// repository unit tests.
+/// The connection settings the schema depends on, stated rather than inherited.
+///
+/// `foreign_keys` is the one that matters: the bundled SQLite happens to default
+/// it to on (`foreign_keys_are_enforced` holds today), so linking a system
+/// SQLite instead would silently drop every foreign key in the schema — the
+/// constraints would still be written, just never checked (QA-11).
+///
+/// WAL and `busy_timeout` are deliberately not set: the whole process shares one
+/// connection behind one mutex, so there is no reader/writer contention for them
+/// to arbitrate, and WAL would scatter `-wal`/`-shm` files next to the backup
+/// the user is told is "the database".
+fn configure(conn: &Connection) -> Result<(), AppError> {
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    Ok(())
+}
+
+/// In-memory SQLite connection with the app's pragmas and all migrations
+/// applied; shared by repository unit tests.
 #[cfg(test)]
 pub(crate) fn test_conn() -> Connection {
     let mut conn = Connection::open_in_memory().expect("open in-memory db");
+    configure(&conn).expect("apply pragmas");
     embedded::migrations::runner()
         .run(&mut conn)
         .expect("run migrations");
@@ -99,6 +117,20 @@ mod tests {
             result.is_err(),
             "insert with missing project_id should fail"
         );
+    }
+
+    #[test]
+    fn pragmas_do_not_depend_on_the_linked_sqlite_defaults() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Stand in for a system SQLite, where `foreign_keys` defaults to off.
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+
+        configure(&conn).unwrap();
+
+        let enabled: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(enabled, 1);
     }
 
     #[test]
