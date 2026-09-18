@@ -344,7 +344,11 @@ fn key_between(prev: Option<&str>, next: Option<&str>) -> Result<Option<String>,
         (Some(p), Some(n)) => sort::between(p, n),
         (Some(p), None) => sort::after(p),
         (None, Some(n)) => sort::before(n),
-        (None, None) => unreachable!("resolve_neighbours guarantees one side"),
+        // Both sides empty: the scope has no rows at all (a drop into an empty
+        // lane), so there is no neighbour to fit between and the row takes the
+        // scope's first key. `resolve_neighbours` only lets this through for
+        // that caller.
+        (None, None) => Ok(sort::first()),
     };
     match attempt {
         Ok(key) => Ok(Some(key)),
@@ -1191,7 +1195,15 @@ pub fn move_task(
     }
     moved.updated_at = now;
 
-    let (prev_key, next_key) = resolve_neighbours(&tx, scope, task_id, prev, next)?;
+    // A drop into an *empty* lane names no neighbour at all — the normal state of
+    // a fresh project's 已完成 lane — so it appends after the lane's last key
+    // instead of being rejected. `resolve_neighbours` keeps refusing the same
+    // input on the reorder path, where a move without a target is a bug.
+    let (prev_key, next_key) = if prev.is_none() && next.is_none() {
+        (tasks::last_sort_key(&tx, scope)?, None)
+    } else {
+        resolve_neighbours(&tx, scope, task_id, prev, next)?
+    };
     let rebalanced = match key_between(prev_key.as_deref(), next_key.as_deref())? {
         Some(key) => {
             moved.sort_order = key;
@@ -2511,6 +2523,28 @@ mod tests {
         let error = move_task(&conn, child.id, column.id, None, None).unwrap_err();
 
         assert_eq!(error.code(), "validation");
+    }
+
+    /// An empty lane offers no neighbour to point between — that is the normal
+    /// state of a fresh project's 已完成 lane — so a drop into one arrives with
+    /// both keys empty and has to mean "append to this lane". It used to be a
+    /// validation error, which made the gesture fail on a lane the user could
+    /// see was empty.
+    #[test]
+    fn move_task_into_an_empty_column_appends() {
+        let conn = conn();
+        let project = make_project(&conn, "网站改版");
+        let done = done_column(&conn, project.id);
+        let task = make_task(&conn, "写周报");
+
+        let moved = move_task(&conn, task.id, done.id, None, None).unwrap();
+
+        assert_eq!(moved.moved.task.column_id, Some(done.id));
+        assert_eq!(moved.moved.task.project_id, Some(project.id));
+        assert!(
+            moved.moved.task.completed_at.is_some(),
+            "entering the done lane completes the task"
+        );
     }
 
     /// The board gesture is not the only way to write a column: `task:update`
@@ -4043,12 +4077,8 @@ mod tests {
                 .code(),
             "not_found"
         );
-        assert_eq!(
-            move_task(&conn, task.id, todo.id, None, None)
-                .unwrap_err()
-                .code(),
-            "validation"
-        );
+        // Both keys missing is not an error any more: it is a drop into an
+        // empty lane, which appends (see `move_task_into_an_empty_column_appends`).
         assert_eq!(
             move_task(&conn, task.id, todo.id, Some("zz".into()), None)
                 .unwrap_err()

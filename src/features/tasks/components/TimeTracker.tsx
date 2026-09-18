@@ -56,6 +56,19 @@ export function TimeTracker(props: TimeTrackerProps) {
   const [error, setError] = createSignal<string | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [editMinutes, setEditMinutes] = createSignal("");
+  let editorRef: HTMLInputElement | undefined;
+
+  /*
+   * Opening an inline editor unmounts the button that had focus, so focus would
+   * otherwise fall to `<body>`. Taken here rather than in the field's own `ref`:
+   * the ref runs while Solid is still building the subtree it re-renders again,
+   * and focusing an element that is about to be replaced fires its `blur` — the
+   * commit handler for these editors.
+   */
+  createEffect(() => {
+    if (editingId() === null) return;
+    editorRef?.focus();
+  });
 
   function toggleTimer(): void {
     const entry = running();
@@ -191,6 +204,9 @@ export function TimeTracker(props: TimeTrackerProps) {
                   step="1"
                   aria-label="修改时长（分钟）"
                   class={`${INPUT_CLASS} w-20`}
+                  ref={(el) => {
+                    editorRef = el;
+                  }}
                   value={editMinutes()}
                   onInput={(event) => setEditMinutes(event.currentTarget.value)}
                   onBlur={() => commitEdit(entry.id)}

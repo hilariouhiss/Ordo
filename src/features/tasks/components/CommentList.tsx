@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { Pencil, Trash2 } from "lucide-solid";
 import { iconButtonClass } from "../../../common/components";
 import { format } from "date-fns";
@@ -21,6 +21,20 @@ export function CommentList(props: CommentListProps) {
   const [newBody, setNewBody] = createSignal("");
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [editValue, setEditValue] = createSignal("");
+  let editorRef: HTMLTextAreaElement | undefined;
+
+  /*
+   * Opening an inline editor unmounts the button that had focus, so focus would
+   * otherwise fall to `<body>` and a keyboard user would restart from the top of
+   * the dialog. Focus is taken here rather than from the field's own `ref`: the
+   * ref runs while Solid is still building the subtree it re-renders again, and
+   * focusing an element that is about to be replaced fires its `blur` — which is
+   * this component's commit handler.
+   */
+  createEffect(() => {
+    if (editingId() === null) return;
+    editorRef?.focus();
+  });
 
   function startEdit(comment: Comment): void {
     setEditingId(comment.id);
@@ -77,6 +91,9 @@ export function CommentList(props: CommentListProps) {
                   aria-label="编辑评论"
                   class="min-w-0 flex-1 resize-y rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
                   rows={2}
+                  ref={(el) => {
+                    editorRef = el;
+                  }}
                   value={editValue()}
                   onInput={(event) => setEditValue(event.currentTarget.value)}
                   onBlur={() => commitEdit(comment.id)}

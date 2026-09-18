@@ -106,22 +106,19 @@ export function SettingsView() {
             </Button>
           </div>
 
+          {/* Neither summary is a live region: the toast for the same event
+              already announces it, and two polite regions for one action read
+              the message out twice. These are the record left on screen. */}
           <Show when={exported()}>
             {(summary) => (
-              <p
-                role="status"
-                class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground"
-              >
+              <p class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
                 已导出 {summary().counts.tasks} 个任务（{stamp(summary())}）：{summary().path}
               </p>
             )}
           </Show>
           <Show when={restored()}>
             {(summary) => (
-              <p
-                role="status"
-                class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground"
-              >
+              <p class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
                 已从备份恢复 {summary().counts.tasks} 个任务、{summary().counts.projects} 个项目、
                 {summary().counts.namespaces} 个命名空间（
                 {stamp(summary())}）：{summary().path}

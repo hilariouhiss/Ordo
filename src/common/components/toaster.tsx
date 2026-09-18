@@ -50,7 +50,16 @@ export function Toaster() {
   return (
     // No label of its own: every toast is its own live region (`role="alert"`
     // or `status`), so a label here would name nothing.
-    <div class="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
+    //
+    // `data-kb-top-layer` is Kobalte's own escape hatch from the hide-outside
+    // pass a modal dialog runs over `document.body` (its `Toast.Region` sets
+    // the same attribute). Without it the stack is `aria-hidden` whenever a
+    // dialog is open — which is exactly when a failed write reports itself —
+    // so the failure message would reach the screen and not the user.
+    <div
+      data-kb-top-layer=""
+      class="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2"
+    >
       <For each={notifications()}>{(item) => <Toast item={item} />}</For>
     </div>
   );

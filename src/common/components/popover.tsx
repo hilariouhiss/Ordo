@@ -3,7 +3,9 @@ import { X } from "lucide-solid";
 import { splitProps, type ComponentProps } from "solid-js";
 
 function Root(props: ComponentProps<typeof KPopover>) {
-  return <KPopover {...props} />;
+  // Same as the dialog wrapper: Kobalte's fallback accessible name for its own
+  // close button is the English "Dismiss".
+  return <KPopover translations={{ dismiss: "关闭" }} {...props} />;
 }
 
 function Trigger(props: ComponentProps<typeof KPopover.Trigger>) {

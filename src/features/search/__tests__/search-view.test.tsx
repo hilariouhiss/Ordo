@@ -115,6 +115,30 @@ describe("SearchView", () => {
     for (const mark of marks) expect(mark.tagName).toBe("MARK");
   });
 
+  /*
+   * The result count is the one thing a screen-reader user cannot see: the hits
+   * arrive as buttons with no count of their own, so the view has to say what
+   * the query produced.
+   */
+  it("announces the result counts, and the empty case, in one status region", async () => {
+    taskStore.setAll([taskFixture("t1", { title: "海报设计评审" })], []);
+    vi.mocked(searchApi.querySearch).mockResolvedValue([
+      hit({}),
+      hit({ kind: "comment", id: "c1", taskId: "t1" }),
+      hit({ kind: "comment", id: "c2", taskId: "t1" }),
+    ]);
+
+    render(() => <SearchView />);
+    await typeQuery("设计");
+
+    expect(screen.getByRole("status").textContent).toContain("任务 1 条，评论 2 条");
+
+    vi.mocked(searchApi.querySearch).mockResolvedValue([]);
+    await typeQuery("不存在");
+
+    expect(screen.getByRole("status").textContent).toContain("没有匹配的结果");
+  });
+
   it("focuses the task viewer when a hit is clicked", async () => {
     taskStore.setAll([taskFixture("t1", { title: "海报设计评审" })], []);
     vi.mocked(searchApi.querySearch).mockResolvedValue([
@@ -145,7 +169,8 @@ describe("SearchView", () => {
     render(() => <SearchView />);
     await typeQuery("不存在的词");
 
-    expect(screen.getByText("没有匹配的结果")).toBeTruthy();
+    // The pane's own heading (the status region says the same words).
+    expect(screen.getByRole("heading", { name: "没有匹配的结果" })).toBeTruthy();
   });
 
   it("shows a searching indicator while the request is pending", async () => {

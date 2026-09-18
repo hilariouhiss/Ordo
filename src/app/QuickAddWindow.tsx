@@ -174,7 +174,12 @@ export default function QuickAddWindow() {
       // surface. `dvh`, not `vh`, so the bottom control row cannot be clipped.
       class="flex h-dvh flex-col gap-3 overflow-hidden border border-border bg-surface p-4 text-foreground"
       onKeyDown={(event) => {
-        if (event.key === "Escape") hideWindow();
+        // Escape closes the thing in front. An open dropdown handles it first
+        // and marks the key handled (Kobalte's listbox does), and hiding the
+        // window on the same press would take the half-typed line with it: the
+        // window hides and `reset()` empties the field on the next summon.
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        hideWindow();
       }}
     >
       <form

@@ -24,7 +24,11 @@ export function EmptyState(props: EmptyStateProps) {
       class={`flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center ${props.class ?? ""}`}
     >
       <Show when={props.icon}>
-        <span class="flex size-11 items-center justify-center rounded-xl bg-surface-hover text-subtle-foreground">
+        {/* Decoration: the title under it is what the pane means. */}
+        <span
+          aria-hidden="true"
+          class="flex size-11 items-center justify-center rounded-xl bg-surface-hover text-subtle-foreground"
+        >
           {props.icon}
         </span>
       </Show>

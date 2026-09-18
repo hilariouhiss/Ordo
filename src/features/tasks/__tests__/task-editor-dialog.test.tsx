@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isoToLocalInputValue } from "../../../common/utils/datetime";
+import * as projects from "../../projects/store";
+import type { Project } from "../../projects/types";
 import { TaskEditorDialog } from "../components/TaskEditorDialog";
 import * as hooks from "../hooks";
 import * as store from "../store";
@@ -39,6 +41,22 @@ function renderDialog(task?: Task) {
     <TaskEditorDialog open={true} onOpenChange={onOpenChange} task={task} />
   ));
   return { onOpenChange };
+}
+
+function projectFixture(id: string, name: string): Project {
+  return {
+    id,
+    name,
+    description: null,
+    color: null,
+    icon: null,
+    namespaceId: null,
+    status: "active",
+    sortOrder: "n",
+    createdAt: "2026-01-10T10:00:00Z",
+    updatedAt: "2026-01-10T10:00:00Z",
+    deletedAt: null,
+  };
 }
 
 async function selectPriority(label: string): Promise<void> {
@@ -377,8 +395,51 @@ describe("TaskEditorDialog", () => {
     );
   });
 
-  it("locks the parent picker on a task that has children, in the service's words", async () => {
-    const parent = taskFixture("t1", { title: "写周报" });
+  /*
+   * R7b is a drag gesture (task onto a sidebar project row), and the editor used
+   * to derive the project instead of offering it — so a keyboard user had no way
+   * at all to move an existing task into another project, while the inbox empty
+   * state promises exactly that.
+   */
+  it("moves a top-level task into another project without a drag", async () => {
+    projects.resetProjectsStore();
+    projects.setAll([projectFixture("p1", "网站改版"), projectFixture("p2", "生活杂事")]);
+    const existing = taskFixture("task-9", { title: "改文案", projectId: null });
+    vi.mocked(hooks.updateTask).mockResolvedValue(existing);
+    const { onOpenChange } = renderDialog(existing);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /所属项目/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "网站改版" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(hooks.updateTask).toHaveBeenCalledWith(
+      "task-9",
+      expect.objectContaining({ projectId: "p1" }),
+    );
+  });
+
+  it("keeps a subtask in its parent's project instead of offering a second choice", () => {
+    projects.resetProjectsStore();
+    projects.setAll([projectFixture("p1", "网站改版"), projectFixture("p2", "生活杂事")]);
+    const parent = taskFixture("p1-task", { title: "写周报", projectId: "p1" });
+    const child = taskFixture("c1", {
+      title: "收集数据",
+      parentTaskId: "p1-task",
+      projectId: "p1",
+    });
+    store.setAll([parent, child], []);
+    renderDialog(child);
+
+    // A child lives in its parent's project (the service enforces it), so the
+    // picker states that rather than offering a choice the save would ignore.
+    const trigger = screen.getByRole("button", { name: /所属项目/ });
+    expect(trigger.hasAttribute("disabled")).toBe(true);
+    expect(trigger.textContent).toContain("网站改版");
+    expect(screen.getByText("子任务跟随父任务所属项目")).toBeTruthy();
+  });
+
+  it("locks the parent picker on a task that has children, in the service's words", async () => {    const parent = taskFixture("t1", { title: "写周报" });
     store.setAll(
       [
         parent,

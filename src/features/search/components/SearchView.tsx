@@ -88,8 +88,27 @@ export function SearchView() {
   const commentHits = createMemo(() => hits().filter((hit) => hit.kind === "comment"));
   const hasQuery = () => input().trim().length > 0;
 
+  /**
+   * What the query produced, as one sentence. The hits themselves are buttons in
+   * two headed sections, so a screen-reader user is told the counts nowhere else
+   * — and results replacing a skeleton is exactly the update that goes unnoticed.
+   */
+  const outcome = () => {
+    if (!hasQuery()) return "";
+    if (searching()) return "搜索中…";
+    if (failed()) return "搜索失败";
+    if (hits().length === 0) return "没有匹配的结果";
+    return `任务 ${taskHits().length} 条，评论 ${commentHits().length} 条`;
+  };
+
   return (
     <div class="flex h-full min-h-0 flex-col">
+      {/* One region, mounted for the view's whole life: a live region that
+          arrives together with its text is announced unreliably. */}
+      <div role="status" class="sr-only">
+        {outcome()}
+      </div>
+
       <div class="shrink-0 px-5 pb-3 pt-4">
         <TextField.Root class="relative">
           <Search
@@ -153,10 +172,9 @@ export function SearchView() {
               </Show>
             }
           >
-            {/* The single announcement for the pending state: the skeleton rows
-                below carry no text, so the status reads out as just "搜索中…". */}
-            <div role="status" class="pt-1">
-              <span class="sr-only">搜索中…</span>
+            {/* The pending state is announced by the status region above; the
+                skeleton rows below carry no text of their own. */}
+            <div class="pt-1">
               <div aria-hidden="true" class="flex flex-col">
                 <For each={SKELETON_WIDTHS}>
                   {(width) => (

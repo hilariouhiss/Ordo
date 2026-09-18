@@ -233,4 +233,36 @@ describe("BoardView", () => {
       expect(boardHooks.moveTaskToColumn).toHaveBeenCalledWith("t1", "c2", null, null),
     );
   });
+
+  /*
+   * Dragging a card between lanes is mouse-only, so the lane move used to be
+   * impossible without one. The card's ⋯ menu is the keyboard path: a menu item
+   * cannot name a slot, so the card joins the end of the target lane.
+   */
+  it("moves a card to another lane from the card menu", async () => {
+    seedProject([
+      task("t1", { columnId: "c1" }),
+      task("t2", { columnId: "c2", sortOrder: "r", completedAt: "2026-09-09T10:00:00Z" }),
+    ]);
+    renderBoard();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "任务操作：任务 t1" }));
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "移到 已完成" }));
+
+    await waitFor(() =>
+      expect(boardHooks.moveTaskToColumn).toHaveBeenCalledWith("t1", "c2", "r", null),
+    );
+  });
+
+  it("appends when the keyboard move targets an empty lane", async () => {
+    seedProject([task("t1", { columnId: "c1" })]);
+    renderBoard();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "任务操作：任务 t1" }));
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "移到 已完成" }));
+
+    await waitFor(() =>
+      expect(boardHooks.moveTaskToColumn).toHaveBeenCalledWith("t1", "c2", null, null),
+    );
+  });
 });

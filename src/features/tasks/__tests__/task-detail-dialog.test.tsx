@@ -491,6 +491,22 @@ describe("TaskDetailDialog", () => {
     );
     expect(await screen.findByText("修改后的内容")).toBeTruthy();
   });
+  /*
+   * Opening an inline editor unmounts the button that was focused, so focus
+   * falls to <body> unless the editor takes it — and the editor is the thing
+   * the user just asked for.
+   */
+  it("puts focus in the comment editor it opens", async () => {
+    store.setComments(TASK_ID, [commentFixture("c1", "原始内容")]);
+
+    renderDetail();
+    fireEvent.click(await screen.findByText("原始内容"));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("编辑评论")),
+    );
+  });
+
   it("lets the IME take the Enter that commits a composition (comments)", async () => {
     store.setComments(TASK_ID, [commentFixture("c1", "原始内容")]);
 
@@ -589,6 +605,21 @@ describe("TaskDetailDialog time tracking", () => {
     // The optimistic row lands in the list and the input clears.
     expect(await screen.findByText("10 分钟")).toBeTruthy();
     expect((screen.getByLabelText("时长（分钟）") as HTMLInputElement).value).toBe("");
+  });
+
+  /*
+   * Same story as the comment editor: the pencil that opened this field is
+   * unmounted by opening it, so the field has to take focus itself.
+   */
+  it("puts focus in the entry editor it opens", async () => {
+    store.setTimeEntries(TASK_ID, [timeEntryFixture("e1", { duration: 1800 })]);
+
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "编辑时长 30 分钟" }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("修改时长（分钟）")),
+    );
   });
 
   it("rejects an invalid manual duration without calling the backend", () => {

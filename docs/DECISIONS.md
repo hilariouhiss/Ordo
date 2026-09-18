@@ -102,7 +102,7 @@
 | **BV-02** | 任务行响应统一带 `tagIds` | 已落地 → `TaskWithTags`、[ARCHITECTURE](./ARCHITECTURE.md)§3.2 |
 | **BV-03** | 弹窗头部固定 | 已落地 → `common/components/dialog.tsx`、[ARCHITECTURE](./ARCHITECTURE.md)§5-8 |
 | **Q-01** | 性能验收 | 已落地 → [ARCHITECTURE](./ARCHITECTURE.md)§6.1、`scripts/perf-acceptance.ps1`（启动耗时缺口见 §4） |
-| **Q-02** | 动效与无障碍复查 | **未完成** —— 见 §4 |
+| **Q-02** | 动效与无障碍复查 | 已落地 → [ARCHITECTURE](./ARCHITECTURE.md)§6.2、`src/common/__tests__/design-constraints.test.ts`（剩余缺口见 §4.2） |
 | **Q-03** | 三端兼容验证 | **未完成** —— 见 §4 |
 | **Q-04** | 文档同步 | **本次整合即此项** —— 见 §4 |
 | **Q-05** | 质量收口 | 已落地 —— 测试全绿；已删除脚手架期的 demo 命令 `greet`、`settings:*` 死常量与占位用例 `src/__tests__/example.test.ts`；根 `README.md` 已补 |
@@ -166,7 +166,7 @@
 
 | 项 | 内容 | 影响 |
 | --- | --- | --- |
-| **Q-02 动效与无障碍** | 全量动效合规复查、键盘可达性复查未做 | 动效与可达性目前是设计约束而非已验证事实 |
+| **Q-02 复查留下的无障碍缺口** | 7 项：统计刷新没有加载提示、分段控件不是 APG 单选组、图表逐点数据没有文本替代、路由切换不移动焦点、搜索框不是 combobox、快速输入小窗没有可聚焦的提交按钮 | 这些都**可用**（键盘能走到、能激活），但离推荐模式有距离；逐项与理由见 §4.2 |
 | **启动耗时未全部达标**（Q-01 验收留下） | 热启动 730–840 ms（目标 0.5 s）；WebView2 运行时缓存冷时冷启动 1619 ms（目标 1.5 s）。构成见 [ARCHITECTURE](./ARCHITECTURE.md)§6.1：WebView2 与窗口 320–1068 ms、页面加载与挂载约 175 ms、首屏数据约 270 ms、quick-add 小窗约 123 ms | 体感是「点图标到看见自己的任务」约 0.7–0.8 s。省时间的两条路都与既有决策冲突——预热小窗是 D-02 有意为之、启动拉整棵树是 §1.2 的取舍——要动就得先推翻那两条 |
 | **Q-03 三端兼容** | Windows/macOS/Linux 的快捷键、托盘、通知、路径行为未逐一验证（Linux 托盘依赖 appindicator 运行时） | 三端一致性未验证 |
 | **Q-04 文档同步** | 本次整合完成了主体：文档集改为描述现状并与代码对齐 | 后续仍需按 [README](./README.md)§5 的规则维护 |
@@ -207,3 +207,17 @@
 | QA-23 | 低 | tailwind 依赖分类错误、vitest transform 慢 | **已解决** | `package.json`、`vitest.config.ts` | `@tailwindcss/vite`/`tailwindcss` 移入 `devDependencies`（只参与构建，`pnpm build` 复核）；vitest 开 `fsModuleCache: true`，transform 从占测试耗时约六成降到约五成、全量 80 s → 50 s |
 
 修复顺序建议：QA-02 先行（用户可见且改动小）；其次守卫与错误分流（QA-03/04/08/09）；再去重与渲染热路径（QA-05–07）与工程配套（QA-10）；其余低级别随手修。
+
+### 4.2 Q-02 复查留下的无障碍缺口（2026-09-18）
+
+复查做了什么、怎么复现，见 [ARCHITECTURE](./ARCHITECTURE.md)§6.2；动效四条硬约束由 `src/common/__tests__/design-constraints.test.ts` 持续断言。下表是**复查后仍然存在**、且经评估不阻塞使用的部分——它们都是「能用但不够好」，不是键盘走不到：
+
+| 项 | 现状 | 为什么这次没改 |
+| --- | --- | --- |
+| 统计刷新没有加载提示 | 切换时间范围/分组维度时旧图留在屏上静默替换（`ready()` 只置一次真，没有 per-request 的 loading 状态），也没有 `aria-busy` | 要改的是 hooks 的状态形状（每次请求一份 loading），不是一处标注；留待统计页下次改动 |
+| `SegmentedControl` 不是 APG 单选组 | 用 `role="group"` + `aria-pressed` 的按钮组：5 个 Tab 停靠点、方向键不换选项 | 键盘可用（Tab + 空格/回车），只是不如 roving tabindex + 方向键省事；换 Kobalte ToggleGroup 或自建单选组都可行 |
+| 图表逐点数据没有文本替代 | 三个自绘 SVG 只有「N 个数据点 / 合计 X」的 `aria-label`，逐点/逐日的数值藏在悬停 `<title>` 里（`role="img"` 的子节点对读屏不可达） | 补齐要给每张图配一份 `sr-only` 列表/表格，属于图表组件自身的改动 |
+| 路由切换不移动焦点、也不播报 | 侧边栏导航是 `<Link>`，激活后焦点留在链接上，视图换了但读屏不说 | 桌面端「焦点留在导航项」本身是可接受的行为；要做就得在壳层加路由播报区（并且每个视图要有可聚焦的标题） |
+| 搜索框不是 combobox | 输入框没有 `aria-controls`/`aria-expanded`/方向键结果导航；结果数量与空结果由常驻 `role="status"` 播报 | 结果列表是普通按钮列表而不是 listbox，方向键导航要连带决定选中语义 |
+| 快速输入小窗没有提交按钮 | 只有「回车添加 · Esc 关闭」；表单里只有标题输入框，两个下拉与日期控件在表单外 | D-02 有意做成极简小窗（560×164），加按钮会改窗口形态；回车路径对键盘用户是完整的 |
+| 虚拟列表的滚动条本身不是 Tab 停靠点 | 滚动容器没有 `tabIndex`，方向键滚动依赖焦点在行内控件上（Chromium 会滚动最近的滚动祖先） | 加 `tabIndex` 会多一个 Tab 停靠点且只对这一种容器有意义；当前路径已能滚动 |

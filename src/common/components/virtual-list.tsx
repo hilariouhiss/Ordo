@@ -23,6 +23,17 @@ export type VirtualListProps<T> = {
 };
 
 /**
+ * The row index a focus target sits in, or -1 when focus is not inside a row.
+ * `closest` is guarded because a focus event's target is not necessarily an
+ * element (it can be the document).
+ */
+function indexOfRow(target: EventTarget | null): number {
+  const row = (target as Element | null)?.closest?.("[data-row-index]");
+  const index = row?.getAttribute("data-row-index");
+  return index ? Number(index) : -1;
+}
+
+/**
  * Minimal fixed-height virtualizer: renders only the rows intersecting the
  * viewport (plus `overscan`), inside a spacer sized to the full list height.
  */
@@ -51,24 +62,44 @@ export function VirtualList<T>(props: VirtualListProps<T>) {
   // identity is only worth anything if this layer preserves it too.
   const rowCache = new Map<number, { item: T; index: number }>();
 
+  /*
+   * Index of the row that currently holds focus, or -1. A row scrolled out of
+   * the window is unmounted, and unmounting the row that owns focus hands focus
+   * back to `<body>`: a keyboard user who arrow-scrolls the list loses their
+   * place and has to tab in from the top again. That one row is therefore kept
+   * mounted, ahead of the window, while the rest of the list stays virtualized —
+   * keeping the whole gap instead would un-virtualize the list the moment
+   * someone scrolls away from their focus.
+   */
+  const [focusedIndex, setFocusedIndex] = createSignal(-1);
+
+  const wrapperFor = (index: number) => {
+    const item = props.items[index];
+    const cached = rowCache.get(index);
+    if (cached && cached.item === item) return cached;
+    const row = { item, index };
+    rowCache.set(index, row);
+    return row;
+  };
+
   const visible = createMemo(() => {
     const { start, end } = range();
+    const focused = focusedIndex();
+    // Only a slot the list still has: a shorter list moves the focused index out
+    // of range, and keeping it mounted would hand the caller an `undefined` item.
+    const kept =
+      focused >= 0 && focused < props.items.length && (focused < start || focused >= end)
+        ? focused
+        : -1;
     const rows: Array<{ item: T; index: number }> = [];
-    for (let index = start; index < end; index++) {
-      const item = props.items[index];
-      const cached = rowCache.get(index);
-      if (cached && cached.item === item) {
-        rows.push(cached);
-        continue;
-      }
-      const row = { item, index };
-      rowCache.set(index, row);
-      rows.push(row);
-    }
+    // Ahead of the window, not behind it: Tab from the kept row then lands on
+    // the first row on screen instead of leaving the list.
+    if (kept >= 0) rows.push(wrapperFor(kept));
+    for (let index = start; index < end; index++) rows.push(wrapperFor(index));
     // Slots outside the window are not coming back into view unread, and an
     // unbounded map would grow with every scroll through a long list.
     for (const index of rowCache.keys()) {
-      if (index < start || index >= end) rowCache.delete(index);
+      if ((index < start || index >= end) && index !== kept) rowCache.delete(index);
     }
     return rows;
   });
@@ -90,12 +121,29 @@ export function VirtualList<T>(props: VirtualListProps<T>) {
   });
 
   return (
-    <div ref={containerRef} role="list" class={props.class} onScroll={handleScroll}>
-      <div style={{ position: "relative", height: `${totalHeight()}px` }}>
+    <div
+      ref={containerRef}
+      role="list"
+      class={props.class}
+      onScroll={handleScroll}
+      onFocusIn={(event) => setFocusedIndex(indexOfRow(event.target))}
+      onFocusOut={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!next || !containerRef?.contains(next)) setFocusedIndex(-1);
+      }}
+    >
+      {/* `role="presentation"` so the spacer does not sit between the list and
+          its items in the accessibility tree. */}
+      <div role="presentation" style={{ position: "relative", height: `${totalHeight()}px` }}>
         <For each={visible()}>
           {(row) => (
             <div
               role="listitem"
+              // A virtualized list announces the rendered window's length
+              // unless every item reports where it sits in the real list.
+              aria-setsize={props.items.length}
+              aria-posinset={row.index + 1}
+              data-row-index={row.index}
               data-key={local.getKey?.(row.item, row.index)}
               style={{
                 position: "absolute",

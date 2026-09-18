@@ -11,18 +11,22 @@ export interface BoardColumnViewProps {
   /** Current clock, passed in so day boundaries stay stable per board render. */
   now: Date;
   draggingTaskId: () => string | null;
+  /** Every other lane: the cards' keyboard move targets. */
+  moveTargets: () => BoardColumn[];
   onDragStartTask: (task: Task) => void;
   onDragEnd: () => void;
   /** Drop handler; the board resolves the task id and sort keys. */
   onDropTask: (columnId: string, index: number) => void;
   onToggleComplete: (task: Task) => void;
   onOpenDetail: (task: Task) => void;
+  onMoveTaskToColumn: (task: Task, columnId: string) => void;
 }
 
 /**
  * One board column (P-05): a droppable card list with an absolutely
- * positioned insertion line. The line never shifts layout (position:absolute
- * + paint-only updates), so dragging stays transform-only at frame rate.
+ * positioned insertion line. The line never shifts layout (`position:absolute`
+ * + a `translate` it can move on the compositor), so dragging stays
+ * transform-only at frame rate.
  *
  * The column is the project's own row, with no management controls: 待办 /
  * 进行中 / 已完成 come with the project, so the header only names the lane,
@@ -79,18 +83,28 @@ export function BoardColumnView(props: BoardColumnViewProps) {
       class="flex w-72 shrink-0 flex-col rounded-xl bg-sunken"
     >
       <header class="flex items-center gap-1.5 px-2.5 py-2">
-        <span class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-foreground">
+        {/* A heading, so heading navigation can jump between lanes; the count
+            carries its unit because a bare digit has none read aloud. */}
+        <h2 class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-foreground">
           {props.column.name}
+        </h2>
+        <span class="shrink-0 text-xs text-subtle-foreground">
+          {props.tasks().length}
+          <span class="sr-only"> 个任务</span>
         </span>
-        <span class="shrink-0 text-xs text-subtle-foreground">{props.tasks().length}</span>
         <Show when={props.column.isDone}>
-          <CheckCircle2 size={14} class="shrink-0 text-primary" aria-label="完成列" />
+          <CheckCircle2
+            size={14}
+            role="img"
+            class="shrink-0 text-primary"
+            aria-label="完成列"
+          />
         </Show>
       </header>
 
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it */}
       <div
         ref={listRef}
+        role="list"
         data-drop-zone={props.column.id}
         class="relative min-h-16 flex-1 overflow-y-auto p-2"
         onDragOver={handleDragOver}
@@ -102,15 +116,17 @@ export function BoardColumnView(props: BoardColumnViewProps) {
       >
         <For each={props.tasks()}>
           {(task) => (
-            <div class="mb-2">
+            <div role="listitem" class="mb-2">
               <BoardCard
                 task={task}
                 now={props.now}
                 dragging={() => props.draggingTaskId() === task.id}
+                moveTargets={props.moveTargets}
                 onDragStart={props.onDragStartTask}
                 onDragEnd={props.onDragEnd}
                 onToggleComplete={props.onToggleComplete}
                 onOpenDetail={props.onOpenDetail}
+                onMoveToColumn={(columnId) => props.onMoveTaskToColumn(task, columnId)}
               />
             </div>
           )}
@@ -125,8 +141,8 @@ export function BoardColumnView(props: BoardColumnViewProps) {
             <div
               aria-hidden="true"
               data-drop-indicator={props.column.id}
-              class="pointer-events-none absolute inset-x-2 h-0.5 rounded-full bg-primary"
-              style={{ top: `${at().y}px` }}
+              class="pointer-events-none absolute inset-x-2 top-0 h-0.5 rounded-full bg-primary"
+              style={{ transform: `translateY(${at().y}px)` }}
             />
           )}
         </Show>

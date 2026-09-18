@@ -51,6 +51,21 @@ function renderDialog() {
 }
 
 describe("TagManagerDialog", () => {
+  /*
+   * The 编辑标签 button is replaced by the field it opens, so the field has to
+   * take focus or the keyboard user restarts from the top of the dialog.
+   */
+  it("puts focus in the rename field it opens", async () => {
+    store.setAll([], [tagFixture("t1", "工作")]);
+
+    renderDialog();
+    fireEvent.click(await screen.findByRole("button", { name: "编辑标签 工作" }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("编辑标签 工作")),
+    );
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     cleanup();

@@ -79,9 +79,9 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
 
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
-              <h2 class="truncate text-lg font-semibold tracking-tight text-foreground">
+              <h1 class="truncate text-lg font-semibold tracking-tight text-foreground">
                 {namespace().name}
-              </h2>
+              </h1>
               <Show when={namespace().status === "archived"}>
                 <span class="shrink-0 rounded-sm bg-surface-hover px-1.5 py-0.5 text-2xs text-muted-foreground">
                   已归档

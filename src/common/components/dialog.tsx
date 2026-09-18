@@ -3,7 +3,10 @@ import { X } from "lucide-solid";
 import { splitProps, type ComponentProps } from "solid-js";
 
 function Root(props: ComponentProps<typeof KDialog>) {
-  return <KDialog {...props} />;
+  // Kobalte's own default for the close button's accessible name is the English
+  // "Dismiss"; this UI is Chinese, and every call site that passes an explicit
+  // `aria-label="关闭"` still wins over this.
+  return <KDialog translations={{ dismiss: "关闭" }} {...props} />;
 }
 
 function Trigger(props: ComponentProps<typeof KDialog.Trigger>) {
@@ -31,7 +34,24 @@ function Overlay(props: ComponentProps<typeof KDialog.Overlay>) {
 }
 
 function Content(props: ComponentProps<typeof KDialog.Content>) {
-  const [local, rest] = splitProps(props, ["class"]);
+  const [local, rest] = splitProps(props, ["class", "onCloseAutoFocus"]);
+
+  /*
+   * Where focus goes when this dialog closes. Kobalte hands it back to the
+   * `Dialog.Trigger`, and this app has none: every dialog opens from a menu
+   * item, a row button or a file picker's result. With no trigger to hand it
+   * back to, Kobalte still calls `preventDefault()` on its own restore (which
+   * suppresses the focus scope's fallback) and then focuses `undefined`, so
+   * focus landed on `<body>` and the next Tab restarted at the top of the
+   * window instead of at the control the user opened.
+   *
+   * Captured here rather than in `onMount`: a component body runs before the
+   * dialog's own autofocus effect, which is the moment the opener still holds
+   * focus. A trigger, if one is ever used, is focused by the click that opens
+   * the dialog, so this stays correct for that case too.
+   */
+  const opener = document.activeElement as HTMLElement | null;
+
   // No border: at this elevation the shadow carries the separation, and a
   // hairline on top of a shadow is the generic "card" look.
   //
@@ -45,6 +65,12 @@ function Content(props: ComponentProps<typeof KDialog.Content>) {
   return (
     <KDialog.Content
       {...rest}
+      onCloseAutoFocus={(event) => {
+        local.onCloseAutoFocus?.(event);
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        opener?.focus();
+      }}
       class={`animate-surface-in fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-elevated p-5 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
     />
   );

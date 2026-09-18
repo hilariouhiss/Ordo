@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js";
 import { Settings2 } from "lucide-solid";
 import { z } from "zod";
 import {
@@ -13,6 +13,7 @@ import {
   isoToLocalInputValue,
   localInputValueToIso,
 } from "../../../common/utils/datetime";
+import { activeProjects } from "../../projects/store";
 import { createTask, updateTask } from "../hooks";
 import {
   COMPLEXITY_OPTIONS,
@@ -37,6 +38,10 @@ import { TagManagerDialog } from "./TagManagerDialog";
  * selected" and paints the trigger blank, so the sentinel is a real string. */
 const NO_PARENT = { id: null as string | null, name: "（顶层任务）" };
 
+/** The 所属项目 picker's "no project" row: the same word the inbox view and the
+ * quick-add window use for a task that belongs to no project. */
+const INBOX = { id: null as string | null, name: "收件箱" };
+
 const formSchema = z.object({
   title: z.string().trim().min(1, "标题不能为空"),
   dueLocal: z
@@ -59,6 +64,7 @@ export interface TaskEditorDialogProps {
 }
 
 export function TaskEditorDialog(props: TaskEditorDialogProps) {
+  const titleId = createUniqueId();
   const [title, setTitle] = createSignal("");
   const [note, setNote] = createSignal("");
   const [priority, setPriority] = createSignal<Priority>("none");
@@ -69,6 +75,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const [repeatInterval, setRepeatInterval] = createSignal("1");
   const [repeatPaused, setRepeatPaused] = createSignal(false);
   const [parentId, setParentId] = createSignal<string | null>(null);
+  const [projectId, setProjectId] = createSignal<string | null>(null);
   const [managerOpen, setManagerOpen] = createSignal(false);
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
@@ -89,6 +96,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         setRepeatInterval(String(task?.repeatRule?.interval ?? 1));
         setRepeatPaused(task?.repeatRule?.paused ?? false);
         setParentId(task?.parentTaskId ?? null);
+        setProjectId(task?.projectId ?? props.defaultProjectId ?? null);
         setManagerOpen(false);
         setErrors({});
         setSubmitting(false);
@@ -130,6 +138,25 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const parentLocked = () => props.task !== undefined && hasChildren(props.task.id);
   const selectedParent = () =>
     parentOptions().find((option) => option.id === parentId()) ?? NO_PARENT;
+
+  /**
+   * Projects a task may be filed into, plus 收件箱 for "none". This picker is the
+   * keyboard path to R7b: the drag gesture (drop a task on a sidebar project row)
+   * used to be the only writer of a task's project, which left the inbox empty
+   * state's 「随时可以把它们分配到项目里」 impossible without a mouse.
+   */
+  const projectOptions = () => [
+    INBOX,
+    ...activeProjects().map((project) => ({ id: project.id as string | null, name: project.name })),
+  ];
+  /** Where the task will actually land: a child lives in its parent's project,
+   * so a picked parent answers this instead of the picker. */
+  const resolvedProjectId = () =>
+    parentId() === null
+      ? projectId()
+      : (getTask(parentId() as string)?.projectId ?? null);
+  const selectedProject = () =>
+    projectOptions().find((option) => option.id === resolvedProjectId()) ?? INBOX;
 
   const selectedPriority = () =>
     PRIORITY_OPTIONS.find((option) => option.value === priority()) ??
@@ -185,13 +212,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
       // A child lives inside its parent's project (the backend enforces it), so
       // a picked parent brings its project along instead of leaving the task in
       // the view it was created from.
-      const parent = parentId() === null ? undefined : getTask(parentId() as string);
-      const projectId =
-        parentId() !== null
-          ? parent?.projectId ?? null
-          : props.task
-            ? props.task.projectId
-            : props.defaultProjectId ?? null;
+      const projectId = resolvedProjectId();
       // Sparse patch: re-opening the dialog must not re-send the parent it was
       // seeded with, and an untouched edit must not read as 「move to top level」.
       const parentPatch =
@@ -224,8 +245,8 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay />
-        <Dialog.Content aria-labelledby="task-editor-title">
-          <Dialog.Title id="task-editor-title">
+        <Dialog.Content aria-labelledby={titleId}>
+          <Dialog.Title id={titleId}>
             {props.task ? "编辑任务" : "新建任务"}
           </Dialog.Title>
           <Dialog.Description>
@@ -285,6 +306,34 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                 <Select.Description>
                   该任务还有子任务（含回收站中的），不能变成别人的子任务
                 </Select.Description>
+              </Show>
+            </Select.Root>
+
+            <Select.Root
+              options={projectOptions()}
+              disabled={parentId() !== null}
+              optionValue={(option) => option.id ?? "none"}
+              optionTextValue={(option) => option.name}
+              itemToString={(option) => option.name}
+              value={selectedProject()}
+              onChange={(option) => {
+                // Kobalte fires onChange once on mount with the seeded value;
+                // treating that as a pick would re-file the task on render.
+                const id = option?.id ?? null;
+                if (id === projectId()) return;
+                setProjectId(id);
+              }}
+            >
+              <Select.Label>所属项目</Select.Label>
+              <Select.Trigger>
+                <Select.Value>{selectedProject().name}</Select.Value>
+                <Select.Icon />
+              </Select.Trigger>
+              <Select.Content>
+                <Select.Listbox />
+              </Select.Content>
+              <Show when={parentId() !== null}>
+                <Select.Description>子任务跟随父任务所属项目</Select.Description>
               </Show>
             </Select.Root>
 

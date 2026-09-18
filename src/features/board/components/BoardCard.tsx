@@ -1,20 +1,31 @@
-import { Show, createMemo } from "solid-js";
-import { Badge, Checkbox } from "../../../common/components";
+import { For, Show, createMemo } from "solid-js";
+import { MoreHorizontal } from "lucide-solid";
+import {
+  Badge,
+  Checkbox,
+  DropdownMenu,
+  iconButtonClass,
+} from "../../../common/components";
 import { childrenOf, getTag } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
 import { formatDueLabel, isOverdue } from "../../tasks/view-filters";
 import { PRIORITY_BADGES } from "../../tasks/components/TaskItemRow";
+import type { BoardColumn } from "../types";
 
 export interface BoardCardProps {
   task: Task;
   /** Current clock, passed in so day boundaries stay stable per board render. */
   now: Date;
   dragging: () => boolean;
+  /** The lanes this card is *not* in: the card menu's move targets. */
+  moveTargets: () => BoardColumn[];
   onDragStart: (task: Task) => void;
   onDragEnd: () => void;
   onToggleComplete: (task: Task) => void;
   /** Clicking the title opens the task detail (subtasks live there). */
   onOpenDetail: (task: Task) => void;
+  /** Keyboard path for the drag gesture: move this card into `columnId`. */
+  onMoveToColumn: (columnId: string) => void;
 }
 
 /**
@@ -47,7 +58,7 @@ export function BoardCard(props: BoardCardProps) {
         props.onDragStart(props.task);
       }}
       onDragEnd={() => props.onDragEnd()}
-      class="cursor-grab rounded-lg border border-border bg-elevated p-3 transition duration-150 ease-out hover:border-border-strong hover:shadow-md focus-ring active:cursor-grabbing"
+      class="group cursor-grab rounded-lg border border-border bg-elevated p-3 transition duration-150 ease-out hover:border-border-strong hover:shadow-md focus-ring active:cursor-grabbing"
       classList={{ "opacity-40": props.dragging() }}
     >
       <div class="flex items-start gap-2">
@@ -69,6 +80,33 @@ export function BoardCard(props: BoardCardProps) {
             {props.task.title}
           </span>
         </button>
+
+        {/* The keyboard path for "drag this card to another lane": the lanes are
+            the only thing a drag can say that no button could. */}
+        <Show when={props.moveTargets().length > 0}>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger
+              aria-label={`任务操作：${props.task.title}`}
+              class={`${iconButtonClass} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
+            >
+              <MoreHorizontal size={15} aria-hidden="true" />
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content>
+                <DropdownMenu.Group>
+                  <DropdownMenu.GroupLabel>移动到</DropdownMenu.GroupLabel>
+                  <For each={props.moveTargets()}>
+                    {(column) => (
+                      <DropdownMenu.Item onSelect={() => props.onMoveToColumn(column.id)}>
+                        移到 {column.name}
+                      </DropdownMenu.Item>
+                    )}
+                  </For>
+                </DropdownMenu.Group>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </Show>
       </div>
 
       <Show

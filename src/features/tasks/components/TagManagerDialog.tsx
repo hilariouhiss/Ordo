@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-solid";
 import { z } from "zod";
 import { Button, Dialog, TextField } from "../../../common/components";
@@ -100,6 +100,19 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
   const [editName, setEditName] = createSignal("");
   const [editColor, setEditColor] = createSignal<string | null>(null);
   const [editError, setEditError] = createSignal("");
+  let editorRef: HTMLInputElement | undefined;
+
+  /*
+   * Opening an inline editor unmounts the button that had focus, so focus would
+   * otherwise fall to `<body>`. Taken here rather than in the field's own `ref`:
+   * the ref runs while Solid is still building the subtree it re-renders again,
+   * and focusing an element that is about to be replaced fires its `blur` — the
+   * commit handler for these editors.
+   */
+  createEffect(() => {
+    if (editingId() === null) return;
+    editorRef?.focus();
+  });
   const [savingEdit, setSavingEdit] = createSignal(false);
   const [deletingId, setDeletingId] = createSignal<string | null>(null);
 
@@ -278,7 +291,11 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
                           <TextField.Label class="sr-only">
                             编辑标签 {tag.name}
                           </TextField.Label>
-                          <TextField.Input />
+                          <TextField.Input
+                            ref={(el: HTMLInputElement) => {
+                              editorRef = el;
+                            }}
+                          />
                           <TextField.ErrorMessage>{editError() ?? ""}</TextField.ErrorMessage>
                         </TextField.Root>
                         <ColorSwatches
@@ -304,7 +321,10 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
                     </Show>
                     <Show when={deletingId() === tag.id}>
                       <div class="mt-2 flex items-center justify-between gap-2 rounded-lg bg-danger/10 px-3 py-2">
-                        <span class="text-xs text-danger">
+                        {/* The question appears next to the button that was
+                            pressed, without moving focus, so it has to
+                            announce itself to be answerable. */}
+                        <span role="alert" class="text-xs text-danger">
                           将同时从 {usageCount(tag.id)} 个任务上移除，确认删除？
                         </span>
                         <div class="flex shrink-0 gap-2">

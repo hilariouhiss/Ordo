@@ -3,6 +3,7 @@ import { CircleAlert } from "lucide-solid";
 import { Button, EmptyState } from "../../../common/components";
 import { createNow } from "../../../common/clock";
 import { TaskDetailDialog } from "../../tasks/components/TaskDetailDialog";
+import { TaskEditorDialog } from "../../tasks/components/TaskEditorDialog";
 import { completeTask, uncompleteTask } from "../../tasks/hooks";
 import { scopeRows } from "../../tasks/store";
 import type { Task } from "../../tasks/types";
@@ -27,6 +28,8 @@ export function BoardView(props: { projectId: string }) {
   const [draggingTaskId, setDraggingTaskId] = createSignal<string | null>(null);
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<Task | null>(null);
+  const [editorOpen, setEditorOpen] = createSignal(false);
+  const [editingTask, setEditingTask] = createSignal<Task | null>(null);
 
   // The failure flag belongs to the project on screen, so a load is only
   // allowed to set it while it is still the current one (QA-03). Leaving a
@@ -72,6 +75,14 @@ export function BoardView(props: { projectId: string }) {
     setDetailOpen(true);
   }
 
+  /** The detail's 编辑 button swaps the detail for the editor, the same way the
+   * app-level task viewer does — on the board it used to just close the detail. */
+  function openEditFromDetail(task: Task): void {
+    setEditingTask(task);
+    setDetailOpen(false);
+    setEditorOpen(true);
+  }
+
   function toggleComplete(task: Task): void {
     void (task.completedAt ? uncompleteTask(task.id) : completeTask(task.id));
   }
@@ -84,6 +95,14 @@ export function BoardView(props: { projectId: string }) {
     const prev = index > 0 ? target[index - 1].sortOrder : null;
     const next = index < target.length ? target[index].sortOrder : null;
     void moveTaskToColumn(taskId, columnId, prev, next);
+  }
+
+  /** The card menu's move: a menu item cannot name a slot the way a drop can,
+   * so the card joins the end of the lane. */
+  function moveToColumn(task: Task, columnId: string): void {
+    const lane = tasksOf(columnId).filter((item) => item.id !== task.id);
+    const prev = lane.length > 0 ? lane[lane.length - 1].sortOrder : null;
+    void moveTaskToColumn(task.id, columnId, prev, null);
   }
 
   return (
@@ -113,11 +132,13 @@ export function BoardView(props: { projectId: string }) {
                 tasks={() => tasksOf(column.id)}
                 now={now()}
                 draggingTaskId={draggingTaskId}
+                moveTargets={() => columns().filter((item) => item.id !== column.id)}
                 onDragStartTask={(task) => setDraggingTaskId(task.id)}
                 onDragEnd={() => setDraggingTaskId(null)}
                 onDropTask={handleDrop}
                 onToggleComplete={toggleComplete}
                 onOpenDetail={openDetail}
+                onMoveTaskToColumn={moveToColumn}
               />
             )}
           </For>
@@ -130,10 +151,16 @@ export function BoardView(props: { projectId: string }) {
             open={detailOpen()}
             onOpenChange={setDetailOpen}
             task={task()}
-            onEdit={() => setDetailOpen(false)}
+            onEdit={openEditFromDetail}
           />
         )}
       </Show>
+
+      <TaskEditorDialog
+        open={editorOpen()}
+        onOpenChange={setEditorOpen}
+        task={editingTask() ?? undefined}
+      />
     </Show>
   );
 }

@@ -175,6 +175,7 @@ export function SubtaskList(props: SubtaskListProps) {
                 >
                   <input
                     class="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
+                    aria-label={`重命名子任务 ${child.title}`}
                     value={editValue()}
                     onInput={(event) => setEditValue(event.currentTarget.value)}
                     onBlur={() => commitEdit(child.id)}

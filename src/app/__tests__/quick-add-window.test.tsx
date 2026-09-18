@@ -372,6 +372,24 @@ describe("QuickAddWindow", () => {
     expect(emitMock).not.toHaveBeenCalled();
   });
 
+  /*
+   * Escape closes the thing in front. With the project dropdown open it has to
+   * close that dropdown, not hide the window — the window hides on the next
+   * summon and `reset()` drops whatever was typed, so the half-typed line would
+   * be thrown away by a key that only meant "close the list".
+   */
+  it("lets an open dropdown take Escape before the window does", async () => {
+    await renderWindow();
+    fireEvent.input(screen.getByLabelText("任务标题"), { target: { value: "写周报" } });
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /项目/ }));
+    const listbox = await screen.findByRole("listbox");
+
+    fireEvent.keyDown(listbox, { key: "Escape" });
+
+    expect(hideMock).not.toHaveBeenCalled();
+  });
+
   it("lets the IME take the Enter that commits a composition", async () => {
     await renderWindow();
     const input = screen.getByLabelText("任务标题") as HTMLInputElement;

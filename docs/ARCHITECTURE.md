@@ -184,7 +184,7 @@ src/
 
 - **`focus-ring` 是唯一的焦点指示**（`:focus-visible` 上的 2px `outline`）。用 `outline` 而不是 `ring`：outline 跟随元素自身的圆角，且不需要 `ring-offset`——offset 会用页面背景色补一圈，一旦元素不在 `bg-background` 上（侧边栏、卡片、菜单里）就会显出一圈错色。
 - **`child-indent` 是内联子列表的唯一缩进规则**：子项内容相对父项右移 20px，缩进带中线画 1px `border-strong` 引导线。虚拟化的行式子列表（`SubtaskRow` 的 `w-5` 槽位）用行内槽位表达同一条规则——两者的步长与线色必须保持一致。整页/卡片式子列表不缩进。
-- **`skeleton`** 骨架屏的微光扫过（固定渐变上的 `background-position` 位移，不额外占用 DOM）。
+- **`skeleton`** 骨架屏的微光扫过：一个 `::after` 上的固定渐变沿独立的 `translate` 扫过（合成器动画，不重绘；全局「减少动态效果」规则把它压成静止的实心块）。
 - **浮层入场动画** `animate-fade-in` / `animate-surface-in` / `animate-toast-in`。
 - **`.date-field`** 的 `::-webkit-datetime-edit` 隐藏规则（配合 `DateField` 组件）。
 - 滚动条样式：`::-webkit-scrollbar` 系列（Tauri 渲染在 WebView2/Chromium 上）+ 标准属性兜底；透明边框 + `background-clip` 把滑块缩进成浮动胶囊。
@@ -195,9 +195,10 @@ src/
 - 图标用 **Lucide**；日期用 **date-fns**；表单校验用 **Zod**。图标按钮样式只有 `iconButtonClass` 一处出处。
 - 长列表用**虚拟滚动**（`common/components/virtual-list.tsx`，自研轻量实现）。
 - 看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
-- **动效只允许** CSS `transform` / `opacity` / 独立的 `scale`·`translate` 属性；时长 150–300ms；遵循 `prefers-reduced-motion`（由 `index.css` 的全局 `@media` 规则统一兜底，组件里不再逐处写 `motion-reduce:*`）。
+- **动效只允许** CSS `transform` / `opacity` / 独立的 `scale`·`translate` 属性；时长 150–300ms；遵循 `prefers-reduced-motion`（由 `index.css` 的全局 `@media` 规则统一兜底，组件里不再逐处写 `motion-reduce:*`）。**「动效」指的是位移类动画**：布局属性（`width`/`height`/`top`）与 `transform` 之外的位移都禁止，`transition-colors` 这类颜色/描边的交叉淡入不在禁令内（它是静态状态的反馈，不是动效）。这几条由 `common/__tests__/design-constraints.test.ts` 扫源码断言——新增属性、时长或关键帧都要同时改那张白名单。
 - **浮层只做入场动画，不做退场动画**：Kobalte 的 presence 会等动画结束才卸载元素，一个没触发的退场动画会留下一层看不见但吃掉所有点击的遮罩。入场动画必须写在 `scale` / `translate` 长属性上而非 `transform`：Kobalte 用 `transform: translate(...)` 定位浮层，动画里写 `transform` 会在结束时把浮层弹回原点。
 - 所有可点元素都有 hover 与按下反馈（按下用 `scale` 收缩）；加载态用骨架屏而不是纯文字，骨架形状对齐最终布局。
+- **键盘等价入口**：拖放（R7a/R7b/R7c、看板换列）各自都有一个不用鼠标的入口——项目编辑器选命名空间、任务编辑器选父任务与所属项目、看板卡片 ⋯ 菜单的「移到 X」。新增拖放能力时必须同时给出这条路径，`TaskItemRow` / `BoardCard` / `BoardColumnView` 上的 `noStaticElementInteractions` 忽略注释写的就是这条约定。
 - **日期控件的空值文案统一**：原生 `<input type="date|datetime-local">` 空值时的分段文字由 WebView 语言渲染（会出现 `yyyy/mm/日 --:--` 这类混排），无法用属性或 `lang` 覆盖。统一包一层 `DateField`（`common/components/date-field.tsx`）：空且未聚焦时藏掉原生分段、显示自绘的「年/月/日」（日期时间控件为「年/月/日 时:分」），聚焦后交还原生分段编辑，原生日历/时间选择器保留。时间精度保持到分钟。
 
 ## 3. 后端
@@ -456,3 +457,31 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 **两处缺口与可选手段**：热启动超出目标约 1.5–1.7 倍。能省的两处都要付代价——把 quick-add 小窗改成按下快捷键时才建（省约 123 ms，代价是第一次唤出要等 WebView 起来，D-02 特意没这么做），或启动时不拉整棵树（省约 270 ms，与 [DECISIONS](./DECISIONS.md)§1.2「`task:list` 一次带走整棵树」冲突）。两项都没做，理由与缺口记在 [DECISIONS](./DECISIONS.md)§4。
 
 **量的时候避开两个坑**：并行编译时量出的 2.4 s 与锁屏时的 2.2 s 都不是应用的成本（脚本拦得住锁屏，拦不住并行的编译任务）。另外，命令往返那一项量的是服务层 + 响应序列化，**不含 IPC 传输与页面主线程排队**：真机启动那一轮 6 条命令并发、页面同时在挂载外壳，实测每条 53.3–115.3 ms（2825 行档；70025 行档同一轮是 32.6–1623.0 ms）——所以「命令往返 <50 ms」目前的证据是服务层的，含 IPC 的稳态往返还没有单独量过。
+
+### 6.2 动效与无障碍复查（Q-02）
+
+**怎么验**：`pnpm test`。动效的四条硬约束由 `src/common/__tests__/design-constraints.test.ts` 扫源码断言（它同时钉住时长区间与关键帧属性白名单）；键盘可达性由各自的组件测试钉住（虚拟列表、看板、弹窗、搜索、设置、快速输入小窗）。
+
+**动效合规**（复扫 `src/**/*.{ts,tsx}` 与 `src/index.css`）：
+
+| 规则 | 复查结论 |
+| --- | --- |
+| 动效只在 CSS 里 | 全仓无 `requestAnimationFrame`、无 `.animate(`、无 `KeyframeEffect`；`@keyframes` 只出现在 `index.css` |
+| 只过渡合成属性 | 只有 `transition`（Tailwind v4 的默认清单，不含布局属性）/ `transition-colors` / `transition-transform` / `transition-opacity` 四种 |
+| 关键帧只写 `opacity` / `scale` / `translate` | 四条关键帧全部符合。骨架屏微光原本动的是 `background-position`（每帧重绘），本次改成 `::after` 上的 `translate` |
+| 微交互 150–300ms | 全部落在 150 / 200 / 300ms。原本有两处 100ms 的行 hover 与 140ms 的遮罩淡入，本次并入 150ms；唯一的例外是骨架屏的 1.6s 循环——它是等待指示而不是微交互 |
+| 全局 `prefers-reduced-motion` 兜底 | `index.css` 里唯一一条 `@media` 规则把 `animation-duration` / `transition-duration` 压到 0.01ms（骨架屏因此静止）；组件里一处 `motion-reduce:` 都没有 |
+| 只做入场、不做退场 | 只有 `animate-fade-in` / `animate-surface-in` / `animate-toast-in`，且写在独立的 `scale`/`translate` 上（写 `transform` 会被 Kobalte 的浮层定位覆盖） |
+
+**键盘可达性**：
+
+- **焦点指示**：每个键盘可达控件都带 `focus-ring`；`outline-none` 只留在 `tabindex="-1"` 的浮层容器与靠 `data-[highlighted]` 报位置的菜单/列表项上。
+- **可访问名**：图标按钮都有 `aria-label`；Kobalte 关闭按钮的兜底名（原本是英文 "Dismiss"）改为中文，由 `common/components/dialog.tsx` / `popover.tsx` 的 `translations` 提供。
+- **拖放的键盘等价入口**：项目 → 命名空间 = 项目编辑器的「命名空间」；任务 → 父任务 = 任务编辑器的「父任务」；任务 → 项目 = 任务编辑器的「所属项目」（子任务跟随父任务，此时该选择器置为不可用并说明）；看板列间移动 = 卡片 ⋯ 菜单的「移到 X」（追加到目标列末尾）。
+- **弹窗**：焦点陷阱、Escape、背景 `aria-hidden` 由 Kobalte 提供；**关闭后焦点回到打开它的控件**——本应用没有任何 `Dialog.Trigger`，Kobalte 的恢复目标因此为空（它会 `preventDefault` 掉自己的兜底），由 `common/components/dialog.tsx` 在 `onCloseAutoFocus` 里补回。
+- **虚拟列表**：持有焦点的那一行不会被卸载（其余行照旧虚拟化），每行报 `aria-setsize` / `aria-posinset`，读屏不会再拿渲染窗口当整个列表。
+- **模态期间的通知**：toast 栈带 `data-kb-top-layer`，否则模态的 hide-outside 会把写失败的提醒一起 `aria-hidden` 掉——而那正是弹窗里最需要被听见的消息。
+- **行内编辑器**：评论/时长/标签重命名的输入框在打开时接管焦点（打开它的按钮同时被卸载，否则焦点掉到 `<body>`）。
+- **看板拖进空列**：修复前 `board:moveTask` 会以 `需要提供前驱或后继排序键` 拒绝（空列没有可指的邻居），拖进空的「已完成」列必失败；现在两端都为空即追加到该列末尾，键盘入口也复用同一条路径。
+
+留下的缺口见 [DECISIONS](./DECISIONS.md)§4.2。

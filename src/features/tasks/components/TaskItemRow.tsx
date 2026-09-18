@@ -76,7 +76,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       // The whole row lights up on hover, not just the title: at 56px a row is
       // a large target, and highlighting all of it is what tells the eye which
       // row the trailing ⋯ button belongs to.
-      class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-100 hover:bg-surface-hover/60"
+      class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-150 hover:bg-surface-hover/60"
       data-task-id={props.task.id}
       // The drop highlight is a ring, not a border: a border would change the
       // row's box and shove the 56px rhythm the virtualizer assumes.

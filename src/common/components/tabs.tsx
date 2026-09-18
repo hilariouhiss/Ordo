@@ -31,7 +31,14 @@ function Content(props: ComponentProps<typeof KTabs.Content>) {
   // No padding here on purpose: every consumer supplies its own, and a base
   // padding would out-rank the caller's override (Tailwind resolves conflicts
   // by source order, not by class-attribute order).
-  return <KTabs.Content {...rest} class={`outline-none ${local.class ?? ""}`} />;
+  //
+  // `focus-ring` sits alongside `outline-none` because Kobalte only drops the
+  // panel out of the tab order while it *contains* a tabbable element: a panel
+  // whose content is all static text is Tab-reachable, and used to be reachable
+  // with no focus indicator at all.
+  return (
+    <KTabs.Content {...rest} class={`outline-none focus-ring ${local.class ?? ""}`} />
+  );
 }
 
 function Indicator(props: ComponentProps<typeof KTabs.Indicator>) {
