@@ -1,4 +1,12 @@
-import { createMemo, createSignal, For, onMount, splitProps, type JSX } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  splitProps,
+  type JSX,
+} from "solid-js";
 
 export type VirtualListProps<T> = {
   /** All items in source order. */
@@ -53,7 +61,14 @@ export function VirtualList<T>(props: VirtualListProps<T>) {
     setViewportHeight(el.clientHeight);
   };
 
-  onMount(handleScroll);
+  onMount(() => {
+    handleScroll();
+    // Resizes must re-sample the geometry too: the scroll handler alone
+    // leaves a taller window blank below the fold until the user scrolls.
+    const observer = new ResizeObserver(() => handleScroll());
+    if (containerRef) observer.observe(containerRef);
+    onCleanup(() => observer.disconnect());
+  });
 
   return (
     <div ref={containerRef} role="list" class={props.class} onScroll={handleScroll}>
