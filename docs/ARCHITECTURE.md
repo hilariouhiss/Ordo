@@ -319,7 +319,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
-前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.0`；主窗口 1120×740、最小 720×520、居中、`csp: null`。
+前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.0`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
 
 ### 4.2 依赖与版本约束
 
