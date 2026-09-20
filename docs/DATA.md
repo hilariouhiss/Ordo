@@ -103,6 +103,13 @@
 | **V9** | `V9__stats_top_level_index.sql` | 新增复合索引 `idx_tasks_parent_completed(parent_task_id, completed_at)` | 统计加上 `parent_task_id IS NULL` 等值谓词后，规划器改用 `idx_tasks_parent` 整索引扫描，丢掉了 `completed_at` 的范围 seek（查询计划断言当场失败）。等值列前置、范围列后置，把「顶层任务 + 时间范围」放回同一次 seek |
 | **V10** | `V10__task_scope_sort_index.sql` | 新增复合索引 `idx_tasks_scope_sort(column_id, parent_task_id, sort_order)` | 写入路径过去为了拿「范围内最后一个键」整表 hydrate（`tasks::list()`）再在 Rust 里过滤，成本随总行数线性增长（2825 行时 `task:create` 8.11 ms；50k 行会到几百 ms）。范围 = `column_id` + `parent_task_id` 两列合起来，这条索引把「最后一个键 / 紧邻键 / 存在性 / 下标」都变成一次 seek |
 
+**迁移文件的字节也是 schema 身份的一部分。** refinery 把 `SipHasher13(名字, 版本, SQL 原文)` 记进 `refinery_schema_history.checksum`，每次启动逐条比对：对不上就拒绝打开，前端表现为**窗口永远不出现**（setup 钩子里 panic）。所以：
+
+- 已应用的迁移**一个字节都不能改**——改行尾、改编码、给文件加/去 BOM 都算改。`cargo` 只在文件 mtime 变化时重建，所以同一个开发者机器上可以出现「有的版本嵌的是 LF 版本、有的版本嵌的是 CRLF 版本」，历史记录因此可能是**混合**的，逐条比对才知道哪一条对不上。
+- `.gitattributes` 里 `*.sql text eol=lf` 把仓库字节钉成 LF：`core.autocrlf=true` 的 Windows 检出会把 LF 文件还原成 CRLF，这是这个问题唯一的实际来源（本仓库就中过一次，V4/V7/V8/V9 四条记录与 LF 字节不符）。
+- `db::tests::migrations_are_embedded_as_lf_text` 断言每个嵌入的迁移都是 LF 文本，与字节改动同一个 commit 失败，而不是三天后在某人的机器上。
+- 真要修复一条对不上的记录，改 `refinery_schema_history.checksum` 对齐文件当前字节即可（**该表只存 checksum，不存 SQL**，所以没有别的自愈路径）；否则只能换一个空库重建。生产环境的判断依据是 `refinery_schema_history` 与迁移文件，不是任务数据本身。
+
 ### 3.1 V7 的搬迁映射（细节）
 
 - `project_id` **跟父任务走**（子任务不跨项目）；`column_id` 留空（子任务不上看板）；`repeat_rule` 留空（子任务默认不重复）。

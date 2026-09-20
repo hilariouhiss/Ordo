@@ -68,6 +68,63 @@ mod tests {
         migrated_connection();
     }
 
+    /// Every migration the binary embeds is LF-only text.
+    ///
+    /// refinery records a checksum over the migration's *raw bytes*, so the
+    /// bytes are part of the schema's identity: rewrite `V4__…sql` from LF to
+    /// CRLF without touching a character of SQL and every existing database
+    /// fails with "applied migration V4 is different than filesystem one",
+    /// which reaches the user as a panic in the setup hook and a window that
+    /// never opens. That is not hypothetical — it is what a Windows checkout
+    /// with `core.autocrlf=true` does to a repository that never said which
+    /// ending it wants, which is why `.gitattributes` now pins `*.sql` to LF.
+    /// This test is the other half of that pin: it fails in the same commit as
+    /// the bytes, not three days later on someone's machine.
+    #[test]
+    fn migrations_are_embedded_as_lf_text() {
+        // Listed by hand rather than globbed: `include_str!` is also what
+        // registers each file with cargo, so this list is the test's own
+        // dependency list — a new migration missing from it is a mistake this
+        // test cannot see, and one the lineup test below catches instead.
+        let embedded: [(&str, &str); 10] = [
+            ("V1", include_str!("../migrations/V1__init.sql")),
+            ("V2", include_str!("../migrations/V2__schema.sql")),
+            ("V3", include_str!("../migrations/V3__task_reminders.sql")),
+            (
+                "V4",
+                include_str!("../migrations/V4__task_attributes_and_dependencies.sql"),
+            ),
+            ("V5", include_str!("../migrations/V5__namespaces.sql")),
+            (
+                "V6",
+                include_str!("../migrations/V6__drop_project_due_at.sql"),
+            ),
+            ("V7", include_str!("../migrations/V7__task_hierarchy.sql")),
+            (
+                "V8",
+                include_str!("../migrations/V8__no_orphan_children.sql"),
+            ),
+            (
+                "V9",
+                include_str!("../migrations/V9__stats_top_level_index.sql"),
+            ),
+            (
+                "V10",
+                include_str!("../migrations/V10__task_scope_sort_index.sql"),
+            ),
+        ];
+
+        for (version, sql) in embedded {
+            assert!(
+                !sql.contains('\r'),
+                "{version} embeds a CR: its checksum no longer matches every \
+                 database that already applied it. Check out the file with LF \
+                 (`.gitattributes` says `*.sql text eol=lf`) instead of \
+                 rewriting it."
+            );
+        }
+    }
+
     #[test]
     fn schema_contains_all_tables() {
         let conn = migrated_connection();
