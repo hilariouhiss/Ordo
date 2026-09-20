@@ -1,6 +1,6 @@
 [package]
 name = "ordo"
-version = "0.1.1"
+version = "0.1.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -33,6 +33,15 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-single-instance = "2.4.4"
+
+# The taskbar icon (`icons.rs`): tauri has no API for `ICON_BIG`, so the handle
+# is built with the same crates tao uses. Pinned to the version tauri already
+# depends on, so no second copy lands in the lock file.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

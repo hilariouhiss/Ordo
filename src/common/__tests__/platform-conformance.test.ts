@@ -59,27 +59,28 @@ describe("platform conformance", () => {
     expect(capabilities.windows).toContain("quick-add");
   });
 
-  it("authorizes the theme and icon commands, which the frame depends on", () => {
+  it("wires the theme command through to the backend without extra permissions", () => {
     /*
-     * `applyResolvedTheme` calls `app:setTheme`, which mirrors the theme onto the
-     * native window, the tray and the app icon. Two things can silently break it:
+     * `applyResolvedTheme` calls `app:setTheme`, which mirrors the two themes
+     * onto the native chrome. It is an application command, so the webview needs
+     * no `core:window:*` permission for it — Rust calls the window API directly.
+     * Declaring `allow-set-theme` or `allow-set-icon` anyway would widen the
+     * capability surface for calls nothing makes: the webview's own window API
+     * is used for `hide` (quick-add) and `label` only.
      *
-     *  - `set_theme` is NOT part of `core:window:default` (unlike `theme` and
-     *    `is_decorated`), and neither is `set_icon`, so both have to be declared
-     *    or the call rejects, the store swallows it, and the only symptom is a
-     *    title bar and tray that keep the previous theme's artwork.
-     *  - The command has to be registered, or the frontend reaches nothing.
-     *
-     * Both failures are invisible by design, so they are asserted here.
+     * What can silently break it is the command not being registered, or the
+     * store not calling it — both invisible, so both are asserted here.
      */
-    for (const permission of ["core:window:allow-set-theme", "core:window:allow-set-icon"]) {
-      expect(capabilities.permissions, `${permission} missing`).toContain(permission);
-    }
     expect(read("src-tauri/src/lib.rs")).toMatch(/icons::set_theme/);
     expect(
       read("src/common/stores/ui.ts"),
-      "the store must actually invoke it, or the permission is dead weight",
+      "the store must actually invoke it, or the wiring is dead",
     ).toMatch(/invoke\("app:setTheme"/);
+    for (const permission of ["core:window:allow-set-theme", "core:window:allow-set-icon"]) {
+      expect(capabilities.permissions, `${permission} is not used by the webview`).not.toContain(
+        permission,
+      );
+    }
   });
 
   it("keeps one instance, so a second launch cannot open the same database twice", () => {

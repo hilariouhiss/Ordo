@@ -10,10 +10,8 @@
     "autostart:default",
     "core:default",
     "core:window:allow-hide",
-    "core:window:allow-set-theme",
     "dialog:default",
     "notification:default",
-    "opener:default",
-    "core:window:allow-set-icon"
+    "opener:default"
   ]
 }

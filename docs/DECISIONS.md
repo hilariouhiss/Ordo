@@ -181,13 +181,38 @@
     - **用原始 RGBA 而不是 PNG**：`Image::from_bytes` 需要 tauri 的 `image-png` feature，那会把整个 `image` crate 拉进来，只为两张固定的图。`Image::new` 直接吃解码后的缓冲区，转换在生成图标时做一次。
 
     剩下的真实限制：**任务栏与标题栏的图标在窗口创建时就定了**，进程运行期间改不了——`set_icon` 会更新窗口图标（标题栏、Alt+Tab），但任务栏那格由 shell 缓存。所以启动那一刻的主题决定了任务栏外观；之后在应用内切换主题，标题栏和托盘会跟着变，任务栏不会，要等下次启动。
-14. **M17：应用图标就是各主题的标志本身，深色版是同一批像素换墨色（2026-09）。** M15 那个透明的"系统图标"（`logo-system.svg`：摘掉底板、把环与点压到中间调）删掉了。窗口 / 任务栏 / 托盘图标现在就是侧边栏渲染的那份标志：`assets/logo.svg`（提供的**去背景**导出）与由它生成的 `assets/logo-dark.svg`。
+14. **M17：应用图标就是各主题的标志本身，深色版是同一批像素换墨色（2026-09；托盘与任务栏改成跟随系统主题见 M18）。** M15 那个透明的"系统图标"（`logo-system.svg`：摘掉底板、把环与点压到中间调）删掉了。窗口 / 任务栏 / 托盘图标现在就是侧边栏渲染的那份标志：`assets/logo.svg`（提供的**去背景**导出）与由它生成的 `assets/logo-dark.svg`。
 
     标志这一版本身就是去掉背景的：`logo.svg` 不再是 VTracer 从位图描出来的那串路径，而是那份 500×500 RGBA 位图套在导出工具给的 SVG 壳里（`<image xlink:href="data:image/png;base64,…">`，壳的 viewBox 与 transform 原样保留）。墨只有两种：环 `#000000`、点 `#24C68C`，角落 alpha 0。深色版**不是重画**——`scripts/gen-logo-assets.mjs` 把同一批像素里除强调色以外的墨换成 `#EDE6E5` 再编码回同一个壳，所以两版覆盖的像素逐个相同、只有墨色不同；`cargo test --lib icons` 与 `app-shell-sidebar.test.tsx` 都钉住这条，两版喂同一个文件或深色版被重画都会红。
 
     对比度因此全靠墨色，没有底板可退：黑墨在浅色任务栏（`#f3f3f3`）18.93:1、在深色任务栏（`#202020`）1.29:1——后者正是 M15 那次"图标其实在，但看不见"；骨白墨反过来，13.23:1 / 1.11:1。绿点只有 1.99:1 / 7.40:1，它本来就是点缀，撑住图形的是环。所以仍然按主题二选一，M16 那套机制（启动一次 + `app:setTheme` 一次，主窗、quick-add 小窗、托盘一起设）原样不动；M15 想用"一个图标适配两种 chrome"绕开的那道题，答案其实是"两版都留、按主题换墨"。
 
     打包图标集（`icons/*.ico|png`，`pnpm tauri icon src/assets/logo.svg`）只能有一份，取浅色版：它是 Explorer / 安装包那份，也是 `icons::apply_current` 跑起来之前的窗口那份；它没有底板，所以在深色 Explorer 里偏弱，这是"一个文件"的固有代价。M16 那条"切换主题后任务栏要等下次启动"的限制不变。
+15. **M18：图标按「谁画的那块背景」分成两个主题源（2026-09）。** M16/M17 之后所有图标都由**应用主题**驱动，这在一个组合下是错的：应用选深色、Windows 还是浅色时，托盘和任务栏会拿到骨白墨——浅色托盘上 1.11:1，等于把图标擦掉。分界线的依据是**那块背景是谁画的**：
+
+    - 标题栏那一枚与窗口边框跟页面画在同一块地方 → 跟**应用主题**（`apply_app`：`set_icon` + `set_theme`）。
+    - 托盘与任务栏坐在 OS 画的那条栏上 → 跟**系统主题**（`apply_system`：托盘 + Windows 的 `ICON_BIG`）。
+
+    第一版把"系统主题"交给前端读 `prefers-color-scheme`，再用 `app:setTheme` 的两个参数（`theme` + `system`）送回来。**这是错的，而且会自激**——链路完整地量过一遍：
+
+        window.set_theme(应用主题) → tao 发 ThemeChanged（update_theme 对 set_theme 与系统变化一视同仁）
+          → tauri 给该窗口每个 webview 调 wry 的 set_theme → WebView2 SetPreferredColorScheme(应用主题)
+          → 页面的 prefers-color-scheme 变成"我们刚写进去的值" → 页面收到 change 事件
+          → 前端把它当成"系统主题"再 invoke 一次 → 又一轮
+
+    症状与之一一对应：系统深色 + 应用浅色时托盘/任务栏拿到浅色墨（前端把自己的输出当输入报回来）；切主题时标题栏与图标反复跳；切"跟随系统"时整个页面快速闪烁（`resolved` 每轮翻一次）；切回浅色后因 tao 对"值没变就不发事件"而阻尼停下，停在同一个错的状态。另外 quick-add 小窗加载的是同一个页面，两个 webview 的 change 事件互相触发，所以是"疯狂"而不是跳一下。
+
+    修法是**换掉系统主题的来源**，不是给循环加消抖：
+
+    - Rust 自己读 OS 主题，而且**只从 quick-add 窗口读**——那是本模块唯一不 pin 的窗口（无边框，本来就没有 chrome 可主题化）。tao 的 `update_theme` 对**已 pin** 的窗口在系统设置变化时直接 return，所以被 pin 的主窗口永远报不出系统值；未 pin 的 quick-add 一直跟着系统走，并继续抛 ThemeChanged。**别 pin 它**（`icons.rs` 顶部与 AGENTS.md 都写着）。
+    - `refresh_system` 在启动时与每次 ThemeChanged 重读那个窗口，**不信事件负载**（`set_theme` 自己也会抛同样的负载），值真变了才重画托盘与任务栏；`APPLIED` 这个 atomic 把自激事件挡掉。
+    - 前端不再监听 `prefers-color-scheme`：`app:setTheme` 只带应用主题，"跟随系统"要用的 OS 主题由 `app:systemTheme`（启动时问一次）与 `app:systemThemeChanged`（变化时推）给出。`systemPrefersDark()` 只剩"第一次 pin 之前"的种子值。
+
+    顺带查清了 M16 那条"任务栏由 shell 缓存、运行中改不了"的真实原因：**Tauri 的 `set_icon` 只发 `ICON_SMALL`**（tao 的 `set_window_icon`），而任务栏与 Alt+Tab 读的是 `ICON_BIG`——那个槽位从窗口创建那一刻起再没人写过，任务栏一直显示打包的 `icon.ico`，跟主题无关、跟 `app:setTheme` 也无关。背景一去掉，深色任务栏上那枚黑墨图标自然就看不见了。补上缺的那一半：`#[cfg(windows)]` 下用 `windows` crate（版本与 tauri 依赖的同一个，不新增副本）照 tao 的做法搓 `HICON`（BGRA + 反相 alpha 掩码，`CreateIcon`），再 `SendMessageW(WM_SETICON, ICON_BIG)`。HICON 故意不销毁：任务栏可能还握着它，进程退出时系统回收，一次主题切换 64 KB。
+
+    平台差异：Windows 拆得开两个槽位；macOS 窗口没有图标可设（Dock 用打包的 `.icns`）；Linux 只有一个窗口图标槽位、`set_icon` 同时就是任务切换器读的那枚，没有可拆的两半——跟随应用主题，见 [ARCHITECTURE](./ARCHITECTURE.md)§6.3。
+
+    同时删掉 `capabilities/default.json` 里的 `core:window:allow-set-theme` 与 `core:window:allow-set-icon`：这两条是上一轮跟着 `app:setTheme` 一起加的，但那条命令是应用自己的（Rust 直接调窗口 API），webview 从头到尾只调用过 `getCurrentWindow().hide()` 与 `.label`，权限面白留了两条。
 
 
 

@@ -327,7 +327,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
-前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.1`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
+前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.2`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
 
 ### 4.2 依赖与版本约束
 
@@ -349,9 +349,13 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 ### 4.4 能力声明
 
-`src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`core:window:allow-set-theme`、`core:window:allow-set-icon`、`dialog:default`、`notification:default`、`opener:default`。
+`src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`dialog:default`、`notification:default`、`opener:default`。窗口的 `set_theme` / `set_icon` 都在 Rust 里直接调（`icons.rs`），webview 从不需要这两条权限——窗口 API 只用到 `hide`（quick-add 小窗）与 `label`。
 
-**图标按主题二选一，两版是同一份标志的两种墨色**（`src-tauri/src/icons.rs`）：`icons/runtime/{light,dark}.rgba` 是运行时用的两版 128×128 原始 RGBA，分别由 `assets/logo.svg`（提供的去背景导出，黑墨）与 `assets/logo-dark.svg`（同一批像素换成骨白墨，`node scripts/gen-logo-assets.mjs` 生成）栅格化而来——启动时读窗口主题选一版，设到主窗、quick-add 小窗和托盘；前端切主题时走 `app:setTheme` 再设一次。用原始 RGBA 而非 PNG，是因为 `Image::from_bytes` 需要 `image-png` feature（会拉进整个 `image` crate），而 `Image::new` 直接吃解码后的缓冲区。标志本身没有背景，对比度全靠墨色：黑墨在浅色任务栏 18.93:1、深色任务栏 1.29:1，骨白墨反过来——所以两版都得有。`logo.svg` 生成的 `icons/*.ico|png` 是打包那份（Explorer / 安装包，以及 `apply_current` 跑起来之前的窗口；`pnpm tauri icon src/assets/logo.svg`）——打包只能有一份，取浅色版，运行中的主题由上面两版接管，其中任务栏那格在下次启动才跟上，见 [DECISIONS](./DECISIONS.md) M16/M17。
+**图标按主题二选一，而且分两个主题源**（`src-tauri/src/icons.rs`）：`icons/runtime/{light,dark}.rgba` 是运行时用的两版 128×128 原始 RGBA，分别由 `assets/logo.svg`（提供的去背景导出，黑墨）与 `assets/logo-dark.svg`（同一批像素换成骨白墨，`node scripts/gen-logo-assets.mjs` 生成）栅格化而来。**哪个表面跟哪个主题**是这件事的要点，依据是**那块背景是谁画的**：**应用主题**管标题栏那一枚（`set_icon`，Windows 上即 `ICON_SMALL`）与窗口边框（`set_theme`）——它们跟页面画在一起；**系统主题**管托盘与任务栏——它们坐在 OS 画的那条栏上，应用选深色而系统是浅色时不该被换成浅色的墨。用原始 RGBA 而非 PNG，是因为 `Image::from_bytes` 需要 `image-png` feature（会拉进整个 `image` crate），而 `Image::new` 直接吃解码后的缓冲区。标志没有背景，对比度全靠墨色：黑墨在浅色任务栏 18.93:1、深色任务栏 1.29:1，骨白墨反过来——所以两版都得有，且任务栏那一枚需要 `ICON_BIG`（Tauri 的 `set_icon` 只发 `ICON_SMALL`，见 [DECISIONS](./DECISIONS.md) M18）。
+
+**系统主题由 Rust 读，前端不读 `prefers-color-scheme`**：设置窗口主题会让 tauri 把 webview 的 WebView2 配色方案重钉成那个主题（wry 的 `set_theme`），于是页面的媒体查询报的是"应用刚写进去的值"而不是系统设置——把它当系统主题用就是把输出接回输入，而且每次写都会在页面里抛一次 change 事件，监听它就成了循环（M18 记录了完整链路与症状）。所以：`icons.rs::system` **只从 quick-add 窗口读**（本模块唯一不 pin 的窗口，无边框；tao 对已 pin 的窗口在系统变化时直接 return，读不出系统值——**别 pin 它**），启动与每次 `ThemeChanged` 都重读，值真变了才重画托盘与任务栏；前端经 `app:setTheme` 只送应用主题，"跟随系统"要用的 OS 主题由 `app:systemTheme`（命令）与 `app:systemThemeChanged`（事件）给出，`systemPrefersDark()` 只剩第一次 pin 之前的种子值。
+
+`logo.svg` 生成的 `icons/*.ico|png` 是打包那份（Explorer / 安装包，以及任务栏在 `apply_current` 跑起来之前的默认值；`pnpm tauri icon src/assets/logo.svg`）——打包只能有一份，取浅色版。
 
 新增 Tauri 插件或窗口 API 时必须同步写进该文件，否则前端调用被拒。完全由 Rust 驱动的部件（托盘、全局快捷键注册）不需要条目。`core:window:allow-hide` 是 quick-add 小窗隐藏自己所必需的。
 
@@ -519,6 +523,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | 全局快捷键 | `Ctrl+Shift+Space` | `⌘⇧Space` | `Ctrl+Shift+Space`；底层 `global-hotkey` 只有 X11 后端，**Wayland 会话下可能注册不上**（失败只记日志） |
 | 托盘左键 | 切换主窗口显示/隐藏 | 同 Windows | appindicator 只在左键弹菜单（Tauri 的 `show_menu_on_left_click` 在 Linux 是 no-op，`TrayIconEvent::Click` 也不触发），菜单里有同样的显示/隐藏/退出 |
 | 托盘图标 | 打包 `.ico` | 打包 `.icns`（**不做** template image：模板图会把彩色图标渲染成纯色剪影） | 打包 PNG；运行时需要 appindicator（`libayatana-appindicator3`） |
+| 窗口 / 任务栏图标 | 拆得开：标题栏读 `ICON_SMALL`（跟随应用主题），任务栏与 Alt+Tab 读 `ICON_BIG`（跟随系统主题，`icons.rs::set_taskbar_icon` 自己 `SendMessageW(WM_SETICON)`——Tauri 只有前者） | 窗口没有可设的图标（Dock 用打包的 `.icns`）；托盘图标跟随系统主题 | 只有一个窗口图标槽位，`set_icon` 同时就是任务栏那一枚，没有可拆的两半：跟随应用主题 |
 | 第二次启动 | 单实例回调叫回窗口 | 同 Windows | 同 Windows；实现是会话 D-Bus，**没有会话总线**的环境（裸 TTY、部分容器）会在启动时报错 |
 | 重新激活 | — | `RunEvent::Reopen`（Dock 图标 / `open -a`） | — |
 | 通知 | WinRT toast，需要**已安装**（有注册的 AUMID）；免安装的裸二进制可能不显示 | 需要打包成 `.app` 且用户授权；裸二进制运行的提醒可能不投递 | 走 `org.freedesktop.Notifications`，需要通知守护进程 |

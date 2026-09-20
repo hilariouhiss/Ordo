@@ -9,20 +9,31 @@ They are raw rather than PNG because `Image::from_bytes` needs tauri's
 pictures. `Image::new` takes the decoded buffer directly.
 
 Each file is the supplied mark — the artwork with its background removed, black
-ring and `#24C68C` dot — in the ink its own chrome can read:
+ring and `#24C68C` dot — in the ink its own background can read:
 
-| | source | ink | on its taskbar |
+| | source | ink | contrast on its background |
 | --- | --- | --- | --- |
 | `light.rgba` | `src/assets/logo.svg` | `#000000` | 18.93:1 on `#f3f3f3` |
 | `dark.rgba` | `src/assets/logo-dark.svg` | `#EDE6E5` | 13.23:1 on `#202020` |
 
-One file cannot serve both: with the background gone there is no plate to carry
-the contrast, so black ink is 1.29:1 on the dark taskbar (there, and invisible)
-and bone ink is 1.11:1 on the light one. The measured compromise — a single
-mid-tone that clears 3:1 on both — loses the green entirely; that dead end is
-`docs/DECISIONS.md` M16. Two files, one per chrome, chosen at runtime: a window
-has a single icon, and Windows draws the taskbar, the title bar and Alt+Tab from
-it.
+Which of the two a surface gets is decided by **who paints the background behind
+it**, not by one app-wide setting:
+
+| surface | follows | why |
+| --- | --- | --- |
+| title bar icon, window frame | the app theme | drawn where the page is |
+| tray icon, taskbar icon | the system theme | they sit on the OS's own bars |
+
+So choosing dark inside Ordo never turns the tray icon into a pale mark on a
+light taskbar. The taskbar half needs `SendMessageW(WM_SETICON, ICON_BIG)` —
+Tauri's `set_icon` only sends `ICON_SMALL`, the title bar — see
+`docs/DECISIONS.md` M18 and `src-tauri/src/icons.rs`.
+
+One file still cannot serve both chromes: with the background gone there is no
+plate to carry the contrast, so black ink is 1.29:1 on the dark taskbar (there,
+and invisible) and bone ink is 1.11:1 on the light one. The measured compromise
+— a single mid-tone that clears 3:1 on both — loses the green entirely; that
+dead end is `docs/DECISIONS.md` M16.
 
 To regenerate after replacing the supplied artwork:
 

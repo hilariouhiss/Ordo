@@ -84,9 +84,11 @@ pub fn run() {
             commands::backup_export,
             commands::backup_import,
             commands::perf_ready,
-            // Not in `commands.rs`: it mirrors the theme onto the window and the
-            // tray, which is icon state rather than domain state.
+            // Not in `commands.rs`: they mirror the two themes onto the frame,
+            // the title bar, the tray and the taskbar, which is icon state
+            // rather than domain state.
             icons::set_theme,
+            icons::system_theme,
         ])
         .setup(|app| {
             // Q-01 的启动分界点：Tauri 在调用本闭包**之前**已经建好了主窗口与
@@ -120,6 +122,12 @@ pub fn run() {
                 if let tauri::WindowEvent::Focused(false) = event {
                     let _ = window.hide();
                 }
+            }
+            // Raised both when the OS theme changes and when `icons::set_theme`
+            // pins one, and the payload cannot tell the two apart — so the tray
+            // and the taskbar re-read the OS theme rather than trust it.
+            if let tauri::WindowEvent::ThemeChanged(_) = event {
+                icons::refresh_system(window.app_handle());
             }
         })
         .build(tauri::generate_context!())

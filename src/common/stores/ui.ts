@@ -1,4 +1,5 @@
 import { createEffect, createRoot, createSignal } from "solid-js";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /** User-selectable theme preference. `system` follows the OS setting. */
 export type ThemePreference = "light" | "dark" | "system";
@@ -36,9 +37,28 @@ export function systemPrefersDark(): boolean {
   );
 }
 
+/*
+ * The OS theme, as reported by the backend.
+ *
+ * NOT read from `prefers-color-scheme`, which is what this used to do. Setting
+ * the window theme makes tauri re-pin the webview's WebView2 color scheme to
+ * that theme (wry's `set_theme`), so the media query reports what this app last
+ * wrote rather than what the OS is doing: reading it as the system theme fed our
+ * own output back in as input. Worse, every write fires a change event in every
+ * page, so a listener on it wrote the theme again — a loop, seen as the window
+ * flickering. Rust reads the OS theme off a window it never pins and pushes it
+ * here (`src-tauri/src/icons.rs`, DECISIONS M18).
+ *
+ * `null` means "not known yet": `systemPrefersDark` is the seed, correct until
+ * the first pin, and the backend's answer replaces it.
+ */
+const [systemTheme, setSystemTheme] = createSignal<ResolvedTheme | null>(null);
+
 /** Resolve a preference into the concrete theme to apply. */
 export function resolveTheme(preference: ThemePreference): ResolvedTheme {
-  if (preference === "system") return systemPrefersDark() ? "dark" : "light";
+  if (preference === "system") {
+    return systemTheme() ?? (systemPrefersDark() ? "dark" : "light");
+  }
   return preference;
 }
 
@@ -85,30 +105,33 @@ function applyResolvedTheme(theme: ResolvedTheme): void {
   // is a CSSOM write rather than a stylesheet rule (`index.html`).
   document.documentElement.style.background = theme === "dark" ? "#0d0908" : "#f5f1ec";
 
-  // Tell the OS window too, or the native title bar keeps whatever the system
-  // is set to while the page next to it is the opposite — a black bar above a
-  // bone window when the app is light and Windows is dark. `colorScheme` above
-  // does not reach it: the frame is drawn by the window manager, not the
-  // webview. Passing the *resolved* theme (not the preference) is the point —
-  // an explicit in-app choice should beat the system setting here as well.
+  // Tell the native window too, or the title bar keeps whatever the system is
+  // set to while the page next to it is the opposite — a black bar above a bone
+  // window when the app is light and Windows is dark. `colorScheme` above does
+  // not reach it: the frame is drawn by the window manager, not the webview.
+  // Passing the *resolved* theme (not the preference) is the point — an
+  // explicit in-app choice should beat the system setting here as well. The tray
+  // and the taskbar are not ours to set: they follow the OS theme in Rust.
   void setWindowTheme(theme);
 }
 
 /**
- * Mirrors the theme onto the native window, the tray and the app icon.
+ * Mirrors the app theme onto the native chrome: the frame, and the icon in it.
  *
- * Goes through `app:setTheme` rather than the webview's own `setTheme` because
- * the tray is not reachable from here at all, and because the icon artwork has
- * to change with the theme: against the real taskbar colours no single icon
- * reads on both, so the choice has to be made per theme. Rust holds both
- * rasters and does the three together.
+ * Goes through `app:setTheme` rather than the webview's own window API because
+ * the window's theme, its icon and the webview's own color scheme are three
+ * settings that have to move together (see the loop this caused: DECISIONS M18).
+ *
+ * Only the main window sends it: the quick-add window renders this same store,
+ * and a second page pushing a theme it resolved from its own copy of the
+ * preference is how two windows end up fighting over the frame.
  *
  * Best-effort, like every other Tauri call in this codebase: under the plain
  * Vite dev server and in jsdom there is no backend to talk to, and that is not
- * an error worth surfacing. Needs `core:window:allow-set-theme` and
- * `core:window:allow-set-icon` in `capabilities/default.json`.
+ * an error worth surfacing.
  */
 async function setWindowTheme(theme: ResolvedTheme): Promise<void> {
+  if (isQuickAddWindow()) return;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("app:setTheme", { theme });
@@ -117,17 +140,68 @@ async function setWindowTheme(theme: ResolvedTheme): Promise<void> {
   }
 }
 
+/**
+ * Whether this page is the small capture window.
+ *
+ * Outside a Tauri runtime — the plain Vite dev server, jsdom — there is no label
+ * to read, and the main app is the only sensible assumption.
+ */
+function isQuickAddWindow(): boolean {
+  try {
+    return getCurrentWindow().label === "quick-add";
+  } catch {
+    return false;
+  }
+}
+
+/** The theme names the backend sends and accepts; anything else is ignored. */
+function asTheme(value: unknown): ResolvedTheme | null {
+  return value === "dark" || value === "light" ? value : null;
+}
+
+/**
+ * Takes the OS theme from the backend instead of from the media query.
+ *
+ * Subscribes first and asks second: a change landing between the two would be
+ * dropped the other way round, and the answer is the more recent of the two
+ * anyway. Both halves stand alone — in a browser there is no backend, and the
+ * seed from `systemPrefersDark` is what the resolver falls back to.
+ */
+async function followSystemTheme(): Promise<void> {
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<unknown>("app:systemThemeChanged", (event) =>
+      setSystemTheme(asTheme(event.payload)),
+    );
+  } catch {
+    // No backend: the seed stands.
+  }
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    setSystemTheme(asTheme(await invoke("app:systemTheme")));
+  } catch {
+    // Same.
+  }
+}
+
 createRoot(() => {
-  // Keep `resolvedTheme` in sync with the preference.
+  // Keep `resolvedTheme` in sync with the preference — and with the OS theme,
+  // which the backend pushes in.
   createEffect(() => setResolved(resolveTheme(preference())));
 
   // Apply the resolved theme to the document.
   createEffect(() => applyResolvedTheme(resolved()));
 });
 
-// Follow live OS changes while the preference is "system".
-if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
-  window.matchMedia(DARK_MEDIA_QUERY).addEventListener("change", (event) => {
-    if (preference() === "system") setResolved(event.matches ? "dark" : "light");
+// The quick-add window is a second page on this same store, holding its own copy
+// of the preference from its own load. A change made in the main window reaches
+// it through storage, or the capture field renders the theme the app just left.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === THEME_STORAGE_KEY && isThemePreference(event.newValue)) {
+      setPreference(event.newValue);
+    }
   });
 }
+
+void followSystemTheme();
