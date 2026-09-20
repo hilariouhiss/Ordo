@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod error;
+mod icons;
 pub mod models;
 mod perf;
 pub mod repositories;
@@ -83,6 +84,9 @@ pub fn run() {
             commands::backup_export,
             commands::backup_import,
             commands::perf_ready,
+            // Not in `commands.rs`: it mirrors the theme onto the window and the
+            // tray, which is icon state rather than domain state.
+            icons::set_theme,
         ])
         .setup(|app| {
             // Q-01 的启动分界点：Tauri 在调用本闭包**之前**已经建好了主窗口与
@@ -98,6 +102,9 @@ pub fn run() {
             shortcut::init(app.handle())?;
             shortcut::register(app.handle());
             perf::note_now("backend-ready");
+            // Both windows and the tray now exist, so the icon can be chosen for
+            // the theme the frame will actually be drawn in.
+            icons::apply_current(app.handle());
             Ok(())
         })
         // Closing the window parks the app in the tray (D-01); 退出 in the tray

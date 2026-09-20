@@ -2,13 +2,18 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window and the standalone quick-add window",
-  "windows": ["main", "quick-add"],
+  "windows": [
+    "main",
+    "quick-add"
+  ],
   "permissions": [
     "autostart:default",
     "core:default",
     "core:window:allow-hide",
+    "core:window:allow-set-theme",
     "dialog:default",
     "notification:default",
-    "opener:default"
+    "opener:default",
+    "core:window:allow-set-icon"
   ]
 }

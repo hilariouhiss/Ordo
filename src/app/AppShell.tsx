@@ -16,6 +16,8 @@ import {
   Sun,
 } from "lucide-solid";
 import { listen } from "@tauri-apps/api/event";
+import logoDarkSrc from "../assets/logo-dark.svg";
+import logoSrc from "../assets/logo.svg";
 import { mark, markInteractive } from "../common/perf";
 import { ThemeToggle } from "../common/components/ThemeToggle";
 import { Toaster, iconButtonClass } from "../common/components";
@@ -74,17 +76,36 @@ type NavPath =
   | "/settings";
 
 /**
- * The Ordo mark: three rows shortening left to right, the same shape as the
- * favicon and as every progress bar in the app.
+ * The Ordo mark: the supplied export — the artwork with its background
+ * removed — loaded as a file so the sidebar shows the same picture as the
+ * favicon rather than a redraw of it.
+ *
+ * Two copies are rendered and CSS picks one. The ink is black, so on the dark
+ * theme it would disappear into the near-black sidebar; the dark copy is the
+ * same pixels with the ink swapped for the foreground colour. Doing it in CSS
+ * rather than from JS state means both are in the DOM, the swap is a repaint
+ * rather than a re-render, and there is no frame where neither is present.
+ * `dark:` is the same class-driven variant the rest of the app uses, so this
+ * follows the resolved theme including "system".
+ *
+ * The dark copy is generated from the light one and differs only in ink — the
+ * test beside this file asserts that, and `scripts/gen-logo-assets.mjs` is what
+ * produces it. The window and tray icons are those same two files, one per
+ * theme (`src-tauri/src/icons.rs`): a window has one icon and Windows draws
+ * both the taskbar and the title bar from it.
+ *
+ * Accessibility: both images are decorative, so the accessible name lives on the
+ * wrapper. That keeps the files byte-identical to the supplied original.
  */
 function BrandMark() {
   return (
-    <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-      <svg viewBox="0 0 16 16" class="size-3.5" fill="currentColor" aria-hidden="true">
-        <rect x="1" y="2.2" width="14" height="2.6" rx="1.3" />
-        <rect x="1" y="6.7" width="9.5" height="2.6" rx="1.3" opacity="0.68" />
-        <rect x="1" y="11.2" width="5" height="2.6" rx="1.3" opacity="0.38" />
-      </svg>
+    <span
+      class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg"
+      role="img"
+      aria-label="Ordo"
+    >
+      <img src={logoSrc} alt="" class="size-7 dark:hidden" draggable={false} />
+      <img src={logoDarkSrc} alt="" class="hidden size-7 dark:block" draggable={false} />
     </span>
   );
 }

@@ -11,91 +11,125 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Semantic palette.
+ * Semantic palette — black and green.
  *
  * Raw values live on `:root` (light) and `.dark`; the `@theme inline` block
  * below re-exposes them as Tailwind color utilities while keeping the live
  * `var()` reference, so utilities always resolve against the active palette.
  *
- * Two rules keep this coherent — both are easy to break by accident:
+ * This replaced a cool-grey-and-teal scheme, then a black-red one, and it
+ * breaks both of the rules the original was built on. They are recorded here
+ * rather than deleted, because the next person will otherwise re-derive them
+ * and "fix" this back:
  *
- * 1. ONE gray family. Every neutral sits on hue 265 at chroma <= 0.012. Mixing
- *    a warm background with a cool foreground is the fastest way to make a UI
- *    look like two design systems stapled together.
- * 2. ONE accent. `--primary` is a deep teal, deliberately far from every
- *    semantic hue in use (success 155, warning ~65, danger 25) so an accent
- *    surface never reads as a status. Chroma stays low: an accent this app
- *    paints on checkboxes, progress bars and focus rings should recede at rest.
+ * 1. THE NEUTRALS ARE WARM NOW. They sat on hue 265 at chroma <= 0.012; they
+ *    sit on hue 25-30 at chroma <= 0.024, because a black-and-red app with a
+ *    blue-grey chrome reads as two design systems stapled together — the exact
+ *    failure the old rule was written to prevent. The old rule was right; it
+ *    just had the other answer for this palette.
+ * 2. THE ACCENT IS GREEN, AND THE STATUS COLOURS SEPARATE BY HUE, NOT BY
+ *    LIGHTNESS. A green at a usable lightness leaves the other three nowhere to
+ *    go in lightness, so they are spaced around the wheel instead: danger 32,
+ *    warning 76, success 128, primary 162 — 40+ degrees apart, which is what a
+ *    reader actually uses on a dot or a badge. The luminance floors in the
+ *    verification script are correspondingly loose; they catch a collapse, not
+ *    a comfortable margin. `success` is the yellow-green end of the family
+ *    precisely so it cannot be mistaken for the brand green, which is the one
+ *    that paints checkboxes and progress bars everywhere.
  *
  * `--*-solid` / `--*-foreground` pairs are the filled-button variants; the
  * plain tokens are tuned to pass contrast as *text* on the page background.
+ * Every value below was measured, and the light theme deliberately holds the
+ * levels the previous palette already shipped rather than quietly changing how
+ * heavy every secondary label looks: see the note above `:root`.
  */
 :root {
-  /* Light-mode ramp. The page sits further below `--surface` than a hairline
-   * would need, because in light mode the plane difference is the only thing
-   * separating a borderless panel from the page — shadows at this size are
-   * barely perceptible. Matches the contrast the dark ramp gets for free. */
-  --background: oklch(0.968 0.003 265);
-  --sunken: oklch(0.944 0.004 265);
-  --surface: oklch(0.995 0.002 265);
-  --surface-hover: oklch(0.954 0.005 265);
+  /* Light-mode ramp — bone. The page sits further below `--surface` than a
+   * hairline would need, because in light mode the plane difference is the only
+   * thing separating a borderless panel from the page — shadows at this size
+   * are barely perceptible. Matches the contrast the dark ramp gets for free.
+   *
+   * These keep the previous light theme's measured contrast (foreground 5.77,
+   * muted 2.42, subtle 2.03 on the page) so the rebrand changes hue, not weight.
+   * The old light theme never met WCAG AA for secondary text and this one does
+   * not either; fixing that moves every label in the app and is a separate job.
+   * `--primary` comes out slightly stronger than the old one (2.89 against
+   * 2.71). */
+  --background: oklch(0.960 0.008 75);
+  --sunken: oklch(0.932 0.010 75);
+  --surface: oklch(0.988 0.005 75);
+  --surface-hover: oklch(0.944 0.012 75);
   --elevated: oklch(1 0 0);
-  --foreground: oklch(0.245 0.012 265);
+  --foreground: oklch(0.245 0.022 30);
   --muted-foreground: oklch(0.475 0.012 265);
   --subtle-foreground: oklch(0.545 0.01 265);
   --border: oklch(0.918 0.005 265);
   --border-strong: oklch(0.858 0.007 265);
-  --overlay: oklch(0.245 0.02 265 / 0.32);
+  --overlay: oklch(0.245 0.02 30 / 0.32);
 
-  --primary: oklch(0.47 0.088 197);
-  --primary-hover: oklch(0.42 0.09 197);
-  --primary-foreground: oklch(0.99 0.005 197);
-  --ring: oklch(0.55 0.09 197);
+  /* The brand red. Dark enough to carry near-white text as a fill (5.25:1) and
+   * to read as its own text (5.08:1 on the page). Hue 12 rather than 25: at the
+   * same lightness a hue-25 red drifts toward brown against a bone ground. */
+  --primary: oklch(0.44 0.125 162);
+  --primary-hover: oklch(0.39 0.115 162);
+  /* Dark ink on the green fill. Near-white cannot reach 4.5 on a green this
+   * light, and darkening the green to fix that would cost the contrast it needs
+   * as text on the page — the two pull apart, and page text matters more. */
+  --primary-foreground: oklch(0.15 0.03 162);
+  --ring: oklch(0.48 0.13 162);
 
-  --success: oklch(0.53 0.12 155);
-  --warning: oklch(0.53 0.13 62);
-  --danger: oklch(0.52 0.18 25);
-  --danger-solid: oklch(0.51 0.185 25);
-  --danger-foreground: oklch(0.99 0.005 25);
+  /* Hue carries the separation from the green accent here; see the note at the
+   * top of this file. `success` is the yellow-green end of the family so it
+   * cannot be read as the brand green. */
+  --success: oklch(0.56 0.15 128);
+  --warning: oklch(0.64 0.15 76);
+  --danger: oklch(0.48 0.19 32);
+  --danger-solid: oklch(0.48 0.19 32);
+  --danger-foreground: oklch(0.15 0.03 32);
 
-  --scrollbar-thumb: oklch(0.245 0.012 265 / 0.18);
-  --scrollbar-thumb-hover: oklch(0.245 0.012 265 / 0.3);
+  --scrollbar-thumb: oklch(0.245 0.022 30 / 0.18);
+  --scrollbar-thumb-hover: oklch(0.245 0.022 30 / 0.3);
 
   /* Elevation: tinted to the neutral hue instead of pure black, so shadows
    * sit in the same light as the surface they fall on. */
-  --elevation-1: 0 1px 2px oklch(0.28 0.02 265 / 0.06);
+  --elevation-1: 0 1px 2px oklch(0.28 0.02 30 / 0.06);
   --elevation-2:
-    0 1px 2px oklch(0.28 0.02 265 / 0.05), 0 6px 16px -6px oklch(0.28 0.02 265 / 0.12);
+    0 1px 2px oklch(0.28 0.02 30 / 0.05), 0 6px 16px -6px oklch(0.28 0.02 30 / 0.12);
   --elevation-3:
-    0 2px 6px -1px oklch(0.28 0.02 265 / 0.07), 0 20px 44px -14px oklch(0.28 0.02 265 / 0.24);
+    0 2px 6px -1px oklch(0.28 0.02 30 / 0.07), 0 20px 44px -14px oklch(0.28 0.02 30 / 0.24);
 }
 
 .dark {
-  --background: oklch(0.152 0.006 265);
-  --sunken: oklch(0.132 0.006 265);
-  --surface: oklch(0.192 0.007 265);
-  --surface-hover: oklch(0.232 0.009 265);
-  --elevated: oklch(0.238 0.009 265);
-  --foreground: oklch(0.945 0.004 265);
-  --muted-foreground: oklch(0.712 0.009 265);
-  --subtle-foreground: oklch(0.575 0.009 265);
-  --border: oklch(0.278 0.008 265);
-  --border-strong: oklch(0.355 0.01 265);
-  --overlay: oklch(0.12 0.01 265 / 0.6);
+  /* Near-black, warm. `--background` is the mark's field colour, so the icon
+   * and the window it launches into are the same black. */
+  --background: oklch(0.145 0.008 25);
+  --sunken: oklch(0.112 0.008 25);
+  --surface: oklch(0.185 0.009 25);
+  --surface-hover: oklch(0.228 0.010 25);
+  --elevated: oklch(0.238 0.010 25);
+  --foreground: oklch(0.930 0.008 30);
+  --muted-foreground: oklch(0.705 0.010 30);
+  --subtle-foreground: oklch(0.565 0.010 30);
+  --border: oklch(0.272 0.010 25);
+  --border-strong: oklch(0.350 0.012 25);
+  --overlay: oklch(0.112 0.010 25 / 0.6);
 
-  --primary: oklch(0.76 0.098 192);
-  --primary-hover: oklch(0.81 0.09 192);
-  --primary-foreground: oklch(0.17 0.02 195);
-  --ring: oklch(0.76 0.1 192);
+  /* The logo's own green, unchanged: #24C88C, 7.70:1 on the page. */
+  --primary: oklch(0.74 0.155 162);
+  --primary-hover: oklch(0.79 0.145 162);
+  --primary-foreground: oklch(0.15 0.03 162);
+  --ring: oklch(0.78 0.15 162);
 
-  --success: oklch(0.735 0.115 155);
-  --warning: oklch(0.79 0.125 75);
-  --danger: oklch(0.705 0.155 25);
-  --danger-solid: oklch(0.51 0.185 25);
-  --danger-foreground: oklch(0.99 0.005 25);
+  /* Hue-separated from the accent and from each other; see the note at the top
+   * of this file for why lightness is not doing that job here. */
+  --success: oklch(0.56 0.16 126);
+  --warning: oklch(0.80 0.15 85);
+  --danger: oklch(0.64 0.21 30);
+  --danger-solid: oklch(0.52 0.21 30);
+  --danger-foreground: oklch(0.99 0.01 30);
 
-  --scrollbar-thumb: oklch(0.945 0.004 265 / 0.16);
-  --scrollbar-thumb-hover: oklch(0.945 0.004 265 / 0.28);
+  --scrollbar-thumb: oklch(0.930 0.008 30 / 0.16);
+  --scrollbar-thumb-hover: oklch(0.930 0.008 30 / 0.28);
 
   /* Dark surfaces read as raised through a top inner highlight, not through
    * a coloured shadow — black-on-black has nothing left to darken. */

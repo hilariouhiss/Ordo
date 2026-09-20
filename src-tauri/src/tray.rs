@@ -17,7 +17,8 @@ use tauri::{
 /// Tauri names it `main`; the capability file relies on the same name).
 pub const MAIN_WINDOW: &str = "main";
 
-const TRAY_ID: &str = "ordo-tray";
+/// The tray's id. `icons` looks the tray up by this to repaint it per theme.
+pub const TRAY_ID: &str = "ordo-tray";
 const MENU_SHOW: &str = "tray:show";
 const MENU_HIDE: &str = "tray:hide";
 const MENU_QUIT: &str = "tray:quit";

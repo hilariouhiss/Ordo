@@ -39,7 +39,9 @@ src/
 ├── router.tsx                 # 路由定义（代码式，TanStack Solid Router）
 ├── index.css                  # Tailwind 入口 + 设计 Token + 全局工具类
 ├── vite-env.d.ts
-├── assets/logo.svg            # 同时作为 favicon
+├── assets/logo.svg            # 提供的标志（去背景导出）：侧边栏 `<img>` + favicon + 打包图标集与两个运行时图标的源
+├── assets/logo-square.svg     # 同一份文件的副本（方形用途）
+├── assets/logo-dark.svg       # 深色版：同一批像素只换墨色，由 `node scripts/gen-logo-assets.mjs` 生成，CSS 的 `dark:` 与深色运行时图标都用它
 ├── app/                       # 应用装配层（唯一组合各 feature UI 的地方）
 │   ├── AppShell.tsx           # 布局壳：侧边栏树 + 内容区（仅主窗口）
 │   ├── QuickAddWindow.tsx     # quick-add 小窗的全部内容（仅该窗口渲染）
@@ -167,9 +169,9 @@ src/
 
 **颜色与分层**
 
-- **一套灰**：所有中性色都在 hue 265、chroma ≤ 0.012 上取值——把暖色背景和冷色前景混在一起，是最快让界面看起来像两套设计系统拼起来的方式。
-- **一个强调色**：`--primary` 是低饱和深青（hue ~197），与所有语义色保持足够色相距离（success 155、warning ~65、danger 25），避免强调面被读成状态。它会被涂在复选框、进度条、焦点环上，所以饱和度压得很低——静止时应该往后退。
-- **平面分层**：`--sunken`（看板列这类凹槽）/ `--background`（页面）/ `--surface`（侧边栏、面板）/ `--elevated`（弹窗、菜单、看板卡片）四层，靠明度差而不是描边表达层级。深色模式下 `--sunken` 比 `--background` 更深，浅色模式下更浅，两边都是「往里凹」的观感。
+- **一套暖中性色**：所有中性色都在 hue 25–30、chroma ≤ 0.024 上取值。这里原本写的是「hue 265、chroma ≤ 0.012 的一套冷灰」，2026-09 换成黑绿配色时一并改掉了：暖色界面配蓝灰冷色会读成两套设计系统拼起来，正是那条规则本来要防的失败——规则没错，只是这套配色下答案相反。
+- **一个强调色，品牌绿**：`--primary` 是品牌绿（深色主题直接用 logo 的 `#24C88C`），会被涂在复选框、进度条、焦点环上。它与三个状态色**靠色相分开**而不是靠明度：绿色占掉了可用的明度区间，其余三色只能绕着色轮排开（danger 32、warning 76、success 128、primary 162，彼此相差 40° 以上）。因此 `success` 特意落在黄绿一端，免得被读成品牌绿。所以对比度校验里的明度间距门槛是**故意放宽**的——它只防"糊成一团"，不提供舒适余量。改这几个 token 之前先看 `index.css` 顶部那段注释。
+- **平面分层**：`--sunken`（看板列这类凹槽）/ `--background`（页面）/ `--surface`（侧边栏、面板）/ `--elevated`（弹窗、菜单、看板卡片）四层，靠明度差而不是描边表达层级。深色模式下 `--sunken` 比 `--background` 更深，浅色模式下更浅，两边都是「往里凹」的观感。深色 `--background` 同时也是标志的底色，所以图标和它启动出来的窗口是同一个黑。
 - **阴影带色**：用中性色相染过的半透明色而不是纯黑低透明度，让阴影和它落下的面处在同一光照里；深色模式的抬升主要靠 `inset` 顶部高光，因为黑压黑没有可压的余量。
 - **`--*-solid` / `--*-foreground` 成对**：成对的是填充按钮的前景/背景；单独的那个 token 是当作**文字**用的，按在页面背景上的对比度调过。不要拿 `--danger` 当按钮底色再配白字。
 - 组件只引用 Token，不写死色值；深浅主题可切换、可跟随系统。深色模式是**类驱动**的（`@custom-variant dark`），由 `common/stores/ui.ts` 在运行时切换 `html.dark`，因此手动切换与跟随系统共用同一条路径。
@@ -325,7 +327,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
-前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.0`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
+前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.1`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
 
 ### 4.2 依赖与版本约束
 
@@ -347,7 +349,9 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 ### 4.4 能力声明
 
-`src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`dialog:default`、`notification:default`、`opener:default`。
+`src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`core:window:allow-set-theme`、`core:window:allow-set-icon`、`dialog:default`、`notification:default`、`opener:default`。
+
+**图标按主题二选一，两版是同一份标志的两种墨色**（`src-tauri/src/icons.rs`）：`icons/runtime/{light,dark}.rgba` 是运行时用的两版 128×128 原始 RGBA，分别由 `assets/logo.svg`（提供的去背景导出，黑墨）与 `assets/logo-dark.svg`（同一批像素换成骨白墨，`node scripts/gen-logo-assets.mjs` 生成）栅格化而来——启动时读窗口主题选一版，设到主窗、quick-add 小窗和托盘；前端切主题时走 `app:setTheme` 再设一次。用原始 RGBA 而非 PNG，是因为 `Image::from_bytes` 需要 `image-png` feature（会拉进整个 `image` crate），而 `Image::new` 直接吃解码后的缓冲区。标志本身没有背景，对比度全靠墨色：黑墨在浅色任务栏 18.93:1、深色任务栏 1.29:1，骨白墨反过来——所以两版都得有。`logo.svg` 生成的 `icons/*.ico|png` 是打包那份（Explorer / 安装包，以及 `apply_current` 跑起来之前的窗口；`pnpm tauri icon src/assets/logo.svg`）——打包只能有一份，取浅色版，运行中的主题由上面两版接管，其中任务栏那格在下次启动才跟上，见 [DECISIONS](./DECISIONS.md) M16/M17。
 
 新增 Tauri 插件或窗口 API 时必须同步写进该文件，否则前端调用被拒。完全由 Rust 驱动的部件（托盘、全局快捷键注册）不需要条目。`core:window:allow-hide` 是 quick-add 小窗隐藏自己所必需的。
 

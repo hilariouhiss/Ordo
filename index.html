@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#F7F8F9" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#191A1C" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F5F1EC" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0D0908" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Ordo：本地优先的任务与项目管理器。" />
     <link rel="icon" type="image/svg+xml" href="/src/assets/logo.svg" />
     <title>Ordo</title>
@@ -29,7 +29,7 @@
           else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           if (dark) document.documentElement.classList.add("dark");
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
-          document.documentElement.style.background = dark ? "#191a1c" : "#f7f8f9";
+          document.documentElement.style.background = dark ? "#0d0908" : "#f5f1ec";
         } catch (e) {
           /* no-op: the store re-applies the theme once JS loads */
         }

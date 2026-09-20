@@ -1,6 +1,7 @@
 /*
- * `readFileSync` from Node's `fs`, for the one test that has to read a file off
- * disk (`design-constraints.test.ts` reads `src/index.css`).
+ * `readFileSync` from Node's `fs`, for the tests that have to read a file off
+ * disk (`design-constraints.test.ts` reads `src/index.css`,
+ * `app-shell-sidebar.test.tsx` reads the two runtime icon rasters).
  *
  * It cannot import the stylesheet instead: the CSS pipeline empties every style
  * import in the test environment, `?raw` and `?inline` both handing back "".
@@ -12,6 +13,8 @@
  */
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
+  /** One character per byte, for the binary rasters. */
+  export function readFileSync(path: string, encoding: "latin1"): string;
 }
 
 declare module "node:path" {

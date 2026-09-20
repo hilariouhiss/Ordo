@@ -21,6 +21,7 @@ const tauriConfig = JSON.parse(read("src-tauri/tauri.conf.json")) as {
 };
 const capabilities = JSON.parse(read("src-tauri/capabilities/default.json")) as {
   windows: string[];
+  permissions: string[];
 };
 const libSource = read("src-tauri/src/lib.rs");
 const cargoToml = read("src-tauri/Cargo.toml");
@@ -39,11 +40,46 @@ describe("platform conformance", () => {
     expect(icons).toContain("128x128.png");
   });
 
+  it("watches the icon directory, so a regenerated icon reaches the binary", () => {
+    /*
+     * The icons are embedded into the executable at compile time, and
+     * `tauri_build::build()` only emits `rerun-if-changed` for
+     * `tauri.conf.json` and `capabilities/`. Without this line, running
+     * `tauri icon …` updates the files on disk and leaves the running binary —
+     * and therefore the title bar and taskbar — on the previous artwork until
+     * something unrelated invalidates the build.
+     */
+    expect(read("src-tauri/build.rs")).toMatch(/rerun-if-changed=icons/);
+  });
+
   it("authorizes both windows, which is per-window rather than per-platform", () => {
     // The quick-add window silently loses every IPC call if it is missing here,
     // and the tray's 显示 entry has to be able to hide/show `main`.
     expect(capabilities.windows).toContain("main");
     expect(capabilities.windows).toContain("quick-add");
+  });
+
+  it("authorizes the theme and icon commands, which the frame depends on", () => {
+    /*
+     * `applyResolvedTheme` calls `app:setTheme`, which mirrors the theme onto the
+     * native window, the tray and the app icon. Two things can silently break it:
+     *
+     *  - `set_theme` is NOT part of `core:window:default` (unlike `theme` and
+     *    `is_decorated`), and neither is `set_icon`, so both have to be declared
+     *    or the call rejects, the store swallows it, and the only symptom is a
+     *    title bar and tray that keep the previous theme's artwork.
+     *  - The command has to be registered, or the frontend reaches nothing.
+     *
+     * Both failures are invisible by design, so they are asserted here.
+     */
+    for (const permission of ["core:window:allow-set-theme", "core:window:allow-set-icon"]) {
+      expect(capabilities.permissions, `${permission} missing`).toContain(permission);
+    }
+    expect(read("src-tauri/src/lib.rs")).toMatch(/icons::set_theme/);
+    expect(
+      read("src/common/stores/ui.ts"),
+      "the store must actually invoke it, or the permission is dead weight",
+    ).toMatch(/invoke\("app:setTheme"/);
   });
 
   it("keeps one instance, so a second launch cannot open the same database twice", () => {

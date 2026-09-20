@@ -83,7 +83,38 @@ function applyResolvedTheme(theme: ResolvedTheme): void {
   // The canvas colour the pre-bundle script in `index.html` sets is re-applied
   // here so a theme switch keeps both in step. Same two values, same reason it
   // is a CSSOM write rather than a stylesheet rule (`index.html`).
-  document.documentElement.style.background = theme === "dark" ? "#191a1c" : "#f7f8f9";
+  document.documentElement.style.background = theme === "dark" ? "#0d0908" : "#f5f1ec";
+
+  // Tell the OS window too, or the native title bar keeps whatever the system
+  // is set to while the page next to it is the opposite — a black bar above a
+  // bone window when the app is light and Windows is dark. `colorScheme` above
+  // does not reach it: the frame is drawn by the window manager, not the
+  // webview. Passing the *resolved* theme (not the preference) is the point —
+  // an explicit in-app choice should beat the system setting here as well.
+  void setWindowTheme(theme);
+}
+
+/**
+ * Mirrors the theme onto the native window, the tray and the app icon.
+ *
+ * Goes through `app:setTheme` rather than the webview's own `setTheme` because
+ * the tray is not reachable from here at all, and because the icon artwork has
+ * to change with the theme: against the real taskbar colours no single icon
+ * reads on both, so the choice has to be made per theme. Rust holds both
+ * rasters and does the three together.
+ *
+ * Best-effort, like every other Tauri call in this codebase: under the plain
+ * Vite dev server and in jsdom there is no backend to talk to, and that is not
+ * an error worth surfacing. Needs `core:window:allow-set-theme` and
+ * `core:window:allow-set-icon` in `capabilities/default.json`.
+ */
+async function setWindowTheme(theme: ResolvedTheme): Promise<void> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("app:setTheme", { theme });
+  } catch {
+    // Not running in Tauri, or the window is gone. The page is themed already.
+  }
 }
 
 createRoot(() => {
