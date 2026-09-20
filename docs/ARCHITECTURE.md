@@ -338,6 +338,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 ### 4.3 构建配置
 
 - `vite.config.ts`：插件为 `tailwindcss()` + `solid()`；`clearScreen: false` 以免掩盖 Rust 报错；**端口固定 1420 且 `strictPort: true`**（HMR 1421，远程调试时由 `TAURI_DEV_HOST` 决定）；`server.watch.ignored` 忽略 `**/src-tauri/**`。
+- `vite.config.ts` 还开着 **`server.warmup.clientFiles: ["./src/index.tsx"]`**。`@kobalte/core` / `lucide-solid` / `@tanstack/solid-router` 在 `solid` condition 下解析到的是**未编译的 .jsx 源码**，而 Vite 的依赖预打包只认以 `js`/`ts`（含 `m`/`c` 变体）结尾的入口（`OPTIMIZABLE_ENTRY_RE`），所以这三个包永远进不了 deps 缓存：dev 把它们按 173 个独立模块逐个发给浏览器（kobalte 51、lucide 47、router 75），整页 250 个请求、约 10 MB 未压缩源码。两条看着像解法的路都是死路——`optimizeDeps.include` 会被跳过（日志里是 `Cannot optimize dependency: … present in client 'optimizeDeps.include'`），`optimizeDeps.extensions: ['.jsx']` 会把**未编译**的 JSX 塞进 deps，dev server 直接 500。`warmupRequest` 顺着 import 分析递归，所以预热入口一次等于把整张图先在服务端转好，浏览器那边全是缓存命中（实测见 §6.1）。
 - `vitest.config.ts`：`solid({ hot: false })`（避免 Solid refresh runtime 进入测试转换结果后 Node 无法解析），`environment: "node"`。
 - `tsconfig.json`：`noEmit` + `allowImportingTsExtensions`，`jsx: "preserve"` + `jsxImportSource: "solid-js"`，`strict` 且 `noUnusedLocals` / `noUnusedParameters` / `noFallthroughCasesInSwitch` 全开。
 - **Tailwind v4 是 CSS-first**：没有 `tailwind.config.js`、没有 PostCSS 配置，主题在 `src/index.css` 的 `@theme` / `@theme inline` 里定义，插件在 `vite.config.ts` 注册。
@@ -378,6 +379,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 5. **弹窗只有正文滚动**：`Dialog.Content` 是 `overflow-hidden` 的 flex 容器（高度上限 `max-h-[85dvh]`），标题/描述/关闭按钮留在原处，每个弹窗把自己的正文标成 `min-h-0 flex-1 overflow-y-auto`。这条规则写在 `common/components/dialog.tsx` 里，因为 `overflow` 不能由调用方用 `class` 覆盖（Tailwind 按源码顺序解析，`overflow-y-auto` 排在 `overflow-hidden` 之后）。
 6. **展开箭头不占父行的列**：可展开的行把箭头放进一个 20px 槽位，并用负外边距把整行向左拉回该槽位的宽度——所以「这一行有没有箭头、展不展开」都不改变它的内容列，只有子项往下缩进一层。槽位恒在（无子项的行留空），同一层的行才始终对齐。
 7. **侧边栏每个项目只出现在一处**（分组行 / 根级平铺 / 已归档平铺 / 已归档分组）。改动这几个派生时要一起想清楚，否则项目会重复出现或从导航里消失。
+8. **窗口挂载前的底色由 `index.html` 里那段内联脚本用 CSSOM 写上 `<html>`，既不是 `index.css` 也不是一段内联 `<style>`。** JS 跑起来之前页面是空的，屏幕上只有画布；而同一段脚本设的 `color-scheme: dark` 会把画布涂成近黑（`#121212`），于是加载期间整个窗口读起来就是「全黑」——dev 模式下这段加载有数秒（§6.1），浅色主题下则是一屏刺眼的白。**必须写成 `document.documentElement.style.background = …`**：CSSOM 写入不受 CSP 约束，而只要 `index.html` 里出现一个 `<style>` 元素，Tauri 就会给它注入 `nonce` 并把 `style-src` 变成 `'self' 'unsafe-inline' 'nonce-…'`——带 nonce 时 `'unsafe-inline'` 按 CSP3 失效，**虚拟列表与 Kobalte 写的每一个 `style=` 都会被静默拦掉**（控制台报 `Applying inline style violates …`，界面不报错但样式缺失）。`src/common/stores/ui.ts` 的 `applyResolvedTheme` 会重写同一个属性，切主题时两边不会分叉；两个色值要与 `theme-color` 元标签、`src/index.css` 的 `--background` 一起改。
 
 **后端 / 数据**
 
@@ -443,6 +445,17 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | quick-add 小窗（第二个 WebView）+ 全局快捷键 | +123 ms |
 | 页面：脚本加载 → 外壳挂载 | 再 +175 ms（导航起算 100 → 175 ms） |
 | 首屏数据落地（任务 + 标签 + 依赖 + 项目 + 命名空间） | 再 +268 ms（导航起算 → 443 ms） |
+
+**`pnpm tauri dev` 与发布构建的启动不是一回事**（2026-09-20，同一台机器，库里是用户自己的数据副本）：发布构建（`pnpm tauri build --no-bundle`）进程启动 → 首屏可交互 **577 ms**（页面侧 `module` 114 / `shell-mounted` 178 / `interactive` 244 ms），与上表同量级。dev 模式走的是 Vite 的模块图，首帧之前浏览器要拉 250 个模块、约 10 MB 未压缩源码，页面侧 `module` 实测：
+
+| dev 场景 | `page module`（导航 → 前端代码跑起来） |
+| --- | --- |
+| 首次（Vite 转换缓存与 deps 缓存都空、无预热） | 15229 ms |
+| 日常重启（deps 缓存有效、无预热） | 7098 ms |
+| 日常重启，`server.warmup` 把整张图先转好 | **2124 ms**（`shell-mounted` 2900、`interactive` 3003） |
+| 刚改过 vite 配置/依赖（deps 缓存失效）且窗口立刻打开 | 8591 ms（预热与首个请求抢同一个事件循环） |
+
+也就是说「打开要等十秒」只发生在 dev 模式，发布构建没有这个问题；预热把它从 7.1 s 压到 2.1 s，剩下的 2 s 是浏览器按 import 深度串行取这 250 个模块的水位。窗口在那之前显示的是 `index.html` 内联脚本涂上的底色而不是近黑（§5 前端坑 8）。上表前三行是机器空闲时量的；同一台机器上并行跑着别人的 `cargo build` 时，预热组涨到 7.8–12.3 s、无预热组涨到 18.1 s（各两次）——绝对值不能引，倍数是稳的。
 
 **写入路径与规模**（`-Scale` 三档）：
 

@@ -80,6 +80,10 @@ function applyResolvedTheme(theme: ResolvedTheme): void {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", theme === "dark");
   document.documentElement.style.colorScheme = theme;
+  // The canvas colour the pre-bundle script in `index.html` sets is re-applied
+  // here so a theme switch keeps both in step. Same two values, same reason it
+  // is a CSSOM write rather than a stylesheet rule (`index.html`).
+  document.documentElement.style.background = theme === "dark" ? "#191a1c" : "#f7f8f9";
 }
 
 createRoot(() => {

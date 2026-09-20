@@ -12,6 +12,14 @@
     <script>
       // Apply the persisted/system theme before the bundle loads to avoid a
       // light-mode flash. Must stay in sync with `src/common/stores/ui.ts`.
+      //
+      // The canvas colour is set here too: until the bundle mounts the page is
+      // empty, and a dark `color-scheme` paints the bare canvas near-black —
+      // that is the "black window" during a slow load. Keep it a CSSOM write,
+      // never an inline <style>: a style element makes Tauri nonce the
+      // production `style-src`, and a nonce voids `'unsafe-inline'`, silently
+      // dropping every `style=` the virtual list and Kobalte write. The two
+      // values are the theme-color metas above, ~`--background` in index.css.
       (function () {
         try {
           var stored = localStorage.getItem("ordo.theme");
@@ -21,6 +29,7 @@
           else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           if (dark) document.documentElement.classList.add("dark");
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
+          document.documentElement.style.background = dark ? "#191a1c" : "#f7f8f9";
         } catch (e) {
           /* no-op: the store re-applies the theme once JS loads */
         }
