@@ -713,3 +713,32 @@ describe("AppShell sidebar", () => {
     expect(projectsApi.updateProject).not.toHaveBeenCalled();
   });
 });
+
+/*
+ * The route-change transition used to flash a scrollbar. The wrapper that
+ * carries `animate-view-in` is exactly as tall as the content area, and a
+ * `translate` on a box inside a scroll container extends that container's
+ * scrollable overflow by the travel distance — so each switch painted a 15px
+ * gutter and shoved the view sideways for the 200ms, which also drowned out the
+ * rise it was supposed to show. The fix is positional: the clip goes one level
+ * up (on `<main>`) and the scrolling one level down (on the animated box).
+ *
+ * jsdom does no layout, so there is no scrollbar to observe here; what is
+ * asserted is the arrangement that leaves the translate nothing to scroll.
+ */
+describe("the view transition", () => {
+  it("keeps the animated view wrapper outside any scroll container", async () => {
+    renderShell();
+
+    const main = await screen.findByRole("main");
+    expect(main.id).toBe("ordo-main");
+    expect(main.className).toContain("overflow-hidden");
+
+    const wrapper = main.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain("animate-view-in");
+    // The animated box is the scroller itself, or a view taller than the window
+    // would have nothing left to scroll it.
+    expect(wrapper.className).toContain("overflow-y-auto");
+    expect(wrapper.className).toContain("h-full");
+  });
+});

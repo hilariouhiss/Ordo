@@ -188,7 +188,7 @@ src/
 - **`child-indent` 是内联子列表的唯一缩进规则**：子项内容相对父项右移 20px，缩进带中线画 1px `border-strong` 引导线。虚拟化的行式子列表（`SubtaskRow` 的 `w-5` 槽位）用行内槽位表达同一条规则——两者的步长与线色必须保持一致。整页/卡片式子列表不缩进。
 - **`skeleton`** 骨架屏的微光扫过：一个 `::after` 上的固定渐变沿独立的 `translate` 扫过（合成器动画，不重绘；全局「减少动态效果」规则把它压成静止的实心块）。
 - **浮层入场动画** `animate-fade-in` / `animate-surface-in` / `animate-toast-in`。
-- **内容入场动画** `animate-view-in`（换路由时整屏视图入场，由 `AppShell` 里 keyed 的包壳重放）、`animate-row-in`（行进入列表时淡入上移，展开子任务组时按 `[animation-delay:Nms]` 级联）。两者都**只在行/视图真正进入时**播放：虚拟滚动把行重新挂载时不重放，否则每一次滚轮都会闪一屏（`TaskListView` 用一份「已在屏上出现过的 id」集合判定）。
+- **内容入场动画** `animate-view-in`（换路由时整屏视图入场，由 `AppShell` 里 keyed 的包壳重放，8px 上浮）、`animate-row-in`（行进入列表时淡入上移，展开子任务组时按 `[animation-delay:Nms]` 级联）。两者都**只在行/视图真正进入时**播放：虚拟滚动把行重新挂载时不重放，否则每一次滚轮都会闪一屏（`TaskListView` 用一份「已在屏上出现过的 id」集合判定）。**带入场位移的元素不能待在滚动容器里**：视图包壳与内容区等高，它的 `translate` 会把行程加进容器的可滚动溢出区——换页时容器凭空多出一条 15px 滚动条，视图被横向挤动，这段位移本身也被淹掉。所以 `AppShell` 把 `overflow-hidden` 留在 `<main>` 上、把 `overflow-y-auto` 交给带动画的包壳：位移发生在一个无处可滚的盒子里，而比窗口高的视图照样滚得动（包壳就是那个滚动容器）。
 - **`scrim-blur`** 弹窗遮罩的 2px 背景模糊。手写而不是用 `backdrop-blur-[2px]`：后者只输出无前缀的 `backdrop-filter`，而 WebKit（macOS 与 Linux 两端的 webview）长期只认 `-webkit-backdrop-filter`，无前缀写法要到 Safari 18 才有——只用工具类的话，三端里恰好只有 Windows 看得到这层模糊。
 - **`.date-field`** 的 `::-webkit-datetime-edit` 隐藏规则（配合 `DateField` 组件）。
 - 滚动条样式：`::-webkit-scrollbar` 系列（Tauri 渲染在 WebView2/Chromium 上）+ 标准属性兜底；透明边框 + `background-clip` 把滑块缩进成浮动胶囊。
@@ -327,7 +327,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
-前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.2`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
+前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.3`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
 
 ### 4.2 依赖与版本约束
 

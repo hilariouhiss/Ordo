@@ -814,10 +814,20 @@ export default function AppShell() {
           on a path change, and a fresh element runs its animation from the
           start. That is also why the wrapper carries `h-full` — every view's
           own root is `h-full`, and a box-less wrapper would leave them
-          resolving that against nothing. */}
-      <main id="ordo-main" class="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          resolving that against nothing.
+
+          The clip is on `<main>` and the scrolling on the wrapper, and that
+          pair is the point. The wrapper is exactly as tall as the content area,
+          so animating it inside a scroll container made the rise extend that
+          container's scrollable overflow by its own travel: every route change
+          painted a 15px scrollbar for the length of the animation and shoved
+          the view sideways while it played — which is also what made the rise
+          itself unreadable. Clipping one level up and scrolling one level down
+          leaves the rise nothing to scroll, and a view taller than the window
+          still scrolls, because the wrapper is now the scroller. */}
+      <main id="ordo-main" class="min-h-0 min-w-0 flex-1 overflow-hidden">
         <Show when={pathname()} keyed>
-          <div class="h-full animate-view-in">
+          <div class="h-full overflow-y-auto animate-view-in">
             <Outlet />
           </div>
         </Show>
