@@ -39,9 +39,9 @@ src/
 ├── router.tsx                 # 路由定义（代码式，TanStack Solid Router）
 ├── index.css                  # Tailwind 入口 + 设计 Token + 全局工具类
 ├── vite-env.d.ts
-├── assets/logo.svg            # 提供的标志（去背景导出）：侧边栏 `<img>` + favicon + 打包图标集与两个运行时图标的源
-├── assets/logo-square.svg     # 同一份文件的副本（方形用途）
-├── assets/logo-dark.svg       # 深色版：同一批像素只换墨色，由 `node scripts/gen-logo-assets.mjs` 生成，CSS 的 `dark:` 与深色运行时图标都用它
+├── assets/logo.svg            # 标志本身（矢量：环 + 缺口 + 绿点）：侧边栏 `<img>` + favicon + 打包图标集与两个运行时图标的源
+├── assets/logo-square.svg     # 同一份文件的逐字节副本（方形用途）
+├── assets/logo-dark.svg       # 深色版：同一份几何只换环的墨色，由 `node scripts/gen-logo-assets.mjs` 生成，CSS 的 `dark:` 与深色运行时图标都用它
 ├── app/                       # 应用装配层（唯一组合各 feature UI 的地方）
 │   ├── AppShell.tsx           # 布局壳：侧边栏树 + 内容区（仅主窗口）
 │   ├── QuickAddWindow.tsx     # quick-add 小窗的全部内容（仅该窗口渲染）
@@ -351,7 +351,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 `src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`dialog:default`、`notification:default`、`opener:default`。窗口的 `set_theme` / `set_icon` 都在 Rust 里直接调（`icons.rs`），webview 从不需要这两条权限——窗口 API 只用到 `hide`（quick-add 小窗）与 `label`。
 
-**图标按主题二选一，而且分两个主题源**（`src-tauri/src/icons.rs`）：`icons/runtime/{light,dark}.rgba` 是运行时用的两版 128×128 原始 RGBA，分别由 `assets/logo.svg`（提供的去背景导出，黑墨）与 `assets/logo-dark.svg`（同一批像素换成骨白墨，`node scripts/gen-logo-assets.mjs` 生成）栅格化而来。**哪个表面跟哪个主题**是这件事的要点，依据是**那块背景是谁画的**：**应用主题**管标题栏那一枚（`set_icon`，Windows 上即 `ICON_SMALL`）与窗口边框（`set_theme`）——它们跟页面画在一起；**系统主题**管托盘与任务栏——它们坐在 OS 画的那条栏上，应用选深色而系统是浅色时不该被换成浅色的墨。用原始 RGBA 而非 PNG，是因为 `Image::from_bytes` 需要 `image-png` feature（会拉进整个 `image` crate），而 `Image::new` 直接吃解码后的缓冲区。标志没有背景，对比度全靠墨色：黑墨在浅色任务栏 18.93:1、深色任务栏 1.29:1，骨白墨反过来——所以两版都得有，且任务栏那一枚需要 `ICON_BIG`（Tauri 的 `set_icon` 只发 `ICON_SMALL`，见 [DECISIONS](./DECISIONS.md) M18）。
+**图标按主题二选一，而且分两个主题源**（`src-tauri/src/icons.rs`）：`icons/runtime/{light,dark}.rgba` 是运行时用的两版 128×128 原始 RGBA，分别由 `assets/logo.svg`（矢量标志，黑墨）与 `assets/logo-dark.svg`（同一份几何换成骨白墨，`node scripts/gen-logo-assets.mjs` 生成）栅格化而来。**哪个表面跟哪个主题**是这件事的要点，依据是**那块背景是谁画的**：**应用主题**管标题栏那一枚（`set_icon`，Windows 上即 `ICON_SMALL`）与窗口边框（`set_theme`）——它们跟页面画在一起；**系统主题**管托盘与任务栏——它们坐在 OS 画的那条栏上，应用选深色而系统是浅色时不该被换成浅色的墨。用原始 RGBA 而非 PNG，是因为 `Image::from_bytes` 需要 `image-png` feature（会拉进整个 `image` crate），而 `Image::new` 直接吃解码后的缓冲区。标志没有背景，对比度全靠墨色：黑墨在浅色任务栏 18.93:1、深色任务栏 1.29:1，骨白墨反过来——所以两版都得有，且任务栏那一枚需要 `ICON_BIG`（Tauri 的 `set_icon` 只发 `ICON_SMALL`，见 [DECISIONS](./DECISIONS.md) M18）。
 
 **系统主题由 Rust 读，前端不读 `prefers-color-scheme`**：设置窗口主题会让 tauri 把 webview 的 WebView2 配色方案重钉成那个主题（wry 的 `set_theme`），于是页面的媒体查询报的是"应用刚写进去的值"而不是系统设置——把它当系统主题用就是把输出接回输入，而且每次写都会在页面里抛一次 change 事件，监听它就成了循环（M18 记录了完整链路与症状）。所以：`icons.rs::system` **只从 quick-add 窗口读**（本模块唯一不 pin 的窗口，无边框；tao 对已 pin 的窗口在系统变化时直接 return，读不出系统值——**别 pin 它**），启动与每次 `ThemeChanged` 都重读，值真变了才重画托盘与任务栏；前端经 `app:setTheme` 只送应用主题，"跟随系统"要用的 OS 主题由 `app:systemTheme`（命令）与 `app:systemThemeChanged`（事件）给出，`systemPrefersDark()` 只剩第一次 pin 之前的种子值。
 

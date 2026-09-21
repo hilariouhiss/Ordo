@@ -76,26 +76,26 @@ type NavPath =
   | "/settings";
 
 /**
- * The Ordo mark: the supplied export — the artwork with its background
- * removed — loaded as a file so the sidebar shows the same picture as the
- * favicon rather than a redraw of it.
+ * The Ordo mark: `assets/logo.svg` — a ring with the accent dot in its gap,
+ * drawn as SVG circles — loaded as a file so the sidebar shows the same drawing
+ * as the favicon rather than a second version of it.
  *
- * Two copies are rendered and CSS picks one. The ink is black, so on the dark
- * theme it would disappear into the near-black sidebar; the dark copy is the
- * same pixels with the ink swapped for the foreground colour. Doing it in CSS
- * rather than from JS state means both are in the DOM, the swap is a repaint
- * rather than a re-render, and there is no frame where neither is present.
- * `dark:` is the same class-driven variant the rest of the app uses, so this
- * follows the resolved theme including "system".
+ * Two copies are rendered and CSS picks one. The ring's ink is black, so on the
+ * dark theme it would disappear into the near-black sidebar; the dark copy is
+ * the same coordinates with the ring's ink swapped for the foreground colour.
+ * Doing it in CSS rather than from JS state means both are in the DOM, the swap
+ * is a repaint rather than a re-render, and there is no frame where neither is
+ * present. `dark:` is the same class-driven variant the rest of the app uses, so
+ * this follows the resolved theme including "system".
  *
- * The dark copy is generated from the light one and differs only in ink — the
- * test beside this file asserts that, and `scripts/gen-logo-assets.mjs` is what
- * produces it. The window and tray icons are those same two files, one per
+ * The dark copy is generated from the light one and differs only in that one ink
+ * — the test beside this file asserts that, and `scripts/gen-logo-assets.mjs` is
+ * what produces it. The window and tray icons are those same two files, one per
  * theme (`src-tauri/src/icons.rs`): a window has one icon and Windows draws
  * both the taskbar and the title bar from it.
  *
  * Accessibility: both images are decorative, so the accessible name lives on the
- * wrapper. That keeps the files byte-identical to the supplied original.
+ * wrapper.
  */
 function BrandMark() {
   return (

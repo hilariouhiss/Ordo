@@ -31,11 +31,11 @@
 //! mid-tone that clears 3:1 on both, loses the green; that is the dead end
 //! recorded in `docs/DECISIONS.md` M16.
 //!
-//! So both inks are embedded — `assets/logo.svg` as supplied and
-//! `assets/logo-dark.svg`, the same pixels re-inked — and each target picks the
-//! one belonging to its theme. `node scripts/gen-logo-assets.mjs` derives the
-//! dark copy and rasterises both into the files below; `icons/runtime/README.md`
-//! has the procedure.
+//! So both inks are embedded — `assets/logo.svg` and `assets/logo-dark.svg`, one
+//! drawing with the ring's ink swapped — and each target picks the one belonging
+//! to its theme. `node scripts/gen-logo-assets.mjs` derives the dark copy and
+//! rasterises both into the files below; `icons/runtime/README.md` has the
+//! procedure.
 //!
 //! On Windows the split has a wrinkle Tauri does not cover: `set_icon` reaches
 //! `ICON_SMALL`, which is the title bar, while the taskbar and Alt+Tab draw from
@@ -62,7 +62,8 @@ const RGBA_LEN: usize = (SIZE * SIZE * 4) as usize;
 
 /// The ink for a light background: `assets/logo.svg`, black.
 const LIGHT: &[u8] = include_bytes!("../icons/runtime/light.rgba");
-/// The ink for a dark background: `assets/logo-dark.svg`, bone, same pixels.
+/// The ink for a dark background: `assets/logo-dark.svg`, bone — the same
+/// drawing, so only the ink moves.
 const DARK: &[u8] = include_bytes!("../icons/runtime/dark.rgba");
 
 /// The OS theme last handed to the tray and the taskbar: 0 not read yet, 1

@@ -1,14 +1,17 @@
-// Derives every logo asset from the one supplied file.
+// Derives every logo asset from the one vector file.
 //
 //     node scripts/gen-logo-assets.mjs
 //
-// `src/assets/logo.svg` is the artwork we were given: the mark with its
-// background removed, so the ink is all that is left. Everything else follows
-// from it, and nothing else is edited by hand:
+// `src/assets/logo.svg` is the mark itself — a ring with a circular bite out of
+// its top right and the accent dot sitting in the bite, drawn as SVG circles
+// rather than traced from a bitmap, so every size below is rendered from the
+// same geometry. Everything else follows from it, and nothing else is edited by
+// hand:
 //
-//   src/assets/logo-dark.svg             the same mark, ink swapped for the dark
-//                                        theme. Geometry untouched — the pixels
-//                                        are re-coloured, never redrawn.
+//   src/assets/logo-square.svg           a byte-identical copy, for square uses.
+//   src/assets/logo-dark.svg             the same drawing with the ink swapped
+//                                        for the dark theme: one string changes,
+//                                        no coordinate moves.
 //   src-tauri/icons/runtime/light.rgba   128x128 raw RGBA, embedded by
 //   src-tauri/icons/runtime/dark.rgba    `src-tauri/src/icons.rs` and set on the
 //                                        window and the tray per theme.
@@ -19,30 +22,33 @@
 //
 // Raw RGBA rather than PNG for the runtime pair because `Image::new` takes a
 // decoded buffer; `Image::from_bytes` would pull tauri's whole `image` crate in
-// for two fixed pictures. So this decodes and encodes PNGs itself, with node's
-// own zlib. No dependencies.
+// for two fixed pictures. So this decodes the PNGs `tauri icon` writes itself,
+// with node's own zlib. No dependencies.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deflateSync, inflateSync } from "node:zlib";
+import { inflateSync } from "node:zlib";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SOURCE = join(ROOT, "src", "assets", "logo.svg");
+const SQUARE = join(ROOT, "src", "assets", "logo-square.svg");
 const DARK_SVG = join(ROOT, "src", "assets", "logo-dark.svg");
 const RUNTIME = join(ROOT, "src-tauri", "icons", "runtime");
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js");
 
 /** Edge length `icons.rs` expects. */
 const SIZE = 128;
+// The ring's ink in `logo.svg`, exactly as the file spells it. Both variants
+// are the same drawing, so swapping this one string is the whole difference.
+const LIGHT_INK = 'fill="#000000"';
+/** The same ink on a dark chrome — the light theme's paper, per `src/index.css`. */
+const DARK_INK = 'fill="#EDE6E5"';
 /** The accent, which both variants keep: recolouring it would lose the brand. */
 const ACCENT = [0x24, 0xc6, 0x8c];
-/** The ink on a dark chrome — the light theme's paper, per `src/index.css`. */
-const DARK_INK = [0xed, 0xe6, 0xe5];
 
-const decode = (b64) => Buffer.from(b64, "base64");
 const paeth = (a, b, c) => {
   const p = a + b - c;
   const pa = Math.abs(p - a);
@@ -51,7 +57,7 @@ const paeth = (a, b, c) => {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 };
 
-/** Decodes an 8-bit RGBA non-interlaced PNG (what the export and `tauri icon` write). */
+/** Decodes an 8-bit RGBA non-interlaced PNG (what `tauri icon` writes). */
 function decodePng(buf) {
   if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
   let pos = 8;
@@ -106,75 +112,7 @@ function decodePng(buf) {
   return { width, height, rgba };
 }
 
-/** Encodes 8-bit RGBA as a PNG with filter 0 on every row. */
-function encodePng(width, height, rgba) {
-  const stride = width * 4;
-  const raw = Buffer.alloc(height * (stride + 1));
-  for (let y = 0; y < height; y++) {
-    raw[y * (stride + 1)] = 0;
-    rgba.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
-  }
-
-  const chunk = (type, data) => {
-    const head = Buffer.alloc(8);
-    head.writeUInt32BE(data.length, 0);
-    head.write(type, 4, "latin1");
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, "latin1"), data])), 0);
-    return Buffer.concat([head, data, crc]);
-  };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw, { level: 9 })),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-function crc32(buf) {
-  let c = 0xffffffff;
-  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
 const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
-
-/** Reads the artwork out of the wrapper: the base64 payload, and the SVG around it. */
-function readArtwork(svg) {
-  const match = svg.match(/base64,([A-Za-z0-9+/=]+)/);
-  if (!match) throw new Error(`${SOURCE} carries no embedded bitmap`);
-  const png = decodePng(decode(match[1]));
-  // The background was removed, and the whole derivation rests on that: a plate
-  // would make the dark variant a recoloured square and the icons unreadable on
-  // one chrome or the other.
-  if (png.rgba[3] !== 0) throw new Error("the artwork still has a background");
-  return { png, svg, payload: match[1] };
-}
-
-/** The same drawing in `ink`, accent and alpha untouched. */
-function reink(png, ink) {
-  const out = Buffer.from(png.rgba);
-  let changed = 0;
-  for (let i = 0; i < out.length; i += 4) {
-    if (out[i + 3] === 0 || same(out.subarray(i, i + 3), ACCENT)) continue;
-    out[i] = ink[0];
-    out[i + 1] = ink[1];
-    out[i + 2] = ink[2];
-    changed++;
-  }
-  if (!changed) throw new Error("nothing carried the ink colour");
-  return out;
-}
 
 /** Rasterises `svg` at `SIZE` px and returns its pixels. */
 function raster(svg) {
@@ -191,34 +129,41 @@ function raster(svg) {
   return png.rgba;
 }
 
-const source = readArtwork(readFileSync(SOURCE, "utf8"));
-const dark = reink(source.png, DARK_INK);
+const source = readFileSync(SOURCE, "utf8");
+const inks = source.split(LIGHT_INK).length - 1;
+if (inks !== 1) {
+  throw new Error(`${SOURCE} carries the light ink ${inks} times, expected exactly one`);
+}
+if (source.includes("base64,")) {
+  throw new Error(`${SOURCE} still embeds a bitmap: it is meant to be the drawing itself`);
+}
 
-// The dark copy is the source file with one payload swapped: the wrapper, the
-// viewBox and the transform are the export's own and stay byte-identical.
-writeFileSync(
-  DARK_SVG,
-  source.svg.replace(source.payload, encodePng(source.png.width, source.png.height, dark).toString("base64")),
-);
-console.log(`logo-dark.svg  from logo.svg (ink rgb(${DARK_INK}))`);
+// The dark copy is the source with one string swapped, so the two cover the same
+// pixels by construction rather than by a redraw that "matches on paper".
+writeFileSync(DARK_SVG, source.replace(LIGHT_INK, DARK_INK));
+console.log(`logo-dark.svg  from logo.svg (ring ink ${DARK_INK.match(/"([^"]+)"/)[1]})`);
+
+// The square copy is the same bytes: one drawing, two names, no third version.
+copyFileSync(SOURCE, SQUARE);
+console.log("logo-square.svg copied from logo.svg");
 
 const light = raster(SOURCE);
-const darkIcon = raster(DARK_SVG);
+const dark = raster(DARK_SVG);
 let reinked = 0;
 for (let i = 0; i < light.length; i += 4) {
   // Same mark, different ink: the coverage must match pixel for pixel, or the
   // dark variant is a different drawing and the icons will disagree on shape.
-  if (light[i + 3] !== darkIcon[i + 3]) throw new Error(`alpha differs at pixel ${i / 4}`);
+  if (light[i + 3] !== dark[i + 3]) throw new Error(`alpha differs at pixel ${i / 4}`);
   // The accent is deliberately the same colour in both, so only count the rest.
   if (light[i + 3] === 0 || same(light.subarray(i, i + 3), ACCENT)) continue;
-  if (!same(light.subarray(i, i + 3), darkIcon.subarray(i, i + 3))) reinked++;
+  if (!same(light.subarray(i, i + 3), dark.subarray(i, i + 3))) reinked++;
 }
 if (reinked === 0) throw new Error("both rasters carry the same ink");
 if (light[3] !== 0) throw new Error("the light icon does not have a transparent corner");
 
 for (const [name, rgba] of [
   ["light", light],
-  ["dark", darkIcon],
+  ["dark", dark],
 ]) {
   // `Image::new` trusts the caller for width and height, so a short buffer is a
   // buffer overrun rather than a wrong-looking icon; `cargo test --lib icons`

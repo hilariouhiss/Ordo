@@ -8,8 +8,8 @@ They are raw rather than PNG because `Image::from_bytes` needs tauri's
 `image-png` feature, which pulls in the whole `image` crate for two fixed
 pictures. `Image::new` takes the decoded buffer directly.
 
-Each file is the supplied mark — the artwork with its background removed, black
-ring and `#24C68C` dot — in the ink its own background can read:
+Each file is the mark — a ring with the `#24C68C` dot in its gap, drawn as SVG
+circles in `assets/logo.svg` — in the ink its own background can read:
 
 | | source | ink | contrast on its background |
 | --- | --- | --- | --- |
@@ -35,15 +35,16 @@ and invisible) and bone ink is 1.11:1 on the light one. The measured compromise
 — a single mid-tone that clears 3:1 on both — loses the green entirely; that
 dead end is `docs/DECISIONS.md` M16.
 
-To regenerate after replacing the supplied artwork:
+To regenerate after editing the mark:
 
-1. `node scripts/gen-logo-assets.mjs` — derives `src/assets/logo-dark.svg` from
-   `src/assets/logo.svg` (same pixels, ink swapped; it refuses a file that still
-   has a background) and writes both `.rgba` files, checking that they cover the
-   same pixels in different ink.
+1. `node scripts/gen-logo-assets.mjs` — copies `src/assets/logo.svg` to
+   `logo-square.svg`, derives `src/assets/logo-dark.svg` from it (one drawing,
+   the ring's ink swapped) and writes both `.rgba` files, checking that they
+   cover the same pixels in different ink. Edit `logo.svg` only.
 2. `pnpm tauri icon src/assets/logo.svg` — refreshes the packaged `.ico`/`.png`,
    which is what the bundle (Explorer, installer) wears and what a window has
    before `icons::apply_current` runs. One file, so it is the light variant; the
-   mobile folders it also writes are not part of this project. Delete them.
+   mobile folders and the extra `64x64.png` it also writes are not part of this
+   project. Delete them.
 3. `cargo test --lib icons` — asserts both files are exactly 128*128*4 bytes,
    transparent at the corner, and one shape in two inks.
