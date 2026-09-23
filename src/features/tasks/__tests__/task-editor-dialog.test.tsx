@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isoToLocalInputValue } from "../../../common/utils/datetime";
 import * as projects from "../../projects/store";
@@ -81,6 +82,29 @@ async function selectComplexity(label: string): Promise<void> {
 describe("TaskEditorDialog", () => {
   afterEach(cleanup);
 
+  // R12: 打开即聚焦标题——两种模式的第一个字段都是它，而不是 Kobalte 默认
+  // 聚焦的关闭按钮（它排在表单前面）。这条走「关闭 → 打开」的翻转路径：
+  // 初始就以 open=true 挂载的测试量不到挂载时序（见下面的回归说明）。
+  it("focuses the title field when it opens", () => {
+    renderDialog();
+    expect(document.activeElement).toBe(screen.getByLabelText("标题"));
+  });
+
+  it("focuses the title field when it flips from closed to open", async () => {
+    // 打开动作在真实应用里总是这条路径（信号翻转），而不是以 open=true
+    // 首次渲染。翻转时焦点若在内容挂载之前被设置，输入框还不存在，聚焦
+    // 就静默落空——jsdom 同样复现这个时序。
+    const [open, setOpen] = createSignal(false);
+    render(() => (
+      <TaskEditorDialog open={open()} onOpenChange={() => {}} />
+    ));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    setOpen(true);
+    await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(screen.getByLabelText("标题"));
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     store.resetTasksStore();
@@ -105,13 +129,6 @@ describe("TaskEditorDialog", () => {
         },
       ],
     );
-  });
-
-  // R12: 打开即聚焦标题——两种模式的第一个字段都是它，而不是 Kobalte 默认
-  // 聚焦的关闭按钮（它排在表单前面）。
-  it("focuses the title field when it opens", () => {
-    renderDialog();
-    expect(document.activeElement).toBe(screen.getByLabelText("标题"));
   });
 
   it("creates a task with trimmed title and defaults", async () => {

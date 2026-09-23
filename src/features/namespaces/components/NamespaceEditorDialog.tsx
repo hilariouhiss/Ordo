@@ -54,17 +54,6 @@ export function NamespaceEditorDialog(props: NamespaceEditorDialogProps) {
     ),
   );
 
-  // Opening the dialog puts focus on the name — the first field both modes
-  // touch (R12). Same arrangement as TaskEditorDialog.
-  createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (open) nameRef?.focus();
-      },
-    ),
-  );
-
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     const parsed = formSchema.safeParse({ name: name() });
@@ -97,11 +86,15 @@ export function NamespaceEditorDialog(props: NamespaceEditorDialogProps) {
         <Dialog.Overlay />
         <Dialog.Content
           aria-labelledby="namespace-editor-title"
-          // Kobalte's open-focus targets the first tabbable — the close button,
-          // which sits ahead of the form — and does so in a timeout that would
-          // run after (and undo) the focus taken below. Silenced here so the
-          // name input is what ends up focused (R12).
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          // R12: opening the dialog focuses the name. The focus is taken in
+          // this event, which Kobalte fires from the mounted content — an
+          // effect on `open` flips before the portal mounts and its focus
+          // silently no-ops (see TaskEditorDialog). Preventing the default
+          // also keeps Kobalte's own open-focus off the close button.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            nameRef?.focus();
+          }}
         >
           <Dialog.Title id="namespace-editor-title">
             {props.namespace ? "编辑命名空间" : "新建命名空间"}

@@ -105,18 +105,6 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
     ),
   );
 
-  // Opening the dialog puts focus on the title — the first field both modes
-  // touch (R12). The ref, not the effect, is what makes this work with the
-  // re-seed above: see TagManagerDialog for the same arrangement.
-  createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (open) titleRef?.focus();
-      },
-    ),
-  );
-
   /**
    * Parents a task may be filed under: top-level tasks only (the hierarchy is
    * one level, so a child can never be a parent), minus the task being edited —
@@ -260,11 +248,17 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         <Dialog.Overlay />
         <Dialog.Content
           aria-labelledby={titleId}
-          // Kobalte's open-focus targets the first tabbable — the close button,
-          // which sits ahead of the form — and does so in a timeout that would
-          // run after (and undo) the focus taken below. Silenced here so the
-          // title input is what ends up focused (R12).
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          // R12: opening the dialog focuses the title, the first field both
+          // modes touch. The focus is taken HERE, in the event Kobalte fires
+          // from the mounted content — not in an effect on `open`, which
+          // flips before the portal mounts, so the ref is still unset there
+          // and the focus silently no-ops (every real open is that flip).
+          // Preventing the default also keeps Kobalte's own open-focus off
+          // the first tabbable, which here is the close button.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            titleRef?.focus();
+          }}
         >
           <Dialog.Title id={titleId}>
             {props.task ? "编辑任务" : "新建任务"}
