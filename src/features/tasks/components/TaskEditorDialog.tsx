@@ -79,6 +79,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const [managerOpen, setManagerOpen] = createSignal(false);
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
+  let titleRef: HTMLInputElement | undefined;
 
   // Re-seed the form whenever the dialog (re)opens or switches task.
   createEffect(
@@ -100,6 +101,18 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         setManagerOpen(false);
         setErrors({});
         setSubmitting(false);
+      },
+    ),
+  );
+
+  // Opening the dialog puts focus on the title — the first field both modes
+  // touch (R12). The ref, not the effect, is what makes this work with the
+  // re-seed above: see TagManagerDialog for the same arrangement.
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (open) titleRef?.focus();
       },
     ),
   );
@@ -245,7 +258,14 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay />
-        <Dialog.Content aria-labelledby={titleId}>
+        <Dialog.Content
+          aria-labelledby={titleId}
+          // Kobalte's open-focus targets the first tabbable — the close button,
+          // which sits ahead of the form — and does so in a timeout that would
+          // run after (and undo) the focus taken below. Silenced here so the
+          // title input is what ends up focused (R12).
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
           <Dialog.Title id={titleId}>
             {props.task ? "编辑任务" : "新建任务"}
           </Dialog.Title>
@@ -268,7 +288,12 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               validationState={errors().title ? "invalid" : "valid"}
             >
               <TextField.Label>标题</TextField.Label>
-              <TextField.Input placeholder="例如：写周报" />
+              <TextField.Input
+                ref={(el: HTMLInputElement) => {
+                  titleRef = el;
+                }}
+                placeholder="例如：写周报"
+              />
               <TextField.ErrorMessage>{errors().title ?? ""}</TextField.ErrorMessage>
             </TextField.Root>
 

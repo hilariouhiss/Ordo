@@ -55,6 +55,7 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
   const [newNamespaceName, setNewNamespaceName] = createSignal("");
   const [errors, setErrors] = createSignal<Partial<Record<FormField, string>>>({});
   const [submitting, setSubmitting] = createSignal(false);
+  let nameRef: HTMLInputElement | undefined;
 
   /** Whether the Select currently points at "create a namespace here". */
   const creatingNamespace = () => namespaceId() === NEW_NAMESPACE;
@@ -113,6 +114,17 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
     ),
   );
 
+  // Opening the dialog puts focus on the name — the first field both modes
+  // touch (R12). Same arrangement as TaskEditorDialog.
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (open) nameRef?.focus();
+      },
+    ),
+  );
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     const parsed = formSchema.safeParse({ name: name() });
@@ -164,7 +176,14 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay />
-        <Dialog.Content aria-labelledby="project-editor-title">
+        <Dialog.Content
+          aria-labelledby="project-editor-title"
+          // Kobalte's open-focus targets the first tabbable — the close button,
+          // which sits ahead of the form — and does so in a timeout that would
+          // run after (and undo) the focus taken below. Silenced here so the
+          // name input is what ends up focused (R12).
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
           <Dialog.Title id="project-editor-title">
             {props.project ? "编辑项目" : "新建项目"}
           </Dialog.Title>
@@ -186,7 +205,12 @@ export function ProjectEditorDialog(props: ProjectEditorDialogProps) {
               validationState={errors().name ? "invalid" : "valid"}
             >
               <TextField.Label>名称</TextField.Label>
-              <TextField.Input placeholder="例如：网站改版" />
+              <TextField.Input
+                ref={(el: HTMLInputElement) => {
+                  nameRef = el;
+                }}
+                placeholder="例如：网站改版"
+              />
               <TextField.ErrorMessage>{errors().name ?? ""}</TextField.ErrorMessage>
             </TextField.Root>
 

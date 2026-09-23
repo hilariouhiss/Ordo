@@ -106,7 +106,7 @@ src/
 
 - 使用 **Solid `createStore`**，每个领域一个 store 文件（`features/*/store.ts`）。
 - **任务 store 是「按 id 的表 + 具名范围」**（`features/tasks/store.ts`）：`byId` 一张表，范围（`all`、`project:<id>`）只存 id 数组，同一行被多个范围指向时也只有一份，编辑不会留下两份会互相漂移的副本。项目、标签、命名空间、时间记录仍是各自领域的全量 store。
-- **UI 状态**（侧边栏折叠、当前路由激活态、主题、弹窗开合、拖拽中态）放 `common/stores/` 或组件内 signal，与业务数据分离。
+- **UI 状态**（侧边栏折叠与宽度、当前路由激活态、主题、弹窗开合、拖拽中态）放 `common/stores/` 或组件内 signal，与业务数据分离。其中跨会话要留的两样走 localStorage：主题（`ordo.theme`）与侧边栏宽度（`ordo.sidebarWidth`，192–448px 钳制后写入，R10）；折叠仍是内存态。
 - 派生数据用 Solid 的 `createMemo` 从 store 计算，**不重复存储**：今日任务、统计聚合、命名空间分组、阻塞状态都是派生量。
 - **任务树随启动全量载入**：`loadAll` 一次取回全部存活任务（**含子任务**——子任务就是 `parent_task_id` 非空的行）、标签与依赖边。列表要在折叠状态下就显示「谁有子任务、做完几项」，逐行懒加载会变成 N 次 IPC；层级只有一层，一次全表查询就能带走整棵树。
 - **`all` 快照的批量载入发生在启动**：会话中途的刷新走 `reloadTasks`（重拉任务与标签，整表替换）。它替换的就是权威快照本身，没有第二份需要防覆盖的副本；**已装载**的项目范围也在这一步用同一份快照重新推导 id 列表（成员关系就是行的 `projectId`，顺序就是快照的顺序），没装载过的范围仍然只由 `ensureScope` 按需装载。
@@ -200,7 +200,7 @@ src/
 - 长列表用**虚拟滚动**（`common/components/virtual-list.tsx`，自研轻量实现）。
 - 看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
 - **动效只允许** CSS `transform` / `opacity` / 独立的 `scale`·`translate` 属性；时长 150–300ms；遵循 `prefers-reduced-motion`（由 `index.css` 的全局 `@media` 规则统一兜底，组件里不再逐处写 `motion-reduce:*`）。**「动效」指的是位移类动画**：布局属性（`width`/`height`/`top`）与 `transform` 之外的位移都禁止，`transition-colors` 这类颜色/描边的交叉淡入不在禁令内（它是静态状态的反馈，不是动效）。这几条由 `common/__tests__/design-constraints.test.ts` 扫源码断言——新增属性、时长或关键帧都要同时改那张白名单。
-- **唯一的例外是侧边栏宽度**：折叠/展开时 `width` 在 224px 与 52px 之间过渡（`AppShell` 的 `SIDEBAR_RAIL_CLASS`，200ms）。它确实是布局属性、会逐帧 reflow，所以只允许出现在这一处：白名单里也只放行 `transition-[width]` 一项，再加第二个布局属性就要同时改测试与本条。侧边栏的文字标签只在展开时挂载，配 `transition-opacity` 让它们随轨道变宽淡入（收起仍是瞬时消失——没有 presence，退场动画不会触发）。
+- **唯一的例外是侧边栏宽度**：折叠/展开时 `width` 在记忆宽度（默认 224px，R10）与 52px 之间过渡（`AppShell` 的 `SIDEBAR_RAIL_CLASS`，200ms）。它确实是布局属性、会逐帧 reflow，所以只允许出现在这一处：白名单里也只放行 `transition-[width]` 一项，再加第二个布局属性就要同时改测试与本条。侧边栏的文字标签只在展开时挂载，配 `transition-opacity` 让它们随轨道变宽淡入（收起仍是瞬时消失——没有 presence，退场动画不会触发）。宽度拖拽本身不走过渡：拖拽期间轨道摘掉 `SIDEBAR_RAIL_CLASS`，每次 `pointermove` 直接写入宽度（Pointer Events + `setPointerCapture`，不用 rAF），否则宽度追不上指针；把手同时是键盘可调的 `separator`（←/→ ±16px、Home/End、双击复位）。
 - **浮层只做入场动画，不做退场动画**：Kobalte 的 presence 会等动画结束才卸载元素，一个没触发的退场动画会留下一层看不见但吃掉所有点击的遮罩。入场动画必须写在 `scale` / `translate` 长属性上而非 `transform`：Kobalte 用 `transform: translate(...)` 定位浮层，动画里写 `transform` 会在结束时把浮层弹回原点。
 - 所有可点元素都有 hover 与按下反馈（按下用 `scale` 收缩）；加载态用骨架屏而不是纯文字，骨架形状对齐最终布局。
 - **键盘等价入口**：拖放（R7a/R7b/R7c、看板换列）各自都有一个不用鼠标的入口——项目编辑器选命名空间、任务编辑器选父任务与所属项目、看板卡片 ⋯ 菜单的「移到 X」。新增拖放能力时必须同时给出这条路径，`TaskItemRow` / `BoardCard` / `BoardColumnView` 上的 `noStaticElementInteractions` 忽略注释写的就是这条约定。

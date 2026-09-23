@@ -5,7 +5,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EVENTS } from "../../common/ipc/events";
-import { sidebarCollapsed, toggleSidebar } from "../../common/stores/ui";
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  setSidebarWidth,
+  sidebarCollapsed,
+  toggleSidebar,
+} from "../../common/stores/ui";
 import { closeTaskViewer } from "../../common/stores/taskViewer";
 import {
   clearNotifications,
@@ -167,6 +174,10 @@ beforeEach(() => {
   resetTasksStore();
   clearNotifications();
   closeTaskViewer();
+  // The width signal is module-level and persisted; without this, a resize
+  // test's leftover width becomes the next test's starting width.
+  localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY);
+  setSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
 });
 
 afterEach(cleanup);
@@ -463,7 +474,9 @@ describe("AppShell sidebar", () => {
     await screen.findByRole("link", { name: "杂事" });
     // Wait for the shell's task load, or the absence below proves nothing.
     await waitFor(() => expect(tasksState.loaded).toBe(true));
-    expect(screen.queryByRole("button", { name: /项目 杂事/ })).toBeNull();
+    // The disclosure arrow is what must be gone; the row still carries its ＋
+    // (R11), so the name matches the arrow's own wording, not the row's.
+    expect(screen.queryByRole("button", { name: /(收起|展开)项目 杂事/ })).toBeNull();
   });
 
   it("opens the task detail from a task row in the tree", async () => {
@@ -768,5 +781,118 @@ describe("the view transition", () => {
     // would have nothing left to scroll it.
     expect(wrapper.className).toContain("overflow-y-auto");
     expect(wrapper.className).toContain("h-full");
+  });
+});
+
+/*
+ * R10/R11: the rail's width is adjustable and every active tree row carries a
+ * ＋ that creates inside it. The archived rows keep their 恢复 button instead —
+ * the trailing slot is one button wide, and creating into an archived container
+ * is not a thing the sidebar should offer.
+ */
+describe("the sidebar rail and its row ＋", () => {
+  it("creates a project in the namespace and a task in the project from the row ＋", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "网站改版", { namespaceId: "ns1" }),
+      project("p2", "杂事"),
+    ]);
+    renderShell();
+
+    // The namespace row's ＋ opens the project dialog already filed into it…
+    fireEvent.click(await screen.findByRole("button", { name: "在命名空间 工作 中新建项目" }));
+    const projectDialog = await screen.findByRole("dialog");
+    expect(projectDialog.textContent).toContain("新建项目");
+    expect(within(projectDialog).getByText("工作"), "the namespace was not preselected").toBeTruthy();
+
+    fireEvent.click(within(projectDialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // …and the project row's ＋ opens the task dialog already inside it, for
+    // nested and root-level rows alike.
+    fireEvent.click(screen.getByRole("button", { name: "在项目 网站改版 中新建任务" }));
+    const taskDialog = await screen.findByRole("dialog");
+    expect(taskDialog.textContent).toContain("新建任务");
+    expect(within(taskDialog).getByText("网站改版"), "the project was not preselected").toBeTruthy();
+    fireEvent.click(within(taskDialog).getByRole("button", { name: "取消" }));
+  });
+
+  it("offers no row ＋ in the archived section, only the restore buttons", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([
+      namespace("ns1", "旧线", "archived"),
+    ]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "归档项目", { status: "archived" }),
+    ]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: /已归档/ }));
+
+    await screen.findByRole("button", { name: "恢复命名空间 旧线" });
+    expect(screen.queryByRole("button", { name: "在命名空间 旧线 中新建项目" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "在项目 归档项目 中新建任务" })).toBeNull();
+  });
+
+  it("drops the row ＋ and the resize handle in the collapsed rail", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "网站改版", { namespaceId: "ns1" }),
+    ]);
+    renderShell();
+
+    await screen.findByRole("button", { name: "在命名空间 工作 中新建项目" });
+    toggleSidebar();
+    await waitFor(() => expect(sidebarCollapsed()).toBe(true));
+
+    // The 52px rail has no room for a trailing button and no width worth
+    // adjusting — neither the ＋ nor the handle renders.
+    expect(screen.queryByRole("button", { name: /中新建/ })).toBeNull();
+    expect(screen.queryByRole("separator", { name: "调整侧边栏宽度" })).toBeNull();
+
+    // The collapse signal is module-level: leave it expanded for later tests.
+    toggleSidebar();
+    await waitFor(() => expect(sidebarCollapsed()).toBe(false));
+  });
+
+  it("widens the rail from the keyboard, clamps at the bounds, and resets on double-click", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([]);
+    renderShell();
+
+    const handle = await screen.findByRole("separator", { name: "调整侧边栏宽度" });
+    expect(handle.getAttribute("aria-valuenow")).toBe(String(SIDEBAR_WIDTH_DEFAULT));
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(handle.getAttribute("aria-valuenow")).toBe(String(SIDEBAR_WIDTH_DEFAULT + 16));
+
+    fireEvent.keyDown(handle, { key: "End" });
+    expect(handle.getAttribute("aria-valuenow")).toBe(String(SIDEBAR_WIDTH_MAX));
+
+    fireEvent.dblClick(handle);
+    expect(handle.getAttribute("aria-valuenow")).toBe(String(SIDEBAR_WIDTH_DEFAULT));
+  });
+
+  it("follows the pointer across a drag and stops animating while it does", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([]);
+    renderShell();
+
+    const handle = await screen.findByRole("separator", { name: "调整侧边栏宽度" });
+    const rail = screen.getByRole("complementary", { name: "侧边栏导航" });
+
+    fireEvent.pointerDown(handle, { clientX: 300, pointerId: 1 });
+    // A transitioned width trails the cursor, so the rail drops the transition
+    // for the length of the drag (see `SIDEBAR_RAIL_CLASS`).
+    expect(rail.classList.contains("transition-[width]")).toBe(false);
+
+    fireEvent.pointerMove(handle, { clientX: 372, pointerId: 1 });
+    expect(handle.getAttribute("aria-valuenow")).toBe(String(SIDEBAR_WIDTH_DEFAULT + 72));
+
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    expect(rail.classList.contains("transition-[width]")).toBe(true);
+    // What the drag wrote is what the next launch reads.
+    expect(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(
+      String(SIDEBAR_WIDTH_DEFAULT + 72),
+    );
   });
 });

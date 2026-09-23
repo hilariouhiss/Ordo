@@ -25,7 +25,15 @@ import { EVENTS } from "../common/ipc/events";
 import { beginDrag, draggedId, endDrag } from "../common/stores/drag";
 import { pushInfo } from "../common/stores/notifications";
 import { openTaskViewer } from "../common/stores/taskViewer";
-import { sidebarCollapsed, toggleSidebar } from "../common/stores/ui";
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  setSidebarWidth,
+  sidebarCollapsed,
+  sidebarWidth,
+  toggleSidebar,
+} from "../common/stores/ui";
 import { getIcon } from "../common/icons";
 import TaskViewer from "./TaskViewer";
 import { NamespaceEditorDialog } from "../features/namespaces/components/NamespaceEditorDialog";
@@ -50,6 +58,7 @@ import { archivedProjects, getProject, projectsState } from "../features/project
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
 import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
+import { TaskEditorDialog } from "../features/tasks/components/TaskEditorDialog";
 import * as tasksApi from "../features/tasks/api";
 import {
   ensureScope,
@@ -126,6 +135,10 @@ function navRowClass(collapsed: boolean): string {
  * layout property on the transition allow-list (see `index.css`'s note and
  * `common/__tests__/design-constraints.test.ts`). 200ms is fast enough that the
  * reflow it costs never reads as lag.
+ *
+ * The one thing that must not pay it is the resize drag: a transitioned width
+ * trails the cursor, so the rail drops this class while `resizing` and the
+ * pointer writes the width directly (still no rAF — that stays banned).
  */
 const SIDEBAR_RAIL_CLASS = "transition-[width] duration-200 ease-out";
 
@@ -140,9 +153,13 @@ const SIDEBAR_RAIL_CLASS = "transition-[width] duration-200 ease-out";
  * Level 0 (`-ml-2`) puts the slot in the sidebar's own 8px gutter, a hair right
  * of the nav icons above it; level 1 (`-ml-2.5`) puts it on the child list's
  * guide line, which leaves those rows exactly where they already were.
+ *
+ * `group` scopes the hover of the row's trailing ＋ to the row itself: the child
+ * list below a row lives outside this div, so hovering a child never lights up
+ * its parent's button.
  */
 function treeRowClass(level: 0 | 1): string {
-  return `flex items-center rounded-md ${level === 0 ? "-ml-2" : "-ml-2.5"}`;
+  return `group flex items-center rounded-md ${level === 0 ? "-ml-2" : "-ml-2.5"}`;
 }
 
 /** The `Link` half of such a row: the slot already spent the leading padding. */
@@ -233,6 +250,27 @@ function CreateHeader(props: { label: string; onCreate: () => void; class?: stri
         <Plus size={14} aria-hidden="true" />
       </button>
     </div>
+  );
+}
+
+/**
+ * The per-row ＋ (R11): a namespace row's creates a project inside it, a project
+ * row's creates a task inside it. Revealed by hovering the row (`group` on
+ * `treeRowClass`) or by tabbing into it, and it keeps its 28px slot even while
+ * invisible so the row's name does not reflow on hover — the same contract as
+ * the archived rows' 恢复 button.
+ */
+function QuickAddButton(props: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      title={props.label}
+      class={`${iconButtonClass} opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 focus-visible:opacity-100`}
+      onClick={props.onClick}
+    >
+      <Plus size={14} aria-hidden="true" />
+    </button>
   );
 }
 
@@ -403,13 +441,14 @@ function ProjectItem(props: {
 /** Namespace group header: chevron toggles the group, the name navigates.
  *
  * It is also the drop target for R7a: dragging a project row onto it files the
- * project into that namespace. */
+ * project into that namespace. `trailing` carries the row's ＋ (R11). */
 function NamespaceRow(props: {
   namespace: Namespace;
   collapsed: boolean;
   open: boolean;
   count: number;
   onToggle: () => void;
+  trailing?: JSX.Element;
 }) {
   // Collapsed, the nested nav never renders, so the chevron would toggle
   // nothing — and `flex-1 min-w-0` inside the 36px rail leaves the `Link` a
@@ -475,7 +514,85 @@ function NamespaceRow(props: {
           <span class="shrink-0 text-xs tabular-nums text-subtle-foreground">{props.count}</span>
         </Show>
       </Link>
+      {/* Collapsed, the row has neither the room nor the `group` class the
+          hover reveal hangs on, so the ＋ stays out of the rail entirely. */}
+      <Show when={!props.collapsed}>{props.trailing}</Show>
     </div>
+  );
+}
+
+/**
+ * The rail's right-edge drag handle (R10). Pointer capture keeps the drag
+ * alive outside the 6px strip; each `pointermove` writes the width straight
+ * from `clientX` — no rAF, which the design constraints ban. The keyboard path
+ * moves ±16px (Home/End for the bounds) and a double-click resets to the
+ * shipped width. `resizing` is reported back so the rail can drop its width
+ * transition while the pointer is the animation.
+ */
+function SidebarResizeHandle(props: {
+  resizing: boolean;
+  onResizingChange: (resizing: boolean) => void;
+}) {
+  let startX = 0;
+  let startWidth = 0;
+
+  const stop: JSX.EventHandler<HTMLDivElement, PointerEvent> = (event) => {
+    props.onResizingChange(false);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // jsdom has no pointer capture to release; the state is the source of truth.
+    }
+    document.documentElement.style.userSelect = "";
+  };
+
+  // A drag ended by the tree changing under it (collapse) must not leave the
+  // document with selection turned off.
+  onCleanup(() => {
+    document.documentElement.style.userSelect = "";
+  });
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整侧边栏宽度"
+      title="拖拽调整宽度，双击恢复默认"
+      tabindex={0}
+      aria-valuemin={SIDEBAR_WIDTH_MIN}
+      aria-valuemax={SIDEBAR_WIDTH_MAX}
+      aria-valuenow={sidebarWidth()}
+      class="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none transition-colors duration-150 ease-out focus-ring hover:bg-primary/40 active:bg-primary/60"
+      classList={{ "bg-primary/60": props.resizing }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        startX = event.clientX;
+        startWidth = sidebarWidth();
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // See `stop`.
+        }
+        props.onResizingChange(true);
+        // A fast drag sweeps the content area; without this it selects it.
+        document.documentElement.style.userSelect = "none";
+      }}
+      onPointerMove={(event) => {
+        if (!props.resizing) return;
+        setSidebarWidth(startWidth + event.clientX - startX);
+      }}
+      onPointerUp={stop}
+      onPointerCancel={stop}
+      onDblClick={() => setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") setSidebarWidth(sidebarWidth() - 16);
+        else if (event.key === "ArrowRight") setSidebarWidth(sidebarWidth() + 16);
+        else if (event.key === "Home") setSidebarWidth(SIDEBAR_WIDTH_MIN);
+        else if (event.key === "End") setSidebarWidth(SIDEBAR_WIDTH_MAX);
+        else return;
+        event.preventDefault();
+      }}
+    />
   );
 }
 
@@ -493,6 +610,16 @@ export default function AppShell() {
   /** The unfiled drop zone is hot (R7a). */
   const [rootOver, setRootOver] = createSignal(false);
   const [namespaceEditorOpen, setNamespaceEditorOpen] = createSignal(false);
+  // A sidebar ＋ opens the shell's project dialog pre-filed into that namespace
+  // (R11); the section-level ＋ clears it again.
+  const [projectPresetNamespaceId, setProjectPresetNamespaceId] = createSignal<string | null>(
+    null,
+  );
+  // The per-project ＋'s task dialog (R11): create-only, always with a project.
+  const [taskEditorOpen, setTaskEditorOpen] = createSignal(false);
+  const [taskPresetProjectId, setTaskPresetProjectId] = createSignal<string | null>(null);
+  // Mid-drag, the rail must not animate its width (see `SIDEBAR_RAIL_CLASS`).
+  const [resizing, setResizing] = createSignal(false);
   // Collapsed namespaces, by id. Local on purpose: like `archivedOpen`, this is
   // view state, not data — nothing else needs it and it must not survive a
   // restart as a surprise.
@@ -551,7 +678,21 @@ export default function AppShell() {
 
   const openCreateProject = () => {
     setEditingProject(null);
+    setProjectPresetNamespaceId(null);
     setEditorOpen(true);
+  };
+
+  /** The namespace row's ＋ (R11): the project starts out filed inside it. */
+  const openCreateProjectIn = (namespaceId: string) => {
+    setEditingProject(null);
+    setProjectPresetNamespaceId(namespaceId);
+    setEditorOpen(true);
+  };
+
+  /** The project row's ＋ (R11): the task starts out inside the project. */
+  const openCreateTaskIn = (projectId: string) => {
+    setTaskPresetProjectId(projectId);
+    setTaskEditorOpen(true);
   };
 
   // Create only: renaming and archiving a namespace live on its own page, so
@@ -571,9 +712,13 @@ export default function AppShell() {
 
       <aside
         aria-label="侧边栏导航"
-        class={`flex shrink-0 flex-col border-r border-border bg-surface ${SIDEBAR_RAIL_CLASS} ${
-          collapsed() ? "w-13" : "w-56"
-        }`}
+        class={`relative flex shrink-0 flex-col border-r border-border bg-surface ${
+          resizing() ? "" : SIDEBAR_RAIL_CLASS
+        } ${collapsed() ? "w-13" : ""}`}
+        // Expanded, the width is a live number (R10) rather than a class, so
+        // the drag can write it without generating utility classes. The
+        // transition animates the computed width either way, collapse included.
+        style={collapsed() ? undefined : { width: `${sidebarWidth()}px` }}
       >
         <div
           class={`flex h-12 shrink-0 items-center gap-2.5 ${collapsed() ? "justify-center px-2" : "px-3"}`}
@@ -633,6 +778,12 @@ export default function AppShell() {
                       open={groupOpen(namespace.id)}
                       count={projectsInNamespace(namespace.id).length}
                       onToggle={() => toggleGroup(namespace.id)}
+                      trailing={
+                        <QuickAddButton
+                          label={`在命名空间 ${namespace.name} 中新建项目`}
+                          onClick={() => openCreateProjectIn(namespace.id)}
+                        />
+                      }
                     />
                     <Show when={!collapsed() && groupOpen(namespace.id)}>
                       <nav
@@ -641,7 +792,17 @@ export default function AppShell() {
                       >
                         <For each={projectsInNamespace(namespace.id)}>
                           {(project) => (
-                            <ProjectItem project={project} collapsed={collapsed()} nested />
+                            <ProjectItem
+                              project={project}
+                              collapsed={collapsed()}
+                              nested
+                              trailing={
+                                <QuickAddButton
+                                  label={`在项目 ${project.name} 中新建任务`}
+                                  onClick={() => openCreateTaskIn(project.id)}
+                                />
+                              }
+                            />
                           )}
                         </For>
                       </nav>
@@ -678,7 +839,18 @@ export default function AppShell() {
             }}
           >
             <For each={ungroupedProjects()}>
-              {(project) => <ProjectItem project={project} collapsed={collapsed()} />}
+              {(project) => (
+                <ProjectItem
+                  project={project}
+                  collapsed={collapsed()}
+                  trailing={
+                    <QuickAddButton
+                      label={`在项目 ${project.name} 中新建任务`}
+                      onClick={() => openCreateTaskIn(project.id)}
+                    />
+                  }
+                />
+              )}
             </For>
           </nav>
 
@@ -803,6 +975,12 @@ export default function AppShell() {
             <Show when={!collapsed()}>收起侧边栏</Show>
           </button>
         </nav>
+
+        {/* R10: the rail's right edge. Rendered only while expanded — a
+            collapsed rail has no width worth adjusting. */}
+        <Show when={!collapsed()}>
+          <SidebarResizeHandle resizing={resizing()} onResizingChange={setResizing} />
+        </Show>
       </aside>
 
       {/* No shell-level header: each view renders its own, inline with its
@@ -837,6 +1015,13 @@ export default function AppShell() {
         open={editorOpen()}
         onOpenChange={setEditorOpen}
         project={editingProject() ?? undefined}
+        defaultNamespaceId={projectPresetNamespaceId()}
+      />
+
+      <TaskEditorDialog
+        open={taskEditorOpen()}
+        onOpenChange={setTaskEditorOpen}
+        defaultProjectId={taskPresetProjectId() ?? undefined}
       />
 
       <NamespaceEditorDialog

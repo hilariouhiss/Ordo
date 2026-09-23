@@ -107,6 +107,13 @@ describe("TaskEditorDialog", () => {
     );
   });
 
+  // R12: 打开即聚焦标题——两种模式的第一个字段都是它，而不是 Kobalte 默认
+  // 聚焦的关闭按钮（它排在表单前面）。
+  it("focuses the title field when it opens", () => {
+    renderDialog();
+    expect(document.activeElement).toBe(screen.getByLabelText("标题"));
+  });
+
   it("creates a task with trimmed title and defaults", async () => {
     vi.mocked(hooks.createTask).mockResolvedValue(taskFixture("new-1"));
     const { onOpenChange } = renderDialog();

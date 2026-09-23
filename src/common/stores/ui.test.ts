@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   resolveTheme,
   setTheme,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STORAGE_KEY,
   THEME_STORAGE_KEY,
   themePreference,
 } from "./ui";
@@ -44,6 +48,53 @@ describe("theme preference persistence", () => {
 
     expect(themePreference()).toBe("dark");
     expect(setItem).toHaveBeenCalledWith(THEME_STORAGE_KEY, "dark");
+  });
+});
+
+describe("sidebar width persistence", () => {
+  /*
+   * The width has to survive a restart (R10), and a stored value nobody can
+   * still produce — hand-edited, or written by an older build with different
+   * bounds — must not hand the shell a rail the handle could never show.
+   */
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function freshStore(stored: string | null): Promise<typeof import("./ui")> {
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => stored), setItem: vi.fn() });
+    vi.resetModules();
+    return import("./ui");
+  }
+
+  it("seeds from storage", async () => {
+    const store = await freshStore("260");
+    expect(store.sidebarWidth()).toBe(260);
+  });
+
+  it("clamps a stored value into the allowed band", async () => {
+    const store = await freshStore("9999");
+    expect(store.sidebarWidth()).toBe(SIDEBAR_WIDTH_MAX);
+  });
+
+  it("falls back to the default when storage holds nothing usable", async () => {
+    const store = await freshStore("not-a-number");
+    expect(store.sidebarWidth()).toBe(SIDEBAR_WIDTH_DEFAULT);
+  });
+
+  it("rounds, clamps and persists what the resize paths write", async () => {
+    const setItem = vi.fn();
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem });
+    vi.resetModules();
+    const store = await import("./ui");
+
+    store.setSidebarWidth(320.6);
+    expect(store.sidebarWidth()).toBe(321);
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_WIDTH_STORAGE_KEY, "321");
+
+    store.setSidebarWidth(SIDEBAR_WIDTH_MIN - 500);
+    expect(store.sidebarWidth()).toBe(SIDEBAR_WIDTH_MIN);
+    expect(setItem).toHaveBeenLastCalledWith(SIDEBAR_WIDTH_STORAGE_KEY, String(SIDEBAR_WIDTH_MIN));
   });
 });
 

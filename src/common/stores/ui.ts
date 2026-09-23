@@ -9,6 +9,14 @@ export type ResolvedTheme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "ordo.theme";
 
+/** Sidebar width bounds, in px. The default is the width the rail shipped with
+ * (`w-56`); the minimum keeps a row readable with its trailing ＋, the maximum
+ * keeps the content area from being squeezed on a typical window. */
+export const SIDEBAR_WIDTH_STORAGE_KEY = "ordo.sidebarWidth";
+export const SIDEBAR_WIDTH_MIN = 192;
+export const SIDEBAR_WIDTH_MAX = 448;
+export const SIDEBAR_WIDTH_DEFAULT = 224;
+
 const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 function safeGetItem(key: string): string | null {
@@ -71,6 +79,17 @@ function readInitialPreference(): ThemePreference {
   return isThemePreference(stored) ? stored : "system";
 }
 
+function clampSidebarWidth(value: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)));
+}
+
+/** The stored width, clamped — a stale or hand-edited value must not hand the
+ * shell a width the resize handle could never produce. */
+function readInitialSidebarWidth(): number {
+  const stored = Number(safeGetItem(SIDEBAR_WIDTH_STORAGE_KEY));
+  return Number.isFinite(stored) ? clampSidebarWidth(stored) : SIDEBAR_WIDTH_DEFAULT;
+}
+
 const [preference, setPreference] = createSignal<ThemePreference>(readInitialPreference());
 const [resolved, setResolved] = createSignal<ResolvedTheme>(resolveTheme(preference()));
 
@@ -84,6 +103,19 @@ const [collapsed, setCollapsed] = createSignal(false);
 
 /** Whether the app sidebar is collapsed to icon-only mode (in-memory only). */
 export const sidebarCollapsed = collapsed;
+
+const [width, setWidth] = createSignal(readInitialSidebarWidth());
+
+/** The expanded sidebar's width in px (persisted; collapse is a separate state). */
+export const sidebarWidth = width;
+
+/** Persist and apply a new sidebar width. Out-of-range values clamp, so both
+ * the drag and the keyboard path can write without pre-checking. */
+export function setSidebarWidth(next: number): void {
+  const clamped = clampSidebarWidth(next);
+  setWidth(clamped);
+  safeSetItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped));
+}
 
 /** Persist and apply a new theme preference. */
 export function setTheme(next: ThemePreference): void {
