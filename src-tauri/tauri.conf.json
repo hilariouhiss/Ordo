@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,5 +36,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzODhGQjQzRjA5Mjc0RjAKUldUd2RKTHdRL3VJNHpmcW5GOGVHWTk2Sy8zdWQ5Yktpb1J5WkZQb2lDVmxJdWtYaTRqWlhnN0sK",
+      "endpoints": [
+        "https://github.com/hilariouhiss/Ordo/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

@@ -1,0 +1,76 @@
+# 发布（R15）：推送 v* tag 即出签名安装包与更新用的 latest.json。
+#
+# 触发方式只有 tag——tag 就是「要发布」这个决定本身。版本号不在这里改：
+# `scripts/check-release-version.mjs` 先校验 tag 与三处版本字段一致（Cargo.toml /
+# tauri.conf.json / package.json），不一致就红。理由是 tauri-action 把 app 版本写进
+# latest.json，而 tag 与文件不一致时它会安静地发布一个「谁都更新不到」的版本。
+#
+# 只出 NSIS：latest.json 的 windows-x86_64 只能有一个 URL，同时出 MSI 会让「自动更新
+# 装哪一个」变含糊，且 MSI 需要提权。要 MSI 时把 args 改成 `--bundles nsis,msi` 并把
+# updaterJsonPreferNsis 显式写上（它的默认值是 false，即偏好 MSI）。
+#
+# macOS / Linux 以后加：matrix.include 里加行即可，其余步骤已经按平台分支写好。
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# tauri-action 要建 release 并上传资产。
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: '--bundles nsis'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # `workspaces: src-tauri` 是 tauri 项目的固定写法：否则缓存键按仓库根的
+      # Cargo.lock 算，而真正的锁文件在 src-tauri/ 下，缓存永远不命中。
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 先于构建：版本不一致时不要浪费一次十几分钟的构建。
+      - name: check tag matches the three version fields
+        run: node scripts/check-release-version.mjs "${{ github.ref_name }}"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 更新包的签名私钥（minisign）。丢了就再也签不了名，已安装的版本只认
+          # 它签的包——见 docs/ARCHITECTURE.md 的发布一节。
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # 必须显式给一个空值。密钥是无密码生成的，但 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+          # 缺失时 CLI 会去问 stdin（打印 "Signing without password." 之后仍等输入）：
+          # 本地表现为构建卡在最后一步，CI 里就是挂到 6 小时超时。
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Ordo v__VERSION__'
+          # 版本号已经由上面那步校验过，所以这里让 GitHub 自己生成发布说明。
+          generateReleaseNotes: true
+          # 非草稿、非预发布：`releases/latest/download/latest.json` 只认最新一个
+          # 正式 release，草稿或 prerelease 会让更新源 404。
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}

@@ -1,7 +1,14 @@
 import { Show, createSignal, onMount } from "solid-js";
 import { format } from "date-fns";
-import { Download, Upload } from "lucide-solid";
+import { Download, RefreshCw, Upload } from "lucide-solid";
+import { getVersion } from "@tauri-apps/api/app";
 import { Button, Checkbox, Dialog } from "../../../common/components";
+import { pushError, pushInfo } from "../../../common/stores/notifications";
+import {
+  checkNow,
+  installAndRestart,
+  updateState,
+} from "../updates";
 import {
   loadAutostart,
   pickBackupFile,
@@ -35,10 +42,29 @@ export function SettingsView() {
   const [pendingPath, setPendingPath] = createSignal<string | null>(null);
   const [autostart, setAutostartOn] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+  const [version, setVersion] = createSignal<string | null>(null);
 
   onMount(() => {
     void loadAutostart().then(setAutostartOn);
+    // The version comes from the bundle, not from the frontend's package.json:
+    // the two are bumped together by a release, and only one of them is what
+    // the updater compares against.
+    void getVersion().then(setVersion).catch(() => setVersion(null));
   });
+
+  /**
+   * 「检查更新」. The automatic path stays quiet about failures; this one is a
+   * question the user asked, so it always answers — including "you are already
+   * up to date", which the state itself cannot express.
+   */
+  async function manualCheck(): Promise<void> {
+    const outcome = await checkNow();
+    if (outcome === "none") pushInfo("已是最新版本");
+    else if (outcome === "disabled") pushInfo("开发构建：自动更新已关闭");
+    else if (outcome === "failed") {
+      pushError(`检查更新失败：${updateState().error ?? "未知原因"}`);
+    }
+  }
 
   async function toggleAutostart(enabled: boolean): Promise<void> {
     setBusy(true);
@@ -144,6 +170,52 @@ export function SettingsView() {
             </Checkbox.Control>
             <Checkbox.Label>开机自启</Checkbox.Label>
           </Checkbox.Root>
+        </section>
+
+        <section aria-label="关于" class={`${PANEL_CLASS} mt-5 max-w-2xl`}>
+          <h2 class="text-sm font-semibold tracking-tight text-foreground">关于</h2>
+          <p class="mt-1.5 text-sm text-muted-foreground">
+            Ordo {version() ?? "…"}。启动后会自动检查更新，发现新版本就静默下载，
+            下载完再提示重启；自动检查失败不会打扰你，结果都记在这里。
+          </p>
+
+          <Show when={updateState().phase === "ready"}>
+            <p class="mt-3 rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
+              v{updateState().version} 已下载
+              {updateState().autoRestart ? "，正在等待重启" : "，将在下次启动时安装"}。
+            </p>
+          </Show>
+          <Show when={updateState().error}>
+            {(message) => (
+              <p role="status" class="mt-3 break-words rounded-md bg-sunken px-3 py-2 text-xs text-danger">
+                最近一次更新失败：{message()}
+              </p>
+            )}
+          </Show>
+
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={updateState().phase === "checking" || updateState().phase === "downloading"}
+              onClick={() => void manualCheck()}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              {updateState().phase === "checking" ? "正在检查…" : "检查更新"}
+            </Button>
+            <Show when={updateState().phase === "ready"}>
+              <Button size="sm" onClick={() => void installAndRestart()}>
+                立即重启并更新
+              </Button>
+            </Show>
+            <Show when={updateState().checkedAt}>
+              {(at) => (
+                <span class="text-xs text-subtle-foreground">
+                  最近检查：{format(new Date(at()), "yyyy-MM-dd HH:mm")}
+                </span>
+              )}
+            </Show>
+          </div>
         </section>
       </div>
 

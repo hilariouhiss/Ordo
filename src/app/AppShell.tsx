@@ -68,6 +68,8 @@ import {
 import { archivedProjects, getProject, projectsState } from "../features/projects/store";
 import type { Project } from "../features/projects/types";
 import { subscribeToReminders } from "../features/tasks/reminders";
+import { startAutoUpdate } from "../features/settings/updates";
+import { UpdatePrompt } from "../features/settings/components/UpdatePrompt";
 import { BlockedConfirmHost } from "../features/tasks/components/BlockedConfirmHost";
 import { TaskEditorDialog } from "../features/tasks/components/TaskEditorDialog";
 import * as tasksApi from "../features/tasks/api";
@@ -766,6 +768,17 @@ export default function AppShell() {
     // Q-01 性能验收：「首屏可交互」= 外壳的这几笔一次性加载都落地了（失败的也算
     // 落地，否则一次断网就让验收拿不到数字）。
     void Promise.allSettled(initialLoads).then(markInteractive);
+    // 自动更新（R15）在**首屏可交互之后**再启动：更新检查不是「屏幕能不能用」的
+    // 一部分（§6.1 的口径就是上面那四笔），而它要下载几 MB。3 秒的延迟让首帧、
+    // 路由与数据都先落定，再让更新去占网络与磁盘。dev 构建里整条流程不启动。
+    let stopUpdates: (() => void) | undefined;
+    const updateTimer = setTimeout(() => {
+      stopUpdates = startAutoUpdate();
+    }, 3000);
+    onCleanup(() => {
+      clearTimeout(updateTimer);
+      stopUpdates?.();
+    });
     // Both subscriptions are app-lifetime in production; the disposers are what
     // keeps a remount (HMR, tests) from stacking a second copy of each.
     onCleanup(subscribeToReminders());
@@ -1205,6 +1218,10 @@ export default function AppShell() {
       <TaskViewer />
 
       <BlockedConfirmHost />
+
+      {/* 更新卡片（R15）与 toaster 各占一角：一次失败的写入与一张更新卡片
+          可以同时在屏幕上，不该抢同一个位置。 */}
+      <UpdatePrompt />
 
       <Toaster />
     </div>

@@ -33,6 +33,11 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-single-instance = "2.4.4"
+# 应用内自动更新（R15）：updater 负责 check/download/install，process 提供
+# `relaunch()`（它的 `restart` 命令）。两者都由前端调用，权限在
+# `capabilities/updater.json` 里只开给主窗。
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # The taskbar icon (`icons.rs`): tauri has no API for `ICON_BIG`, so the handle
 # is built with the same crates tao uses. Pinned to the version tauri already

@@ -27,6 +27,27 @@ vi.mock("../../tasks/hooks", () => ({
 vi.mock("../../projects/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
 vi.mock("../../namespaces/hooks", () => ({ loadAll: vi.fn().mockResolvedValue(true) }));
 
+// 关于面板的版本号来自打包元信息（`app:getVersion`），不是前端 package.json。
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn().mockResolvedValue("0.1.4"),
+}));
+
+// 「检查更新」的三种结果各有一句要说的话；更新流程本身在 `updates.test.ts`
+// 里测，这里只当它是替身。
+const checkNowMock = vi.fn();
+vi.mock("../updates", () => ({
+  checkNow: (...args: unknown[]) => checkNowMock(...args),
+  installAndRestart: vi.fn(),
+  updateState: () => ({
+    phase: "idle",
+    version: null,
+    percent: null,
+    error: null,
+    checkedAt: null,
+    autoRestart: true,
+  }),
+}));
+
 function summary(overrides: Partial<BackupSummary> = {}): BackupSummary {
   return {
     path: "C:\\backups\\ordo-backup-20260911-120000.json",
@@ -208,5 +229,37 @@ describe("SettingsView startup", () => {
     await waitFor(() => expect(api.setAutostart).toHaveBeenCalledWith(true));
     expect(toggle.checked).toBe(false);
     await waitFor(() => expect(notifications()[0]?.message).toBe("无法写入登录项"));
+  });
+});
+
+describe("SettingsView 关于面板", () => {
+  it("显示打包版本，并在手动检查后报告已是最新", async () => {
+    checkNowMock.mockResolvedValue("none");
+
+    render(() => <SettingsView />);
+
+    expect(await screen.findByText(/Ordo 0\.1\.4/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /检查更新/ }));
+
+    await waitFor(() => expect(checkNowMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(notifications()[0]?.message).toBe("已是最新版本"));
+  });
+
+  it("检查失败时把原因说出来", async () => {
+    checkNowMock.mockResolvedValue("failed");
+
+    render(() => <SettingsView />);
+    fireEvent.click(await screen.findByRole("button", { name: /检查更新/ }));
+
+    await waitFor(() => expect(notifications()[0]?.message).toContain("检查更新失败"));
+  });
+
+  it("开发构建里手动检查也如实说明", async () => {
+    checkNowMock.mockResolvedValue("disabled");
+
+    render(() => <SettingsView />);
+    fireEvent.click(await screen.findByRole("button", { name: /检查更新/ }));
+
+    await waitFor(() => expect(notifications()[0]?.message).toContain("开发构建"));
   });
 });

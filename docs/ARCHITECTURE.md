@@ -206,6 +206,17 @@ src/
 - **键盘等价入口**：拖放（R7a/R7b/R7c、看板换列）各自都有一个不用鼠标的入口——项目编辑器选命名空间、任务编辑器选父任务与所属项目、看板卡片 ⋯ 菜单的「移到 X」。新增拖放能力时必须同时给出这条路径，`TaskItemRow` / `BoardCard` / `BoardColumnView` 上的 `noStaticElementInteractions` 忽略注释写的就是这条约定。
 - **日期控件的空值文案统一**：原生 `<input type="date|datetime-local">` 空值时的分段文字由 WebView 语言渲染（会出现 `yyyy/mm/日 --:--` 这类混排），无法用属性或 `lang` 覆盖。统一包一层 `DateField`（`common/components/date-field.tsx`）：空且未聚焦时藏掉原生分段、显示自绘的「年/月/日」（日期时间控件为「年/月/日 时:分」），聚焦后交还原生分段编辑，原生日历/时间选择器保留。时间精度保持到分钟。
 
+### 2.7 自动更新（R15）
+
+流程在 `src/features/settings/updates.ts`（设置页的「关于」面板与更新卡片是它的两个视图；`pnpm tauri dev` 下整条流程关闭）：
+
+- **状态机**：`idle → checking → downloading → ready → installing`，任一步失败进 `failed`（`error` 留在 state 里给设置页看，不弹 toast）。
+- **下载与安装分开**：`download()` 在后台静默完成并在 `ready` 停下，`install()` + `relaunch()` 只在倒计时归零或用户点「现在重启」时执行。这样「稍后」才成立（此时什么都没装），而替换正在运行的程序这件事发生在用户刚同意的那一秒。
+- **倒计时等弹窗**：`countdownSeconds()` 是「没有弹窗打开」与内部秒数的**派生量**——弹窗一打开卡片立刻改口说「正在等待」，而不是最多一秒后才改。等待不设上限：用户的弹窗就是时钟。
+- **打开弹窗的计数**在 `common/stores/dialogs.ts`（`openDialogCount` / `registerDialog`），由 `Dialog.Content` 在组件体里 `onCleanup(registerDialog())` 登记——Kobalte 只在打开时挂载这棵子树，所以挂载/卸载正好是开/关。查 DOM 的 `[role=dialog]` 会依赖 Kobalte 这一版的渲染细节，且在 jsdom 里没法在没有弹窗的情况下断言。
+- **时机**：外壳在 `markInteractive` 之后 3 秒启动一次检查，此后每 6 小时一次（`CHECK_INTERVAL_MS`）。它**不在** Q-01「首屏可交互」的那四笔一次性加载里（§6.1）——按钮上的更新图标不决定屏幕能不能用，而它要下几 MB。
+- **失败静默**：自动路径只 `console`/state；手动「检查更新」由调用方回显（`checkNow()` 返回 `none | ready | failed | disabled` 四种结果，调用方负责说话）。
+
 ## 3. 后端
 
 ### 3.1 分层与依赖方向
@@ -309,6 +320,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | **点走即隐** | 非主窗口的 quick-add 在 `Focused(false)` 时隐藏（无边框窗口没有关闭按钮可点） |
 | **两个窗口的协调** | 两个窗口各有自己的 store，快捷窗创建成功后 `emit("task:created")`，主窗口 `AppShell` 监听后 `reloadTasks()` 重新拉取（整树替换），否则主窗口会一直显示旧列表 |
 | **开机自启**（D-04） | `tauri-plugin-autostart` 在 `lib.rs` 注册（默认用 LaunchAgent 写 macOS 登录项；Windows 写 HKCU Run 注册表、Linux 写 XDG autostart），API 由**前端**经 `@tauri-apps/plugin-autostart` 调用（因此需要 `autostart:default`）；OS 登录项列表是唯一事实来源，写入后回读 `isEnabled()` 再更新开关，失败的写让开关停在原处；默认关闭由「Rust 侧没有任何地方主动 enable」保证 |
+| **自动更新**（R15） | `tauri-plugin-updater` 与 `tauri-plugin-process` 在 `lib.rs` 注册，流程全部在前端（`features/settings/updates.ts`）：`check()` 读 `tauri.conf.json` 配的 GitHub Releases `latest.json`，`download()` 落盘并验 minisign 签名，`install()` 与 `relaunch()` 在用户同意的那一刻执行。公钥在配置里，私钥只在开发机与仓库 secret（`TAURI_SIGNING_PRIVATE_KEY`），Rust 侧不碰密钥；权限只开给主窗（`capabilities/updater.json`） |
 
 **窗口 label 契约**：主窗口在 `tauri.conf.json` 里未声明 label，Tauri 因此命名为 `main`；quick-add 的 label 常量在 `shortcut.rs`（`QUICK_ADD_WINDOW`）。`capabilities/default.json` 的 `windows` 数组必须同时列出 `main` 与 `quick-add`，否则小窗会静默失去每一次 IPC 调用。两个窗口加载同一个 `index.html`，`src/index.tsx` 按 label 分流（浏览器里读不到 label 时回落主应用，便于纯 Vite 调试），所以这个字符串在 Rust 与 TypeScript 两处重复，改动必须同步。capability 名由 `tauri-build` 在编译期校验，写错会构建失败。
 
@@ -325,18 +337,19 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 | `pnpm lint` | Biome 检查 `src/`（recommended 规则，不启用格式化；配置在 `biome.json`） |
 | `pnpm test` / `pnpm test:watch` | Vitest（单元测试；环境与 setup 由 `vitest.config.ts` 统一提供） |
 | `pnpm tauri dev` | 完整应用（跑 `pnpm dev` 后拉起 Rust 窗口） |
-| `pnpm tauri build` | 完整发布构建/打包 |
+| `pnpm tauri build` | 完整发布构建/打包（签名私钥经 `TAURI_SIGNING_PRIVATE_KEY` 传入，见 §4.6） |
+| `node scripts/check-release-version.mjs <tag>` | 发布前的版本闸门：tag 与三处版本字段必须一致，否则非零退出 |
 | `pwsh -File scripts/perf-acceptance.ps1` | Q-01 性能验收：构建 + 体积 + 命令往返 + 冷/热启动（`-SkipBuild` 复用产物）；见 §6.1 |
 | `cargo check` / `cargo test` / `cargo build` | 在 `src-tauri/` 内执行 |
 
-前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.3`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
+前端检查用 **Biome**（`pnpm lint`，只跑 lint、不跑格式化）；Rust 侧要求 `cargo fmt`（rustfmt 默认配置）与 `cargo clippy --all-targets -- -D warnings` 都无输出。包管理器固定为 **pnpm**（`package.json` 的 `packageManager` 字段钉住 `12.3.4`，CI 的 `pnpm/action-setup` 读它；`tauri.conf.json` 的 `beforeDevCommand`/`beforeBuildCommand` 调用 `pnpm dev`/`pnpm build`）。应用元信息：`productName` / identifier `com.hiss.ordo` / 版本 `0.1.4`；主窗口 1120×740、最小 720×520、居中。安全策略见 `app.security`：`csp` 只放行自身来源（`default-src 'self'`、`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`connect-src 'self' ipc: http://ipc.localhost`，另加 `object-src 'none'` 与 `base-uri 'self'`）——内联样式是必须的（虚拟列表与 Kobalte 都写 `style` 属性），内联脚本（`index.html` 里的防闪主题小段）由 Tauri 在编译期算好 sha256 自动加进 `script-src`；`devCsp` 额外放行 `'unsafe-inline'` 脚本与 `ws://localhost:1421` 的 HMR 通道。
 
 ### 4.2 依赖与版本约束
 
 - **`rusqlite` 锁定在 `0.39`**：`refinery 0.9.2` 要求 `rusqlite <= 0.39`，单独升级会让 `cargo` 在 `libsqlite3-sys` 版本冲突上失败。要升级必须两者一起动。
 - `rusqlite` 使用 **bundled** SQLite（含 FTS5），并开启 `chrono` feature 以绑定时间戳参数。
 - `tauri` 需要 **`tray-icon`** feature，否则 `tauri::tray` 不存在。
-- 前端在用的库：`@kobalte/core`、`lucide-solid`、`date-fns`、`zod`、`@tanstack/solid-router`，以及 `@tauri-apps/api` 与 `plugin-{autostart,dialog,notification,opener}`。
+- 前端在用的库：`@kobalte/core`、`lucide-solid`、`date-fns`、`zod`、`@tanstack/solid-router`，以及 `@tauri-apps/api` 与 `plugin-{autostart,dialog,notification,opener,process,updater}`。
 - **不引入**动画库、拖拽库、图表库、UI 组件库——三条都是体积红线的支撑（动效用 CSS/Web Animations，拖拽用原生 Drag API，图表自绘 SVG）。虚拟滚动也是自研。
 
 ### 4.3 构建配置
@@ -351,7 +364,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 ### 4.4 能力声明
 
-`src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`dialog:default`、`notification:default`、`opener:default`。窗口的 `set_theme` / `set_icon` 都在 Rust 里直接调（`icons.rs`），webview 从不需要这两条权限——窗口 API 只用到 `hide`（quick-add 小窗）与 `label`。
+`src-tauri/capabilities/default.json` 当前授权给 `["main", "quick-add"]`：`autostart:default`、`core:default`、`core:window:allow-hide`、`dialog:default`、`notification:default`、`opener:default`；另有 `capabilities/updater.json` **只授权给 `["main"]`**：`updater:default`（check/download/install/download-and-install）与 `process:default`（restart/exit）——小窗没有更新的界面，也没有重启整个应用的理由，权限按窗口给才是最小面（R15）。窗口的 `set_theme` / `set_icon` 都在 Rust 里直接调（`icons.rs`），webview 从不需要这两条权限——窗口 API 只用到 `hide`（quick-add 小窗）与 `label`。
 
 **图标按主题二选一，而且分两个主题源**（`src-tauri/src/icons.rs`）：`icons/runtime/{light,dark}.rgba` 是运行时用的两版 128×128 原始 RGBA，分别由 `assets/logo.svg`（矢量标志，黑墨）与 `assets/logo-dark.svg`（同一份几何换成骨白墨，`node scripts/gen-logo-assets.mjs` 生成）栅格化而来。**哪个表面跟哪个主题**是这件事的要点，依据是**那块背景是谁画的**：**应用主题**管标题栏那一枚（`set_icon`，Windows 上即 `ICON_SMALL`）与窗口边框（`set_theme`）——它们跟页面画在一起；**系统主题**管托盘与任务栏——它们坐在 OS 画的那条栏上，应用选深色而系统是浅色时不该被换成浅色的墨。用原始 RGBA 而非 PNG，是因为 `Image::from_bytes` 需要 `image-png` feature（会拉进整个 `image` crate），而 `Image::new` 直接吃解码后的缓冲区。标志没有背景，对比度全靠墨色：黑墨在浅色任务栏 18.93:1、深色任务栏 1.29:1，骨白墨反过来——所以两版都得有，且任务栏那一枚需要 `ICON_BIG`（Tauri 的 `set_icon` 只发 `ICON_SMALL`，见 [DECISIONS](./DECISIONS.md) M18）。
 
@@ -362,13 +375,30 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 新增 Tauri 插件或窗口 API 时必须同步写进该文件，否则前端调用被拒。完全由 Rust 驱动的部件（托盘、全局快捷键注册）不需要条目。`core:window:allow-hide` 是 quick-add 小窗隐藏自己所必需的。
 
 ### 4.5 数据与代码约定
-
 - 主键 TEXT UUID v4；时间戳 ISO-8601 UTC 字符串；软删除用可空 `deleted_at`，查询默认过滤 `deleted_at IS NULL`（备份是唯一例外，见 [DATA.md](./DATA.md)§5）。
 - 迁移只增不改：新增 `src-tauri/migrations/V<N>__<name>.sql`（N 递增）即被编译期内嵌，**永不修改已应用的迁移**。
 - `task:list` 返回的任务对象内嵌 `tagIds`（任务-标签关联的唯一读取路径）；关联写入随 `task:create` / `task:update` 的 `tagIds` 字段。
 - 前端字段名与后端 serde 的 camelCase 对齐（`namespaceId`、`parentTaskId`、`dueAt`…）；后端**没有** `deny_unknown_fields`，未知键被静默忽略（这是旧备份可导入的前提）。
 - 截止时间存 UTC；「今天/即将到来」的本地日期边界由前端按用户时区算，后端提醒按 UTC 扫描。
 - 测试策略：后端 `repositories`/`services` 用 in-memory SQLite + 真实迁移做单测，`sort.rs` 做纯函数单测；前端 store/hooks/工具函数用 Vitest。出口条件是 `cargo test`、`pnpm test`、`pnpm typecheck` 全绿。
+
+### 4.6 发布与签名（R15）
+
+推送 `v*` tag 即发布，流水线在 `.github/workflows/release.yml`：
+
+1. `pnpm install --frozen-lockfile`；
+2. **版本闸门**先跑：`node scripts/check-release-version.mjs "${{ github.ref_name }}"` 要求 tag 与 `src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`package.json` 三处的版本一致，不一致立刻失败。这是必须的——`tauri-action` 把 app 版本写进 `latest.json`，而 tag 与文件不一致时会安静地发布一个「谁都更新不到」的版本；
+3. `tauri-apps/tauri-action@v1` 构建、签名、建 release、传资产（`tagName` 用推送的 tag，`releaseDraft: false`，`generateReleaseNotes: true`，`updaterJsonPreferNsis: true`，`args: --bundles nsis`），并用 `GITHUB_TOKEN`（`permissions: contents: write`）与 `TAURI_SIGNING_PRIVATE_KEY` 完成签名。
+
+**只出 NSIS**：`latest.json` 的 `windows-x86_64` 只能有一个 URL，同时出 MSI 会让「自动更新装哪一个」变含糊，且 MSI 需要提权。要加 MSI 时把 `args` 改成 `--bundles nsis,msi`，`updaterJsonPreferNsis` 保持显式（它的默认值偏好 MSI）。macOS / Linux 在矩阵里加行即可，其余步骤已按平台分支写好。
+
+**签名密钥**（`pnpm tauri signer generate -w ~/.tauri/ordo.key`，无密码）：公钥内容写进 `tauri.conf.json` 的 `plugins.updater.pubkey`（**必须是内容，不是路径**），私钥写进仓库 secret `TAURI_SIGNING_PRIVATE_KEY`。**这把钥匙丢了就再也签不了更新包**——已安装的版本只认它签的包，只能让用户手动重装，所以密钥文件与 secret 都要留好。`.gitignore` 里 `*.key` 是防手滑的最后一道。
+
+`bundle.createUpdaterArtifacts: true` 让打包为每个安装包产出一份 `.sig`（v2 直接签安装包本身：`ordo_0.1.4_x64-setup.exe` + `.exe.sig`、`*.msi` + `.msi.sig`；v1 那种 `*.nsis.zip` 只在 `"v1Compatible"` 下才有）；`plugins.updater.endpoints` 固定指向 `https://github.com/hilariouhiss/Ordo/releases/latest/download/latest.json`，`windows.installMode` 保持默认 `passive`（安装时有个小进度窗、无需交互；`quiet` 官方标注不能自行提权，不建议）。
+
+**`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 必须显式给空值**（本地构建与 CI 都一样）：密钥是无密码生成的，但该变量缺失时 CLI 会在打印 `Signing without password.` 之后继续等 stdin——本地表现为构建卡在最后一步，CI 里就是挂到 6 小时超时。工作流里那行 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''` 是必需的，不是装饰。
+
+**版本号仍要手动 bump**：发布前把三处改成新版本并提交，再打同名 tag。CI 不改版本号——否则 `git checkout v0.1.5` 会得到一棵自称 0.1.4 的树。
 
 ## 5. 已知约束与坑
 

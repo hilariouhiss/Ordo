@@ -37,6 +37,10 @@ pub fn run() {
         // Autostart (D-04) is driven from the settings page, so the webview
         // calls it and `autostart:default` is what lets it.
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        // 自动更新（R15）：pubkey 与 endpoint 都在 `tauri.conf.json` 的
+        // `plugins.updater` 里，这里只装插件；`process` 提供重启那一半。
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(shortcut::plugin())
         .invoke_handler(tauri::generate_handler![
             commands::task_list,
