@@ -1,6 +1,6 @@
 {
   "name": "ordo",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
