@@ -5,8 +5,10 @@ import { getVersion } from "@tauri-apps/api/app";
 import { Button, Checkbox, Dialog } from "../../../common/components";
 import { pushError, pushInfo } from "../../../common/stores/notifications";
 import {
+  automaticDownload,
   checkNow,
-  installAndRestart,
+  setAutoDownload,
+  startUpdate,
   updateState,
 } from "../updates";
 import {
@@ -175,14 +177,31 @@ export function SettingsView() {
         <section aria-label="关于" class={`${PANEL_CLASS} mt-5 max-w-2xl`}>
           <h2 class="text-sm font-semibold tracking-tight text-foreground">关于</h2>
           <p class="mt-1.5 text-sm text-muted-foreground">
-            Ordo {version() ?? "…"}。启动后会自动检查更新，发现新版本就静默下载，
-            下载完再提示重启；自动检查失败不会打扰你，结果都记在这里。
+            Ordo {version() ?? "…"}。启动后会自动检查更新，发现新版本时提示你，
+            <span class="text-foreground">由你点「更新」才会安装并重启</span>；
+            自动检查失败不会打扰你，结果都记在这里。
           </p>
 
-          <Show when={updateState().phase === "ready"}>
+          <Checkbox.Root
+            class="mt-3"
+            checked={automaticDownload()}
+            onChange={(checked) => setAutoDownload(checked)}
+          >
+            <Checkbox.Input />
+            <Checkbox.Control>
+              <Checkbox.Indicator />
+            </Checkbox.Control>
+            <Checkbox.Label>发现更新时自动下载</Checkbox.Label>
+            <Checkbox.Description class="mt-0.5">
+              默认开启：后台先把安装包下好，点「更新」只等安装。关掉后点「下载并更新」
+              才开始下载。
+            </Checkbox.Description>
+          </Checkbox.Root>
+
+          <Show when={updateState().phase === "ready" || updateState().phase === "available"}>
             <p class="mt-3 rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
-              v{updateState().version} 已下载
-              {updateState().autoRestart ? "，正在等待重启" : "，将在下次启动时安装"}。
+              v{updateState().version}
+              {updateState().phase === "ready" ? " 已下载，等待你确认更新。" : " 可用（尚未下载）。"}
             </p>
           </Show>
           <Show when={updateState().error}>
@@ -203,9 +222,9 @@ export function SettingsView() {
               <RefreshCw size={14} aria-hidden="true" />
               {updateState().phase === "checking" ? "正在检查…" : "检查更新"}
             </Button>
-            <Show when={updateState().phase === "ready"}>
-              <Button size="sm" onClick={() => void installAndRestart()}>
-                立即重启并更新
+            <Show when={updateState().phase === "ready" || updateState().phase === "available"}>
+              <Button size="sm" onClick={() => void startUpdate()}>
+                {updateState().phase === "ready" ? "立即重启并更新" : "下载并更新"}
               </Button>
             </Show>
             <Show when={updateState().checkedAt}>

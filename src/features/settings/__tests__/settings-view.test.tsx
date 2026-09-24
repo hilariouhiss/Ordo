@@ -32,19 +32,23 @@ vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn().mockResolvedValue("0.1.4"),
 }));
 
-// 「检查更新」的三种结果各有一句要说的话；更新流程本身在 `updates.test.ts`
+// 「检查更新」的几种结果各有一句要说的话；更新流程本身在 `updates.test.ts`
 // 里测，这里只当它是替身。
 const checkNowMock = vi.fn();
+const startUpdateMock = vi.fn();
+const setAutoDownloadMock = vi.fn();
 vi.mock("../updates", () => ({
   checkNow: (...args: unknown[]) => checkNowMock(...args),
-  installAndRestart: vi.fn(),
+  startUpdate: (...args: unknown[]) => startUpdateMock(...args),
+  automaticDownload: () => true,
+  setAutoDownload: (...args: unknown[]) => setAutoDownloadMock(...args),
   updateState: () => ({
     phase: "idle",
     version: null,
     percent: null,
     error: null,
     checkedAt: null,
-    autoRestart: true,
+    dismissedVersion: null,
   }),
 }));
 
@@ -261,5 +265,18 @@ describe("SettingsView 关于面板", () => {
     fireEvent.click(await screen.findByRole("button", { name: /检查更新/ }));
 
     await waitFor(() => expect(notifications()[0]?.message).toContain("开发构建"));
+  });
+
+  it("静默下载的开关写回设置", async () => {
+    render(() => <SettingsView />);
+
+    const toggle = (await screen.findByRole("checkbox", {
+      name: "发现更新时自动下载",
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setAutoDownloadMock).toHaveBeenCalledWith(false));
   });
 });

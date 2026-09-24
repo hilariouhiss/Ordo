@@ -210,12 +210,12 @@ src/
 
 流程在 `src/features/settings/updates.ts`（设置页的「关于」面板与更新卡片是它的两个视图；`pnpm tauri dev` 下整条流程关闭）：
 
-- **状态机**：`idle → checking → downloading → ready → installing`，任一步失败进 `failed`（`error` 留在 state 里给设置页看，不弹 toast）。
-- **下载与安装分开**：`download()` 在后台静默完成并在 `ready` 停下，`install()` + `relaunch()` 只在倒计时归零或用户点「现在重启」时执行。这样「稍后」才成立（此时什么都没装），而替换正在运行的程序这件事发生在用户刚同意的那一秒。
-- **倒计时等弹窗**：`countdownSeconds()` 是「没有弹窗打开」与内部秒数的**派生量**——弹窗一打开卡片立刻改口说「正在等待」，而不是最多一秒后才改。等待不设上限：用户的弹窗就是时钟。
-- **打开弹窗的计数**在 `common/stores/dialogs.ts`（`openDialogCount` / `registerDialog`），由 `Dialog.Content` 在组件体里 `onCleanup(registerDialog())` 登记——Kobalte 只在打开时挂载这棵子树，所以挂载/卸载正好是开/关。查 DOM 的 `[role=dialog]` 会依赖 Kobalte 这一版的渲染细节，且在 jsdom 里没法在没有弹窗的情况下断言。
-- **时机**：外壳在 `markInteractive` 之后 3 秒启动一次检查，此后每 6 小时一次（`CHECK_INTERVAL_MS`）。它**不在** Q-01「首屏可交互」的那四笔一次性加载里（§6.1）——按钮上的更新图标不决定屏幕能不能用，而它要下几 MB。
-- **失败静默**：自动路径只 `console`/state；手动「检查更新」由调用方回显（`checkNow()` 返回 `none | ready | failed | disabled` 四种结果，调用方负责说话）。
+- **状态机**：`idle → checking → available → downloading → ready → installing`，任一步失败进 `failed`（`error` 留在 state 里给设置页看，不弹 toast）。`available` = 已发现但字节还没到；`ready` = 已下好、只差用户点头。
+- **没有倒计时，也没有自动重启**：检查只负责「发现」，`install()` + `relaunch()` 只由 `startUpdate()` 触发，而它只由「更新 / 下载并更新」按钮调用。这台机器什么时候重启不是定时器能替用户决定的——早先那版自动倒计时的机制（含为它存在的 `common/stores/dialogs.ts` 开弹窗计数）已随这次改动删除。
+- **提前下载是这个设置说了算**：`automaticDownload`（localStorage `ordo.updateAutoDownload`，默认开，与主题/侧栏宽度同一套 `safeGetItem`/`safeSetItem`）开着时检查到就静默下好，卡片随后说「已下载，点击更新以重启安装」；关掉时一个字节都不下，按钮变成「下载并更新」，点下去才下载（卡片显示百分比）再安装。
+- **「稍后」与右上角的 ✕ 是同一个动作**（`dismissPrompt()`）：只把卡片按版本号静音（`dismissedVersion`），什么都不取消。✕ 常驻（只在安装中隐藏——那时已经没有可取消的事），因为「现在不想装」必须有一个不属于「对这次更新做决定」的出口。六小时后的下一次检查发现还是同一个版本时**不会重下**（已下载的那份留在 `pending` 里），而在更新的版本出现、或下次启动时，安静状态自动解除。
+- **时机**：外壳在 `markInteractive` 之后 3 秒启动一次检查，此后每 6 小时一次（`CHECK_INTERVAL_MS`）。它**不在** Q-01「首屏可交互」的那四笔一次性加载里（§6.1）——按钮上的更新图标不决定屏幕能不能用，而它可能要下几 MB。
+- **失败静默**：自动路径只 `console`/state；手动「检查更新」由调用方回显（`checkNow()` 返回 `none | available | failed | disabled`，调用方负责说话）。
 
 ## 3. 后端
 

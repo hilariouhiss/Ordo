@@ -44,7 +44,7 @@
 - **阻塞状态不进 store**：它是边集的派生量，随渲染轮次一次算清，行组件不查图。
 - **计时状态走一份全局快照，按行各拉一次 `time:list` 是错的**：任务行右侧的开始/暂停读外壳启动时那一次 `time:running`（全部运行中的记录），`time:start` / `time:stop` 成功后就地维护这份快照。逐行拉会变成一个可见行一次 IPC；而 `timeEntriesByTask` 是按需缓存（详情弹窗才填），拿它当行的依据时，没打开过详情的任务会显示「开始」——一个正在计时的行给出会再点一次的按钮，是按钮在说谎而不是缓存没命中。
 - **发布的版本号由 tag 驱动，但由文件说了算**（R15）：CI 第一步校验 `tag == Cargo.toml == tauri.conf.json == package.json`，不一致就红。`tauri-action` 把 app 版本写进 `latest.json`，而那个文件是**所有已安装客户端**判断「要不要更新」的唯一依据——tag 与文件不一致时会安静地发布一个谁都更新不到的版本。备选（CI 用 tag 重写三处文件）省一次 bump 提交，代价是 `git checkout v0.1.5` 得到一棵自称 0.1.4 的树。
-- **更新先下载、重启那一刻才安装**（R15）：`download()` 静默完成，`install()` + `relaunch()` 留给倒计时归零或用户点「现在重启」。反过来（下完就装）在 Windows 上等于要用户当场退出程序，而且「稍后」这个选项根本不存在——安装会立刻覆盖正在运行的文件。同理，倒计时遇到打开的弹窗就停：一条 `openDialogCount()` 派生量，比抢在用户打字时重启便宜得多。
+- **更新只由用户点「更新」触发，没有倒计时、没有自动重启**（R15）：检查只负责发现，`install()` + `relaunch()` 只在按钮被按下后执行。最初那版是「静默下载 → 卡片倒计时 5 秒 → 自动安装重启」，被明确否掉了：这台机器什么时候重启不该由定时器替用户决定。为它存在的「等打开的弹窗关掉」机制（`common/stores/dialogs.ts` 的计数 + `Dialog.Content` 里的登记）也一并删除——没有自动重启，它就没有存在理由。**提前下载改成一个设置项**（`ordo.updateAutoDownload`，默认开）：想少等的人让它后台下好，点一下只等安装；在意流量的人关掉它，点「下载并更新」才动网。两条路的安装都仍然等那一次点击。
 - **自动更新失败不弹提示**（R15）：检查每 6 小时一次，机器总会有断网的时候；每次都弹的东西会训练用户忽略真正的错误。失败只进设置页「关于」，只有用户主动点的「检查更新」才回答。
 
 ## 2. 编号索引
@@ -133,7 +133,7 @@
 | **R12** | 创建/编辑弹窗打开即聚焦首字段 | 已落地 → 任务/项目/命名空间编辑器的标题或名称输入框；同时抑制 Kobalte 默认聚焦首个可 Tab 元素（关闭按钮），[PRODUCT](./PRODUCT.md)§4 |
 | **R13** | 侧边栏行内 ⋯ 更多菜单（编辑、归档、删除） | 已落地 → 存活行行尾覆盖式动作簇 [⋯ 编辑/归档/删除][＋]（贴行右缘、不占行宽：名称独占整行，悬停/Tab/菜单展开时整簇带行底色浮现，悬停高亮跟随整行，隐藏时不接指针事件）；编辑复用详情页弹窗；删除是软删，项目连带其任务与看板列（同一事务），命名空间只删自身（项目按存活集合回落根级）；新增 `project:delete` / `namespace:delete`，[PRODUCT](./PRODUCT.md)§3.4/§4、[ARCHITECTURE](./ARCHITECTURE.md)§3.2 |
 | **R14** | 任务行改两行、行内开始/暂停计时；新建任务表单分节两列 | 已落地 → 行高 56 → 72px（`ROW_HEIGHT` 与两个行组件一起改），属性徽标移到标题下的第二行、行尾留计时按钮与 ⋯（新增 `time:running`：一次拉全部运行中的记录，行内不显示读秒），[PRODUCT](./PRODUCT.md)§2.3/§2.8、[ARCHITECTURE](./ARCHITECTURE.md)§3.2；编辑器改为「归属 / 属性 / 时间 / 标签」四组两列 + 优先级分段控件（Kobalte `RadioGroup`，替换原下拉），弹窗 `max-w-xl`，[PRODUCT](./PRODUCT.md)§4 |
-| **R15** | 推 tag 由 CI 发布（Windows）；应用自动检测、自动下载、自动安装重启 | 已落地 → `.github/workflows/release.yml`（`tauri-apps/tauri-action@v1`、NSIS、`releaseDraft: false`）+ `scripts/check-release-version.mjs` 版本闸门；签名密钥 `~/.tauri/ordo.key`（公钥进 `tauri.conf.json`，私钥进仓库 secret `TAURI_SIGNING_PRIVATE_KEY`），`bundle.createUpdaterArtifacts` + `plugins.updater` 指向 `releases/latest/download/latest.json`；应用侧 `tauri-plugin-updater` + `tauri-plugin-process`，流程在 `features/settings/updates.ts`、卡片 `UpdatePrompt.tsx`、设置页「关于」面板，[PRODUCT](./PRODUCT.md)§6.5、[ARCHITECTURE](./ARCHITECTURE.md)§2.7/§3.6/§4.4/§4.6 |
+| **R15** | 推 tag 由 CI 发布（Windows）；应用自动检测更新、提示后由用户点「更新」安装重启 | 已落地 → `.github/workflows/release.yml`（`tauri-apps/tauri-action@v1`、NSIS、`releaseDraft: false`）+ `scripts/check-release-version.mjs` 版本闸门；签名密钥 `~/.tauri/ordo.key`（公钥进 `tauri.conf.json`，私钥进仓库 secret `TAURI_SIGNING_PRIVATE_KEY`），`bundle.createUpdaterArtifacts` + `plugins.updater` 指向 `releases/latest/download/latest.json`；应用侧 `tauri-plugin-updater` + `tauri-plugin-process`，流程在 `features/settings/updates.ts`、卡片 `UpdatePrompt.tsx`、设置页「关于」面板（静默下载开关 `ordo.updateAutoDownload`，默认开），[PRODUCT](./PRODUCT.md)§6.5、[ARCHITECTURE](./ARCHITECTURE.md)§2.7/§3.6/§4.4/§4.6 |
 
 ### 2.3 迁移
 

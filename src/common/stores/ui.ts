@@ -19,7 +19,10 @@ export const SIDEBAR_WIDTH_DEFAULT = 224;
 
 const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
-function safeGetItem(key: string): string | null {
+/** Reads a stored preference, tolerating storage being unavailable (private
+ * browsing). Exported because the update flow keeps its own preference the same
+ * way (R15). */
+export function safeGetItem(key: string): string | null {
   try {
     return typeof localStorage === "undefined" ? null : localStorage.getItem(key);
   } catch {
@@ -27,7 +30,8 @@ function safeGetItem(key: string): string | null {
   }
 }
 
-function safeSetItem(key: string, value: string): void {
+/** Writes a stored preference; a failure leaves the caller's signal in charge. */
+export function safeSetItem(key: string, value: string): void {
   try {
     if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
   } catch {

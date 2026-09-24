@@ -1,17 +1,20 @@
 /**
- * In-app auto-update (R15): check → download → prompt → install → restart.
+ * In-app auto-update (R15): check → prompt → download → install → restart.
  *
  * The app ships with a signing public key (`tauri.conf.json` → `plugins.updater`)
  * and asks GitHub Releases for `latest.json`; the plugin verifies the signature
  * of whatever it downloads, so this module never handles bytes or keys.
  *
- * Three decisions worth knowing before editing:
+ * Four decisions worth knowing before editing:
  *
- * - **Download and install are separate calls.** `install()` is what replaces
- *   the running program, and on Windows that means the installer has to take
- *   over the app while it exits. So the download happens quietly in the
- *   background and the install happens at the moment the user agreed to (or let
- *   the countdown run out) — which is also what makes 「稍后」 possible at all.
+ * - **Nothing is installed until the user asks.** A check only ever *finds* an
+ *   update; the card appears, and the app restarts into the new version when
+ *   「更新」 is pressed. There is no countdown and no automatic restart: the
+ *   moment this app takes over someone's screen is not a timer's to decide.
+ * - **Downloading early is a setting, not a policy.** `automaticDownload`
+ *   (default on) fetches the update in the background so the click is quick;
+ *   turned off, nothing touches the network until 「下载并更新」 is pressed.
+ *   Either way the install waits for the click.
  * - **Failures are quiet.** A check runs every six hours on a machine that is
  *   sometimes offline; a toast per failed check would train the user to ignore
  *   the one that matters. The error is kept in the state for the settings page,
@@ -25,33 +28,43 @@
 import { createSignal } from "solid-js";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { openDialogCount } from "../../common/stores/dialogs";
+import { safeGetItem, safeSetItem } from "../../common/stores/ui";
 
-export type UpdatePhase = "idle" | "checking" | "downloading" | "ready" | "installing" | "failed";
+export type UpdatePhase =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "installing"
+  | "failed";
 
-/** What the update UI reads. `checkNow`'s caller gets the same names back. */
-export type UpdateOutcome = "none" | "ready" | "failed" | "disabled";
+/** What a check found, as told to whoever asked for it. */
+export type UpdateOutcome = "none" | "available" | "failed" | "disabled";
 
 export interface UpdateState {
   phase: UpdatePhase;
-  /** Version being downloaded / waiting to install; `null` before a check finds one. */
+  /** Version the card is about; `null` before a check finds one. */
   version: string | null;
-  /** Download progress in whole percent; `null` when the length is unknown. */
+  /** Download progress in whole percent; `null` when nothing is downloading, or
+   * when the server sent no length. */
   percent: number | null;
   /** Why the last attempt failed; shown in the settings page, never as a toast. */
   error: string | null;
   /** When the last check finished (epoch ms); the settings page prints it. */
   checkedAt: number | null;
-  /** Whether a restart is still coming on its own. 「稍后」 clears it; the
-   * update stays downloaded and 「立即重启」 keeps working. */
-  autoRestart: boolean;
+  /** The version the user closed the card on (「稍后」, or a failure they have
+   * read). The same version stays quiet for the rest of the session; a newer
+   * one — or the next launch — brings the card back. */
+  dismissedVersion: string | null;
 }
 
 /** How often a long-running window re-checks after the start-up check. */
 export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-/** Seconds the prompt gives the user before it installs and restarts. */
-export const RESTART_COUNTDOWN_SECONDS = 5;
+/** Where the silent-download preference lives (the same localStorage convention
+ * as the theme and the sidebar width, `common/stores/ui.ts`). */
+export const AUTO_DOWNLOAD_STORAGE_KEY = "ordo.updateAutoDownload";
 
 const IDLE: UpdateState = {
   phase: "idle",
@@ -59,35 +72,33 @@ const IDLE: UpdateState = {
   percent: null,
   error: null,
   checkedAt: null,
-  autoRestart: true,
+  dismissedVersion: null,
 };
 
 const [state, setState] = createSignal<UpdateState>(IDLE);
-const [countdown, setCountdown] = createSignal<number | null>(null);
+const [autoDownload, setAutoDownloadSignal] = createSignal(
+  safeGetItem(AUTO_DOWNLOAD_STORAGE_KEY) !== "0",
+);
 
 /** Current update state. Read-only: the flow is the only writer. */
 export const updateState = state;
 
-/** Seconds left before the automatic restart, or `null` when none is running.
- *
- * Derived from the open-dialog count rather than only from the timer: a dialog
- * opening at second three must turn the card into 「正在等待…」 at once, not up
- * to a second later — the number the user reads has to be the number that will
- * happen. */
-export const countdownSeconds = () => (openDialogCount() > 0 ? null : countdown());
+/** Whether a found update is downloaded before the user asks for it. Default
+ * on; the settings page owns the switch. */
+export const automaticDownload = autoDownload;
+
+/** Persists the preference and applies it for the rest of this session. */
+export function setAutoDownload(enabled: boolean): void {
+  setAutoDownloadSignal(enabled);
+  safeSetItem(AUTO_DOWNLOAD_STORAGE_KEY, enabled ? "1" : "0");
+}
 
 /** Read lazily: a dev build must never be replaced by a release build. */
 const enabled = () => !import.meta.env.DEV;
 
-/** The update found by the last check, kept for `install()` at restart time. */
+/** The update the card is about, plus whether its bytes are already on disk. */
 let pending: Update | null = null;
-let countdownTimer: ReturnType<typeof setInterval> | undefined;
-
-function stopCountdown(): void {
-  if (countdownTimer !== undefined) clearInterval(countdownTimer);
-  countdownTimer = undefined;
-  setCountdown(null);
-}
+let downloaded = false;
 
 function patch(next: Partial<UpdateState>): void {
   setState((current) => ({ ...current, ...next }));
@@ -98,73 +109,73 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Arms the restart countdown. Every tick asks whether a dialog is open first:
- * while one is, the countdown reads `null` — the prompt says it is waiting
- * rather than restarting the app under someone's cursor — and the five seconds
- * start over once the dialog closes. It never expires: the user's dialog is
- * the clock.
- */
-function armCountdown(): void {
-  stopCountdown();
-  const tick = () => {
-    if (openDialogCount() > 0) {
-      setCountdown(null);
-      return;
-    }
-    const left = countdown();
-    if (left === null) {
-      setCountdown(RESTART_COUNTDOWN_SECONDS);
-      return;
-    }
-    if (left > 1) {
-      setCountdown(left - 1);
-      return;
-    }
-    void installAndRestart();
-  };
-  tick();
-  countdownTimer = setInterval(tick, 1000);
-}
-
-/** Downloads the update `check()` returned, reporting progress into the state. */
-async function download(update: Update): Promise<void> {
+/** Downloads the pending update, reporting progress into the state. */
+async function download(): Promise<boolean> {
+  const update = pending;
+  if (!update) return false;
   let received = 0;
   let total: number | null = null;
-  patch({ phase: "downloading", version: update.version, percent: null, error: null });
-  await update.download((event) => {
-    if (event.event === "Started") {
-      total = event.data.contentLength ?? null;
-      // A server that sends no length leaves the bar indeterminate; the
-      // percentage stays unknown rather than pretending to be 0%.
-      patch({ percent: total === null ? null : 0 });
-      return;
-    }
-    if (event.event !== "Progress") return;
-    received += event.data.chunkLength;
-    if (total !== null && total > 0) {
-      patch({ percent: Math.min(100, Math.round((received / total) * 100)) });
-    }
-  });
-  pending = update;
-  patch({ phase: "ready", percent: total === null ? null : 100, autoRestart: true });
-  armCountdown();
+  patch({ phase: "downloading", percent: null, error: null });
+  try {
+    await update.download((event) => {
+      if (event.event === "Started") {
+        total = event.data.contentLength ?? null;
+        // A server that sends no length leaves the bar indeterminate; the
+        // percentage stays unknown rather than pretending to be 0%.
+        patch({ percent: total === null ? null : 0 });
+        return;
+      }
+      if (event.event !== "Progress") return;
+      received += event.data.chunkLength;
+      if (total !== null && total > 0) {
+        patch({ percent: Math.min(100, Math.round((received / total) * 100)) });
+      }
+    });
+  } catch (error) {
+    patch({ phase: "failed", error: describe(error) });
+    return false;
+  }
+  downloaded = true;
+  patch({ phase: "ready", percent: total === null ? null : 100 });
+  return true;
 }
 
-/** One check-download pass; the shared body of the auto path and `checkNow`. */
+/** One check: finds an update, and downloads it only when the preference says so. */
 async function runCheck(): Promise<UpdateOutcome> {
   if (!enabled()) return "disabled";
   patch({ phase: "checking", error: null });
   try {
-    const update = await check();
-    if (!update) {
+    const found = await check();
+    if (!found) {
       pending = null;
-      patch({ phase: "idle", version: null, percent: null, checkedAt: Date.now() });
+      downloaded = false;
+      patch({
+        phase: "idle",
+        version: null,
+        percent: null,
+        dismissedVersion: null,
+        checkedAt: Date.now(),
+      });
       return "none";
     }
-    await download(update);
-    patch({ checkedAt: Date.now() });
-    return "ready";
+    // The same version the card already holds, bytes already on disk: fetching
+    // it again every six hours would be the price of a prompt nobody dismissed.
+    const alreadyHere = downloaded && pending !== null && pending.version === found.version;
+    if (alreadyHere) {
+      patch({ checkedAt: Date.now() });
+    } else {
+      pending = found;
+      downloaded = false;
+      patch({
+        phase: "available",
+        version: found.version,
+        percent: null,
+        checkedAt: Date.now(),
+        dismissedVersion: null,
+      });
+    }
+    if (!alreadyHere && automaticDownload()) await download();
+    return "available";
   } catch (error) {
     patch({ phase: "failed", error: describe(error), checkedAt: Date.now() });
     return "failed";
@@ -172,15 +183,15 @@ async function runCheck(): Promise<UpdateOutcome> {
 }
 
 /**
- * Installs what the last check downloaded and restarts into it. Called by the
- * prompt's 「现在重启」, by the countdown reaching zero, and by the settings
- * page. Returns whether the restart was issued, so a caller that has a place to
- * say something can say it.
+ * 「更新」/「下载并更新」: downloads when the bytes are not here yet, then installs
+ * and restarts. Returns whether the restart was issued, so a caller with a
+ * place to say something can say it. This is the only path that replaces the
+ * running app, and it only ever runs because someone pressed the button.
  */
-export async function installAndRestart(): Promise<boolean> {
-  stopCountdown();
+export async function startUpdate(): Promise<boolean> {
+  if (!pending) return false;
+  if (!downloaded && !(await download())) return false;
   const update = pending;
-  if (!update) return false;
   patch({ phase: "installing" });
   try {
     await update.install();
@@ -194,18 +205,13 @@ export async function installAndRestart(): Promise<boolean> {
   }
 }
 
-/** 「稍后」: stop the automatic restart, keep the downloaded update in hand. */
-export function postpone(): void {
-  stopCountdown();
-  patch({ autoRestart: false });
-}
-
 /**
- * Closes the prompt after a failure. The error stays in the state — the
- * settings page is where it remains readable — only the card goes away.
+ * Hides the card for the version it is about — 「稍后」, or closing a failure
+ * someone has read. Nothing is un-downloaded and the settings page keeps the
+ * state; the card returns on the next launch, or when a newer version lands.
  */
-export function dismiss(): void {
-  patch({ phase: "idle" });
+export function dismissPrompt(): void {
+  patch({ dismissedVersion: state().version });
 }
 
 /**
@@ -217,9 +223,10 @@ export function startAutoUpdate(): () => void {
   if (!enabled()) return () => {};
   void runCheck();
   const timer = setInterval(() => {
-    // A ready update is waiting on the user, not on the server; re-checking
-    // would download it a second time.
-    if (updateState().phase === "ready" || updateState().phase === "installing") return;
+    // Downloading or installing is already an answer; a check now would only
+    // race the thing the user just pressed.
+    const phase = updateState().phase;
+    if (phase === "downloading" || phase === "installing") return;
     void runCheck();
   }, CHECK_INTERVAL_MS);
   return () => clearInterval(timer);
@@ -234,9 +241,11 @@ export async function checkNow(): Promise<UpdateOutcome> {
   return runCheck();
 }
 
-/** Test seam: back to a fresh install's state, timers cleared. */
+/** Test seam: back to a fresh install's state — flow cleared, preference
+ * re-read from storage (a fresh install has none, i.e. the default). */
 export function resetUpdates(): void {
-  stopCountdown();
   pending = null;
+  downloaded = false;
+  setAutoDownloadSignal(safeGetItem(AUTO_DOWNLOAD_STORAGE_KEY) !== "0");
   setState(IDLE);
 }

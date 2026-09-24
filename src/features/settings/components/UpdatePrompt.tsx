@@ -1,17 +1,17 @@
 import { Match, Switch, Show } from "solid-js";
 import { Download, RefreshCw, RotateCw, X } from "lucide-solid";
 import { Button, iconButtonClass } from "../../../common/components";
-import { countdownSeconds, dismiss, installAndRestart, postpone, updateState } from "../updates";
+import { dismissPrompt, startUpdate, updateState } from "../updates";
 
 /**
- * The floating update card (R15). Non-modal on purpose: it reports something
- * the app is doing on its own and asks for one decision, so it must not steal
- * focus from whatever the user is doing — the same reasoning as the quick-add
- * window being a separate surface rather than a dialog.
+ * The update card (R15). Non-modal on purpose: it reports something the app
+ * found on its own and asks for one decision, so it must not steal focus from
+ * whatever the user is doing. Nothing happens until 「更新」 is pressed — there
+ * is no countdown, so the card can sit there as long as the answer takes.
  *
  * It shows nothing while a check runs and nothing when a check fails: the
  * automatic path is silent by design (`updates.ts`). It appears once there is a
- * version to talk about — downloading it, waiting to install it, failing to.
+ * version to talk about — found, downloading, ready to install, or failing.
  *
  * The card lives at the window's bottom-left, opposite the toast stack, so a
  * failure toast and an update card can be on screen at the same time.
@@ -20,7 +20,15 @@ export function UpdatePrompt() {
   const state = updateState;
   /** A version is what makes this card the user's business; a bare check
    * failure is not (see the module comment). */
-  const visible = () => state().version !== null && state().phase !== "idle";
+  const visible = () => {
+    const current = state();
+    return (
+      current.version !== null &&
+      current.dismissedVersion !== current.version &&
+      current.phase !== "idle" &&
+      current.phase !== "checking"
+    );
+  };
 
   return (
     <Show when={visible()}>
@@ -55,26 +63,24 @@ export function UpdatePrompt() {
               <Match when={state().phase === "failed"}>
                 更新失败：{state().error}
               </Match>
-              {/* Ready. The countdown is `null` in two different situations and
-                  they must not read the same: waiting for a dialog to close is
-                  a pause, 「稍后」 is a decision. */}
-              <Match when={!state().autoRestart}>
-                v{state().version} 已下载，下次启动时更新
+              {/* Ready: the bytes are here and the click is all that is left.
+                  Available: nothing was downloaded, so 「下载并更新」 does both. */}
+              <Match when={state().phase === "ready"}>
+                v{state().version} 已下载，点击更新以重启安装
               </Match>
-              <Match when={countdownSeconds() === null}>
-                正在等待你关闭当前窗口…（v{state().version} 已下载）
-              </Match>
-              <Match when={true}>
-                v{state().version} 已下载，{countdownSeconds()} 秒后重启
-              </Match>
+              <Match when={true}>发现新版本 v{state().version}</Match>
             </Switch>
           </p>
-          <Show when={state().phase === "failed"}>
+          {/* A close button that is always there, not only on failures: an
+              update nobody wants to install right now must have a way off the
+              screen that is not a decision about the update. It says what
+              closing means, since the card does come back. */}
+          <Show when={state().phase !== "installing"}>
             <button
               type="button"
-              aria-label="关闭更新提示"
+              aria-label="关闭更新提示（下次启动再提醒）"
               class={`${iconButtonClass} -m-1`}
-              onClick={dismiss}
+              onClick={dismissPrompt}
             >
               <X size={14} aria-hidden="true" />
             </button>
@@ -83,14 +89,12 @@ export function UpdatePrompt() {
 
         <Show when={state().phase !== "installing" && state().phase !== "failed"}>
           <div class="flex justify-end gap-2">
-            <Show when={state().autoRestart}>
-              <Button variant="secondary" size="sm" onClick={postpone}>
-                稍后
-              </Button>
-            </Show>
-            <Button size="sm" onClick={() => void installAndRestart()}>
+            <Button variant="secondary" size="sm" onClick={dismissPrompt}>
+              稍后
+            </Button>
+            <Button size="sm" onClick={() => void startUpdate()}>
               <RotateCw size={13} aria-hidden="true" />
-              {state().autoRestart ? "现在重启" : "立即重启"}
+              {state().phase === "ready" ? "更新" : "下载并更新"}
             </Button>
           </div>
         </Show>

@@ -1,7 +1,6 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { X } from "lucide-solid";
-import { onCleanup, splitProps, type ComponentProps } from "solid-js";
-import { registerDialog } from "../stores/dialogs";
+import { splitProps, type ComponentProps } from "solid-js";
 
 function Root(props: ComponentProps<typeof KDialog>) {
   // Kobalte's own default for the close button's accessible name is the English
@@ -54,13 +53,6 @@ function Content(props: ComponentProps<typeof KDialog.Content>) {
    * the dialog, so this stays correct for that case too.
    */
   const opener = document.activeElement as HTMLElement | null;
-
-  // One open dialog, counted for as long as it is mounted — the auto-update
-  // flow reads that count and holds its restart countdown while it is non-zero
-  // (R15). Registered in the body rather than `onMount` so the count cannot
-  // lag a frame behind the dialog it describes; Kobalte mounts this subtree
-  // when the dialog opens and unmounts it when it closes.
-  onCleanup(registerDialog());
 
   // No border: at this elevation the shadow carries the separation, and a
   // hairline on top of a shadow is the generic "card" look.
