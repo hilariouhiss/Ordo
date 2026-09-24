@@ -308,6 +308,11 @@ pub fn time_list(db: State<'_, Db>, task_id: Uuid) -> Result<Vec<TimeEntry>, App
     with_conn(&db, |conn| services::list_time_entries(conn, task_id))
 }
 
+#[tauri::command(rename = "time:running")]
+pub fn time_running(db: State<'_, Db>) -> Result<Vec<TimeEntry>, AppError> {
+    with_conn(&db, services::list_running_time_entries)
+}
+
 #[tauri::command(rename = "time:create")]
 pub fn time_create(
     db: State<'_, Db>,

@@ -130,6 +130,11 @@ export function listTimeEntries(taskId: string): Promise<TimeEntry[]> {
   return invokeCommand(COMMANDS.time.list, { taskId });
 }
 
+/** Every entry whose timer is on — one read for the whole task list. */
+export function listRunningTimeEntries(): Promise<TimeEntry[]> {
+  return invokeCommand(COMMANDS.time.running);
+}
+
 export function createTimeEntry(taskId: string, payload: NewTimeEntry): Promise<TimeEntry> {
   return invokeCommand(COMMANDS.time.create, { taskId, payload });
 }

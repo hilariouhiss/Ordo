@@ -58,6 +58,7 @@ export const COMMANDS = {
   },
   time: {
     list: "time:list",
+    running: "time:running",
     create: "time:create",
     update: "time:update",
     delete: "time:delete",

@@ -1478,6 +1478,22 @@ pub mod time_entries {
         )
     }
 
+    /// Every running entry in the database (`ended_at IS NULL`), oldest first.
+    /// One read answers "which timers are on" for a whole list, where
+    /// `get_running` would need one round trip per row.
+    pub fn list_running(conn: &Connection) -> Result<Vec<TimeEntry>, AppError> {
+        query_all(
+            conn,
+            &format!(
+                "SELECT {TIME_ENTRY_COLUMNS} FROM time_entries \
+                 WHERE ended_at IS NULL AND deleted_at IS NULL \
+                 ORDER BY started_at, id"
+            ),
+            &[],
+            time_entry_from_row,
+        )
+    }
+
     /// The task's running entry (`ended_at IS NULL`), if its timer is on.
     pub fn get_running(conn: &Connection, task_id: Uuid) -> Result<Option<TimeEntry>, AppError> {
         query_one(

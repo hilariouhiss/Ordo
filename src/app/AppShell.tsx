@@ -74,6 +74,7 @@ import * as tasksApi from "../features/tasks/api";
 import {
   ensureScope,
   loadAll as loadTasks,
+  loadRunningTimers,
   loadUnfinishedCounts,
   reloadTasks,
   updateTask,
@@ -757,6 +758,11 @@ export default function AppShell() {
       // project rows' drag/drop — only the arrows moved off it.
       tasksState.loaded ? undefined : loadTasks(),
     ];
+    // 列表行右侧的 开始/暂停 问的是这一份全局快照（`time:running` 一次拉取）。
+    // 它**不在**上面那四笔里：首屏能不能用不取决于按钮上的图标，而 Q-01 的
+    // 「首屏可交互」口径正是那四笔（§6.1）。与它们并行发出、落地时行已经画完；
+    // 计时状态此后由 `startTimer`/`stopTimer` 就地维护。
+    void loadRunningTimers();
     // Q-01 性能验收：「首屏可交互」= 外壳的这几笔一次性加载都落地了（失败的也算
     // 落地，否则一次断网就让验收拿不到数字）。
     void Promise.allSettled(initialLoads).then(markInteractive);

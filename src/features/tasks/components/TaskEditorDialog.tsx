@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js";
 import { Settings2 } from "lucide-solid";
+import { RadioGroup } from "@kobalte/core/radio-group";
 import { z } from "zod";
 import {
   Button,
@@ -159,10 +160,6 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
   const selectedProject = () =>
     projectOptions().find((option) => option.id === resolvedProjectId()) ?? INBOX;
 
-  const selectedPriority = () =>
-    PRIORITY_OPTIONS.find((option) => option.value === priority()) ??
-    PRIORITY_OPTIONS[PRIORITY_OPTIONS.length - 1];
-
   const selectedComplexity = () =>
     COMPLEXITY_OPTIONS.find((option) => option.value === complexityOptionValue(complexity())) ??
     COMPLEXITY_OPTIONS[0];
@@ -248,6 +245,12 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
         <Dialog.Overlay />
         <Dialog.Content
           aria-labelledby={titleId}
+          // Two columns need the room: at `max-w-md` the date field and the tag
+          // chips both start scrolling sideways. It has to be `xl`, not `lg` —
+          // Tailwind emits `max-w-*` in its own order, and `.max-w-lg` lands
+          // *before* the dialog's own `.max-w-md`, so it loses the cascade
+          // while `.max-w-xl` wins it (the detail dialog rides the same rule).
+          class="max-w-xl"
           // R12: opening the dialog focuses the title, the first field both
           // modes touch. The focus is taken HERE, in the event Kobalte fires
           // from the mounted content — not in an effect on `open`, which
@@ -296,120 +299,152 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               <TextField.TextArea placeholder="补充说明（可选）" />
             </TextField.Root>
 
-            <Select.Root
-              options={parentOptions()}
-              disabled={parentLocked()}
-              optionValue={(option) => option.id ?? "none"}
-              optionTextValue={(option) => option.name}
-              itemToString={(option) => option.name}
-              value={selectedParent()}
-              onChange={(option) => {
-                // Kobalte fires onChange once on mount with the seeded value;
-                // treating that as a pick would re-file the task on render.
-                const id = option?.id ?? null;
-                if (id === parentId()) return;
-                setParentId(id);
-              }}
-            >
-              <Select.Label>父任务</Select.Label>
-              <Select.Trigger>
-                <Select.Value>{selectedParent().name}</Select.Value>
-                <Select.Icon />
-              </Select.Trigger>
-              <Select.Content>
-                <Select.Listbox />
-              </Select.Content>
-              {/* The service's own wording for this refusal, so a locked picker
-                  explains itself in the words a rejected save would use. */}
-              <Show when={parentLocked()}>
-                <Select.Description>
-                  该任务还有子任务（含回收站中的），不能变成别人的子任务
-                </Select.Description>
-              </Show>
-            </Select.Root>
+            {/* Four labelled groups, three of them two columns each. Every
+                control is label + `h-8` field, so a row of two lines up on one
+                baseline and the dialog stays scannable instead of being a
+                nine-row stack that pushes 保存 below the fold. */}
+            <div class="flex flex-col gap-2">
+              <span class="text-xs font-medium text-muted-foreground">归属</span>
+              <div class="grid grid-cols-2 gap-3">
+                <Select.Root
+                  options={parentOptions()}
+                  disabled={parentLocked()}
+                  optionValue={(option) => option.id ?? "none"}
+                  optionTextValue={(option) => option.name}
+                  itemToString={(option) => option.name}
+                  value={selectedParent()}
+                  onChange={(option) => {
+                    // Kobalte fires onChange once on mount with the seeded value;
+                    // treating that as a pick would re-file the task on render.
+                    const id = option?.id ?? null;
+                    if (id === parentId()) return;
+                    setParentId(id);
+                  }}
+                >
+                  <Select.Label>父任务</Select.Label>
+                  <Select.Trigger>
+                    <Select.Value>{selectedParent().name}</Select.Value>
+                    <Select.Icon />
+                  </Select.Trigger>
+                  <Select.Content>
+                    <Select.Listbox />
+                  </Select.Content>
+                  {/* The service's own wording for this refusal, so a locked picker
+                      explains itself in the words a rejected save would use. */}
+                  <Show when={parentLocked()}>
+                    <Select.Description>
+                      该任务还有子任务（含回收站中的），不能变成别人的子任务
+                    </Select.Description>
+                  </Show>
+                </Select.Root>
 
-            <Select.Root
-              options={projectOptions()}
-              disabled={parentId() !== null}
-              optionValue={(option) => option.id ?? "none"}
-              optionTextValue={(option) => option.name}
-              itemToString={(option) => option.name}
-              value={selectedProject()}
-              onChange={(option) => {
-                // Kobalte fires onChange once on mount with the seeded value;
-                // treating that as a pick would re-file the task on render.
-                const id = option?.id ?? null;
-                if (id === projectId()) return;
-                setProjectId(id);
-              }}
-            >
-              <Select.Label>所属项目</Select.Label>
-              <Select.Trigger>
-                <Select.Value>{selectedProject().name}</Select.Value>
-                <Select.Icon />
-              </Select.Trigger>
-              <Select.Content>
-                <Select.Listbox />
-              </Select.Content>
-              <Show when={parentId() !== null}>
-                <Select.Description>子任务跟随父任务所属项目</Select.Description>
-              </Show>
-            </Select.Root>
+                <Select.Root
+                  options={projectOptions()}
+                  disabled={parentId() !== null}
+                  optionValue={(option) => option.id ?? "none"}
+                  optionTextValue={(option) => option.name}
+                  itemToString={(option) => option.name}
+                  value={selectedProject()}
+                  onChange={(option) => {
+                    // Kobalte fires onChange once on mount with the seeded value;
+                    // treating that as a pick would re-file the task on render.
+                    const id = option?.id ?? null;
+                    if (id === projectId()) return;
+                    setProjectId(id);
+                  }}
+                >
+                  <Select.Label>所属项目</Select.Label>
+                  <Select.Trigger>
+                    <Select.Value>{selectedProject().name}</Select.Value>
+                    <Select.Icon />
+                  </Select.Trigger>
+                  <Select.Content>
+                    <Select.Listbox />
+                  </Select.Content>
+                  <Show when={parentId() !== null}>
+                    <Select.Description>子任务跟随父任务所属项目</Select.Description>
+                  </Show>
+                </Select.Root>
+              </div>
+            </div>
 
-            <Select.Root
-              options={PRIORITY_OPTIONS}
-              optionValue={(option) => option.value}
-              optionTextValue={(option) => option.label}
-              itemToString={(option) => option.label}
-              value={selectedPriority()}
-              onChange={(option) => setPriority(option?.value ?? "none")}
-            >
-              <Select.Label>优先级</Select.Label>
-              <Select.Trigger>
-                <Select.Value>{selectedPriority().label}</Select.Value>
-                <Select.Icon />
-              </Select.Trigger>
-              <Select.Content>
-                <Select.Listbox />
-              </Select.Content>
-            </Select.Root>
+            <div class="flex flex-col gap-2">
+              <span class="text-xs font-medium text-muted-foreground">属性</span>
+              <div class="grid grid-cols-2 gap-3">
+                {/* Four options that are picked far more often than any other
+                    field: a segmented row answers in one click where the
+                    select took two and hid the current value behind a trigger.
+                    Kobalte's RadioGroup is the semantics (one of N, arrow keys
+                    move between them) — the input is the visually hidden real
+                    control, the box beside it is what gets painted. */}
+                <RadioGroup
+                  class="flex flex-col gap-1.5"
+                  value={priority()}
+                  onChange={(value: string) => {
+                    // Same mount-time call as the selects above: a no-op pick
+                    // must not run the setter.
+                    if (value === priority()) return;
+                    setPriority(value as Priority);
+                  }}
+                >
+                  <RadioGroup.Label class="text-xs font-medium text-muted-foreground">
+                    优先级
+                  </RadioGroup.Label>
+                  <div class="flex gap-1">
+                    <For each={PRIORITY_OPTIONS}>
+                      {(option) => (
+                        <RadioGroup.Item value={option.value} class="min-w-0 flex-1">
+                          <RadioGroup.ItemInput
+                            class="peer absolute size-4 appearance-none opacity-0"
+                            aria-label={option.label}
+                          />
+                          <RadioGroup.ItemControl class="flex h-8 w-full cursor-pointer select-none items-center justify-center rounded-md border border-border bg-surface text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring data-[checked]:border-primary data-[checked]:bg-primary/10 data-[checked]:font-medium data-[checked]:text-primary">
+                            {option.label}
+                          </RadioGroup.ItemControl>
+                        </RadioGroup.Item>
+                      )}
+                    </For>
+                  </div>
+                </RadioGroup>
 
-            <Select.Root
-              options={COMPLEXITY_OPTIONS}
-              optionValue={(option) => option.value}
-              optionTextValue={(option) => option.label}
-              itemToString={(option) => option.label}
-              value={selectedComplexity()}
-              onChange={(option) => setComplexity(complexityFromOption(option?.value ?? "none"))}
-            >
-              <Select.Label>复杂度</Select.Label>
-              <Select.Trigger>
-                <Select.Value>{selectedComplexity().label}</Select.Value>
-                <Select.Icon />
-              </Select.Trigger>
-              <Select.Content>
-                <Select.Listbox />
-              </Select.Content>
-            </Select.Root>
+                <Select.Root
+                  options={COMPLEXITY_OPTIONS}
+                  optionValue={(option) => option.value}
+                  optionTextValue={(option) => option.label}
+                  itemToString={(option) => option.label}
+                  value={selectedComplexity()}
+                  onChange={(option) => setComplexity(complexityFromOption(option?.value ?? "none"))}
+                >
+                  <Select.Label>复杂度</Select.Label>
+                  <Select.Trigger>
+                    <Select.Value>{selectedComplexity().label}</Select.Value>
+                    <Select.Icon />
+                  </Select.Trigger>
+                  <Select.Content>
+                    <Select.Listbox />
+                  </Select.Content>
+                </Select.Root>
+              </div>
+            </div>
 
-            <TextField.Root
-              value={dueLocal()}
-              onChange={(value) => {
-                setDueLocal(value);
-                if (errors().dueLocal) setErrors({ ...errors(), dueLocal: undefined });
-              }}
-              validationState={errors().dueLocal ? "invalid" : "valid"}
-            >
-              <TextField.Label>截止时间</TextField.Label>
-              <DateField type="datetime-local" value={dueLocal()}>
-                <TextField.Input type="datetime-local" />
-              </DateField>
-              <TextField.ErrorMessage>{errors().dueLocal ?? ""}</TextField.ErrorMessage>
-            </TextField.Root>
+            <div class="flex flex-col gap-2">
+              <span class="text-xs font-medium text-muted-foreground">时间</span>
+              <div class="grid grid-cols-2 gap-3">
+                <TextField.Root
+                  value={dueLocal()}
+                  onChange={(value) => {
+                    setDueLocal(value);
+                    if (errors().dueLocal) setErrors({ ...errors(), dueLocal: undefined });
+                  }}
+                  validationState={errors().dueLocal ? "invalid" : "valid"}
+                >
+                  <TextField.Label>截止时间</TextField.Label>
+                  <DateField type="datetime-local" value={dueLocal()}>
+                    <TextField.Input type="datetime-local" />
+                  </DateField>
+                  <TextField.ErrorMessage>{errors().dueLocal ?? ""}</TextField.ErrorMessage>
+                </TextField.Root>
 
-            <div class="flex flex-col gap-1.5">
-              <span class="text-xs font-medium text-muted-foreground">重复</span>
-              <div class="flex items-center gap-2">
                 <Select.Root
                   options={REPEAT_FREQ_OPTIONS}
                   optionValue={(option) => option.value}
@@ -418,8 +453,8 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                   value={selectedRepeatOption()}
                   onChange={(option) => setRepeatFreq(option?.value ?? "none")}
                 >
-                  <Select.Label class="sr-only">重复规则</Select.Label>
-                  <Select.Trigger class="w-28">
+                  <Select.Label>重复</Select.Label>
+                  <Select.Trigger>
                     <Select.Value>{selectedRepeatOption().label}</Select.Value>
                     <Select.Icon />
                   </Select.Trigger>
@@ -427,7 +462,12 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                     <Select.Listbox />
                   </Select.Content>
                 </Select.Root>
-                <Show when={repeatFreq() !== "none"}>
+              </div>
+
+              {/* The interval and the pause switch only exist once a rule does:
+                  they hang under the pair rather than splitting the row. */}
+              <Show when={repeatFreq() !== "none"}>
+                <div class="flex flex-wrap items-center gap-2">
                   <span class="text-sm text-muted-foreground">每</span>
                   <TextField.Root
                     class="w-16"
@@ -446,22 +486,20 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                     </TextField.ErrorMessage>
                   </TextField.Root>
                   <span class="text-sm text-muted-foreground">{repeatUnit()}</span>
-                </Show>
-              </div>
-              <Show when={repeatFreq() !== "none"}>
-                <Checkbox.Root
-                  checked={repeatPaused()}
-                  onChange={(checked) => setRepeatPaused(checked)}
-                  class="mt-0.5"
-                >
-                  <Checkbox.Input aria-label="暂停重复" />
-                  <Checkbox.Control>
-                    <Checkbox.Indicator />
-                  </Checkbox.Control>
-                  <Checkbox.Label class="text-sm text-muted-foreground">
-                    已暂停（完成后不生成下一次）
-                  </Checkbox.Label>
-                </Checkbox.Root>
+                  <Checkbox.Root
+                    checked={repeatPaused()}
+                    onChange={(checked) => setRepeatPaused(checked)}
+                    class="ml-auto"
+                  >
+                    <Checkbox.Input aria-label="暂停重复" />
+                    <Checkbox.Control>
+                      <Checkbox.Indicator />
+                    </Checkbox.Control>
+                    <Checkbox.Label class="text-sm text-muted-foreground">
+                      已暂停（完成后不生成下一次）
+                    </Checkbox.Label>
+                  </Checkbox.Root>
+                </div>
               </Show>
             </div>
 
@@ -509,7 +547,10 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
               </div>
             </div>
 
-            <div class="mt-2 flex justify-end gap-2">
+            {/* The actions sit under a hairline and outside the fields' flow:
+                at the end of a scroll box they used to travel with the content,
+                so 创建 could be off screen at the moment the form was filled. */}
+            <div class="sticky bottom-0 mt-auto flex justify-end gap-2 border-t border-border bg-elevated pt-4">
               <Button variant="secondary" onClick={() => props.onOpenChange(false)}>
                 取消
               </Button>

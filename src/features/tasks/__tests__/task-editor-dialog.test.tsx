@@ -61,14 +61,13 @@ function projectFixture(id: string, name: string): Project {
 }
 
 async function selectPriority(label: string): Promise<void> {
-  // The Select.Label names the trigger ("优先级") via aria-labelledby.
-  fireEvent.pointerDown(screen.getByRole("button", { name: /优先级/ }));
-  const option = await screen.findByRole("option", { name: label });
-  fireEvent.click(option);
+  // 优先级 is a RadioGroup of segmented buttons, not a select: each radio's
+  // accessible name is its own label (the group's 优先级 label names the group).
+  fireEvent.click(screen.getByRole("radio", { name: label }));
 }
 
 async function selectRepeat(label: string): Promise<void> {
-  fireEvent.pointerDown(screen.getByRole("button", { name: /重复规则/ }));
+  fireEvent.pointerDown(screen.getByRole("button", { name: /重复/ }));
   const option = await screen.findByRole("option", { name: label });
   fireEvent.click(option);
 }
@@ -288,8 +287,9 @@ describe("TaskEditorDialog", () => {
     expect(screen.getByRole("button", { name: "工作" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
-    // The priority trigger shows the current value, not the placeholder.
-    expect(screen.getByRole("button", { name: /优先级/ }).textContent).toContain("高");
+    // The segmented priority row shows the stored value as the checked radio.
+    expect((screen.getByRole("radio", { name: "高" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "无" }) as HTMLInputElement).checked).toBe(false);
     expect(screen.getByRole("button", { name: /复杂度/ }).textContent).toContain("2 · 简单");
 
     fireEvent.input(screen.getByLabelText("标题"), { target: { value: "新标题" } });
@@ -347,7 +347,7 @@ describe("TaskEditorDialog", () => {
     const { onOpenChange } = renderDialog(existing);
 
     // Seeded controls reflect the stored rule.
-    expect(screen.getByRole("button", { name: /重复规则/ }).textContent).toContain("每月");
+    expect(screen.getByRole("button", { name: /重复/ }).textContent).toContain("每月");
     expect((screen.getByLabelText("重复间隔") as HTMLInputElement).value).toBe("1");
     const pausedInput = screen.getByRole("checkbox", {
       name: /暂停重复/,

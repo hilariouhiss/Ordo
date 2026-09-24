@@ -13,6 +13,7 @@ import { canAcceptChild } from "../hierarchy";
 import { describeRepeatRule } from "../repeat";
 import type { Priority, Task } from "../types";
 import { formatDueLabel, isOverdue } from "../view-filters";
+import { TaskTimerButton } from "./TaskTimerButton";
 
 /*
  * Priority is expressed as a Badge *variant*, never as extra colour classes
@@ -66,8 +67,11 @@ export interface TaskItemRowProps {
   onDropTask?: (draggedId: string, target: Task) => void;
 }
 
-/** One task row inside the virtualized views; its `h-14` height and 20px
- * gutter are part of the contract pinned in `task-views.test.tsx`. */
+/**
+ * One task row inside the virtualized views. Two lines: the title with its
+ * controls, and the row's attributes as badges underneath — `h-18` (72px) and
+ * the 20px gutter are the contract pinned in `task-views.test.tsx`.
+ */
 export function TaskItemRow(props: TaskItemRowProps) {
   const completed = () => props.task.completedAt !== null;
   const priority = () => PRIORITY_BADGES[props.task.priority];
@@ -77,10 +81,10 @@ export function TaskItemRow(props: TaskItemRowProps) {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the whole card/row IS the drag source (native Drag API); its keyboard path is the buttons inside it
     <div
-      // The whole row lights up on hover, not just the title: at 56px a row is
+      // The whole row lights up on hover, not just the title: at 72px a row is
       // a large target, and highlighting all of it is what tells the eye which
       // row the trailing ⋯ button belongs to.
-      class="group flex h-14 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-150 hover:bg-surface-hover/60"
+      class="group flex h-18 items-center gap-2.5 border-b border-border pl-3.5 pr-2 transition-colors duration-150 hover:bg-surface-hover/60"
       classList={{
         "bg-primary/10 ring-1 ring-inset ring-primary/40": childOver(),
         "animate-row-in": props.enterDelay !== null,
@@ -90,7 +94,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       }
       data-task-id={props.task.id}
       // The drop highlight is a ring, not a border: a border would change the
-      // row's box and shove the 56px rhythm the virtualizer assumes.
+      // row's box and shove the 72px rhythm the virtualizer assumes.
       // R7b: the row is the drag source for "move this task to another
       // project" — the sidebar's project rows are the drop targets. Touch
       // input already needs the platform's own long-press before a drag
@@ -148,80 +152,90 @@ export function TaskItemRow(props: TaskItemRowProps) {
         </Checkbox.Control>
       </Checkbox.Root>
 
-      <button
-        type="button"
-        class="min-w-0 flex-1 truncate rounded-sm text-left text-sm text-foreground transition-colors hover:text-primary focus-ring"
-        title={props.task.title}
-        onClick={() => props.onOpenDetail(props.task)}
-      >
-        <span classList={{ "text-subtle-foreground line-through": completed() }}>
-          {props.task.title}
-        </span>
-      </button>
-
-      <Show when={props.subtaskCount > 0}>
-        {/* A bare `1/3` has no context read aloud, and `aria-label` cannot give
-            it one: the Badge is a generic span, and ARIA forbids naming those
-            (`role=generic` has no name-from-author). So the digits are hidden
-            from assistive tech and the label is real text instead. */}
-        <Badge>
-          <span aria-hidden="true">
-            {props.subtaskDone}/{props.subtaskCount}
+      {/* Title and attributes share this column, so the second line starts
+          exactly under the title: padding the badges by hand would have to
+          re-add the gutter, the checkbox and the gaps, and drift the moment
+          one of them changes. */}
+      <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+        <button
+          type="button"
+          class="min-w-0 truncate rounded-sm text-left text-sm text-foreground transition-colors hover:text-primary focus-ring"
+          title={props.task.title}
+          onClick={() => props.onOpenDetail(props.task)}
+        >
+          <span classList={{ "text-subtle-foreground line-through": completed() }}>
+            {props.task.title}
           </span>
-          <span class="sr-only">
-            子任务 {props.subtaskDone}/{props.subtaskCount} 已完成
-          </span>
-        </Badge>
-      </Show>
+        </button>
 
-      <Show when={props.task.repeatRule}>
-        {(rule) => (
-          <span
-            class="shrink-0 text-subtle-foreground"
-            title={`重复 ${describeRepeatRule(rule())}`}
-          >
-            <Repeat size={13} aria-label={`重复 ${describeRepeatRule(rule())}`} />
-          </span>
-        )}
-      </Show>
+        <div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          <Show when={priority()}>
+            {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
+          </Show>
 
-      <Show when={priority()}>
-        {(badge) => <Badge variant={badge().variant}>{badge().label}</Badge>}
-      </Show>
+          <Show when={props.task.dueAt}>
+            <Badge variant={isOverdue(props.task.dueAt, props.now) ? "danger" : "outline"}>
+              {formatDueLabel(props.task.dueAt, props.now)}
+            </Badge>
+          </Show>
 
-      <For each={props.task.tagIds}>
-        {(tagId) => (
-          <Show when={getTag(tagId)}>
-            {(tag) => (
-              <Badge variant="outline">
-                <span
-                  class="size-1.5 rounded-full"
-                  style={{ "background-color": tag().color ?? "var(--muted-foreground)" }}
-                />
-                {tag().name}
-              </Badge>
+          <For each={props.task.tagIds}>
+            {(tagId) => (
+              <Show when={getTag(tagId)}>
+                {(tag) => (
+                  <Badge variant="outline">
+                    <span
+                      class="size-1.5 rounded-full"
+                      style={{ "background-color": tag().color ?? "var(--muted-foreground)" }}
+                    />
+                    {tag().name}
+                  </Badge>
+                )}
+              </Show>
+            )}
+          </For>
+
+          <Show when={props.subtaskCount > 0}>
+            {/* A bare `1/3` has no context read aloud, and `aria-label` cannot give
+                it one: the Badge is a generic span, and ARIA forbids naming those
+                (`role=generic` has no name-from-author). So the digits are hidden
+                from assistive tech and the label is real text instead. */}
+            <Badge>
+              <span aria-hidden="true">
+                {props.subtaskDone}/{props.subtaskCount}
+              </span>
+              <span class="sr-only">
+                子任务 {props.subtaskDone}/{props.subtaskCount} 已完成
+              </span>
+            </Badge>
+          </Show>
+
+          <Show when={props.task.repeatRule}>
+            {(rule) => (
+              <span
+                class="shrink-0 text-subtle-foreground"
+                title={`重复 ${describeRepeatRule(rule())}`}
+              >
+                <Repeat size={13} aria-label={`重复 ${describeRepeatRule(rule())}`} />
+              </span>
             )}
           </Show>
-        )}
-      </For>
 
-      <Show when={props.blocked}>
-        {/* Same split as the progress badge above: the compact text is the
-            sighted label, and the sentence behind it is what gets announced. */}
-        <Badge variant="warning">
-          <Lock size={11} aria-hidden="true" />
-          <span aria-hidden="true">阻塞中 · 还差 {props.blockerCount} 项</span>
-          <span class="sr-only">
-            阻塞中，还有 {props.blockerCount} 项前置未完成
-          </span>
-        </Badge>
-      </Show>
+          <Show when={props.blocked}>
+            {/* Same split as the progress badge above: the compact text is the
+                sighted label, and the sentence behind it is what gets announced. */}
+            <Badge variant="warning">
+              <Lock size={11} aria-hidden="true" />
+              <span aria-hidden="true">阻塞中 · 还差 {props.blockerCount} 项</span>
+              <span class="sr-only">
+                阻塞中，还有 {props.blockerCount} 项前置未完成
+              </span>
+            </Badge>
+          </Show>
+        </div>
+      </div>
 
-      <Show when={props.task.dueAt}>
-        <Badge variant={isOverdue(props.task.dueAt, props.now) ? "danger" : "outline"}>
-          {formatDueLabel(props.task.dueAt, props.now)}
-        </Badge>
-      </Show>
+      <TaskTimerButton taskId={props.task.id} title={props.task.title} />
 
       <DropdownMenu.Root>
         <DropdownMenu.Trigger

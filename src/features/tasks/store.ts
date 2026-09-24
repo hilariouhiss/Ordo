@@ -63,6 +63,11 @@ export interface TasksState {
   /** Time-entry cache per task, filled on demand by `loadTimeEntries`;
    * most recent first, as `time:list` returns them. */
   timeEntriesByTask: Record<string, TimeEntry[]>;
+  /** taskId → the entry whose timer is on, app-wide (`time:running`). Kept
+   * apart from `timeEntriesByTask`, deliberately: that one is a per-task,
+   * on-demand cache, while a running timer is a fact about every row at once
+   * — and a task whose detail was never opened has no entry list at all. */
+  runningByTask: Record<string, TimeEntry>;
   /** Whether the transitional `all` scope has loaded. */
   loaded: boolean;
 }
@@ -80,6 +85,7 @@ function emptyState(): TasksState {
     dependencies: [],
     commentsByTask: {},
     timeEntriesByTask: {},
+    runningByTask: {},
     loaded: false,
   };
 }
@@ -211,6 +217,42 @@ export function getTimeEntries(taskId: string): TimeEntry[] {
 /** Whether the task's time-entry list has been loaded into the cache. */
 export function hasTimeEntries(taskId: string): boolean {
   return taskId in state.timeEntriesByTask;
+}
+
+/** The task's running timer, or `undefined` when it has none. */
+export function runningEntryOf(taskId: string): TimeEntry | undefined {
+  return state.runningByTask[taskId];
+}
+
+/**
+ * Replaces the whole running set from the `time:running` snapshot.
+ *
+ * `produce`, not a returned map: `setState(key, value)` MERGES two wrappable
+ * objects, so a returned map would leave a timer the snapshot no longer carries
+ * — one stopped while another window held the write — sitting in the store, and
+ * the row would keep offering 暂停 for it.
+ */
+export function setRunningTimers(entries: readonly TimeEntry[]): void {
+  setState(
+    "runningByTask",
+    produce((draft: Record<string, TimeEntry>) => {
+      for (const taskId of Object.keys(draft)) delete draft[taskId];
+      for (const entry of entries) draft[entry.taskId] = entry;
+    }),
+  );
+}
+
+/** Marks one task's timer as on (`entry`) or off (`null`). */
+export function setRunning(taskId: string, entry: TimeEntry | null): void {
+  setState(
+    "runningByTask",
+    produce((draft: Record<string, TimeEntry>) => {
+      // `delete`, not a returned map: `setState(key, value)` merges two
+      // wrappable objects, which is how a stopped timer kept its 暂停 button.
+      if (entry === null) delete draft[taskId];
+      else draft[taskId] = entry;
+    }),
+  );
 }
 
 /** Index of a task in the transitional `all` scope, or -1. */

@@ -75,6 +75,7 @@ pub fn run() {
             commands::comment_update,
             commands::comment_delete,
             commands::time_list,
+            commands::time_running,
             commands::time_create,
             commands::time_update,
             commands::time_delete,

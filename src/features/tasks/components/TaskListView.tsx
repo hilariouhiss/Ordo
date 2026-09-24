@@ -13,14 +13,14 @@ import { TaskEditorDialog } from "./TaskEditorDialog";
 import { TaskItemRow } from "./TaskItemRow";
 import { TagManagerDialog } from "./TagManagerDialog";
 
-/** Both row components carry this height as `h-14`; VirtualList v1 cannot
+/** Both row components carry this height as `h-18`; VirtualList v1 cannot
  * measure rows. The three copies — this number, those classes and the 20px
  * gutter — are pinned by one assertion in `task-views.test.tsx`. */
-const ROW_HEIGHT = 56;
+const ROW_HEIGHT = 72;
 
 /**
  * One rendered line. The tree is flattened into this, so every row keeps the
- * same 56px height the virtualizer assumes — teaching `VirtualList` to measure
+ * same 72px height the virtualizer assumes — teaching `VirtualList` to measure
  * variable rows would mean rewriting a primitive four other views depend on.
  *
  * `child` covers both shapes a child takes under rule A: tucked under its
@@ -515,6 +515,7 @@ export function TaskListView(props: TaskListViewProps) {
             ) : (
               <SubtaskRow
                 task={row.task}
+                now={now()}
                 parentTitle={row.parentTitle}
                 blocked={row.blocked}
                 enterDelay={row.animates ? row.enterDelay : null}

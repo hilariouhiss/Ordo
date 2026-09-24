@@ -1547,6 +1547,12 @@ pub fn list_time_entries(conn: &Connection, task_id: Uuid) -> Result<Vec<TimeEnt
     time_entries::list_by_task(conn, task_id)
 }
 
+/// Every entry whose timer is still running. The task list asks this once at
+/// start-up so a row can paint 开始/暂停 without one `time:list` per row.
+pub fn list_running_time_entries(conn: &Connection) -> Result<Vec<TimeEntry>, AppError> {
+    time_entries::list_running(conn)
+}
+
 // ---------------------------------------------------------------------------
 // stats:*
 // ---------------------------------------------------------------------------
@@ -5246,6 +5252,41 @@ mod tests {
             start_time_entry(&conn, Uuid::new_v4()).unwrap_err().code(),
             "not_found"
         );
+    }
+
+    #[test]
+    fn list_running_time_entries_returns_only_open_timers() {
+        let conn = conn();
+        let first = make_task(&conn, "计时一");
+        let second = make_task(&conn, "计时二");
+
+        // No timer on anywhere: the list's 开始 buttons all start idle.
+        assert!(list_running_time_entries(&conn).unwrap().is_empty());
+
+        let a = start_time_entry(&conn, first.id).unwrap();
+        let b = start_time_entry(&conn, second.id).unwrap();
+        assert_eq!(
+            list_running_time_entries(&conn)
+                .unwrap()
+                .iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>(),
+            vec![a.id, b.id]
+        );
+
+        // A stopped timer drops out; a soft-deleted running one does too, or
+        // the row would keep painting 暂停 for a timer nobody can stop.
+        stop_time_entry(&conn, a.id).unwrap();
+        assert_eq!(
+            list_running_time_entries(&conn)
+                .unwrap()
+                .iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>(),
+            vec![b.id]
+        );
+        delete_time_entry(&conn, b.id).unwrap();
+        assert!(list_running_time_entries(&conn).unwrap().is_empty());
     }
 
     /// Task factory with a project/tag set, hitting the real create path.

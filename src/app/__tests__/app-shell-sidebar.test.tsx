@@ -81,6 +81,9 @@ vi.mock("../../features/tasks/api", () => ({
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
   listDependencies: vi.fn().mockResolvedValue([]),
+  // The shell pulls the app-wide timer snapshot on mount (the rows' 开始/暂停);
+  // without it the call throws and the error lands on the toaster.
+  listRunningTimeEntries: vi.fn().mockResolvedValue([]),
 }));
 
 function namespace(id: string, name: string, status: "active" | "archived" = "active"): Namespace {

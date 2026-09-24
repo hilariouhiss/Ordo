@@ -584,6 +584,21 @@ export function deleteComment(taskId: string, commentId: string): Promise<boolea
 
 // --- time entries ---------------------------------------------------------------
 
+/**
+ * Loads every running timer into the store — the 开始/暂停 state of each list
+ * row, in one read. Called once at start-up rather than per view: the rows all
+ * read this one snapshot, and `startTimer`/`stopTimer` keep it current after.
+ */
+export async function loadRunningTimers(): Promise<boolean> {
+  try {
+    store.setRunningTimers(await api.listRunningTimeEntries());
+    return true;
+  } catch (error) {
+    reportFailure(error);
+    return false;
+  }
+}
+
 /** Loads one task's time entries into the cache; returns success. */
 export async function loadTimeEntries(taskId: string): Promise<boolean> {
   try {
@@ -713,6 +728,10 @@ export function startTimer(taskId: string): Promise<TimeEntry | null> {
         store.removeTimeEntry(taskId, optimisticEntry.id);
         store.upsertTimeEntry(taskId, running);
       }
+      // Only the real row reaches the shared running set. The optimistic entry
+      // above carries a temp id, and a row button that paints 暂停 for it would
+      // hand `stopTimer` an id the backend has never seen.
+      store.setRunning(taskId, running);
       return running;
     },
   );
@@ -720,7 +739,13 @@ export function startTimer(taskId: string): Promise<TimeEntry | null> {
 
 /** Stops a running timer, freezing the seconds elapsed since it started. */
 export function stopTimer(taskId: string, entryId: string): Promise<TimeEntry | null> {
-  const current = store.getTimeEntries(taskId).find((item) => item.id === entryId);
+  const cached = store.hasTimeEntries(taskId);
+  // Either cache can answer: the entry list when the task's detail has been
+  // opened, the running set when the click came from a list row — which is the
+  // common case, and one where `time:list` was deliberately never fetched.
+  const current =
+    store.getTimeEntries(taskId).find((item) => item.id === entryId) ??
+    (store.runningEntryOf(taskId)?.id === entryId ? store.runningEntryOf(taskId) : undefined);
   if (!current) return Promise.resolve(missingEntity("时间记录"));
   const stoppedAt = Date.now();
   const startedAt = current.startedAt ? Date.parse(current.startedAt) : stoppedAt;
@@ -735,11 +760,18 @@ export function stopTimer(taskId: string, entryId: string): Promise<TimeEntry | 
   // snapshot taken inside the rollback would read the optimistic values back.
   const rollback = patchRollback(current, optimisticPatch);
   return optimistic(
-    () => store.patchTimeEntry(taskId, entryId, optimisticPatch),
-    () => store.patchTimeEntry(taskId, entryId, rollback),
+    () => {
+      if (cached) store.patchTimeEntry(taskId, entryId, optimisticPatch);
+      store.setRunning(taskId, null);
+    },
+    () => {
+      if (cached) store.patchTimeEntry(taskId, entryId, rollback);
+      store.setRunning(taskId, current);
+    },
     async () => {
       const stopped = await api.stopTimeEntry(entryId);
-      store.patchTimeEntry(taskId, entryId, stopped);
+      if (cached) store.patchTimeEntry(taskId, entryId, stopped);
+      store.setRunning(taskId, null);
       return stopped;
     },
   );

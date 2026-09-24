@@ -28,6 +28,7 @@ vi.mock("../api", () => ({
   updateComment: vi.fn(),
   deleteComment: vi.fn(),
   listTimeEntries: vi.fn(),
+  listRunningTimeEntries: vi.fn(),
   createTimeEntry: vi.fn(),
   updateTimeEntry: vi.fn(),
   deleteTimeEntry: vi.fn(),
@@ -758,6 +759,68 @@ describe("time entries", () => {
     expect(result).toBeNull();
     expect(store.getTimeEntries("a")).toEqual([]);
     expect(notifications()[0]?.code).toBe("not_found");
+  });
+
+  /*
+   * The list rows' 开始/暂停 reads `runningByTask`, not `timeEntriesByTask`: one
+   * `time:running` read answers for every row, where a per-row `time:list`
+   * would be one round trip per visible task.
+   */
+  it("loads the app-wide running set, replacing what the snapshot dropped", async () => {
+    store.setRunningTimers([timeEntry("old", "a", { endedAt: null, duration: 0 })]);
+    vi.mocked(api.listRunningTimeEntries).mockResolvedValue([
+      timeEntry("e1", "b", { endedAt: null, duration: 0 }),
+    ]);
+
+    expect(await hooks.loadRunningTimers()).toBe(true);
+
+    expect(store.runningEntryOf("b")?.id).toBe("e1");
+    // A timer the snapshot no longer carries is gone, not merged over: a
+    // leftover here would keep painting 暂停 for a timer nobody can stop.
+    expect(store.runningEntryOf("a")).toBeUndefined();
+  });
+
+  it("reports a failed running-set read instead of throwing", async () => {
+    vi.mocked(api.listRunningTimeEntries).mockRejectedValue(appError("db", "读取失败"));
+
+    expect(await hooks.loadRunningTimers()).toBe(false);
+    expect(notifications()[0]?.message).toBe("读取失败");
+  });
+
+  it("publishes the started timer under its real id, never the optimistic one", async () => {
+    const running = timeEntry("e2", "a", { endedAt: null, duration: 0 });
+    vi.mocked(api.startTimeEntry).mockResolvedValue(running);
+
+    await hooks.startTimer("a");
+
+    // The row hands this id straight back to `stopTimer`; a temp id would name
+    // a row the backend has never seen.
+    expect(store.runningEntryOf("a")?.id).toBe("e2");
+  });
+
+  it("stops a row's timer without the task's entry list ever being loaded", async () => {
+    const running = timeEntry("e9", "a", { startedAt: new Date().toISOString(), endedAt: null });
+    store.setRunningTimers([running]);
+    const stopped = timeEntry("e9", "a", { endedAt: new Date().toISOString(), duration: 0 });
+    vi.mocked(api.stopTimeEntry).mockResolvedValue(stopped);
+
+    expect(await hooks.stopTimer("a", "e9")).toEqual(stopped);
+
+    // `time:list` was never fetched for this task (the list row does not fetch
+    // it), so the running set is the only place the entry could come from.
+    expect(api.listTimeEntries).not.toHaveBeenCalled();
+    expect(store.hasTimeEntries("a")).toBe(false);
+    expect(store.runningEntryOf("a")).toBeUndefined();
+  });
+
+  it("puts the running entry back when the stop fails", async () => {
+    const running = timeEntry("e9", "a", { startedAt: new Date().toISOString(), endedAt: null });
+    store.setRunningTimers([running]);
+    vi.mocked(api.stopTimeEntry).mockRejectedValue(appError("db", "写入失败"));
+
+    expect(await hooks.stopTimer("a", "e9")).toBeNull();
+
+    expect(store.runningEntryOf("a")?.id).toBe("e9");
   });
 
   it("stops a timer, freezing the elapsed seconds, and restores it on failure", async () => {

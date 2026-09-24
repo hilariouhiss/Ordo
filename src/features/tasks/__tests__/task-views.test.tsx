@@ -4,7 +4,7 @@ import { beginDrag } from "../../../common/stores/drag";
 import * as api from "../api";
 import * as hooks from "../hooks";
 import * as store from "../store";
-import type { Task } from "../types";
+import type { Tag, Task, TimeEntry } from "../types";
 import { SubtaskRow } from "../components/SubtaskRow";
 import { CompletedView } from "../components/views/CompletedView";
 import { InboxView } from "../components/views/InboxView";
@@ -28,6 +28,8 @@ vi.mock("../api", () => ({
   createComment: vi.fn(),
   updateComment: vi.fn(),
   deleteComment: vi.fn(),
+  startTimeEntry: vi.fn(),
+  stopTimeEntry: vi.fn(),
 }));
 
 // Only Date is faked: the views must derive "today" boundaries in the local
@@ -62,6 +64,18 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     updatedAt: "2026-09-01T10:00:00Z",
     deletedAt: null,
     ...overrides,
+  };
+}
+
+/** A live tag, for the rows whose attributes render as chips. */
+function tag(id: string, name: string): Tag {
+  return {
+    id,
+    name,
+    color: null,
+    createdAt: "2026-09-01T10:00:00Z",
+    updatedAt: "2026-09-01T10:00:00Z",
+    deletedAt: null,
   };
 }
 
@@ -514,6 +528,7 @@ describe("SubtaskRow", () => {
     render(() => (
       <SubtaskRow
         task={task("s1", { title: "第一步", parentTaskId: "t1", completedAt: null })}
+        now={NOW}
         blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
@@ -531,6 +546,7 @@ describe("SubtaskRow", () => {
     render(() => (
       <SubtaskRow
         task={child}
+        now={NOW}
         blocked={false}
         onToggleDone={onToggleDone}
         onOpenDetail={onOpenDetail}
@@ -550,6 +566,7 @@ describe("SubtaskRow", () => {
     render(() => (
       <SubtaskRow
         task={task("s1", { title: "第一步", parentTaskId: "t1", completedAt: iso(0, 10) })}
+        now={NOW}
         blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
@@ -563,6 +580,7 @@ describe("SubtaskRow", () => {
   it("shows the parent prefix only on a standalone child row", () => {
     const props = {
       task: task("s1", { title: "第一步", parentTaskId: "t1" }),
+      now: NOW,
       blocked: false,
       onToggleDone: vi.fn(),
       onOpenDetail: vi.fn(),
@@ -588,6 +606,7 @@ describe("SubtaskRow", () => {
     const { container } = render(() => (
       <SubtaskRow
         task={task("s1", { title: "第一步", parentTaskId: "t1" })}
+        now={NOW}
         blocked={false}
         onToggleDone={vi.fn()}
         onOpenDetail={vi.fn()}
@@ -750,11 +769,11 @@ describe("任务列表的层级展示", () => {
 
   /*
    * The row height lives in three places that cannot see each other:
-   * `ROW_HEIGHT` (the virtualizer's only input), the `h-14` both row
+   * `ROW_HEIGHT` (the virtualizer's only input), the `h-18` both row
    * components must carry to match it, and the 20px gutter that keeps their
    * checkboxes in one column. jsdom has no layout engine, so the classes are
    * the assertable half — pinned here once, rather than in three comments.
-   * Tailwind's scale is 4px per unit: h-14 = 56px, (size|w)-5 = 20px.
+   * Tailwind's scale is 4px per unit: h-18 = 72px, (size|w)-5 = 20px.
    */
   it("pins the virtualizer, both row components and the gutter to one scale", async () => {
     /** The height (or width) utilities an element carries, as written. */
@@ -769,15 +788,16 @@ describe("任务列表的层级展示", () => {
 
     const list = document.querySelector('[role="list"]') as HTMLElement;
     // Four flattened rows (p1, its two children, p2) at the virtualizer's
-    // assumed 56px. A 60px row here would misplace every row below the fold.
-    expect((list.firstElementChild as HTMLElement).style.height).toBe("224px");
+    // assumed 72px. A two-line row is what set that number; a 68px row here
+    // would misplace every row below the fold.
+    expect((list.firstElementChild as HTMLElement).style.height).toBe("288px");
 
     const rows = [...list.querySelectorAll<HTMLElement>("[data-task-id], [data-subtask-id]")];
     expect(rows).toHaveLength(4);
     for (const row of rows) {
       // Exactly one height class: a second one wins or loses by CSS source
       // order, which is how the rail slot broke before.
-      expect(dimension(row, "h")).toEqual(["h-14"]);
+      expect(dimension(row, "h")).toEqual(["h-18"]);
     }
 
     // Disclosure slot (button with children, spacer without) and the child
@@ -971,5 +991,110 @@ describe("任务行的落点", () => {
     fireEvent.drop(rowOf("t2"));
 
     expect(api.updateTask).not.toHaveBeenCalled();
+  });
+});
+/*
+ * 行的两行结构：标题行只留标题与右侧控件，属性作为徽标落到标题下的第二行。
+ * 断言按 DOM 位置写，不按类名：这一版的关键就是「属性不在标题那一行」，
+ * 而顺序正是它唯一能被 jsdom 看到的地方。
+ */
+describe("任务行的两行结构", () => {
+  it("把属性徽标放在标题下方的一行，而不是标题那一行", async () => {
+    store.setAll(
+      [task("p1", { title: "写周报", priority: "high", dueAt: iso(0, 14), tagIds: ["g1"] })],
+      [tag("g1", "工作")],
+    );
+    render(() => <TodayView />);
+
+    const row = (await screen.findByText("写周报")).closest("[data-task-id]") as HTMLElement;
+    // 展开槽、勾选框、标题+属性列、计时按钮、⋯
+    const column = row.children[2] as HTMLElement;
+    const [titleLine, metaLine] = [...column.children] as HTMLElement[];
+
+    expect(titleLine.textContent).toContain("写周报");
+    expect(titleLine.textContent).not.toContain("高");
+    expect(metaLine.textContent).toContain("高");
+    expect(metaLine.textContent).toContain("今天 14:00");
+    expect(metaLine.textContent).toContain("工作");
+    // 右侧控件仍在行的最右边，第二行没有把它们挤走。
+    expect(row.lastElementChild?.getAttribute("aria-label")).toBe("任务操作：写周报");
+  });
+
+  it("子任务行的属性也落在第二行", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(0, 12) }),
+        task("c1", {
+          title: "收集数据",
+          parentTaskId: "p1",
+          dueAt: iso(0, 13),
+          priority: "medium",
+        }),
+      ],
+      [],
+    );
+    render(() => <TodayView />);
+
+    const row = (await screen.findByText("收集数据")).closest("[data-subtask-id]") as HTMLElement;
+    const [titleLine, metaLine] = [...(row.children[2] as HTMLElement).children] as HTMLElement[];
+    expect(titleLine.textContent).toContain("收集数据");
+    expect(metaLine.textContent).toContain("中");
+    expect(metaLine.textContent).toContain("今天 13:00");
+  });
+});
+
+/*
+ * 行右侧的开始/暂停读的是全局计时快照（`time:running` 一次拉取），
+ * 而不是每行各拉一次 `time:list`。
+ */
+describe("行内计时按钮", () => {
+  const running = (taskId: string, id = "e1"): TimeEntry => ({
+    id,
+    taskId,
+    startedAt: iso(0, 11),
+    endedAt: null,
+    duration: 0,
+    createdAt: iso(0, 11),
+    updatedAt: iso(0, 11),
+    deletedAt: null,
+  });
+
+  it("从行上开始计时，成功后按钮翻成暂停", async () => {
+    store.setAll([task("p1", { title: "写周报", dueAt: iso(0, 14) })], []);
+    vi.mocked(api.startTimeEntry).mockResolvedValue(running("p1"));
+    render(() => <TodayView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "开始计时 写周报" }));
+
+    await waitFor(() => expect(api.startTimeEntry).toHaveBeenCalledWith("p1"));
+    expect(await screen.findByRole("button", { name: "暂停计时 写周报" })).toBeTruthy();
+  });
+
+  it("再点一次停止计时，即使这一行的耗时从未被加载过", async () => {
+    store.setAll([task("p1", { title: "写周报", dueAt: iso(0, 14) })], []);
+    store.setRunningTimers([running("p1", "e9")]);
+    vi.mocked(api.stopTimeEntry).mockResolvedValue({ ...running("p1", "e9"), endedAt: iso(0, 12) });
+    render(() => <TodayView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "暂停计时 写周报" }));
+
+    // `time:list` 没被拉过，停止必须能从运行中集合里找到那条记录。
+    await waitFor(() => expect(api.stopTimeEntry).toHaveBeenCalledWith("e9"));
+    expect(await screen.findByRole("button", { name: "开始计时 写周报" })).toBeTruthy();
+  });
+
+  it("只给计时中的任务显示暂停，别的行仍是开始", async () => {
+    store.setAll(
+      [
+        task("p1", { title: "写周报", dueAt: iso(0, 14) }),
+        task("p2", { title: "读论文", dueAt: iso(0, 15) }),
+      ],
+      [],
+    );
+    store.setRunningTimers([running("p2")]);
+    render(() => <TodayView />);
+
+    expect(await screen.findByRole("button", { name: "暂停计时 读论文" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "开始计时 写周报" })).toBeTruthy();
   });
 });
