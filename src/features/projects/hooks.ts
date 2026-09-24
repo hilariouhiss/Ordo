@@ -9,6 +9,7 @@
 
 import { randomColor } from "../../common/colors";
 import { createCrud } from "../../common/crud-hooks";
+import { insertTaskAt, removeTask, taskIndex, tasks } from "../tasks/store";
 import * as api from "./api";
 import * as store from "./store";
 import type { NewProject, Project, UpdateProject } from "./types";
@@ -33,6 +34,7 @@ const crud = createCrud<Project, NewProject, UpdateProject>({
     update: api.updateProject,
     archive: api.archiveProject,
     restore: api.restoreProject,
+    delete: api.deleteProject,
   },
 
   draft: (input, id) => {
@@ -65,6 +67,25 @@ const crud = createCrud<Project, NewProject, UpdateProject>({
     if ("namespaceId" in patch) optimistic.namespaceId = patch.namespaceId ?? null;
     return optimistic;
   },
+
+  // The backend delete takes the project's tasks in the same write; the
+  // optimistic step drops them from the task snapshot in the same tick, and the
+  // rollback re-inserts each at its slot (ascending, or a clamped index would
+  // land a row after one it used to precede — `softDeleteTask`'s contract).
+  beforeDelete: (project) => {
+    const removed = tasks()
+      .filter((task) => task.projectId === project.id)
+      .map((task) => ({ index: taskIndex(task.id), task: { ...task } }))
+      .sort((a, b) => a.index - b.index);
+    return {
+      apply: () => {
+        for (const { task } of removed) removeTask(task.id);
+      },
+      rollback: () => {
+        for (const { index, task } of removed) insertTaskAt(index, task);
+      },
+    };
+  },
 });
 
 /** Loads all projects; returns success. */
@@ -82,3 +103,7 @@ export const archiveProject = crud.archive;
 
 /** Restores an archived project optimistically; nav shows it immediately. */
 export const restoreProject = crud.restore;
+
+/** Soft-deletes a project with its tasks; removed instantly, put back on
+ * failure. */
+export const deleteProject = crud.delete;

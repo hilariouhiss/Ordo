@@ -19,6 +19,7 @@ vi.mock("../api", () => ({
   updateNamespace: vi.fn(),
   archiveNamespace: vi.fn(),
   restoreNamespace: vi.fn(),
+  deleteNamespace: vi.fn(),
 }));
 
 vi.mock("../../projects/api", () => ({
@@ -27,6 +28,7 @@ vi.mock("../../projects/api", () => ({
   updateProject: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
+  deleteProject: vi.fn(),
 }));
 
 beforeEach(() => {

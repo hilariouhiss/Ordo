@@ -9,6 +9,7 @@ vi.mock("../api", () => ({
   updateNamespace: vi.fn(),
   archiveNamespace: vi.fn(),
   restoreNamespace: vi.fn(),
+  deleteNamespace: vi.fn(),
 }));
 
 import * as api from "../api";
@@ -193,5 +194,45 @@ describe("archiveNamespace / restoreNamespace", () => {
 
     expect(archived).toBeNull();
     expect(store.getNamespace("n1")?.status).toBe("active");
+  });
+});
+
+describe("deleteNamespace", () => {
+  it("removes the row optimistically, then confirms", async () => {
+    const pending = deferred<void>();
+    store.setAll([namespace("n1"), namespace("n2")]);
+    vi.mocked(api.deleteNamespace).mockReturnValue(pending.promise);
+
+    const result = hooks.deleteNamespace("n1");
+
+    // The group is gone from the nav in the same tick; its projects keep their
+    // filing and read as ungrouped (the live-set rule), which is the store's
+    // own behaviour, not the hook's.
+    expect(store.namespacesState.namespaces.map((row) => row.id)).toEqual(["n2"]);
+
+    pending.resolve(undefined);
+    await expect(result).resolves.toBe(true);
+    expect(api.deleteNamespace).toHaveBeenCalledWith("n1");
+  });
+
+  it("puts the row back and notifies when the delete fails", async () => {
+    store.setAll([namespace("n1")]);
+    vi.mocked(api.deleteNamespace).mockRejectedValue(appError("database", "数据库错误"));
+
+    const ok = await hooks.deleteNamespace("n1");
+
+    expect(ok).toBeNull();
+    expect(store.getNamespace("n1")).toEqual(namespace("n1"));
+    expect(notifications()).toEqual([
+      { id: expect.any(Number), kind: "error", message: "数据库错误", code: "database" },
+    ]);
+  });
+
+  it("reports a missing namespace without calling the backend", async () => {
+    const ok = await hooks.deleteNamespace("ghost");
+
+    expect(ok).toBeNull();
+    expect(api.deleteNamespace).not.toHaveBeenCalled();
+    expect(notifications()).toHaveLength(1);
   });
 });

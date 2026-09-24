@@ -28,3 +28,9 @@ export function archiveProject(projectId: string): Promise<Project> {
 export function restoreProject(projectId: string): Promise<Project> {
   return invokeCommand(COMMANDS.project.restore, { projectId });
 }
+
+/** Soft-deletes the project, its tasks and its board columns (server-side
+ * cascade, one transaction). */
+export function deleteProject(projectId: string): Promise<void> {
+  return invokeCommand(COMMANDS.project.delete, { projectId });
+}

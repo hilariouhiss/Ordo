@@ -47,6 +47,7 @@ vi.mock("../../features/namespaces/api", () => ({
   updateNamespace: vi.fn(),
   archiveNamespace: vi.fn(),
   restoreNamespace: vi.fn(),
+  deleteNamespace: vi.fn(),
 }));
 
 vi.mock("../../features/projects/api", () => ({
@@ -55,6 +56,7 @@ vi.mock("../../features/projects/api", () => ({
   updateProject: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
+  deleteProject: vi.fn(),
 }));
 
 vi.mock("../../features/tasks/api", () => ({
@@ -831,6 +833,8 @@ describe("the sidebar rail and its row ＋", () => {
     await screen.findByRole("button", { name: "恢复命名空间 旧线" });
     expect(screen.queryByRole("button", { name: "在命名空间 旧线 中新建项目" })).toBeNull();
     expect(screen.queryByRole("button", { name: "在项目 归档项目 中新建任务" })).toBeNull();
+    // R13: 归档行不给 ⋯ 菜单 —— 归档的可逆动作就是「恢复」，行尾一个按钮。
+    expect(screen.queryByRole("button", { name: /更多操作/ })).toBeNull();
   });
 
   it("drops the row ＋ and the resize handle in the collapsed rail", async () => {
@@ -894,5 +898,113 @@ describe("the sidebar rail and its row ＋", () => {
     expect(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(
       String(SIDEBAR_WIDTH_DEFAULT + 72),
     );
+  });
+});
+
+/*
+ * R13: 每个存活行的行尾是 [编辑][⋯ 归档/删除][＋]。编辑打开与详情页同一个
+ * 弹窗（免导航改名/换色）；⋯ 里的归档走乐观翻转，删除走乐观移除 —— 命名空间
+ * 删除只删自己（项目按存活集合回落根级），项目删除连带它的任务。
+ */
+describe("the sidebar rows' edit and ⋯ menu", () => {
+  it("opens the editors prefilled from the ⋯ menu's 编辑 item", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "网站改版", { namespaceId: "ns1" }),
+    ]);
+    renderShell();
+
+    fireEvent.pointerDown(
+      await screen.findByRole("button", { name: "命名空间 工作的更多操作" }),
+    );
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "编辑" }));
+    const nsDialog = await screen.findByRole("dialog");
+    expect(nsDialog.textContent).toContain("编辑命名空间");
+    expect((within(nsDialog).getByLabelText("名称") as HTMLInputElement).value).toBe("工作");
+    fireEvent.click(within(nsDialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "项目 网站改版的更多操作" }));
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "编辑" }));
+    const projectDialog = await screen.findByRole("dialog");
+    expect(projectDialog.textContent).toContain("编辑项目");
+    expect(
+      (within(projectDialog).getByLabelText("名称") as HTMLInputElement).value,
+    ).toBe("网站改版");
+    fireEvent.click(within(projectDialog).getByRole("button", { name: "取消" }));
+  });
+
+  it("archives a namespace and a project from the row's ⋯ menu", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "网站改版", { namespaceId: "ns1" }),
+    ]);
+    vi.mocked(namespacesApi.archiveNamespace).mockResolvedValue(
+      namespace("ns1", "工作", "archived"),
+    );
+    vi.mocked(projectsApi.archiveProject).mockResolvedValue(
+      project("p1", "网站改版", { status: "archived" }),
+    );
+    renderShell();
+
+    fireEvent.pointerDown(
+      await screen.findByRole("button", { name: "项目 网站改版的更多操作" }),
+    );
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "归档" }));
+    await waitFor(() => expect(projectsApi.archiveProject).toHaveBeenCalledWith("p1"));
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "命名空间 工作的更多操作" }));
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "归档" }));
+    await waitFor(() => expect(namespacesApi.archiveNamespace).toHaveBeenCalledWith("ns1"));
+  });
+
+  it("overlays the trailing actions instead of reserving row width", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([project("p1", "杂事")]);
+    renderShell();
+
+    const plus = await screen.findByRole("button", { name: "在项目 杂事 中新建任务" });
+    const cluster = plus.parentElement as HTMLElement;
+    const row = cluster.parentElement as HTMLElement;
+
+    // R13 修订：三个 28px 按钮放进流里会永久占掉 84px 行宽 —— 侧边栏收到
+    // 192px 下限时，嵌套行的名称只剩 ~17px，窄行时按钮还会与文字真实重叠
+    // （浏览器实测复现）。动作簇因此改为贴行右缘的覆盖层：名称独占整行宽，
+    // 悬停/Tab 聚焦/菜单展开时整簇带与行一致的底色浮现，盖住名称尾部；
+    // 隐藏时簇与按钮都不接指针事件，点击与拖放照常落在行链接上。
+    expect(cluster.className).toContain("absolute");
+    expect(cluster.className).toContain("pointer-events-none");
+    expect(row.className).toContain("relative");
+    expect(plus.className).toContain("group-hover:pointer-events-auto");
+  });
+
+  it("deletes a project (with its row) and a namespace from the row's ⋯ menu", async () => {
+    vi.mocked(namespacesApi.listNamespaces).mockResolvedValue([namespace("ns1", "工作")]);
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([
+      project("p1", "网站改版", { namespaceId: "ns1" }),
+      project("p2", "留下项目", { namespaceId: "ns1" }),
+    ]);
+    vi.mocked(projectsApi.deleteProject).mockResolvedValue(undefined);
+    vi.mocked(namespacesApi.deleteNamespace).mockResolvedValue(undefined);
+    renderShell();
+
+    fireEvent.pointerDown(
+      await screen.findByRole("button", { name: "项目 网站改版的更多操作" }),
+    );
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "删除" }));
+    await waitFor(() => expect(projectsApi.deleteProject).toHaveBeenCalledWith("p1"));
+    // The optimistic step hides the row at once; its sibling stays.
+    await waitFor(() => expect(screen.queryByRole("link", { name: "网站改版" })).toBeNull());
+    expect(screen.getByRole("link", { name: "留下项目" })).toBeTruthy();
+
+    // The namespace delete keeps its remaining projects: they fall back to the
+    // root list by the live-set rule, which is the store's own behaviour.
+    fireEvent.pointerDown(screen.getByRole("button", { name: "命名空间 工作的更多操作" }));
+    fireEvent.pointerUp(await screen.findByRole("menuitem", { name: "删除" }));
+    await waitFor(() => expect(namespacesApi.deleteNamespace).toHaveBeenCalledWith("ns1"));
+    await waitFor(() =>
+      expect(screen.queryByRole("navigation", { name: "命名空间列表" })).toBeNull(),
+    );
+    expect(screen.getByRole("link", { name: "留下项目" })).toBeTruthy();
   });
 });

@@ -1134,6 +1134,24 @@ pub fn restore_project(conn: &Connection, id: Uuid) -> Result<Project, AppError>
     set_project_status(conn, id, ProjectStatus::Active)
 }
 
+/// `project:delete` — soft-deletes the project together with every live task
+/// filed under it and its board columns, in one transaction. Tasks follow for
+/// the same reason a parent's children do on a task delete: rows pointing at
+/// a deleted container would surface in views and fire reminders with no
+/// project left to hold them. All soft (`deleted_at`), so a backup still
+/// carries everything.
+pub fn delete_project(conn: &Connection, id: Uuid) -> Result<(), AppError> {
+    let now = Utc::now();
+    let tx = conn.unchecked_transaction()?;
+    if !projects::soft_delete(&tx, id, now)? {
+        return Err(not_found("项目", id));
+    }
+    tasks::soft_delete_by_project(&tx, id, now)?;
+    board_columns::soft_delete_by_project(&tx, id, now)?;
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn list_board_columns(
     conn: &Connection,
     project_id: Uuid,
@@ -1341,6 +1359,16 @@ pub fn archive_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppEr
 
 pub fn restore_namespace(conn: &Connection, id: Uuid) -> Result<Namespace, AppError> {
     set_namespace_status(conn, id, ProjectStatus::Active)
+}
+
+/// `namespace:delete` — soft-deletes the namespace row only. Its projects keep
+/// their `namespace_id` and fall back to the root list (the navigation files by
+/// the live-namespace set); deleting a group must not delete what it groups.
+pub fn delete_namespace(conn: &Connection, id: Uuid) -> Result<(), AppError> {
+    if !namespaces::soft_delete(conn, id, Utc::now())? {
+        return Err(not_found("命名空间", id));
+    }
+    Ok(())
 }
 
 /// Rejects a `namespaceId` that does not resolve to a live namespace. `None`
@@ -3787,6 +3815,67 @@ mod tests {
             after.namespace_id,
             Some(namespace.id),
             "the filing survives"
+        );
+    }
+
+    #[test]
+    fn deleting_a_project_takes_its_tasks_and_columns_with_it() {
+        let conn = conn();
+        let project = make_project(&conn, "下线项目");
+        let survivor_project = make_project(&conn, "留下项目");
+        let task = make_task_in(&conn, Some(project.id), Vec::new(), "顶层");
+        let child = make_child(&conn, &task, "子任务");
+        let survivor = make_task_in(&conn, Some(survivor_project.id), Vec::new(), "别家的");
+
+        delete_project(&conn, project.id).unwrap();
+
+        assert!(projects::get(&conn, project.id).unwrap().is_none());
+        assert!(
+            tasks::get(&conn, task.id).unwrap().is_none(),
+            "a live task of a deleted project would be an orphan"
+        );
+        // Children carry the project of their parent, so the one bulk statement
+        // covers the whole tree — no per-row cascade needed.
+        assert!(tasks::get(&conn, child.id).unwrap().is_none());
+        assert!(tasks::get(&conn, survivor.id).unwrap().is_some());
+        assert!(board_columns::list_by_project(&conn, project.id)
+            .unwrap()
+            .is_empty());
+        // Same not_found contract as a task's second delete.
+        assert_eq!(
+            delete_project(&conn, project.id).unwrap_err().code(),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn deleting_a_namespace_keeps_its_projects() {
+        let conn = conn();
+        let namespace = make_namespace(&conn, "工作");
+        let project = create_project(
+            &conn,
+            NewProject {
+                name: "网站改版".into(),
+                description: None,
+                color: None,
+                icon: None,
+                namespace_id: Some(namespace.id),
+            },
+        )
+        .unwrap();
+
+        delete_namespace(&conn, namespace.id).unwrap();
+
+        // The projects keep their filing: the navigation's live-set rule reads
+        // them as ungrouped, and a restore from backup brings the group back
+        // exactly as it was.
+        assert!(namespaces::get(&conn, namespace.id).unwrap().is_none());
+        let after = projects::get(&conn, project.id).unwrap().unwrap();
+        assert_eq!(after.namespace_id, Some(namespace.id));
+        assert_eq!(projects::list(&conn).unwrap().len(), 1);
+        assert_eq!(
+            delete_namespace(&conn, namespace.id).unwrap_err().code(),
+            "not_found"
         );
     }
 

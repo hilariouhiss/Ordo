@@ -31,3 +31,9 @@ export function archiveNamespace(namespaceId: string): Promise<Namespace> {
 export function restoreNamespace(namespaceId: string): Promise<Namespace> {
   return invokeCommand(COMMANDS.namespace.restore, { namespaceId });
 }
+
+/** Soft-deletes the namespace row; its projects keep their filing and read as
+ * ungrouped until the next load. */
+export function deleteNamespace(namespaceId: string): Promise<void> {
+  return invokeCommand(COMMANDS.namespace.delete, { namespaceId });
+}

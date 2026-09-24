@@ -4,6 +4,8 @@ import {
   clearNotifications,
   notifications,
 } from "../../../common/stores/notifications";
+import { resetTasksStore, setAll as setTasks, tasks } from "../../tasks/store";
+import type { Task } from "../../tasks/types";
 import type { Project } from "../types";
 
 vi.mock("../api", () => ({
@@ -12,6 +14,7 @@ vi.mock("../api", () => ({
   updateProject: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
+  deleteProject: vi.fn(),
 }));
 
 import * as api from "../api";
@@ -47,9 +50,33 @@ function project(id: string, overrides: Partial<Project> = {}): Project {
   };
 }
 
+/** A row of the task snapshot, with only the fields this file cares about. */
+function taskRow(id: string, overrides: Partial<Task> = {}): Task {
+  return {
+    id,
+    projectId: null,
+    title: `任务 ${id}`,
+    note: null,
+    priority: "none",
+    columnId: null,
+    dueAt: null,
+    completedAt: null,
+    repeatRule: null,
+    complexity: null,
+    parentTaskId: null,
+    tagIds: [],
+    sortOrder: "n",
+    createdAt: "2026-09-09T10:00:00Z",
+    updatedAt: "2026-09-09T10:00:00Z",
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   store.resetProjectsStore();
+  resetTasksStore();
   clearNotifications();
 });
 
@@ -210,5 +237,62 @@ describe("archiveProject / restoreProject", () => {
 
     expect(archived).toBeNull();
     expect(store.getProject("p1")?.status).toBe("active");
+  });
+});
+
+describe("deleteProject", () => {
+  it("removes the project and its tasks optimistically, then confirms", async () => {
+    const pending = deferred<void>();
+    store.setAll([project("p1"), project("p2")]);
+    setTasks(
+      [
+        taskRow("t1", { projectId: "p1" }),
+        taskRow("t2", { projectId: "p1", parentTaskId: "t1" }),
+        taskRow("t3", { projectId: "p2" }),
+      ],
+      [],
+    );
+    vi.mocked(api.deleteProject).mockReturnValue(pending.promise);
+
+    const result = hooks.deleteProject("p1");
+
+    // Both halves of the backend cascade are hidden in the same tick: leaving
+    // the tasks up would show orphans until the next load.
+    expect(store.projectsState.projects.map((row) => row.id)).toEqual(["p2"]);
+    expect(tasks().map((row) => row.id)).toEqual(["t3"]);
+
+    pending.resolve(undefined);
+    await expect(result).resolves.toBe(true);
+    expect(api.deleteProject).toHaveBeenCalledWith("p1");
+  });
+
+  it("puts the project and its tasks back when the delete fails", async () => {
+    store.setAll([project("p1"), project("p2")]);
+    setTasks(
+      [
+        taskRow("t1", { projectId: "p1" }),
+        taskRow("t2", { projectId: "p1" }),
+        taskRow("t3", { projectId: "p2" }),
+      ],
+      [],
+    );
+    vi.mocked(api.deleteProject).mockRejectedValue(appError("database", "数据库错误"));
+
+    const ok = await hooks.deleteProject("p1");
+
+    expect(ok).toBeNull();
+    expect(store.getProject("p1")).toEqual(project("p1"));
+    expect(tasks().map((row) => row.id)).toEqual(["t1", "t2", "t3"]);
+    expect(notifications()).toEqual([
+      { id: expect.any(Number), kind: "error", message: "数据库错误", code: "database" },
+    ]);
+  });
+
+  it("reports a missing project without calling the backend", async () => {
+    const ok = await hooks.deleteProject("ghost");
+
+    expect(ok).toBeNull();
+    expect(api.deleteProject).not.toHaveBeenCalled();
+    expect(notifications()).toHaveLength(1);
   });
 });

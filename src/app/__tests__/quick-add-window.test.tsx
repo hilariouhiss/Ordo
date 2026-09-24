@@ -43,6 +43,7 @@ vi.mock("../../features/projects/api", () => ({
   updateProject: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
+  deleteProject: vi.fn(),
 }));
 
 function projectFixture(id: string, name: string): Project {

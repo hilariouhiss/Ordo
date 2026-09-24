@@ -235,15 +235,15 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 命令统一放在 `commands.rs`，命名 `<domain>:<action>`，Rust 侧用 `#[tauri::command(rename = "task:list")]` 注册（函数名保持合法标识符如 `task_list`）；参数键为 camelCase（Tauri 2 默认，`task_id` → `taskId`）。前端字符串常量集中在 `src/common/ipc/commands.ts`，避免散落魔法字符串。
 
-后端**实际注册 45 个命令**（`lib.rs` 的 `invoke_handler`）：
+后端**实际注册 47 个命令**（`lib.rs` 的 `invoke_handler`）：
 
 | 域 | 命令 |
 | --- | --- |
 | task | `list` `listByProject` `create` `update` `complete` `softDelete` `restore` `reorder` |
 | dependency | `listAll` `add` `remove` |
 | tag | `list` `create` `update` `delete` |
-| project | `list` `unfinishedCounts` `create` `update` `archive` `restore` |
-| namespace | `list` `create` `update` `archive` `restore` |
+| project | `list` `unfinishedCounts` `create` `update` `archive` `restore` `delete` |
+| namespace | `list` `create` `update` `archive` `restore` `delete` |
 | board | `listColumns` `moveTask` |
 | search | `query` |
 | comment | `list` `create` `update` `delete` |
@@ -254,7 +254,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 
 约定：每个命令返回 `Result<T, AppError>`；**任何返回任务行的命令都返回 `TaskWithTags`**（`Task` 字段打平在顶层 + 一个 `tagIds` 键），前端无条件读 `tagIds`，所以没有哪个写路径可以只回裸行。`board:listColumns` 对不存在的项目返回空数组（不报错），`comment:list` / `time:list` 也不校验任务存在。
 
-**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（45 个）。
+**设置项不在命令面上**：`settings` 表只被 `backup:export/import` 读写，没有 `settings:*` 命令——主题这类设置由前端自己持有。前端 `COMMANDS` 常量与后端注册的命令一一对应（47 个）。
 
 `project:unfinishedCounts` 一次给出**每个存活项目**（含归档）未完成顶层任务的个数，供侧边栏项目行的展开箭头判断「还有没有未完成项」；它刻意不复用 `stats:projectProgress`——后者是统计页的口径，跳过归档项目。
 

@@ -1,8 +1,8 @@
 /**
  * The write flow shared by the two archivable-entity domains (projects,
- * namespaces): load, optimistic create, partial patch, archive/restore toggle —
- * each reconciled with the row the backend returns, each rolled back when the
- * write fails.
+ * namespaces): load, optimistic create, partial patch, archive/restore toggle,
+ * optimistic delete — each reconciled with the row the backend returns, each
+ * rolled back when the write fails.
  *
  * The domains differ in their row shape, their command names and the handful of
  * fields an editor may send, so those arrive as wiring. The flow is identical,
@@ -45,11 +45,16 @@ export interface CrudWiring<T extends CrudRow, TNew, TUpdate> {
     update: (id: string, patch: TUpdate) => Promise<T>;
     archive: (id: string) => Promise<T>;
     restore: (id: string) => Promise<T>;
+    delete: (id: string) => Promise<void>;
   };
   /** The optimistic row for a create, before the backend assigns the real id. */
   draft: (input: TNew, tempId: string) => T;
   /** The fields an update writes, as the optimistic patch. */
   patchOf: (patch: TUpdate) => Partial<T>;
+  /** Rows a delete cascades to beyond this one, and how to undo that locally.
+   * The backend deletes them in the same write; without this the screen would
+   * show them until the next load. */
+  beforeDelete?: (row: T) => { apply: () => void; rollback: () => void };
 }
 
 export interface Crud<T, TNew, TUpdate> {
@@ -58,6 +63,7 @@ export interface Crud<T, TNew, TUpdate> {
   update: (id: string, patch: TUpdate) => Promise<T | null>;
   archive: (id: string) => Promise<T | null>;
   restore: (id: string) => Promise<T | null>;
+  delete: (id: string) => Promise<boolean | null>;
 }
 
 export function createCrud<T extends CrudRow, TNew, TUpdate>(
@@ -137,5 +143,30 @@ export function createCrud<T extends CrudRow, TNew, TUpdate>(
 
     /** Restores an archived row optimistically; nav shows it immediately. */
     restore: (id: string) => setStatus(id, "active"),
+
+    /** Soft-deletes a row; removed instantly, put back on failure. The
+     * cascade (`beforeDelete`) shares the same optimistic step and rollback,
+     * so a project's tasks vanish with it in the same tick. */
+    delete(id: string): Promise<boolean | null> {
+      const current = store.get(id);
+      if (!current) return Promise.resolve(missingEntity(label));
+      const snapshot: T = { ...current };
+      const cascade = wiring.beforeDelete?.(snapshot);
+
+      return optimistic(
+        () => {
+          store.remove(id);
+          cascade?.apply();
+        },
+        () => {
+          store.upsert(snapshot);
+          cascade?.rollback();
+        },
+        async () => {
+          await api.delete(id);
+          return true;
+        },
+      );
+    },
   };
 }

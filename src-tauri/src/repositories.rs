@@ -606,6 +606,23 @@ pub mod tasks {
         Ok(affected)
     }
 
+    /// Soft-deletes every live task of `project_id` in one statement; returns
+    /// the count. The bulk form of [`soft_delete`]: a project delete takes its
+    /// whole tree (top-level rows and children alike — children carry the same
+    /// `project_id`), so no per-row round trips.
+    pub fn soft_delete_by_project(
+        conn: &Connection,
+        project_id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<usize, AppError> {
+        let affected = conn.execute(
+            "UPDATE tasks SET deleted_at = ?1, updated_at = ?1 \
+             WHERE project_id = ?2 AND deleted_at IS NULL",
+            params![at, project_id.to_string()],
+        )?;
+        Ok(affected)
+    }
+
     /// Moves every child of `parent_id` onto `project_id`; returns the count.
     ///
     /// Covers soft-deleted children too: a child is restored through its
@@ -980,13 +997,25 @@ pub mod projects {
         )?;
         Ok(affected == 1)
     }
+
+    /// Soft delete (`deleted_at`); returns false on missing/already-deleted
+    /// rows. The tasks and board columns under it are the service layer's to
+    /// cascade, in the same transaction.
+    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE projects SET deleted_at = ?1, updated_at = ?1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
 }
 
 /// Namespace CRUD (`namespaces` table).
 ///
 /// Same lifecycle as [`projects`]: archiving flips `status`, `deleted_at` is
-/// reserved for real deletion (unused by the v1 command surface). The status
-/// text helpers are the project ones — both tables share `ProjectStatus`.
+/// real deletion (`namespace:delete`). The status text helpers are the project
+/// ones — both tables share `ProjectStatus`.
 pub mod namespaces {
     use super::*;
 
@@ -1087,6 +1116,19 @@ pub mod namespaces {
         )?;
         Ok(affected == 1)
     }
+
+    /// Soft delete (`deleted_at`); returns false on missing/already-deleted
+    /// rows. Projects keep their `namespace_id` — the navigation's live-set
+    /// rule files them under the root list, and a restore (backup) brings the
+    /// group back exactly as it was.
+    pub fn soft_delete(conn: &Connection, id: Uuid, at: DateTime<Utc>) -> Result<bool, AppError> {
+        let affected = conn.execute(
+            "UPDATE namespaces SET deleted_at = ?1, updated_at = ?1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![at, id.to_string()],
+        )?;
+        Ok(affected == 1)
+    }
 }
 
 /// Board column CRUD (`board_columns` table), always scoped to a project.
@@ -1138,6 +1180,22 @@ pub mod board_columns {
             params![project_id.to_string()],
             board_column_from_row,
         )
+    }
+
+    /// Soft-deletes every live column of `project_id`; returns the count.
+    /// Called only from the project delete — the columns have no life of their
+    /// own apart from their project's board.
+    pub fn soft_delete_by_project(
+        conn: &Connection,
+        project_id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<usize, AppError> {
+        let affected = conn.execute(
+            "UPDATE board_columns SET deleted_at = ?1, updated_at = ?1 \
+             WHERE project_id = ?2 AND deleted_at IS NULL",
+            params![at, project_id.to_string()],
+        )?;
+        Ok(affected)
     }
 }
 

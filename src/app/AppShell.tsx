@@ -1,26 +1,30 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { Link, Outlet, useRouterState } from "@tanstack/solid-router";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/solid-router";
 import {
+  Archive,
   BarChart3,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
   Inbox,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   RotateCcw,
   Search,
   Settings,
   Sun,
+  Trash2,
 } from "lucide-solid";
 import { listen } from "@tauri-apps/api/event";
 import logoDarkSrc from "../assets/logo-dark.svg";
 import logoSrc from "../assets/logo.svg";
 import { mark, markInteractive } from "../common/perf";
 import { ThemeToggle } from "../common/components/ThemeToggle";
-import { Toaster, iconButtonClass } from "../common/components";
+import { DropdownMenu, Toaster, iconButtonClass } from "../common/components";
 import { EVENTS } from "../common/ipc/events";
 import { beginDrag, draggedId, endDrag } from "../common/stores/drag";
 import { pushInfo } from "../common/stores/notifications";
@@ -37,7 +41,12 @@ import {
 import { getIcon } from "../common/icons";
 import TaskViewer from "./TaskViewer";
 import { NamespaceEditorDialog } from "../features/namespaces/components/NamespaceEditorDialog";
-import { loadAll as loadNamespaces, restoreNamespace } from "../features/namespaces/hooks";
+import {
+  archiveNamespace,
+  deleteNamespace,
+  loadAll as loadNamespaces,
+  restoreNamespace,
+} from "../features/namespaces/hooks";
 import {
   activeNamespaces,
   archivedLooseProjects,
@@ -50,6 +59,8 @@ import {
 import type { Namespace } from "../features/namespaces/types";
 import { ProjectEditorDialog } from "../features/projects/components/ProjectEditorDialog";
 import {
+  archiveProject,
+  deleteProject,
   loadAll as loadProjects,
   restoreProject,
   updateProject,
@@ -154,12 +165,14 @@ const SIDEBAR_RAIL_CLASS = "transition-[width] duration-200 ease-out";
  * of the nav icons above it; level 1 (`-ml-2.5`) puts it on the child list's
  * guide line, which leaves those rows exactly where they already were.
  *
- * `group` scopes the hover of the row's trailing ＋ to the row itself: the child
- * list below a row lives outside this div, so hovering a child never lights up
- * its parent's button.
+ * `group` scopes the hover of the row's trailing actions (⋯ / ＋) to the
+ * row itself: the child list below a row lives outside this div, so hovering a
+ * child never lights up its parent's buttons. It also anchors that cluster
+ * (`relative`): the actions overlay the row's right edge instead of taking flow
+ * width, which is what keeps a long name readable at the rail's narrow end.
  */
 function treeRowClass(level: 0 | 1): string {
-  return `group flex items-center rounded-md ${level === 0 ? "-ml-2" : "-ml-2.5"}`;
+  return `group relative flex items-center rounded-md ${level === 0 ? "-ml-2" : "-ml-2.5"}`;
 }
 
 /** The `Link` half of such a row: the slot already spent the leading padding. */
@@ -254,11 +267,43 @@ function CreateHeader(props: { label: string; onCreate: () => void; class?: stri
 }
 
 /**
+ * The trailing action cluster (R13): overlaid on the row's right edge rather
+ * than slotted into the flow. Buttons in the flow reserve their whole width
+ * whether visible or not — at the rail's 192px minimum, the 84px the cluster
+ * once took left a nested row's name ~17px wide, which read as "the buttons
+ * ate the name". Overlaid, the name owns the full row width until hover; the
+ * revealed cluster then covers its tail cleanly, painted with the row's own
+ * background so it reads as part of the row, not a popover over it.
+ *
+ * The wrapper stays `pointer-events-none` for good: drops aimed at the link's
+ * tail must keep reaching it, so only the buttons inside turn interactive, and
+ * only while revealed. Revealed by the row's hover (`group`), by keyboard
+ * focus (`focus-within`), and for as long as the ⋯ menu is open — its content
+ * sits in a portal outside the row, so the hover no longer covers the cluster.
+ *
+ * The buttons sit flush (`no gap, no leading pad`): every pixel between them
+ * would be a `pointer-events: none` seam of the wrapper, and crossing one
+ * retargets the hit from a button to the link underneath — with a real mouse
+ * that re-target can drop the row's `:hover` for a frame and the whole row
+ * blinks. The same blink is why the fade-out carries a 150ms grace (`delay-150`
+ * off, none on): a hover drop shorter than the grace never dims the cluster
+ * far enough to see.
+ */
+const ROW_ACTIONS_CLASS =
+  "pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-md bg-surface opacity-0 delay-150 transition-[background-color,opacity] duration-150 ease-out group-hover:delay-0 group-hover:bg-surface-hover group-hover:opacity-100 focus-within:opacity-100 group-has-[[data-expanded]]:opacity-100";
+
+/** A button inside the cluster: clickable only while the cluster is revealed. */
+const ROW_ACTION_BUTTON_CLASS = `${iconButtonClass} pointer-events-none group-hover:pointer-events-auto`;
+
+/** One row's trailing actions: the ⋯ menu (编辑/归档/删除), then the ＋. */
+function RowActions(props: { children: JSX.Element }) {
+  return <div class={ROW_ACTIONS_CLASS}>{props.children}</div>;
+}
+
+/**
  * The per-row ＋ (R11): a namespace row's creates a project inside it, a project
- * row's creates a task inside it. Revealed by hovering the row (`group` on
- * `treeRowClass`) or by tabbing into it, and it keeps its 28px slot even while
- * invisible so the row's name does not reflow on hover — the same contract as
- * the archived rows' 恢复 button.
+ * row's creates a task inside it. Rendered inside the trailing cluster (R13);
+ * see `ROW_ACTIONS_CLASS` for how the reveal works.
  */
 function QuickAddButton(props: { label: string; onClick: () => void }) {
   return (
@@ -266,11 +311,54 @@ function QuickAddButton(props: { label: string; onClick: () => void }) {
       type="button"
       aria-label={props.label}
       title={props.label}
-      class={`${iconButtonClass} opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 focus-visible:opacity-100`}
+      class={ROW_ACTION_BUTTON_CLASS}
       onClick={props.onClick}
     >
       <Plus size={14} aria-hidden="true" />
     </button>
+  );
+}
+
+/**
+ * The per-row ⋯ menu (R13): 编辑 (the same dialog the detail pages use), 归档
+ * for a reversible tuck-away, 删除 for the real (still soft, backup-recoverable)
+ * removal. The delete item wears `text-danger` on top of the shared `Item`,
+ * which sets no text colour of its own — no same-property conflict for
+ * Tailwind's source order to silently lose (see `Button`'s destructive-ghost
+ * note).
+ */
+function RowMenu(props: {
+  label: string;
+  onEdit: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger
+        class={ROW_ACTION_BUTTON_CLASS}
+        aria-label={`${props.label}的更多操作`}
+        title="更多操作"
+      >
+        <MoreHorizontal size={14} aria-hidden="true" />
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content>
+          <DropdownMenu.Item onSelect={props.onEdit}>
+            <Pencil size={14} aria-hidden="true" />
+            编辑
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={props.onArchive}>
+            <Archive size={14} aria-hidden="true" />
+            归档
+          </DropdownMenu.Item>
+          <DropdownMenu.Item class="text-danger" onSelect={props.onDelete}>
+            <Trash2 size={14} aria-hidden="true" />
+            删除
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -329,7 +417,17 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
         props.muted
           ? "text-subtle-foreground hover:text-muted-foreground"
           : "text-muted-foreground hover:text-foreground"
-      } hover:bg-surface-hover`}
+      } ${
+        // The hover background follows the row, not the link itself: the
+        // trailing cluster is a sibling, so hovering it would leave the link
+        // dark and split the row into a lit half and a dead half. In the
+        // collapsed rail there is no row wrapper — the link is the row, and
+        // its own `hover:` is the only signal. The 150ms leave delay matches
+        // the cluster's: a one-frame hover drop must not dim either half.
+        props.collapsed
+          ? "hover:bg-surface-hover"
+          : "group-hover:bg-surface-hover group-hover:delay-0 delay-150"
+      }`}
       classList={{ "bg-primary/10 ring-1 ring-inset ring-primary/40": taskOver() }}
       activeProps={{
         class: `${props.collapsed ? navRowClass(true) : TREE_CONTENT_CLASS} min-w-0 flex-1 bg-primary/10 font-medium text-primary`,
@@ -496,7 +594,14 @@ function NamespaceRow(props: {
       <Link
         to="/namespaces/$namespaceId"
         params={{ namespaceId: props.namespace.id }}
-        class={`${linkClass()} text-muted-foreground hover:bg-surface-hover hover:text-foreground`}
+        class={`${linkClass()} text-muted-foreground ${
+          // See `ProjectLink`: expanded, the hover background follows the row
+          // so hovering the trailing cluster lights the whole row — and its
+          // fade-out carries the same 150ms grace as the cluster's.
+          props.collapsed
+            ? "hover:bg-surface-hover"
+            : "group-hover:bg-surface-hover group-hover:delay-0 delay-150"
+        } hover:text-foreground`}
         activeProps={{
           class: `${linkClass()} bg-primary/10 font-medium text-primary`,
           "aria-current": "page",
@@ -604,12 +709,15 @@ export default function AppShell() {
    * pathname alone.
    */
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const navigate = useNavigate();
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<Project | null>(null);
   const [archivedOpen, setArchivedOpen] = createSignal(false);
   /** The unfiled drop zone is hot (R7a). */
   const [rootOver, setRootOver] = createSignal(false);
   const [namespaceEditorOpen, setNamespaceEditorOpen] = createSignal(false);
+  // The dialog edits whichever namespace this holds; null = create mode.
+  const [editingNamespace, setEditingNamespace] = createSignal<Namespace | null>(null);
   // A sidebar ＋ opens the shell's project dialog pre-filed into that namespace
   // (R11); the section-level ＋ clears it again.
   const [projectPresetNamespaceId, setProjectPresetNamespaceId] = createSignal<string | null>(
@@ -695,9 +803,43 @@ export default function AppShell() {
     setTaskEditorOpen(true);
   };
 
-  // Create only: renaming and archiving a namespace live on its own page, so
-  // the sidebar stays a navigation surface.
-  const openCreateNamespace = () => setNamespaceEditorOpen(true);
+  // The namespace dialog covers create and edit in one component (R13): the
+  // section ＋ clears the edited row, a row's 编辑 sets it.
+  const openCreateNamespace = () => {
+    setEditingNamespace(null);
+    setNamespaceEditorOpen(true);
+  };
+  const openEditNamespace = (namespace: Namespace) => {
+    setEditingNamespace(namespace);
+    setNamespaceEditorOpen(true);
+  };
+
+  /** The project row's 编辑 (R13): the dialog's edit mode ignores the create
+   * preset, but clearing it keeps the two open paths from sharing state. */
+  const openEditProject = (project: Project) => {
+    setProjectPresetNamespaceId(null);
+    setEditingProject(project);
+    setEditorOpen(true);
+  };
+
+  // Delete (R13): the row is gone from the store, so a view still showing it
+  // would be a dead route — send the user back to the inbox. Archiving keeps
+  // the row navigable, so it needs no such step.
+  const removeProject = (project: Project) => {
+    void deleteProject(project.id).then((ok) => {
+      if (ok && pathname().startsWith(`/projects/${project.id}`)) {
+        navigate({ to: "/inbox" });
+      }
+    });
+  };
+
+  const removeNamespace = (namespace: Namespace) => {
+    void deleteNamespace(namespace.id).then((ok) => {
+      if (ok && pathname().startsWith(`/namespaces/${namespace.id}`)) {
+        navigate({ to: "/inbox" });
+      }
+    });
+  };
 
   return (
     <div class="flex h-dvh overflow-hidden bg-background text-foreground">
@@ -779,10 +921,18 @@ export default function AppShell() {
                       count={projectsInNamespace(namespace.id).length}
                       onToggle={() => toggleGroup(namespace.id)}
                       trailing={
-                        <QuickAddButton
-                          label={`在命名空间 ${namespace.name} 中新建项目`}
-                          onClick={() => openCreateProjectIn(namespace.id)}
-                        />
+                        <RowActions>
+                          <RowMenu
+                            label={`命名空间 ${namespace.name}`}
+                            onEdit={() => openEditNamespace(namespace)}
+                            onArchive={() => void archiveNamespace(namespace.id)}
+                            onDelete={() => removeNamespace(namespace)}
+                          />
+                          <QuickAddButton
+                            label={`在命名空间 ${namespace.name} 中新建项目`}
+                            onClick={() => openCreateProjectIn(namespace.id)}
+                          />
+                        </RowActions>
                       }
                     />
                     <Show when={!collapsed() && groupOpen(namespace.id)}>
@@ -797,10 +947,18 @@ export default function AppShell() {
                               collapsed={collapsed()}
                               nested
                               trailing={
-                                <QuickAddButton
-                                  label={`在项目 ${project.name} 中新建任务`}
-                                  onClick={() => openCreateTaskIn(project.id)}
-                                />
+                                <RowActions>
+                                  <RowMenu
+                                    label={`项目 ${project.name}`}
+                                    onEdit={() => openEditProject(project)}
+                                    onArchive={() => void archiveProject(project.id)}
+                                    onDelete={() => removeProject(project)}
+                                  />
+                                  <QuickAddButton
+                                    label={`在项目 ${project.name} 中新建任务`}
+                                    onClick={() => openCreateTaskIn(project.id)}
+                                  />
+                                </RowActions>
                               }
                             />
                           )}
@@ -844,10 +1002,18 @@ export default function AppShell() {
                   project={project}
                   collapsed={collapsed()}
                   trailing={
-                    <QuickAddButton
-                      label={`在项目 ${project.name} 中新建任务`}
-                      onClick={() => openCreateTaskIn(project.id)}
-                    />
+                    <RowActions>
+                      <RowMenu
+                        label={`项目 ${project.name}`}
+                        onEdit={() => openEditProject(project)}
+                        onArchive={() => void archiveProject(project.id)}
+                        onDelete={() => removeProject(project)}
+                      />
+                      <QuickAddButton
+                        label={`在项目 ${project.name} 中新建任务`}
+                        onClick={() => openCreateTaskIn(project.id)}
+                      />
+                    </RowActions>
                   }
                 />
               )}
@@ -1027,6 +1193,7 @@ export default function AppShell() {
       <NamespaceEditorDialog
         open={namespaceEditorOpen()}
         onOpenChange={setNamespaceEditorOpen}
+        namespace={editingNamespace() ?? undefined}
       />
 
       <TaskViewer />

@@ -91,11 +91,19 @@ describe("animation constraints", () => {
       "transition-opacity": ["opacity"],
       "transition-transform": ["transform"],
       "transition-[width]": ["width"],
+      // The sidebar row-action cluster fades in over the row whose background
+      // is itself fading: its colour and opacity must share one transition, or
+      // the first 150ms of a hover shows the two halves mismatched.
+      "transition-[background-color,opacity]": ["background-color", "opacity"],
     };
     const offenders: string[] = [];
     for (const { file, text } of sources) {
       text.split("\n").forEach((line, index) => {
-        for (const match of line.matchAll(/(?<![\w-])transition(?:-[\w[\]]+)?/g)) {
+        // The comma and the hyphen are part of arbitrary-value tokens like
+        // `transition-[background-color,opacity]`; without them the match ends
+        // mid-token and the lookup below flags a property set it just failed to
+        // read. Exact membership in `sets` is still what gates.
+        for (const match of line.matchAll(/(?<![\w-])transition(?:-[\w[\],-]+)?/g)) {
           const properties = sets[match[0]];
           if (!properties || properties.some((property) => !allowed.has(property))) {
             offenders.push(`src${file}:${index + 1} ${line.trim()}`);

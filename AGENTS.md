@@ -2,7 +2,7 @@
 
 ## What this is
 
-`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 45 commands (`src-tauri/src/commands.rs`); schema is at migration V10.
+`ordo` is a desktop task/project manager built with **Tauri 2** (Rust backend + SolidJS web frontend). The v1 feature set is implemented and works end to end: a single-level task tree with tags/priority/due dates/complexity, four task views, projects with a read-only three-lane board, namespaces, dependencies with soft blocking, repeating tasks, desktop reminders, comments, time tracking, FTS5 search, statistics, the system tray, the global quick-add window, JSON backup/restore, and the startup switch. The backend registers 47 commands (`src-tauri/src/commands.rs`); schema is at migration V10.
 
 The animation/accessibility review is done — the constraints are asserted by `src/common/__tests__/design-constraints.test.ts`, results are in `docs/ARCHITECTURE.md`§6.2, remaining gaps in `docs/DECISIONS.md`§4.2. The performance targets are measured (`docs/ARCHITECTURE.md`§6.1). Three-platform compatibility (`docs/ARCHITECTURE.md`§6.3) is verified on Windows and statically on all three, with a per-platform acceptance checklist; the macOS/Linux runs of that checklist are outstanding (`docs/DECISIONS.md`§4.3).
 

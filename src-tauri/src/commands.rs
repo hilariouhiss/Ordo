@@ -189,6 +189,11 @@ pub fn project_restore(db: State<'_, Db>, project_id: Uuid) -> Result<Project, A
     with_conn(&db, |conn| services::restore_project(conn, project_id))
 }
 
+#[tauri::command(rename = "project:delete")]
+pub fn project_delete(db: State<'_, Db>, project_id: Uuid) -> Result<(), AppError> {
+    with_conn(&db, |conn| services::delete_project(conn, project_id))
+}
+
 #[tauri::command(rename = "project:unfinishedCounts")]
 pub fn project_unfinished_counts(db: State<'_, Db>) -> Result<Vec<ProjectUnfinished>, AppError> {
     with_conn(&db, services::project_unfinished_counts)
@@ -225,6 +230,11 @@ pub fn namespace_archive(db: State<'_, Db>, namespace_id: Uuid) -> Result<Namesp
 #[tauri::command(rename = "namespace:restore")]
 pub fn namespace_restore(db: State<'_, Db>, namespace_id: Uuid) -> Result<Namespace, AppError> {
     with_conn(&db, |conn| services::restore_namespace(conn, namespace_id))
+}
+
+#[tauri::command(rename = "namespace:delete")]
+pub fn namespace_delete(db: State<'_, Db>, namespace_id: Uuid) -> Result<(), AppError> {
+    with_conn(&db, |conn| services::delete_namespace(conn, namespace_id))
 }
 
 // --- board:* ---------------------------------------------------------------

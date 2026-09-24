@@ -33,6 +33,7 @@ const crud = createCrud<Namespace, NewNamespace, UpdateNamespace>({
     update: api.updateNamespace,
     archive: api.archiveNamespace,
     restore: api.restoreNamespace,
+    delete: api.deleteNamespace,
   },
 
   draft: (input, id) => {
@@ -81,3 +82,7 @@ export const archiveNamespace = crud.archive;
 
 /** Restores an archived namespace optimistically; nav shows the group again. */
 export const restoreNamespace = crud.restore;
+
+/** Soft-deletes a namespace; removed instantly, put back on failure. Its
+ * projects keep their filing and read as ungrouped (the live-set rule). */
+export const deleteNamespace = crud.delete;

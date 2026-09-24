@@ -33,6 +33,7 @@ export const COMMANDS = {
     update: "project:update",
     archive: "project:archive",
     restore: "project:restore",
+    delete: "project:delete",
   },
   namespace: {
     list: "namespace:list",
@@ -40,6 +41,7 @@ export const COMMANDS = {
     update: "namespace:update",
     archive: "namespace:archive",
     restore: "namespace:restore",
+    delete: "namespace:delete",
   },
   board: {
     listColumns: "board:listColumns",
