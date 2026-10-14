@@ -2,6 +2,7 @@ import {
   waitFor,
 } from "@solidjs/testing-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { must } from "../../../common/__tests__/must";
 import {
   clearNotifications,
   notifications,
@@ -59,7 +60,11 @@ function setHidden(hidden: boolean): void {
 
 /** The event handler the subscription registered, for direct dispatch. */
 function reminderHandler(): (event: { payload: ReminderPayload }) => void {
-  return listenMock.mock.calls.find(([name]) => name === "reminder:triggered")![1];
+  const call = must(
+    listenMock.mock.calls.find(([name]) => name === "reminder:triggered"),
+    "the reminder:triggered listener",
+  );
+  return call[1];
 }
 
 beforeEach(async () => {

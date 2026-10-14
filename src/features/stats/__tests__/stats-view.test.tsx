@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { addDays, differenceInCalendarDays, startOfDay, startOfYear } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { must } from "../../../common/__tests__/must";
 import * as api from "../api";
 import { StatsView } from "../components/StatsView";
 import { dayKey } from "../series";
@@ -99,7 +100,10 @@ describe("StatsView", () => {
       ).toBe(true),
     );
     const yearCalls = vi.mocked(api.completionTrend).mock.calls.map((call) => call[0]);
-    const weekly = yearCalls.find((query) => query.granularity === "week")!;
+    const weekly = must(
+      yearCalls.find((query) => query.granularity === "week"),
+      "a weekly completionTrend call",
+    );
     const dayCalls = yearCalls.filter((query) => query.granularity === "day");
     const daily = dayCalls[dayCalls.length - 1];
     expect(weekly.from).toBe(startOfYear(new Date()).toISOString());

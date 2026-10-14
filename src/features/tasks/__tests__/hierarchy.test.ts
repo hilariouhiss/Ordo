@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { must } from "../../../common/__tests__/must";
 import { canAcceptChild } from "../hierarchy";
 import * as store from "../store";
 import type { Task } from "../types";
@@ -47,11 +48,11 @@ describe("canAcceptChild", () => {
     { name: "refuses a task already filed under that parent", child: "c1", parent: "p1", expected: false },
     { name: "refuses a dragged id the store does not know", child: "ghost", parent: "p1", expected: false },
   ])("$name", ({ child, parent, expected }) => {
-    expect(canAcceptChild(child, store.getTask(parent)!)).toBe(expected);
+    expect(canAcceptChild(child, must(store.getTask(parent), `task ${parent}`))).toBe(expected);
   });
 
   it("follows the store, so a child that gains one loses its own candidacy", () => {
-    const parent = store.getTask("t2")!;
+    const parent = must(store.getTask("t2"), "t2");
     expect(canAcceptChild("p1", parent)).toBe(false);
 
     // Move `p1`'s only child away: it is a childless top-level task now and may

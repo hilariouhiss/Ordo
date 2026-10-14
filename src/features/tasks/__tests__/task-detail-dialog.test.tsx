@@ -8,6 +8,7 @@ import {
 } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { must } from "../../../common/__tests__/must";
 import * as api from "../api";
 import * as store from "../store";
 import type { Comment, Task, TimeEntry } from "../types";
@@ -716,7 +717,7 @@ describe("任务详情的依赖区", () => {
       <TaskDetailDialog
         open
         onOpenChange={() => {}}
-        task={store.getTask(TASK_ID)!}
+        task={must(store.getTask(TASK_ID), "the task under test")}
         onEdit={() => {}}
       />
     ));

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { must } from "../../../common/__tests__/must";
 import { beginDrag } from "../../../common/stores/drag";
 import * as api from "../api";
 import * as hooks from "../hooks";
@@ -808,7 +809,10 @@ describe("任务列表的层级展示", () => {
     expect(dimension(withChildren.firstElementChild as Element, "w")).toEqual(["size-5"]);
     expect(dimension(childless.firstElementChild as Element, "w")).toEqual(["size-5"]);
     expect(
-      dimension(list.querySelector("[data-subtask-id]")!.firstElementChild as Element, "w"),
+      dimension(
+        must(list.querySelector("[data-subtask-id]"), "the subtask row").firstElementChild as Element,
+        "w",
+      ),
     ).toEqual(["w-5"]);
   });
 });

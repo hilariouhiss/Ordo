@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor } from "@solidjs/testing-library";
+import { must } from "../../../common/__tests__/must";
 import { COLORS } from "../../../common/colors";
 import {
   clearNotifications,
@@ -847,7 +848,7 @@ describe("time entries", () => {
     expect(store.getTimeEntries("a")[0]?.duration).toBe(91);
 
     // A rejected stop puts the previous row back untouched.
-    const before = { ...store.getTimeEntries("a")[0]! };
+    const before = { ...must(store.getTimeEntries("a")[0], "the first time entry") };
     vi.mocked(api.stopTimeEntry).mockRejectedValue(appError("db", "写入失败"));
     expect(await hooks.stopTimer("a", "e1")).toBeNull();
     expect(store.getTimeEntries("a")[0]).toEqual(before);

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { must } from "../../../common/__tests__/must";
 import {
   clearNotifications,
   notifications,
@@ -146,9 +147,11 @@ describe("moveTaskToColumn", () => {
       ],
       [],
     );
-    let seenOptimisticOrder: string[] | null = null;
+    const seenOptimisticOrder: string[] = [];
     vi.mocked(api.moveTask).mockImplementation(() => {
-      seenOptimisticOrder = [tasksStore.getTask("mover")!.sortOrder];
+      seenOptimisticOrder.push(
+        must(tasksStore.getTask("mover"), "the mover task in the store").sortOrder,
+      );
       return Promise.resolve({
         moved: task("mover", { columnId: "c1", sortOrder: "no" }),
         rebalanced: [],
@@ -158,8 +161,8 @@ describe("moveTaskToColumn", () => {
     // Drop between a and b: the optimistic key must sort after "n" and before "o".
     await hooks.moveTaskToColumn("mover", "c1", "n", "o");
 
-    expect(seenOptimisticOrder).not.toBeNull();
-    const optimisticKey = seenOptimisticOrder![0];
+    expect(seenOptimisticOrder).toHaveLength(1);
+    const optimisticKey = seenOptimisticOrder[0];
     expect(optimisticKey > "n").toBe(true);
     expect(optimisticKey < "o").toBe(true);
     expect(tasksStore.getTask("mover")?.sortOrder).toBe("no");
@@ -177,7 +180,7 @@ describe("moveTaskToColumn", () => {
     const moved = await hooks.moveTaskToColumn("t1", "done", null, null);
 
     expect(moved).toBeNull();
-    const rolledBack = tasksStore.getTask("t1")!;
+    const rolledBack = must(tasksStore.getTask("t1"), "t1 after the failed move");
     expect(rolledBack.columnId).toBe("todo");
     expect(rolledBack.completedAt).toBeNull();
     expect(rolledBack.sortOrder).toBe("n");
