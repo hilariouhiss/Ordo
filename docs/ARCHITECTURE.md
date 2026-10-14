@@ -364,7 +364,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 - `rusqlite` 使用 **bundled** SQLite（含 FTS5），并开启 `chrono` feature 以绑定时间戳参数。
 - `tauri` 需要 **`tray-icon`** feature，否则 `tauri::tray` 不存在。
 - 前端在用的库：`@kobalte/core`、`lucide-solid`、`date-fns`、`zod`、`@tanstack/solid-router`，以及 `@tauri-apps/api` 与 `plugin-{autostart,dialog,notification,opener,process,updater}`。
-- **不引入**动画库、拖拽库、图表库——三条都是体积红线的支撑（动效用 CSS/Web Animations，拖拽用原生 Drag API，图表自绘 SVG）。UI 组件库自 ADR 21 起是 **daisyUI 5**（Tailwind v4 插件）：`themes: false` 只装两个自定义主题，`include` 只带用到的组件与基础层，构建产物的 CSS 从 40,947 B 到 78,366 B（gzip 13,273 B；不带 `include` 的全量组件是 154,931 B），且没有 JS 运行时——原来那条「不引入 UI 组件库」的红线正是体积红线，现在由这组实测数字接管。
+- **不引入**动画库、拖拽库、图表库——三条都是体积红线的支撑（动效用 CSS/Web Animations，拖拽用原生 Drag API，图表自绘 SVG）。UI 组件库自 ADR 21 起是 **daisyUI 5**（Tailwind v4 插件）：`themes: false` 只装两个自定义主题，`include` 只带用到的组件与基础层，构建产物的 CSS 从 40,947 B 到 77,617 B（gzip 13,206 B；不带 `include` 的全量组件是 154,931 B），且没有 JS 运行时——原来那条「不引入 UI 组件库」的红线正是体积红线，现在由这组实测数字接管。
 
 ### 4.3 构建配置
 

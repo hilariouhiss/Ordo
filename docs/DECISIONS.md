@@ -26,7 +26,7 @@
 | 18 | 图表自绘 SVG | 体积红线（<30 MB）；三个图表的复杂度不值得一个图表库 | 图表库：单一用途却要付几十到几百 KB |
 | 19 | `lib` 名带 `_lib` 后缀（`ordo_lib`） | Windows 上避免 lib/bin 同名冲突（cargo issue #8519） | 同名：Windows 构建失败 |
 | 20 | 性能验收**由应用自测**（进程起点计时 + 逐条命令计时 + 前端上报） | 「首屏可交互」只有应用自己知道是哪一刻；顺带把每次命令往返都量到，不依赖外部秒表或 WebDriver | 外部秒表/截图比对：量不到「可交互」，只能量到窗口出现；tauri-driver 端到端：要引入一套驱动与用例，成本远超四条目标值 |
-| 21 | **UI 组件库用 daisyUI 5**（Tailwind v4 插件）+ 两个自定义主题 | 组件形态与交互状态不再手写；主题、控件几何集中在两个 `@plugin "daisyui/theme"` 块里；纯 CSS 插件、无 JS 运行时，构建产物 CSS 40,947 B → 78,366 B（gzip 13,273 B） | shadcn-solid / solid-ui：复制进仓库、与现有栈最贴，但观感是通用 Web；Fluent UI Web Components / Material Web：Shadow DOM 与 Tailwind 结合成本高、体积更大；纯自研：本次要替换的对象 |
+| 21 | **UI 组件库用 daisyUI 5**（Tailwind v4 插件）+ 两个自定义主题 | 组件形态与交互状态不再手写；主题、控件几何集中在两个 `@plugin "daisyui/theme"` 块里；纯 CSS 插件、无 JS 运行时，构建产物 CSS 40,947 B → 77,617 B（gzip 13,206 B） | shadcn-solid / solid-ui：复制进仓库、与现有栈最贴，但观感是通用 Web；Fluent UI Web Components / Material Web：Shadow DOM 与 Tailwind 结合成本高、体积更大；纯自研：本次要替换的对象 |
 
 ### 1.1 排序算法选型（行业调研结论）
 
@@ -249,7 +249,7 @@
 
     决策与代价：选 daisyUI 是因为它是 Tailwind v4 的 CSS 插件——没有 JS 运行时、没有自带样式引擎，组件可以只取形态（`btn` / `badge` / `input` / `alert` / `toast` / `skeleton` / `tabs`），外观仍由本项目的主题说了算。否决的备选：**shadcn-solid / solid-ui**（复制进仓库、与现有 Kobalte + Tailwind 栈最贴，但观感是通用 Web 应用，且组件代码从此要自己维护）、**Fluent UI Web Components / Material Web**（微软/谷歌官方的「原生」观感，但 Web Components + Shadow DOM 与 Tailwind 的结合成本高、体积更大，且与本项目的中文桌面密度无关）、**继续纯自研**（就是这次要解决的问题）。
 
-    实测（`pnpm build`，2026-10-14，同一次会话内 A/B）：CSS **40,947 B → 78,366 B**（gzip 13,273 B）。其中 daisyUI 用 `themes: false`（不带 35 个内置主题）+ `include`（只带用到的 8 个组件与两个基础层项：`rootcolor`、`svg`）；不带 `include` 的全量组件是 154,931 B，所以这条裁剪是承重的——**用了没列进 `include` 的 daisyUI 类会静默地没有样式**。daisyUI 的 `skeleton` 用 `background-position` 动画（会重绘），与 ADR 5 的动效口径不同，属于替换自研微光时接受的既有代价；页签的规则用后代选择器（`.tab:is(.tabs > .tab)`），普通工具类盖不动，高度只能通过它自己的 `--tab-height` 变量压回 36px，选中下划线用一次 `!` 保住品牌绿。
+    实测（`pnpm build`，2026-10-14，同一次会话内 A/B）：CSS **40,947 B → 77,617 B**（gzip 13,206 B）。其中 daisyUI 用 `themes: false`（不带 35 个内置主题）+ `include`（只带用到的 8 个组件与两个基础层项：`rootcolor`、`svg`）；不带 `include` 的全量组件是 154,931 B，所以这条裁剪是承重的——**用了没列进 `include` 的 daisyUI 类会静默地没有样式**。daisyUI 的 `skeleton` 用 `background-position` 动画（会重绘），与 ADR 5 的动效口径不同，属于替换自研微光时接受的既有代价；页签的规则用后代选择器（`.tab:is(.tabs > .tab)`），普通工具类盖不动，高度只能通过它自己的 `--tab-height` 变量压回 36px，选中下划线用一次 `!` 保住品牌绿。
 
 ## 4. 未完成项与已知缺口
 
@@ -257,7 +257,7 @@
 | --- | --- | --- |
 | **Q-02 复查留下的无障碍缺口** | 7 项：统计刷新没有加载提示、分段控件不是 APG 单选组、图表逐点数据没有文本替代、路由切换不移动焦点、搜索框不是 combobox、快速输入小窗没有可聚焦的提交按钮 | 这些都**可用**（键盘能走到、能激活），但离推荐模式有距离；逐项与理由见 §4.2 |
 | **启动耗时未全部达标**（Q-01 验收留下） | 热启动 730–840 ms（目标 0.5 s）；WebView2 运行时缓存冷时冷启动 1619 ms（目标 1.5 s）。构成见 [ARCHITECTURE](./ARCHITECTURE.md)§6.1：WebView2 与窗口 320–1068 ms、页面加载与挂载约 175 ms、首屏数据约 270 ms、quick-add 小窗约 123 ms。**dev 模式另有一套数字**：整页 250 个请求、约 10 MB 未压缩源码，`server.warmup` 之后页面侧仍需 2.1 s（预热前 7.1 s） | 体感是「点图标到看见自己的任务」约 0.7–0.8 s。省时间的两条路都与既有决策冲突——预热小窗是 D-02 有意为之、启动拉整棵树是 §1.2 的取舍——要动就得先推翻那两条。dev 模式剩的那 2 s 是浏览器按 import 深度串行取模块的水位：要再压只能让三个 solid 库进 deps 缓存（Vite 只预打包 `.js`/`.ts` 入口，它们经 `solid` condition 解析到 `.jsx` 源码，`include` 与 `extensions` 两条路都试过并记为死路，见 ARCHITECTURE §4.3），或改用打包式 dev server |
-| **daisyUI 迁移后 Q-01 未重跑** | CSS 40,947 B → 78,366 B（gzip 13,273 B），Rust 侧与命令面零改动；但冷/热启动与安装包体积没有按 §6.1 重新量 | 增量在页面解析量级（毫秒）内、安装包余量 2.8 MB / 30 MB，风险低；下次发版前按 §6.1 重跑一次把数字记账 |
+| **daisyUI 迁移后 Q-01 未重跑** | CSS 40,947 B → 77,617 B（gzip 13,206 B），Rust 侧与命令面零改动；但冷/热启动与安装包体积没有按 §6.1 重新量 | 增量在页面解析量级（毫秒）内、安装包余量 2.8 MB / 30 MB，风险低；下次发版前按 §6.1 重跑一次把数字记账 |
 | **Q-03 三端兼容** | Windows 已实测（单实例、托盘驻留、快捷键、通知、备份路径）；macOS / Linux 只做了静态核对与代码修正，真机清单（8 项）未跑 | 平台差异与运行前提已逐项写明并列进 [ARCHITECTURE](./ARCHITECTURE.md)§6.3；未跑的部分见 §4.3，风险是「写下来的结论没在真机上验过」而不是已知不一致 |
 | **Q-04 文档同步** | 本次整合完成了主体：文档集改为描述现状并与代码对齐 | 后续仍需按 [README](./README.md)§5 的规则维护 |
 | **任务数据仍在启动时全量加载** | `task:list` 一次带走整棵树（§1.2 的取舍）：8k 档起超 50 ms 预算（56 ms），70k 行 339 ms；前端首屏 3.7 s（70k 行：Rust 侧到后端就绪 580 ms，其余全在页面，最贵的一笔是整树过 IPC）。写入路径已不随规模涨（三档 0.08–0.10 ms）。项目详情与看板已改为按项目范围取（`task:listByProject`）；侧边栏的展开箭头与命名空间页的数字已不读快照（分别用 `project:unfinishedCounts` 与 `stats:projectProgress`；外壳仍为四个视图载入快照，侧边栏的拖放也还按 `getTask` 在快照里查行）；启动路径与四个视图仍读 `task:list` | 「按范围懒加载」是已定的方向（命令面、store 形状、迁移顺序已定稿）；在那之前 5 万行的库首屏在秒级（11225 行与 70025 行两档实测之间的外推）、超出 1.5 s 的冷启动目标 |

@@ -1,4 +1,18 @@
-@import "tailwindcss";
+/*
+ * The scan is pinned to the app's own files.
+ *
+ * `source(none)` turns off automatic content detection, which otherwise walks
+ * the whole checkout — and this checkout can contain anything (agent skills,
+ * notes, a `.claude/` directory): text that looks like class names in those
+ * files lands in the shipped CSS. Measured: pinning the sources took the built
+ * sheet back from 93,799 B to 77,617 B once tooling directories appeared next
+ * to `src/`. Adding a new source file outside `src/` and `index.html` means
+ * adding it here.
+ */
+@import "tailwindcss" source(none);
+
+@source "../index.html";
+@source "./**/*.{ts,tsx}";
 
 /*
  * Dark mode follows the theme attribute, not a class.
@@ -306,10 +320,11 @@
 
 @layer base {
   /* `color-scheme` comes from the daisyUI theme (`color-scheme:` above) and
-   * from the pre-mount script; nothing to declare here. */
+   * from the pre-mount script, and the page background/text are daisyUI's
+   * `rootcolor` module painting `:root` from `--root-bg` / `base-100` —
+   * repeating either here would be a second source of truth for the same
+   * pixels (and the daisyUI usage rules say not to). */
   body {
-    background-color: var(--color-base-100);
-    color: var(--color-base-content);
     font-family: var(--font-sans);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
