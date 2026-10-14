@@ -35,7 +35,7 @@ export function UpdatePrompt() {
       <div
         role="status"
         aria-live="polite"
-        class="animate-toast-in fixed bottom-4 left-4 z-40 flex w-80 flex-col gap-2 rounded-lg bg-elevated p-3 text-sm text-foreground shadow-lg"
+        class="animate-toast-in fixed bottom-4 left-4 z-40 flex w-80 flex-col gap-2 rounded-lg bg-elevated p-3 text-sm text-base-content shadow-lg"
       >
         <div class="flex items-start gap-2">
           <span class="mt-0.5 shrink-0 text-subtle-foreground">

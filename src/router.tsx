@@ -12,7 +12,7 @@ const rootRoute = createRootRoute({
   component: AppShell,
   notFoundComponent: () => (
     <div class="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-      <h1 class="text-2xl font-semibold text-foreground">页面不存在</h1>
+      <h1 class="text-2xl font-semibold text-base-content">页面不存在</h1>
       <p class="text-sm text-muted-foreground">你访问的页面不存在或已被移除。</p>
       <Link
         to="/today"

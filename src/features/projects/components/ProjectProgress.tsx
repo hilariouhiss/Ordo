@@ -41,7 +41,7 @@ export function ProjectProgress(props: ProjectProgressProps) {
             style={{ transform: `scaleX(${rate() / 100})` }}
           />
         </div>
-        <span class="w-10 shrink-0 text-right text-sm font-semibold text-foreground">
+        <span class="w-10 shrink-0 text-right text-sm font-semibold text-base-content">
           {rate()}%
         </span>
       </div>

@@ -108,8 +108,8 @@ type NavPath =
  * the same coordinates with the ring's ink swapped for the foreground colour.
  * Doing it in CSS rather than from JS state means both are in the DOM, the swap
  * is a repaint rather than a re-render, and there is no frame where neither is
- * present. `dark:` is the same class-driven variant the rest of the app uses, so
- * this follows the resolved theme including "system".
+ * present. `dark:` is the same `data-theme`-driven variant the rest of the app
+ * uses, so this follows the resolved theme including "system".
  *
  * The dark copy is generated from the light one and differs only in that one ink
  * — the test beside this file asserts that, and `scripts/gen-logo-assets.mjs` is
@@ -185,7 +185,7 @@ const TREE_CONTENT_CLASS =
 /** A row's unfinished-task list: the shared indent step, with the title landing
  * under the project's name rather than under its icon. */
 const TREE_LEAF_CLASS =
-  "flex w-full items-center rounded-md py-1 pl-1.5 pr-2 text-sm text-muted-foreground transition-colors duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring";
+  "flex w-full items-center rounded-md py-1 pl-1.5 pr-2 text-sm text-muted-foreground transition-colors duration-150 ease-out hover:bg-surface-hover hover:text-base-content focus-ring";
 
 /**
  * The disclosure chevron that opens a group: 20px wide, not the shared 28px
@@ -198,7 +198,7 @@ function Disclosure(props: { open: boolean; label: string; onToggle: () => void 
       type="button"
       aria-expanded={props.open}
       aria-label={props.label}
-      class="flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring"
+      class="flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-base-content focus-ring"
       onClick={props.onToggle}
     >
       <ChevronDown
@@ -226,7 +226,7 @@ function NavItem(props: {
   return (
     <Link
       to={props.to}
-      class={`${navRowClass(props.collapsed)} text-muted-foreground hover:bg-surface-hover hover:text-foreground`}
+      class={`${navRowClass(props.collapsed)} text-muted-foreground hover:bg-surface-hover hover:text-base-content`}
       activeProps={{
         class: `${navRowClass(props.collapsed)} bg-primary/10 font-medium text-primary`,
         "aria-current": "page",
@@ -293,7 +293,7 @@ function CreateHeader(props: { label: string; onCreate: () => void; class?: stri
  * far enough to see.
  */
 const ROW_ACTIONS_CLASS =
-  "pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-md bg-surface opacity-0 delay-150 transition-[background-color,opacity] duration-150 ease-out group-hover:delay-0 group-hover:bg-surface-hover group-hover:opacity-100 focus-within:opacity-100 group-has-[[data-expanded]]:opacity-100";
+  "pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-md bg-base-200 opacity-0 delay-150 transition-[background-color,opacity] duration-150 ease-out group-hover:delay-0 group-hover:bg-surface-hover group-hover:opacity-100 focus-within:opacity-100 group-has-[[data-expanded]]:opacity-100";
 
 /** A button inside the cluster: clickable only while the cluster is revealed. */
 const ROW_ACTION_BUTTON_CLASS = `${iconButtonClass} pointer-events-none group-hover:pointer-events-auto`;
@@ -325,7 +325,7 @@ function QuickAddButton(props: { label: string; onClick: () => void }) {
 /**
  * The per-row ⋯ menu (R13): 编辑 (the same dialog the detail pages use), 归档
  * for a reversible tuck-away, 删除 for the real (still soft, backup-recoverable)
- * removal. The delete item wears `text-danger` on top of the shared `Item`,
+ * removal. The delete item wears `text-error` on top of the shared `Item`,
  * which sets no text colour of its own — no same-property conflict for
  * Tailwind's source order to silently lose (see `Button`'s destructive-ghost
  * note).
@@ -355,7 +355,7 @@ function RowMenu(props: {
             <Archive size={14} aria-hidden="true" />
             归档
           </DropdownMenu.Item>
-          <DropdownMenu.Item class="text-danger" onSelect={props.onDelete}>
+          <DropdownMenu.Item class="text-error" onSelect={props.onDelete}>
             <Trash2 size={14} aria-hidden="true" />
             删除
           </DropdownMenu.Item>
@@ -419,7 +419,7 @@ function ProjectLink(props: { project: Project; collapsed: boolean; muted?: bool
       class={`${props.collapsed ? navRowClass(true) : TREE_CONTENT_CLASS} min-w-0 flex-1 ${
         props.muted
           ? "text-subtle-foreground hover:text-muted-foreground"
-          : "text-muted-foreground hover:text-foreground"
+          : "text-muted-foreground hover:text-base-content"
       } ${
         // The hover background follows the row, not the link itself: the
         // trailing cluster is a sibling, so hovering it would leave the link
@@ -604,7 +604,7 @@ function NamespaceRow(props: {
           props.collapsed
             ? "hover:bg-surface-hover"
             : "group-hover:bg-surface-hover group-hover:delay-0 delay-150"
-        } hover:text-foreground`}
+        } hover:text-base-content`}
         activeProps={{
           class: `${linkClass()} bg-primary/10 font-medium text-primary`,
           "aria-current": "page",
@@ -861,7 +861,7 @@ export default function AppShell() {
   };
 
   return (
-    <div class="flex h-dvh overflow-hidden bg-background text-foreground">
+    <div class="flex h-dvh overflow-hidden bg-base-100 text-base-content">
       {/* Keyboard users otherwise tab through every nav row and every project
           before reaching the view. */}
       <a
@@ -873,7 +873,7 @@ export default function AppShell() {
 
       <aside
         aria-label="侧边栏导航"
-        class={`relative flex shrink-0 flex-col border-r border-border bg-surface ${
+        class={`relative flex shrink-0 flex-col border-r border-border bg-base-200 ${
           resizing() ? "" : SIDEBAR_RAIL_CLASS
         } ${collapsed() ? "w-13" : ""}`}
         // Expanded, the width is a live number (R10) rather than a class, so
@@ -1145,7 +1145,7 @@ export default function AppShell() {
           />
           <button
             type="button"
-            class={`${navRowClass(collapsed())} text-subtle-foreground hover:bg-surface-hover hover:text-foreground`}
+            class={`${navRowClass(collapsed())} text-subtle-foreground hover:bg-surface-hover hover:text-base-content`}
             aria-label={collapsed() ? "展开侧边栏" : "收起侧边栏"}
             title={collapsed() ? "展开侧边栏" : "收起侧边栏"}
             onClick={toggleSidebar}

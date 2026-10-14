@@ -398,7 +398,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                             class="peer absolute size-4 appearance-none opacity-0"
                             aria-label={option.label}
                           />
-                          <RadioGroup.ItemControl class="flex h-8 w-full cursor-pointer select-none items-center justify-center rounded-md border border-border bg-surface text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring data-[checked]:border-primary data-[checked]:bg-primary/10 data-[checked]:font-medium data-[checked]:text-primary">
+                          <RadioGroup.ItemControl class="flex h-8 w-full cursor-pointer select-none items-center justify-center rounded-md border border-border bg-base-200 text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring data-[checked]:border-primary data-[checked]:bg-primary/10 data-[checked]:font-medium data-[checked]:text-primary">
                             {option.label}
                           </RadioGroup.ItemControl>
                         </RadioGroup.Item>
@@ -508,7 +508,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                 <span class="text-xs font-medium text-muted-foreground">标签</span>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-ring"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-base-content focus-ring"
                   onClick={() => setManagerOpen(true)}
                 >
                   <Settings2 size={13} aria-hidden="true" />
@@ -526,7 +526,7 @@ export function TaskEditorDialog(props: TaskEditorDialogProps) {
                         "border-primary bg-primary/10 text-primary": tagIds().includes(
                           tag.id,
                         ),
-                        "border-border bg-surface text-muted-foreground hover:bg-surface-hover":
+                        "border-border bg-base-200 text-muted-foreground hover:bg-surface-hover":
                           !tagIds().includes(tag.id),
                       }}
                       onClick={() => toggleTag(tag.id)}

@@ -172,7 +172,7 @@ export default function QuickAddWindow() {
       // The window is frameless and sized to its content, so this element IS
       // the window chrome: it draws its own hairline edge and fills the whole
       // surface. `dvh`, not `vh`, so the bottom control row cannot be clipped.
-      class="flex h-dvh flex-col gap-3 overflow-hidden border border-border bg-surface p-4 text-foreground"
+      class="flex h-dvh flex-col gap-3 overflow-hidden border border-border bg-base-200 p-4 text-base-content"
       onKeyDown={(event) => {
         // Escape closes the thing in front. An open dropdown handles it first
         // and marks the key handled (Kobalte's listbox does), and hiding the

@@ -62,7 +62,7 @@ export function CommentList(props: CommentListProps) {
 
   return (
     <section aria-label="评论">
-      <h3 class="text-sm font-medium text-foreground">评论</h3>
+      <h3 class="text-sm font-medium text-base-content">评论</h3>
 
       <ul class="mt-2 flex flex-col">
         <For each={comments()}>
@@ -89,7 +89,7 @@ export function CommentList(props: CommentListProps) {
               >
                 <textarea
                   aria-label="编辑评论"
-                  class="min-w-0 flex-1 resize-y rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
+                  class="min-w-0 flex-1 resize-y rounded-md border border-border bg-base-200 px-2 py-1 text-sm text-base-content focus-ring"
                   rows={2}
                   ref={(el) => {
                     editorRef = el;
@@ -139,7 +139,7 @@ export function CommentList(props: CommentListProps) {
         type="text"
         aria-label="添加评论"
         placeholder="添加评论，回车确认"
-        class="mt-2 h-8 w-full rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
+        class="mt-2 h-8 w-full rounded-md border border-border bg-base-200 px-2.5 text-sm text-base-content transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
         value={newBody()}
         onInput={(event) => setNewBody(event.currentTarget.value)}
         onKeyDown={(event) => {

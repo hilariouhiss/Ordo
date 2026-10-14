@@ -34,7 +34,7 @@ export function BarList(props: BarListProps) {
           {(row) => (
             <li class="flex items-center gap-3">
               <span
-                class="w-32 shrink-0 truncate text-sm text-foreground"
+                class="w-32 shrink-0 truncate text-sm text-base-content"
                 title={row.label}
               >
                 {row.label}

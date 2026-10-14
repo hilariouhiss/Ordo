@@ -32,7 +32,7 @@ export interface BoardColumnViewProps {
  * 进行中 / 已完成 come with the project, so the header only names the lane,
  * counts it and flags the done one.
  *
- * The column is a `bg-sunken` well with no border. That gives the board three
+ * The column is a `bg-base-300` well with no border. That gives the board three
  * readable planes — page, well, card — which a bordered box on a nearly
  * identical background cannot: at these two lightness values a hairline was
  * doing all the work, and every column read as a plain outlined rectangle.
@@ -80,12 +80,12 @@ export function BoardColumnView(props: BoardColumnViewProps) {
     <section
       aria-label={`看板列 ${props.column.name}`}
       data-column-id={props.column.id}
-      class="flex w-72 shrink-0 flex-col rounded-xl bg-sunken"
+      class="flex w-72 shrink-0 flex-col rounded-xl bg-base-300"
     >
       <header class="flex items-center gap-1.5 px-2.5 py-2">
         {/* A heading, so heading navigation can jump between lanes; the count
             carries its unit because a bare digit has none read aloud. */}
-        <h2 class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-foreground">
+        <h2 class="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-base-content">
           {props.column.name}
         </h2>
         <span class="shrink-0 text-xs text-subtle-foreground">

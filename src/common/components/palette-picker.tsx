@@ -30,7 +30,7 @@ export function ColorSwatches(props: PalettePickerProps) {
           type="button"
           aria-label="无颜色"
           aria-pressed={props.value === null}
-          class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
+          class={`${SWATCH_CLASS} bg-base-200 text-2xs text-muted-foreground`}
           classList={{ "ring-2 ring-ring": props.value === null }}
           onClick={() => props.onChange(null)}
         >
@@ -71,7 +71,7 @@ export function IconPicker(props: PalettePickerProps) {
                 type="button"
                 aria-label={`图标 ${iconName}`}
                 aria-pressed={props.value === iconName}
-                class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:bg-surface-hover active:scale-90 focus-ring"
+                class="inline-flex size-8 items-center justify-center rounded-md border border-border bg-base-200 text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:bg-surface-hover active:scale-90 focus-ring"
                 classList={{
                   "border-primary bg-primary/10 text-primary": props.value === iconName,
                 }}

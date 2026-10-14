@@ -165,28 +165,42 @@ src/
 
 ### 2.6 设计系统
 
-全部 Token 与全局工具类集中在 `src/index.css`（Tailwind v4 CSS-first，**没有** `tailwind.config.js` 与 PostCSS 配置）。
+组件与主题层是 **daisyUI 5**（Tailwind v4 插件，ADR 21）；调色板、控件几何与全局工具类集中在 `src/index.css`（Tailwind v4 CSS-first，**没有** `tailwind.config.js` 与 PostCSS 配置，也没有 daisyUI 的配置文件——它的全部配置都是 CSS 里的 `@plugin` 块）。daisyUI 的组件 CSS 落在 Tailwind `utilities` 层内的嵌套子层中，所以**普通的 Tailwind 工具类能覆盖它的属性**（`h-7` 压得过 `.btn` 的 `height: var(--size)`）——这是「形态取 daisyUI、外观取主题」得以成立的前提。
 
 **颜色与分层**
 
+- **两套主题就是全部色值**：`@plugin "daisyui/theme"` 定义 `ordo-light`（`default: true`）与 `ordo-dark`（`prefersdark: true`）。`ui.ts` 往 `<html>` 写 `data-theme="ordo-light|ordo-dark"`，`index.html` 的挂载前脚本写同一个属性，`@custom-variant dark` 匹配的也是这个属性——手动切换与跟随系统共用一条路径，只有一个开关。
 - **一套暖中性色**：所有中性色都在 hue 25–30、chroma ≤ 0.024 上取值。这里原本写的是「hue 265、chroma ≤ 0.012 的一套冷灰」，2026-09 换成黑绿配色时一并改掉了：暖色界面配蓝灰冷色会读成两套设计系统拼起来，正是那条规则本来要防的失败——规则没错，只是这套配色下答案相反。
-- **一个强调色，品牌绿**：`--primary` 是品牌绿（深色主题直接用 logo 的 `#24C88C`），会被涂在复选框、进度条、焦点环上。它与三个状态色**靠色相分开**而不是靠明度：绿色占掉了可用的明度区间，其余三色只能绕着色轮排开（danger 32、warning 76、success 128、primary 162，彼此相差 40° 以上）。因此 `success` 特意落在黄绿一端，免得被读成品牌绿。所以对比度校验里的明度间距门槛是**故意放宽**的——它只防"糊成一团"，不提供舒适余量。改这几个 token 之前先看 `index.css` 顶部那段注释。
-- **平面分层**：`--sunken`（看板列这类凹槽）/ `--background`（页面）/ `--surface`（侧边栏、面板）/ `--elevated`（弹窗、菜单、看板卡片）四层，靠明度差而不是描边表达层级。深色模式下 `--sunken` 比 `--background` 更深，浅色模式下更浅，两边都是「往里凹」的观感。深色 `--background` 同时也是标志的底色，所以图标和它启动出来的窗口是同一个黑。
-- **阴影带色**：用中性色相染过的半透明色而不是纯黑低透明度，让阴影和它落下的面处在同一光照里；深色模式的抬升主要靠 `inset` 顶部高光，因为黑压黑没有可压的余量。
-- **`--*-solid` / `--*-foreground` 成对**：成对的是填充按钮的前景/背景；单独的那个 token 是当作**文字**用的，按在页面背景上的对比度调过。不要拿 `--danger` 当按钮底色再配白字。
-- 组件只引用 Token，不写死色值；深浅主题可切换、可跟随系统。深色模式是**类驱动**的（`@custom-variant dark`），由 `common/stores/ui.ts` 在运行时切换 `html.dark`，因此手动切换与跟随系统共用同一条路径。
+- **一个强调色，品牌绿**：`--color-primary` 是品牌绿（深色主题直接用 logo 的 `#24C88C`），涂在按钮、复选框、进度条、焦点环与选中页签的下划线上。它与三个状态色**靠色相分开**而不是靠明度：绿色占掉了可用的明度区间，其余三色只能绕着色轮排开（error 32、warning 76、success 128、primary 162，彼此相差 40° 以上）。因此 `success` 特意落在黄绿一端，免得被读成品牌绿。所以对比度校验里的明度间距门槛是**故意放宽**的——它只防「糊成一团」、不提供舒适余量。改这几个 token 之前先看 `index.css` 顶部那段注释。
+- **daisyUI 拿不下的那一层叫「额外层」**，以 `--ordo-*` 命名（这样永远不会撞上 daisyUI 自己的主题键——它的 `--border` 是**宽度**，而本应用的边框颜色就叫 border），再由 `@theme inline` 暴露成工具类：**第四个平面** `elevated`（弹窗/菜单/看板卡片；daisyUI 只有 base-100/200/300 三级）、**hover 面** `surface-hover`（深色模式下它在页面之上，不能并进位于页面之下的 base-300）、**两档文字色** `muted-foreground` / `subtle-foreground` 与**两档描边** `border` / `border-strong`（都按对比度调过，不走 daisyUI 的 alpha 推导，免得已测过的数字漂移）、`ring`、`overlay`、`primary-hover`、**填充态危险色** `error-solid` / `error-solid-content`、滚动条与三级阴影。
+- **平面分层**：`base-300`（看板列这类凹槽）/ `base-100`（页面）/ `base-200`（侧边栏、面板）加额外层的 `elevated`（弹窗、菜单、看板卡片）四层，靠明度差而不是描边表达层级。深色模式下 `base-300` 比 `base-100` 更深，浅色模式下更浅，两边都是「往里凹」的观感。深色 `base-100` 同时也是标志的底色，所以图标和它启动出来的窗口是同一个黑。
+- **阴影带色**：用中性色相染过的半透明色而不是纯黑低透明度，让阴影和它落下的面处在同一光照里；深色模式的抬升主要靠 `inset` 顶部高光，因为黑压黑没有可压的余量。daisyUI 的 `--depth` 在两个主题里都是 `0`：它默认给控件加的底部投影与描边加深正是这套平面语言不要的。
+- **`error` 与 `error-solid` 分工**：`--color-error` 当作**文字**用（按页面背景上的对比度调过），填充面（危险按钮、错误 toast）用 `--ordo-error-solid` 配 `--ordo-error-solid-content`——深色主题里两者相差 L 0.12，`--color-error` 配近白墨到不了 4.5。
+- 组件只引用 Token（daisyUI 语义色或额外层），不写死色值。
+
+| 现有概念 | daisyUI 名 | 额外层（`--ordo-*`） |
+| --- | --- | --- |
+| 页面底色 / 面板 / 凹槽 | `base-100` / `base-200` / `base-300` | |
+| 正文 | `base-content` | |
+| 品牌绿（含填充墨色） | `primary` / `primary-content` | |
+| 状态色 | `success` / `warning` / `error`（含 `-content`） | `error-solid` / `error-solid-content` |
+| 弹窗、菜单、看板卡片面 | | `elevated` |
+| 悬停面 | | `surface-hover` |
+| 次 / 更次文字 | | `muted-foreground` / `subtle-foreground` |
+| 描边（两档） | | `border` / `border-strong` |
+| 焦点环 / 遮罩 / 主色悬停 | | `ring` / `overlay` / `primary-hover` |
 
 **排版与圆角**
 
 - 字号按桌面密度定：正文 13px（`text-sm`）、次要 12px（`text-xs`）、徽章 11px（`text-2xs`）、页面标题 17px（`text-lg`）；数字全局 `font-variant-numeric: tabular-nums`——这个应用里的数字（日期、计数、时长、百分比）几乎都是按列读的。
-- 圆角：`sm`(6) 徽章/复选框/行内标记；`md`(8) 按钮/输入框/列表行；`lg`(12) 面板/看板列/浮层；`xl`(16) 整块弹窗。
-- **字体内置系统字体栈**（`system-ui` 优先，CJK 按平台降级）。不打包 Web 字体：界面文字约 95% 是中文，引入拉丁展示字体会为署名和数字付出体积与字节，与体积目标冲突。
-
+- 圆角：`sm`(6) 徽章/复选框/行内标记；`md`(8) 按钮/输入框/列表行；`lg`(12) 面板/看板列/浮层；`xl`(16) 整块弹窗。daisyUI 的控件圆角由主题的 `--radius-selector: 5px`（复选框、徽章）/ `--radius-field: 8px`（按钮、输入框、页签）/ `--radius-box: 12px`（面板、弹窗、菜单）给出，并暴露成 `rounded-selector/field/box`；两套刻度刻意对齐，免得一个 `btn` 与旁边的列表行看起来像两个体系。
+- **控件尺寸钉在桌面密度上**：daisyUI 的梯子按网页密度起步（`btn-md` 40px、页签 40px、正文字号 14px），本应用到处是 28/32/36px 的控件与 13px 正文，因此每个包装组件都把尺寸覆盖回来——按钮 `btn-sm/md/lg` + `h-7/h-8/h-9`，输入框 `input-sm`（正好 32px），页签用主题变量 `--tab-height`，徽章 `h-[1.125rem]` / `h-5`。新增控件照这个来：**盒尺寸按本应用，形态按 daisyUI**。
+- **字体内置系统字体栈**（`system-ui` 优先，CJK 按平台降级）。不打包 Web 字体：界面文字约 95% 是中文，引入拉丁展示字体会为署名和数字付出体积与字节，与体积目标冲突。daisyUI 不推荐字体，它的排版刻度就是 Tailwind 的——本应用用自己的那一套。
 **全局工具类**（`index.css` 定义，全应用复用）
 
-- **`focus-ring` 是唯一的焦点指示**（`:focus-visible` 上的 2px `outline`）。用 `outline` 而不是 `ring`：outline 跟随元素自身的圆角，且不需要 `ring-offset`——offset 会用页面背景色补一圈，一旦元素不在 `bg-background` 上（侧边栏、卡片、菜单里）就会显出一圈错色。
+- **`focus-ring` 是唯一的焦点指示**（`:focus-visible` 上的 2px `outline`）。用 `outline` 而不是 `ring`：outline 跟随元素自身的圆角，且不需要 `ring-offset`——offset 会用页面背景色补一圈，一旦元素不在 `bg-base-100` 上（侧边栏、卡片、菜单里）就会显出一圈错色。daisyUI 自带的 `btn` / `input` 焦点环几何相同（2px、offset 2），落在同一条声明上结果一致；页签是例外，它的规则特异性更高（见下），用 daisyUI 自己的内嵌环。
 - **`child-indent` 是内联子列表的唯一缩进规则**：子项内容相对父项右移 20px，缩进带中线画 1px `border-strong` 引导线。虚拟化的行式子列表（`SubtaskRow` 的 `w-5` 槽位）用行内槽位表达同一条规则——两者的步长与线色必须保持一致。整页/卡片式子列表不缩进。
-- **`skeleton`** 骨架屏的微光扫过：一个 `::after` 上的固定渐变沿独立的 `translate` 扫过（合成器动画，不重绘；全局「减少动态效果」规则把它压成静止的实心块）。
+- **`skeleton`** 骨架屏现在是 daisyUI 的类：`base-300` 底 + 一条扫过的渐变。它用 `background-position` 动画（会重绘），与本仓库「只动合成器友好属性」的规则不同——这是替换自研微光时接受的既有代价，全局「减少动态效果」规则把它压成静止的实心块。自研那版 `skeleton` 与 daisyUI 的类名撞车，是迁移时发现并让位的。
 - **浮层入场动画** `animate-fade-in` / `animate-surface-in` / `animate-toast-in`。
 - **内容入场动画** `animate-view-in`（换路由时整屏视图入场，由 `AppShell` 里 keyed 的包壳重放，8px 上浮）、`animate-row-in`（行进入列表时淡入上移，展开子任务组时按 `[animation-delay:Nms]` 级联）。两者都**只在行/视图真正进入时**播放：虚拟滚动把行重新挂载时不重放，否则每一次滚轮都会闪一屏（`TaskListView` 用一份「已在屏上出现过的 id」集合判定）。**带入场位移的元素不能待在滚动容器里**：视图包壳与内容区等高，它的 `translate` 会把行程加进容器的可滚动溢出区——换页时容器凭空多出一条 15px 滚动条，视图被横向挤动，这段位移本身也被淹掉。所以 `AppShell` 把 `overflow-hidden` 留在 `<main>` 上、把 `overflow-y-auto` 交给带动画的包壳：位移发生在一个无处可滚的盒子里，而比窗口高的视图照样滚得动（包壳就是那个滚动容器）。
 - **`scrim-blur`** 弹窗遮罩的 2px 背景模糊。手写而不是用 `backdrop-blur-[2px]`：后者只输出无前缀的 `backdrop-filter`，而 WebKit（macOS 与 Linux 两端的 webview）长期只认 `-webkit-backdrop-filter`，无前缀写法要到 Safari 18 才有——只用工具类的话，三端里恰好只有 Windows 看得到这层模糊。
@@ -195,7 +209,7 @@ src/
 
 **组件与动效约定**
 
-- 无样式原语一律用 **Kobalte**（Dialog/Dropdown/Select/Tabs/Tooltip/Popover/Checkbox），视觉样式由 `common/components` 二次封装统一，并集中从 `common/components/index.ts` 导出。
+- 无样式原语一律用 **Kobalte**（Dialog/Dropdown/Select/Tabs/Tooltip/Popover/Checkbox），视觉样式由 `common/components` 二次封装统一，并集中从 `common/components/index.ts` 导出。**形态与状态取 daisyUI 的组件类**（`btn` / `badge` / `input` / `alert` / `toast` / `skeleton` / `tabs`），Kobalte 自绘结构的控件（复选框、Select 触发器与弹层、菜单项、tooltip）保留结构，只从主题取色与圆角。规则一句话：**元素形态与 daisyUI 组件一致时用它的类，否则用它的主题变量**。
 - 图标用 **Lucide**；日期用 **date-fns**；表单校验用 **Zod**。图标按钮样式只有 `iconButtonClass` 一处出处。
 - 长列表用**虚拟滚动**（`common/components/virtual-list.tsx`，自研轻量实现）。
 - 看板拖拽用原生 Drag API，拖拽中仅移动 `transform`，不触发布局重排。
@@ -350,7 +364,7 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 - `rusqlite` 使用 **bundled** SQLite（含 FTS5），并开启 `chrono` feature 以绑定时间戳参数。
 - `tauri` 需要 **`tray-icon`** feature，否则 `tauri::tray` 不存在。
 - 前端在用的库：`@kobalte/core`、`lucide-solid`、`date-fns`、`zod`、`@tanstack/solid-router`，以及 `@tauri-apps/api` 与 `plugin-{autostart,dialog,notification,opener,process,updater}`。
-- **不引入**动画库、拖拽库、图表库、UI 组件库——三条都是体积红线的支撑（动效用 CSS/Web Animations，拖拽用原生 Drag API，图表自绘 SVG）。虚拟滚动也是自研。
+- **不引入**动画库、拖拽库、图表库——三条都是体积红线的支撑（动效用 CSS/Web Animations，拖拽用原生 Drag API，图表自绘 SVG）。UI 组件库自 ADR 21 起是 **daisyUI 5**（Tailwind v4 插件）：`themes: false` 只装两个自定义主题，`include` 只带用到的组件与基础层，构建产物的 CSS 从 40,947 B 到 78,366 B（gzip 13,273 B；不带 `include` 的全量组件是 154,931 B），且没有 JS 运行时——原来那条「不引入 UI 组件库」的红线正是体积红线，现在由这组实测数字接管。
 
 ### 4.3 构建配置
 
@@ -415,11 +429,11 @@ perf.rs         ← 性能验收（Q-01）：进程起点计时、前端上报�
 1. **这个项目不是 React。** 文件是 `.tsx` 但 `jsxImportSource` 是 `solid-js`：用 `createSignal`、`render` from `solid-js/web`、`class`（不是 `className`），没有 `useState`/`useEffect`。
 2. **回车提交必须带 `!event.isComposing` 守卫**（`QuickAddWindow`、`SubtaskList`、`CommentList`、`TimeTracker`）。这是中文产品：输入法组词时按回车是「上屏」而不是「提交」，少了这个守卫会把半截标题写进库，或把正在编辑的内容提前提交。
 3. **Kobalte 的 `Select` 会在挂载时用初始值调一次 `onChange`。** 任何把 `onChange` 当作「用户选了」的逻辑都必须忽略与当前值相同的那次调用，否则光是渲染控件就会记下一个选择。它的 `optionValue` 是选项的身份，返回 `""` 会被读成「未选中」（触发器渲染成空白），要表示「无」请用真实哨兵字符串。
-4. **不要用 `class` 去覆盖原语里已有的同类工具类。** Tailwind 按 CSS 源码顺序（而非 class 属性顺序）解决同属性冲突，例如 `.text-muted-foreground` 排在 `.text-danger` 之后、`.bg-surface-hover` 排在 `.bg-danger/12` 之后、`.w-full` 排在 `.w-28` 之后——这些覆盖会静默失效并渲染出错误的颜色或宽度。需要不同外观时给原语加 `variant`（或先删掉原语里冗余的基础类）。
+4. **不要用 `class` 去覆盖原语里已有的同类工具类。** Tailwind 按 CSS 源码顺序（而非 class 属性顺序）解决同属性冲突，例如 `.text-muted-foreground` 排在 `.text-danger` 之后、`.bg-surface-hover` 排在 `.bg-error/12` 之后、`.w-full` 排在 `.w-28` 之后——这些覆盖会静默失效并渲染出错误的颜色或宽度。需要不同外观时给原语加 `variant`（或先删掉原语里冗余的基础类）。
 5. **弹窗只有正文滚动**：`Dialog.Content` 是 `overflow-hidden` 的 flex 容器（高度上限 `max-h-[85dvh]`），标题/描述/关闭按钮留在原处，每个弹窗把自己的正文标成 `min-h-0 flex-1 overflow-y-auto`。这条规则写在 `common/components/dialog.tsx` 里，因为 `overflow` 不能由调用方用 `class` 覆盖（Tailwind 按源码顺序解析，`overflow-y-auto` 排在 `overflow-hidden` 之后）。
 6. **展开箭头不占父行的列**：可展开的行把箭头放进一个 20px 槽位，并用负外边距把整行向左拉回该槽位的宽度——所以「这一行有没有箭头、展不展开」都不改变它的内容列，只有子项往下缩进一层。槽位恒在（无子项的行留空），同一层的行才始终对齐。
 7. **侧边栏每个项目只出现在一处**（分组行 / 根级平铺 / 已归档平铺 / 已归档分组）。改动这几个派生时要一起想清楚，否则项目会重复出现或从导航里消失。
-8. **窗口挂载前的底色由 `index.html` 里那段内联脚本用 CSSOM 写上 `<html>`，既不是 `index.css` 也不是一段内联 `<style>`。** JS 跑起来之前页面是空的，屏幕上只有画布；而同一段脚本设的 `color-scheme: dark` 会把画布涂成近黑（`#121212`），于是加载期间整个窗口读起来就是「全黑」——dev 模式下这段加载有数秒（§6.1），浅色主题下则是一屏刺眼的白。**必须写成 `document.documentElement.style.background = …`**：CSSOM 写入不受 CSP 约束，而只要 `index.html` 里出现一个 `<style>` 元素，Tauri 就会给它注入 `nonce` 并把 `style-src` 变成 `'self' 'unsafe-inline' 'nonce-…'`——带 nonce 时 `'unsafe-inline'` 按 CSP3 失效，**虚拟列表与 Kobalte 写的每一个 `style=` 都会被静默拦掉**（控制台报 `Applying inline style violates …`，界面不报错但样式缺失）。`src/common/stores/ui.ts` 的 `applyResolvedTheme` 会重写同一个属性，切主题时两边不会分叉；两个色值要与 `theme-color` 元标签、`src/index.css` 的 `--background` 一起改。
+8. **窗口挂载前的底色由 `index.html` 里那段内联脚本用 CSSOM 写上 `<html>`，既不是 `index.css` 也不是一段内联 `<style>`。** JS 跑起来之前页面是空的，屏幕上只有画布；而同一段脚本设的 `color-scheme: dark` 会把画布涂成近黑（`#121212`），于是加载期间整个窗口读起来就是「全黑」——dev 模式下这段加载有数秒（§6.1），浅色主题下则是一屏刺眼的白。**必须写成 `document.documentElement.style.background = …`**：CSSOM 写入不受 CSP 约束，而只要 `index.html` 里出现一个 `<style>` 元素，Tauri 就会给它注入 `nonce` 并把 `style-src` 变成 `'self' 'unsafe-inline' 'nonce-…'`——带 nonce 时 `'unsafe-inline'` 按 CSP3 失效，**虚拟列表与 Kobalte 写的每一个 `style=` 都会被静默拦掉**（控制台报 `Applying inline style violates …`，界面不报错但样式缺失）。`src/common/stores/ui.ts` 的 `applyResolvedTheme` 会重写同一个属性，切主题时两边不会分叉；两个色值要与 `theme-color` 元标签、`src/index.css` 两个 daisyUI 主题里的 `--color-base-100` 一起改（同一段脚本还要写 `data-theme`，见 §2.6）。
 
 **后端 / 数据**
 

@@ -47,7 +47,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
 
   return (
     <section aria-label="依赖">
-      <h3 class="text-sm font-medium text-foreground">依赖</h3>
+      <h3 class="text-sm font-medium text-base-content">依赖</h3>
 
       <p class="mt-1.5 text-xs text-muted-foreground">
         前置完成后这项才算解锁；被阻塞时完成需要一次确认。
@@ -81,7 +81,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
           type="text"
           aria-label="添加前置"
           placeholder="输入任务标题以添加前置"
-          class="h-8 w-full rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
+          class="h-8 w-full rounded-md border border-border bg-base-200 px-2.5 text-sm text-base-content transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
           value={query()}
           onInput={(event) => setQuery(event.currentTarget.value)}
         />
@@ -89,7 +89,7 @@ export function TaskDependencies(props: TaskDependenciesProps) {
           {(candidate) => (
             <button
               type="button"
-              class="truncate rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-ring"
+              class="truncate rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-base-content focus-ring"
               aria-label={`添加前置 ${candidate.title}`}
               onClick={() => {
                 void addDependency(props.taskId, candidate.id);

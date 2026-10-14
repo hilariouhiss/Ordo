@@ -21,7 +21,7 @@ import {
 } from "../hooks";
 import type { BackupSummary } from "../types";
 
-const PANEL_CLASS = "rounded-xl bg-surface p-5 shadow-sm";
+const PANEL_CLASS = "rounded-xl bg-base-200 p-5 shadow-sm";
 
 function stamp(summary: BackupSummary): string {
   return format(new Date(summary.exportedAt), "yyyy-MM-dd HH:mm");
@@ -107,7 +107,7 @@ export function SettingsView() {
 
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
         <section aria-label="数据备份" class={`${PANEL_CLASS} max-w-2xl`}>
-          <h2 class="text-sm font-semibold tracking-tight text-foreground">数据备份</h2>
+          <h2 class="text-sm font-semibold tracking-tight text-base-content">数据备份</h2>
           <p class="mt-1.5 text-sm text-muted-foreground">
             把项目、任务、标签、看板列、评论、时间记录与设置导出为一个 JSON
             文件；恢复会覆盖当前全部数据，无法撤销。
@@ -139,14 +139,14 @@ export function SettingsView() {
               the message out twice. These are the record left on screen. */}
           <Show when={exported()}>
             {(summary) => (
-              <p class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
+              <p class="mt-3 break-all rounded-md bg-base-300 px-3 py-2 text-xs text-muted-foreground">
                 已导出 {summary().counts.tasks} 个任务（{stamp(summary())}）：{summary().path}
               </p>
             )}
           </Show>
           <Show when={restored()}>
             {(summary) => (
-              <p class="mt-3 break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
+              <p class="mt-3 break-all rounded-md bg-base-300 px-3 py-2 text-xs text-muted-foreground">
                 已从备份恢复 {summary().counts.tasks} 个任务、{summary().counts.projects} 个项目、
                 {summary().counts.namespaces} 个命名空间（
                 {stamp(summary())}）：{summary().path}
@@ -156,7 +156,7 @@ export function SettingsView() {
         </section>
 
         <section aria-label="启动" class={`${PANEL_CLASS} mt-5 max-w-2xl`}>
-          <h2 class="text-sm font-semibold tracking-tight text-foreground">启动</h2>
+          <h2 class="text-sm font-semibold tracking-tight text-base-content">启动</h2>
           <p class="mt-1.5 text-sm text-muted-foreground">
             随系统登录启动 Ordo，默认关闭。启动后应用驻留托盘，关闭主窗口不会退出。
           </p>
@@ -175,10 +175,10 @@ export function SettingsView() {
         </section>
 
         <section aria-label="关于" class={`${PANEL_CLASS} mt-5 max-w-2xl`}>
-          <h2 class="text-sm font-semibold tracking-tight text-foreground">关于</h2>
+          <h2 class="text-sm font-semibold tracking-tight text-base-content">关于</h2>
           <p class="mt-1.5 text-sm text-muted-foreground">
             Ordo {version() ?? "…"}。启动后会自动检查更新，发现新版本时提示你，
-            <span class="text-foreground">由你点「更新」才会安装并重启</span>；
+            <span class="text-base-content">由你点「更新」才会安装并重启</span>；
             自动检查失败不会打扰你，结果都记在这里。
           </p>
 
@@ -199,14 +199,14 @@ export function SettingsView() {
           </Checkbox.Root>
 
           <Show when={updateState().phase === "ready" || updateState().phase === "available"}>
-            <p class="mt-3 rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
+            <p class="mt-3 rounded-md bg-base-300 px-3 py-2 text-xs text-muted-foreground">
               v{updateState().version}
               {updateState().phase === "ready" ? " 已下载，等待你确认更新。" : " 可用（尚未下载）。"}
             </p>
           </Show>
           <Show when={updateState().error}>
             {(message) => (
-              <p role="status" class="mt-3 break-words rounded-md bg-sunken px-3 py-2 text-xs text-danger">
+              <p role="status" class="mt-3 break-words rounded-md bg-base-300 px-3 py-2 text-xs text-error">
                 最近一次更新失败：{message()}
               </p>
             )}
@@ -249,7 +249,7 @@ export function SettingsView() {
             <Dialog.Description>
               这会用备份文件覆盖当前全部项目、任务、标签、看板列、评论、时间记录与设置，且无法撤销。
             </Dialog.Description>
-            <p class="mt-3 min-h-0 flex-1 overflow-y-auto break-all rounded-md bg-sunken px-3 py-2 text-xs text-muted-foreground">
+            <p class="mt-3 min-h-0 flex-1 overflow-y-auto break-all rounded-md bg-base-300 px-3 py-2 text-xs text-muted-foreground">
               {pendingPath()}
             </p>
             <div class="mt-4 flex justify-end gap-2">

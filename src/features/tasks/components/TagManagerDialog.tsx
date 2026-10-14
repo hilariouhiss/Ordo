@@ -56,7 +56,7 @@ function ColorSwatches(props: {
         type="button"
         aria-label="无颜色"
         aria-pressed={props.value() === null}
-        class={`${SWATCH_CLASS} bg-surface text-2xs text-muted-foreground`}
+        class={`${SWATCH_CLASS} bg-base-200 text-2xs text-muted-foreground`}
         classList={{ "ring-2 ring-ring": props.value() === null }}
         onClick={() => props.onChange(null)}
       >
@@ -254,7 +254,7 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
                             }}
                             aria-hidden="true"
                           />
-                          <span class="min-w-0 flex-1 truncate text-sm text-foreground">
+                          <span class="min-w-0 flex-1 truncate text-sm text-base-content">
                             {tag.name}
                           </span>
                           <span class="shrink-0 text-xs text-subtle-foreground">
@@ -320,11 +320,11 @@ export function TagManagerDialog(props: TagManagerDialogProps) {
                       </div>
                     </Show>
                     <Show when={deletingId() === tag.id}>
-                      <div class="mt-2 flex items-center justify-between gap-2 rounded-lg bg-danger/10 px-3 py-2">
+                      <div class="mt-2 flex items-center justify-between gap-2 rounded-lg bg-error/10 px-3 py-2">
                         {/* The question appears next to the button that was
                             pressed, without moving focus, so it has to
                             announce itself to be answerable. */}
-                        <span role="alert" class="text-xs text-danger">
+                        <span role="alert" class="text-xs text-error">
                           将同时从 {usageCount(tag.id)} 个任务上移除，确认删除？
                         </span>
                         <div class="flex shrink-0 gap-2">

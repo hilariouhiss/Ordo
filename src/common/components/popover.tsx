@@ -22,7 +22,7 @@ function Content(props: ComponentProps<typeof KPopover.Content>) {
   return (
     <KPopover.Content
       {...rest}
-      class={`animate-surface-in z-50 w-72 rounded-xl bg-elevated p-4 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in z-50 w-72 rounded-box bg-elevated p-4 text-base-content shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }
@@ -32,7 +32,7 @@ function Title(props: ComponentProps<typeof KPopover.Title>) {
   return (
     <KPopover.Title
       {...rest}
-      class={`text-sm font-semibold text-foreground ${local.class ?? ""}`}
+      class={`text-sm font-semibold text-base-content ${local.class ?? ""}`}
     />
   );
 }
@@ -52,7 +52,7 @@ function CloseButton(props: ComponentProps<typeof KPopover.CloseButton>) {
   return (
     <KPopover.CloseButton
       {...rest}
-      class={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground active:scale-90 focus-ring ${local.class ?? ""}`}
+      class={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-base-content active:scale-90 focus-ring ${local.class ?? ""}`}
     >
       <X size={14} aria-hidden="true" />
     </KPopover.CloseButton>

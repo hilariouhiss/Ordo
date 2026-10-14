@@ -14,6 +14,11 @@ const AUTO_DISMISS_MS = 6000;
  * than appears, so it slides up 8px while fading. The translate is on the
  * independent `translate` property, which keeps the stack's own layout
  * transform untouched.
+ *
+ * The box is daisyUI's `alert`; the filled destructive pair is overridden so
+ * the error toast keeps the pre-migration contrast (a solid red with light
+ * ink), which `alert-error`'s own `--color-error` fill no longer is in dark
+ * mode — `--ordo-error-solid` is the token for filled destructive surfaces.
  */
 function Toast(props: { item: AppNotification }) {
   onMount(() => {
@@ -24,10 +29,10 @@ function Toast(props: { item: AppNotification }) {
   return (
     <div
       role={props.item.kind === "error" ? "alert" : "status"}
-      class={`animate-toast-in flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm shadow-lg ${
+      class={`alert animate-toast-in flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm shadow-lg ${
         props.item.kind === "error"
-          ? "bg-danger-solid text-danger-foreground"
-          : "bg-elevated text-foreground"
+          ? "bg-error-solid border-error-solid text-error-solid-content"
+          : "bg-elevated text-base-content"
       }`}
     >
       <span class="min-w-0 flex-1 break-words">{props.item.message}</span>
@@ -35,7 +40,7 @@ function Toast(props: { item: AppNotification }) {
         type="button"
         aria-label="关闭通知"
         class={`-m-0.5 shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:opacity-100 focus-ring ${
-          props.item.kind === "error" ? "text-danger-foreground" : "text-subtle-foreground"
+          props.item.kind === "error" ? "text-error-solid-content" : "text-subtle-foreground"
         }`}
         onClick={() => dismissNotification(props.item.id)}
       >
@@ -58,7 +63,7 @@ export function Toaster() {
     // so the failure message would reach the screen and not the user.
     <div
       data-kb-top-layer=""
-      class="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2"
+      class="toast z-50 w-80 gap-2"
     >
       <For each={notifications()}>{(item) => <Toast item={item} />}</For>
     </div>

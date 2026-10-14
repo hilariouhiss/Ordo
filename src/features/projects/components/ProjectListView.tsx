@@ -55,7 +55,7 @@ export function ProjectListView(props: { project: Project }) {
           role="alert"
           class="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-center"
         >
-          <h2 class="text-base font-semibold text-foreground">加载失败</h2>
+          <h2 class="text-base font-semibold text-base-content">加载失败</h2>
           <p class="text-sm text-muted-foreground">{meta().error}</p>
           <Button
             variant="secondary"
@@ -89,7 +89,7 @@ export function ProjectListView(props: { project: Project }) {
 
             <div class="min-w-0 flex-1">
               <div class="flex min-w-0 items-center gap-2">
-                <h1 class="truncate text-lg font-semibold tracking-tight text-foreground">
+                <h1 class="truncate text-lg font-semibold tracking-tight text-base-content">
                   {project().name}
                 </h1>
                 <Show when={project().status === "archived"}>
@@ -152,7 +152,6 @@ export function ProjectListView(props: { project: Project }) {
           <Tabs.List class="shrink-0 px-5">
             <Tabs.Trigger value="list">列表</Tabs.Trigger>
             <Tabs.Trigger value="board">看板</Tabs.Trigger>
-            <Tabs.Indicator />
           </Tabs.List>
           <Tabs.Content value="list" class="min-h-0 flex-1">
             <div class="h-full min-h-0">

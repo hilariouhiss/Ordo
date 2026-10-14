@@ -57,7 +57,7 @@ function Trigger(props: ComponentProps<typeof KSelect.Trigger>) {
   return (
     <KSelect.Trigger
       {...rest}
-      class={`flex h-8 select-none items-center justify-between gap-2 rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50 data-[invalid]:border-danger focus-ring ${local.class ?? ""}`}
+      class={`flex h-8 select-none items-center justify-between gap-2 rounded-field border border-border bg-base-200 px-2.5 text-sm text-base-content transition duration-150 ease-out hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50 data-[invalid]:border-error focus-ring ${local.class ?? ""}`}
     />
   );
 }
@@ -89,7 +89,7 @@ function Content(props: ComponentProps<typeof KSelect.Content>) {
   return (
     <KSelect.Content
       {...rest}
-      class={`animate-surface-in z-50 max-h-64 min-w-32 overflow-y-auto rounded-lg bg-elevated p-1 text-foreground shadow-lg ${local.class ?? ""}`}
+      class={`animate-surface-in z-50 max-h-64 min-w-32 overflow-y-auto rounded-box bg-elevated p-1 text-base-content shadow-lg ${local.class ?? ""}`}
     />
   );
 }
@@ -144,7 +144,7 @@ function ErrorMessage(props: ComponentProps<typeof KSelect.ErrorMessage>) {
   return (
     <KSelect.ErrorMessage
       {...rest}
-      class={`text-xs font-medium text-danger ${local.class ?? ""}`}
+      class={`text-xs font-medium text-error ${local.class ?? ""}`}
     />
   );
 }

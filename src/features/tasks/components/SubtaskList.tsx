@@ -110,7 +110,7 @@ export function SubtaskList(props: SubtaskListProps) {
   return (
     <section aria-label="子任务">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium text-foreground">子任务</h3>
+        <h3 class="text-sm font-medium text-base-content">子任务</h3>
         <Show when={children().length > 0}>
           <span class="text-xs text-muted-foreground">
             {doneCount()}/{children().length} 已完成
@@ -174,7 +174,7 @@ export function SubtaskList(props: SubtaskListProps) {
                   }
                 >
                   <input
-                    class="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-ring"
+                    class="min-w-0 flex-1 rounded-md border border-border bg-base-200 px-2 py-1 text-sm text-base-content focus-ring"
                     aria-label={`重命名子任务 ${child.title}`}
                     value={editValue()}
                     onInput={(event) => setEditValue(event.currentTarget.value)}
@@ -262,7 +262,7 @@ export function SubtaskList(props: SubtaskListProps) {
         type="text"
         aria-label="添加子任务"
         placeholder="添加子任务，回车确认"
-        class="mt-2 h-8 w-full rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
+        class="mt-2 h-8 w-full rounded-md border border-border bg-base-200 px-2.5 text-sm text-base-content transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring"
         value={newTitle()}
         onInput={(event) => setNewTitle(event.currentTarget.value)}
         onKeyDown={(event) => {

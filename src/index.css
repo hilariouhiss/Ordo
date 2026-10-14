@@ -1,173 +1,238 @@
 @import "tailwindcss";
 
 /*
- * Class-based dark mode.
+ * Dark mode follows the theme attribute, not a class.
  *
- * Tailwind v4 defaults `dark:` to the OS preference. Switching to a
- * class-based variant lets a single `html.dark` class drive both manual
- * and system-following theme, which is what `src/common/stores/ui.ts`
- * toggles at runtime.
+ * The app used to toggle `html.dark`; it now writes `html[data-theme]` because
+ * the palette is owned by daisyUI (ADR 21) and daisyUI keys everything off
+ * `data-theme`. Keeping one attribute means there is exactly one thing that
+ * says which theme is live. The only consumer of this variant is the AppShell
+ * logo swap (`dark:hidden` / `dark:block`); everything else themes through the
+ * daisyUI variables themselves.
  */
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:where([data-theme="ordo-dark"], [data-theme="ordo-dark"] *));
 
 /*
- * Semantic palette — black and green.
+ * daisyUI 5 is the component + theme layer (ADR 21).
  *
- * Raw values live on `:root` (light) and `.dark`; the `@theme inline` block
- * below re-exposes them as Tailwind color utilities while keeping the live
- * `var()` reference, so utilities always resolve against the active palette.
+ * `themes: false` drops the 35 built-in themes — this app ships exactly the two
+ * custom ones defined below. `logs: false` keeps the build output clean.
  *
- * This replaced a cool-grey-and-teal scheme, then a black-red one, and it
- * breaks both of the rules the original was built on. They are recorded here
- * rather than deleted, because the next person will otherwise re-derive them
- * and "fix" this back:
+ * `include` keeps only the components the app actually uses: daisyUI emits its
+ * component CSS whether or not a class is used, so without this list the sheet
+ * carries every component in the library (measured: 155 KB of CSS against
+ * 41 KB before the migration; with the list below, see ARCHITECTURE §4.2).
+ * The two `base` entries are the ones that are load-bearing here —
+ * `rootcolor` paints the root background from `--root-bg`/`base-100`, and
+ * `svg` defines the `--fx-noise` the button and alert backgrounds reference.
+ * Adding a daisyUI class that is not in this list renders unstyled, silently.
+ */
+@plugin "daisyui" {
+  themes: false;
+  logs: false;
+  include: rootcolor, svg, radius, button, badge, input, skeleton, alert, toast, tab;
+}
+
+/*
+ * The palette — black and green, warm neutrals.
  *
- * 1. THE NEUTRALS ARE WARM NOW. They sat on hue 265 at chroma <= 0.012; they
- *    sit on hue 25-30 at chroma <= 0.024, because a black-and-red app with a
- *    blue-grey chrome reads as two design systems stapled together — the exact
- *    failure the old rule was written to prevent. The old rule was right; it
- *    just had the other answer for this palette.
+ * The values are the ones the app already shipped, moved from `:root`/`.dark`
+ * into two daisyUI themes so that daisyUI's component CSS (`btn`, `input`,
+ * `badge`, `alert`, …) renders in the app's colours. `ordo-light` is the
+ * default; `ordo-dark` is the `prefers-color-scheme` fallback and, more
+ * importantly, the `[data-theme="ordo-dark"]` target `ui.ts` writes.
+ *
+ * The rules those values were built on still hold, and are recorded here
+ * because the next person will otherwise re-derive them and "fix" this back:
+ *
+ * 1. THE NEUTRALS ARE WARM. They sit on hue 25-30 at chroma <= 0.024, because a
+ *    black-and-red app with a blue-grey chrome reads as two design systems
+ *    stapled together. An earlier cool-grey palette (hue 265, chroma <= 0.012)
+ *    was the other answer for the other palette; the muted/subtle text tokens
+ *    below still carry its hue, deliberately, and measure the same as before.
  * 2. THE ACCENT IS GREEN, AND THE STATUS COLOURS SEPARATE BY HUE, NOT BY
  *    LIGHTNESS. A green at a usable lightness leaves the other three nowhere to
- *    go in lightness, so they are spaced around the wheel instead: danger 32,
- *    warning 76, success 128, primary 162 — 40+ degrees apart, which is what a
- *    reader actually uses on a dot or a badge. The luminance floors in the
- *    verification script are correspondingly loose; they catch a collapse, not
- *    a comfortable margin. `success` is the yellow-green end of the family
- *    precisely so it cannot be mistaken for the brand green, which is the one
- *    that paints checkboxes and progress bars everywhere.
- *
- * `--*-solid` / `--*-foreground` pairs are the filled-button variants; the
- * plain tokens are tuned to pass contrast as *text* on the page background.
- * Every value below was measured, and the light theme deliberately holds the
- * levels the previous palette already shipped rather than quietly changing how
- * heavy every secondary label looks: see the note above `:root`.
+ *    go in lightness, so they are spaced around the wheel instead: error 32,
+ *    warning 76, success 128, primary 162 — 40+ degrees apart. `success` is the
+ *    yellow-green end of the family precisely so it cannot be mistaken for the
+ *    brand green.
+ * 3. `-content` PAIRS ARE THE ON-COLOUR INK. daisyUI uses them as the text on a
+ *    filled `btn-primary` / `alert-error`, which is what the old
+ *    `--*-foreground` pairs did.
+ * 4. THE FILLED DESTRUCTIVE COLOUR IS ITS OWN TOKEN. `--color-error` is tuned
+ *    to pass contrast as *text* on the page; in dark mode that is L 0.64, which
+ *    is too light to carry near-white ink. `--ordo-error-solid` (L 0.52) is what
+ *    filled destructive surfaces paint, exactly as before.
  */
-:root {
-  /* Light-mode ramp — bone. The page sits further below `--surface` than a
-   * hairline would need, because in light mode the plane difference is the only
-   * thing separating a borderless panel from the page — shadows at this size
-   * are barely perceptible. Matches the contrast the dark ramp gets for free.
-   *
-   * These keep the previous light theme's measured contrast (foreground 5.77,
-   * muted 2.42, subtle 2.03 on the page) so the rebrand changes hue, not weight.
-   * The old light theme never met WCAG AA for secondary text and this one does
-   * not either; fixing that moves every label in the app and is a separate job.
-   * `--primary` comes out slightly stronger than the old one (2.89 against
-   * 2.71). */
-  --background: oklch(0.960 0.008 75);
-  --sunken: oklch(0.932 0.010 75);
-  --surface: oklch(0.988 0.005 75);
-  --surface-hover: oklch(0.944 0.012 75);
-  --elevated: oklch(1 0 0);
-  --foreground: oklch(0.245 0.022 30);
-  --muted-foreground: oklch(0.475 0.012 265);
-  --subtle-foreground: oklch(0.545 0.01 265);
-  --border: oklch(0.918 0.005 265);
-  --border-strong: oklch(0.858 0.007 265);
-  --overlay: oklch(0.245 0.02 30 / 0.32);
+@plugin "daisyui/theme" {
+  name: "ordo-light";
+  default: true;
+  color-scheme: light;
 
-  /* The brand red. Dark enough to carry near-white text as a fill (5.25:1) and
-   * to read as its own text (5.08:1 on the page). Hue 12 rather than 25: at the
-   * same lightness a hue-25 red drifts toward brown against a bone ground. */
-  --primary: oklch(0.44 0.125 162);
-  --primary-hover: oklch(0.39 0.115 162);
+  /* Light-mode ramp — bone. The page sits further below `base-200` than a
+   * hairline would need, because in light mode the plane difference is the only
+   * thing separating a borderless panel from the page. */
+  --color-base-100: oklch(0.960 0.008 75);
+  --color-base-200: oklch(0.988 0.005 75);
+  --color-base-300: oklch(0.932 0.010 75);
+  --color-base-content: oklch(0.245 0.022 30);
+
+  /* The brand green. Dark enough to carry near-white text as a fill (5.25:1)
+   * and to read as its own text (5.08:1 on the page). */
+  --color-primary: oklch(0.44 0.125 162);
   /* Dark ink on the green fill. Near-white cannot reach 4.5 on a green this
    * light, and darkening the green to fix that would cost the contrast it needs
    * as text on the page — the two pull apart, and page text matters more. */
-  --primary-foreground: oklch(0.15 0.03 162);
-  --ring: oklch(0.48 0.13 162);
+  --color-primary-content: oklch(0.15 0.03 162);
+  /* Unused by the app; daisyUI renders `secondary`/`accent`/`info` components
+   * with them, so they inherit the brand hue rather than daisyUI's defaults. */
+  --color-secondary: oklch(0.44 0.125 162);
+  --color-secondary-content: oklch(0.15 0.03 162);
+  --color-accent: oklch(0.44 0.125 162);
+  --color-accent-content: oklch(0.15 0.03 162);
+  --color-info: oklch(0.44 0.125 162);
+  --color-info-content: oklch(0.15 0.03 162);
+  --color-neutral: oklch(0.245 0.022 30);
+  --color-neutral-content: oklch(0.960 0.008 75);
 
-  /* Hue carries the separation from the green accent here; see the note at the
-   * top of this file. `success` is the yellow-green end of the family so it
-   * cannot be read as the brand green. */
-  --success: oklch(0.56 0.15 128);
-  --warning: oklch(0.64 0.15 76);
-  --danger: oklch(0.48 0.19 32);
-  --danger-solid: oklch(0.48 0.19 32);
-  --danger-foreground: oklch(0.15 0.03 32);
+  /* Hue carries the separation from the green accent; see note 2 above. */
+  --color-success: oklch(0.56 0.15 128);
+  --color-success-content: oklch(0.15 0.03 128);
+  --color-warning: oklch(0.64 0.15 76);
+  --color-warning-content: oklch(0.15 0.03 76);
+  --color-error: oklch(0.48 0.19 32);
+  --color-error-content: oklch(0.15 0.03 32);
 
-  --scrollbar-thumb: oklch(0.245 0.022 30 / 0.18);
-  --scrollbar-thumb-hover: oklch(0.245 0.022 30 / 0.3);
+  /* Control geometry. daisyUI derives every control's box from these:
+   *   selector (checkbox, badge)  `--radius-selector`
+   *   field (button, input)       `--radius-field`
+   *   box (dialog, panel, menu)   `--radius-box`
+   * `--depth: 0` keeps daisyUI flat — no bottom shadow, no top inset, no
+   * darkened borders — which is the look the app already had. */
+  --radius-selector: 5px;
+  --radius-field: 8px;
+  --radius-box: 12px;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+
+  /* The extra tier — the tokens daisyUI has no slot for, kept under `ordo-`
+   * names so they can never collide with a daisyUI theme key (`--border` is a
+   * *width* in daisyUI, which is exactly the collision to avoid). */
+  --ordo-elevated: oklch(1 0 0);
+  --ordo-surface-hover: oklch(0.944 0.012 75);
+  --ordo-muted-foreground: oklch(0.475 0.012 265);
+  --ordo-subtle-foreground: oklch(0.545 0.01 265);
+  --ordo-border: oklch(0.918 0.005 265);
+  --ordo-border-strong: oklch(0.858 0.007 265);
+  --ordo-ring: oklch(0.48 0.13 162);
+  --ordo-overlay: oklch(0.245 0.02 30 / 0.32);
+  --ordo-primary-hover: oklch(0.39 0.115 162);
+  --ordo-error-solid: oklch(0.48 0.19 32);
+  --ordo-error-solid-content: oklch(0.15 0.03 32);
+  --ordo-scrollbar-thumb: oklch(0.245 0.022 30 / 0.18);
+  --ordo-scrollbar-thumb-hover: oklch(0.245 0.022 30 / 0.3);
 
   /* Elevation: tinted to the neutral hue instead of pure black, so shadows
    * sit in the same light as the surface they fall on. */
-  --elevation-1: 0 1px 2px oklch(0.28 0.02 30 / 0.06);
-  --elevation-2:
+  --ordo-elevation-1: 0 1px 2px oklch(0.28 0.02 30 / 0.06);
+  --ordo-elevation-2:
     0 1px 2px oklch(0.28 0.02 30 / 0.05), 0 6px 16px -6px oklch(0.28 0.02 30 / 0.12);
-  --elevation-3:
+  --ordo-elevation-3:
     0 2px 6px -1px oklch(0.28 0.02 30 / 0.07), 0 20px 44px -14px oklch(0.28 0.02 30 / 0.24);
 }
 
-.dark {
-  /* Near-black, warm. `--background` is the mark's field colour, so the icon
-   * and the window it launches into are the same black. */
-  --background: oklch(0.145 0.008 25);
-  --sunken: oklch(0.112 0.008 25);
-  --surface: oklch(0.185 0.009 25);
-  --surface-hover: oklch(0.228 0.010 25);
-  --elevated: oklch(0.238 0.010 25);
-  --foreground: oklch(0.930 0.008 30);
-  --muted-foreground: oklch(0.705 0.010 30);
-  --subtle-foreground: oklch(0.565 0.010 30);
-  --border: oklch(0.272 0.010 25);
-  --border-strong: oklch(0.350 0.012 25);
-  --overlay: oklch(0.112 0.010 25 / 0.6);
+@plugin "daisyui/theme" {
+  name: "ordo-dark";
+  prefersdark: true;
+  color-scheme: dark;
+
+  /* Near-black, warm. `base-100` is the mark's field colour, so the icon and
+   * the window it launches into are the same black. `base-300` sits *below*
+   * the page (recessed areas), unlike the light ramp where it sits above. */
+  --color-base-100: oklch(0.145 0.008 25);
+  --color-base-200: oklch(0.185 0.009 25);
+  --color-base-300: oklch(0.112 0.008 25);
+  --color-base-content: oklch(0.930 0.008 30);
 
   /* The logo's own green, unchanged: #24C88C, 7.70:1 on the page. */
-  --primary: oklch(0.74 0.155 162);
-  --primary-hover: oklch(0.79 0.145 162);
-  --primary-foreground: oklch(0.15 0.03 162);
-  --ring: oklch(0.78 0.15 162);
+  --color-primary: oklch(0.74 0.155 162);
+  --color-primary-content: oklch(0.15 0.03 162);
+  --color-secondary: oklch(0.74 0.155 162);
+  --color-secondary-content: oklch(0.15 0.03 162);
+  --color-accent: oklch(0.74 0.155 162);
+  --color-accent-content: oklch(0.15 0.03 162);
+  --color-info: oklch(0.74 0.155 162);
+  --color-info-content: oklch(0.15 0.03 162);
+  --color-neutral: oklch(0.930 0.008 30);
+  --color-neutral-content: oklch(0.145 0.008 25);
 
-  /* Hue-separated from the accent and from each other; see the note at the top
-   * of this file for why lightness is not doing that job here. */
-  --success: oklch(0.56 0.16 126);
-  --warning: oklch(0.80 0.15 85);
-  --danger: oklch(0.64 0.21 30);
-  --danger-solid: oklch(0.52 0.21 30);
-  --danger-foreground: oklch(0.99 0.01 30);
+  /* Hue-separated from the accent and from each other; see note 2 above. */
+  --color-success: oklch(0.56 0.16 126);
+  --color-success-content: oklch(0.15 0.03 126);
+  --color-warning: oklch(0.80 0.15 85);
+  --color-warning-content: oklch(0.15 0.03 85);
+  --color-error: oklch(0.64 0.21 30);
+  --color-error-content: oklch(0.99 0.01 30);
 
-  --scrollbar-thumb: oklch(0.930 0.008 30 / 0.16);
-  --scrollbar-thumb-hover: oklch(0.930 0.008 30 / 0.28);
+  --radius-selector: 5px;
+  --radius-field: 8px;
+  --radius-box: 12px;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+
+  /* The extra tier; see the light theme. In dark mode the hover surface and
+   * the raised popover both sit *above* the page (L 0.228 / 0.238), which is
+   * why they cannot be folded into `base-300` (L 0.112, recessed). */
+  --ordo-elevated: oklch(0.238 0.010 25);
+  --ordo-surface-hover: oklch(0.228 0.010 25);
+  --ordo-muted-foreground: oklch(0.705 0.010 30);
+  --ordo-subtle-foreground: oklch(0.565 0.010 30);
+  --ordo-border: oklch(0.272 0.010 25);
+  --ordo-border-strong: oklch(0.350 0.012 25);
+  --ordo-ring: oklch(0.78 0.15 162);
+  --ordo-overlay: oklch(0.112 0.010 25 / 0.6);
+  --ordo-primary-hover: oklch(0.79 0.145 162);
+  --ordo-error-solid: oklch(0.52 0.21 30);
+  --ordo-error-solid-content: oklch(0.99 0.01 30);
+  --ordo-scrollbar-thumb: oklch(0.930 0.008 30 / 0.16);
+  --ordo-scrollbar-thumb-hover: oklch(0.930 0.008 30 / 0.28);
 
   /* Dark surfaces read as raised through a top inner highlight, not through
    * a coloured shadow — black-on-black has nothing left to darken. */
-  --elevation-1: 0 1px 2px oklch(0 0 0 / 0.4);
-  --elevation-2:
+  --ordo-elevation-1: 0 1px 2px oklch(0 0 0 / 0.4);
+  --ordo-elevation-2:
     0 1px 2px oklch(0 0 0 / 0.45), inset 0 1px 0 oklch(1 0 0 / 0.04);
-  --elevation-3:
+  --ordo-elevation-3:
     0 4px 10px -2px oklch(0 0 0 / 0.5), 0 24px 48px -16px oklch(0 0 0 / 0.6),
     inset 0 1px 0 oklch(1 0 0 / 0.06);
 }
 
-/* Expose the palette as utilities: bg-background, text-muted-foreground,
- * border-border, ring-ring, bg-sunken, ... */
+/* Expose the extra tier as utilities: bg-elevated, text-muted-foreground,
+ * border-border, ring-ring, bg-overlay, bg-primary-hover, bg-error-solid, …
+ * daisyUI already registers `bg-base-200`, `text-error`, `rounded-field` and
+ * the rest of its own vocabulary from the theme blocks above. */
 @theme inline {
-  --color-background: var(--background);
-  --color-sunken: var(--sunken);
-  --color-surface: var(--surface);
-  --color-surface-hover: var(--surface-hover);
-  --color-elevated: var(--elevated);
-  --color-foreground: var(--foreground);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-subtle-foreground: var(--subtle-foreground);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-overlay: var(--overlay);
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-ring: var(--ring);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-danger: var(--danger);
-  --color-danger-solid: var(--danger-solid);
-  --color-danger-foreground: var(--danger-foreground);
+  --color-elevated: var(--ordo-elevated);
+  --color-surface-hover: var(--ordo-surface-hover);
+  --color-muted-foreground: var(--ordo-muted-foreground);
+  --color-subtle-foreground: var(--ordo-subtle-foreground);
+  --color-border: var(--ordo-border);
+  --color-border-strong: var(--ordo-border-strong);
+  --color-ring: var(--ordo-ring);
+  --color-overlay: var(--ordo-overlay);
+  --color-primary-hover: var(--ordo-primary-hover);
+  --color-error-solid: var(--ordo-error-solid);
+  --color-error-solid-content: var(--ordo-error-solid-content);
 
-  --shadow-sm: var(--elevation-1);
-  --shadow-md: var(--elevation-2);
-  --shadow-lg: var(--elevation-3);
+  --shadow-sm: var(--ordo-elevation-1);
+  --shadow-md: var(--ordo-elevation-2);
+  --shadow-lg: var(--ordo-elevation-3);
 }
 
 /* Static tokens (they do not vary between themes). */
@@ -180,6 +245,8 @@
    * Deliberately not a bundled webfont: this app ships as a ~15 MB offline
    * desktop bundle where the text is ~95% Chinese, so a Latin display face
    * would cost weight and bytes to style the wordmark and the numerals only.
+   * daisyUI prescribes no font either, and its type scale is Tailwind's — the
+   * scale below is the app's and stays the app's.
    */
   --font-sans:
     system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto,
@@ -196,6 +263,10 @@
    *   md (8)  buttons, inputs, nav rows, list rows, small cards
    *   lg (12) panels, board columns, popovers, menus
    *   xl (16) dialogs and other full-surface overlays
+   *
+   * daisyUI controls its own components through `--radius-selector/field/box`
+   * in the themes above; the two scales agree (5/8/12) so a `btn` and a
+   * `rounded-md` row read as the same family.
    */
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -234,17 +305,11 @@
 }
 
 @layer base {
-  html {
-    color-scheme: light;
-  }
-
-  html.dark {
-    color-scheme: dark;
-  }
-
+  /* `color-scheme` comes from the daisyUI theme (`color-scheme:` above) and
+   * from the pre-mount script; nothing to declare here. */
   body {
-    background-color: var(--background);
-    color: var(--foreground);
+    background-color: var(--color-base-100);
+    color: var(--color-base-content);
     font-family: var(--font-sans);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -270,8 +335,8 @@
   }
 
   ::selection {
-    background-color: var(--primary);
-    color: var(--primary-foreground);
+    background-color: var(--color-primary);
+    color: var(--color-primary-content);
   }
 
   /*
@@ -279,10 +344,14 @@
    * rules are what actually paint; the standard properties cover the rest.
    * The transparent border + `background-clip` trick insets the thumb so it
    * reads as a floating pill rather than a full-height gutter bar.
+   *
+   * `:root` is named explicitly because daisyUI's own base style sets
+   * `scrollbar-color` on the root element.
    */
+  :root,
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-color: var(--ordo-scrollbar-thumb) transparent;
   }
 
   ::-webkit-scrollbar {
@@ -296,21 +365,22 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--scrollbar-thumb);
+    background-color: var(--ordo-scrollbar-thumb);
     background-clip: content-box;
     border: 3px solid transparent;
     border-radius: 999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--scrollbar-thumb-hover);
+    background-color: var(--ordo-scrollbar-thumb-hover);
   }
 
   /*
    * Belt and braces for ADR 5's reduced-motion rule: this is the single place
    * that neutralizes motion, and it reaches the keyframe animations below as
-   * well as every transition in the app, so components never write
-   * `motion-reduce:*` utilities of their own.
+   * well as every transition in the app — including the ones daisyUI ships on
+   * its own components — so components never write `motion-reduce:*` utilities
+   * of their own.
    */
   @media (prefers-reduced-motion: reduce) {
     *,
@@ -408,34 +478,10 @@
 }
 
 /*
- * Shimmer for skeleton loaders. A band is swept across the block by animating
- * the independent `translate` property on a fixed gradient, so the whole thing
- * stays on the compositor: it needs no extra DOM of its own (`::after`), and a
- * frame costs a transform rather than a repaint of the element.
+ * The skeleton shimmer is daisyUI's now (`skeleton`): it paints `base-300` and
+ * sweeps a gradient across the block. The hand-rolled version it replaces
+ * collided with daisyUI's class name, which is how this got noticed.
  */
-@keyframes ordo-shimmer {
-  from {
-    translate: -100% 0;
-  }
-
-  to {
-    translate: 100% 0;
-  }
-}
-
-@utility skeleton {
-  position: relative;
-  overflow: hidden;
-  background-color: var(--surface-hover);
-
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: linear-gradient(90deg, transparent, var(--border), transparent);
-    animation: ordo-shimmer 1.6s ease-in-out infinite;
-  }
-}
 
 /*
  * Dialog scrim blur.
@@ -455,14 +501,16 @@
  * The one focus indicator. An `outline` rather than a `ring`: it follows the
  * element's own border-radius and needs no `ring-offset`, which paints a gap
  * in the *page* background colour and so looks broken on any surface that is
- * not `bg-background` (the sidebar, a card, a menu).
+ * not `bg-base-100` (the sidebar, a card, a menu).
  *
- * Applied as `focus-ring` on every focusable element in the app, which is why
- * there is no repeated `focus-visible:ring-2 ...` string left anywhere.
+ * Applied as `focus-ring` on every focusable element the app styles itself.
+ * daisyUI's own components (`btn`, `input`, `tab`) draw a focus-visible
+ * outline at the same geometry out of currentColor; this utility is stated on
+ * them too so the ring stays the app's green rather than the label colour.
  */
 @utility focus-ring {
   &:focus-visible {
-    outline: 2px solid var(--ring);
+    outline: 2px solid var(--ordo-ring);
     outline-offset: 2px;
   }
 }
@@ -479,7 +527,7 @@
  */
 @utility child-indent {
   margin-left: 20px;
-  border-left: 1px solid var(--color-border-strong);
+  border-left: 1px solid var(--ordo-border-strong);
   padding-left: 9px;
 }
 

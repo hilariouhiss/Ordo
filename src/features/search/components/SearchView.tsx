@@ -32,7 +32,7 @@ function HitRow(props: { hit: SearchHit; onOpen: (hit: SearchHit) => void }) {
           )}
         </span>
         <span class="min-w-0 flex-1">
-          <span class="block truncate text-sm font-medium text-foreground">
+          <span class="block truncate text-sm font-medium text-base-content">
             {props.hit.taskTitle}
           </span>
           <span class="mt-0.5 block truncate text-xs text-muted-foreground">
@@ -139,7 +139,7 @@ export function SearchView() {
       >
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-2">
           <Show when={loadFailed()}>
-            <div class="mb-2 flex items-center justify-between gap-3 rounded-lg bg-danger/12 px-3 py-2 text-danger">
+            <div class="mb-2 flex items-center justify-between gap-3 rounded-lg bg-error/12 px-3 py-2 text-error">
               <span>任务数据加载失败，点开的结果可能无法显示详情。</span>
               <Button
                 variant="destructive-ghost"

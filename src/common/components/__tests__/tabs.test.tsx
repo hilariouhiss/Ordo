@@ -14,7 +14,6 @@ describe("Tabs", () => {
         <Tabs.List>
           <Tabs.Trigger value="list">列表</Tabs.Trigger>
           <Tabs.Trigger value="board">看板</Tabs.Trigger>
-          <Tabs.Indicator />
         </Tabs.List>
         <Tabs.Content value="list">列表内容</Tabs.Content>
         <Tabs.Content value="board">看板内容</Tabs.Content>

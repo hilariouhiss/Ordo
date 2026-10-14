@@ -33,7 +33,7 @@ export function EmptyState(props: EmptyStateProps) {
         </span>
       </Show>
       <div class="flex flex-col gap-1">
-        <h2 class="text-sm font-semibold text-foreground">{props.title}</h2>
+        <h2 class="text-sm font-semibold text-base-content">{props.title}</h2>
         <Show when={props.description}>
           <p class="max-w-[40ch] text-sm text-muted-foreground">{props.description}</p>
         </Show>

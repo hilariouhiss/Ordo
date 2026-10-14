@@ -41,7 +41,7 @@ export function NamespaceDetailView() {
           role="alert"
           class="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-center"
         >
-          <h2 class="text-base font-semibold text-foreground">加载失败</h2>
+          <h2 class="text-base font-semibold text-base-content">加载失败</h2>
           <p class="text-sm text-muted-foreground">命名空间数据加载失败，请重试。</p>
           <Button variant="secondary" size="sm" onClick={() => void retry()}>
             重试

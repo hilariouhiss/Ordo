@@ -22,10 +22,14 @@ function Control(props: ComponentProps<typeof KCheckbox.Control>) {
   // The real `<input>` is visually hidden but still the focused element, so the
   // indicator has to be drawn through `peer-focus-visible` — the `focus-ring`
   // utility can't reach it. Same outline recipe, applied to the peer instead.
+  //
+  // The box keeps this structure (Kobalte owns the semantics) and pulls the
+  // theme's selector radius and colours: surface fill, strong border, primary
+  // when checked.
   return (
     <KCheckbox.Control
       {...rest}
-      class={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border-strong bg-surface text-primary-foreground transition duration-150 ease-out hover:border-primary active:scale-90 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring data-[checked]:border-primary data-[checked]:bg-primary data-[checked]:hover:bg-primary-hover data-[indeterminate]:border-primary data-[indeterminate]:bg-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-40 ${local.class ?? ""}`}
+      class={`flex size-4 shrink-0 items-center justify-center rounded-selector border border-border-strong bg-base-200 text-primary-content transition duration-150 ease-out hover:border-primary active:scale-90 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring data-[checked]:border-primary data-[checked]:bg-primary data-[checked]:hover:bg-primary-hover data-[indeterminate]:border-primary data-[indeterminate]:bg-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-40 ${local.class ?? ""}`}
     />
   );
 }
@@ -47,7 +51,7 @@ function Label(props: ComponentProps<typeof KCheckbox.Label>) {
   return (
     <KCheckbox.Label
       {...rest}
-      class={`select-none text-sm text-foreground ${local.class ?? ""}`}
+      class={`select-none text-sm text-base-content ${local.class ?? ""}`}
     />
   );
 }
@@ -67,7 +71,7 @@ function ErrorMessage(props: ComponentProps<typeof KCheckbox.ErrorMessage>) {
   return (
     <KCheckbox.ErrorMessage
       {...rest}
-      class={`text-xs font-medium text-danger ${local.class ?? ""}`}
+      class={`text-xs font-medium text-error ${local.class ?? ""}`}
     />
   );
 }

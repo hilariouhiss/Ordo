@@ -18,7 +18,7 @@ import type { TimeEntry } from "../types";
  * with the buttons and select triggers beside it.
  */
 const INPUT_CLASS =
-  "h-8 rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring";
+  "h-8 rounded-md border border-border bg-base-200 px-2.5 text-sm text-base-content transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong focus-ring";
 
 export interface TimeTrackerProps {
   taskId: string;
@@ -119,7 +119,7 @@ export function TimeTracker(props: TimeTrackerProps) {
   return (
     <section aria-label="时间记录">
       <div class="flex items-baseline justify-between">
-        <h3 class="text-sm font-medium text-foreground">时间记录</h3>
+        <h3 class="text-sm font-medium text-base-content">时间记录</h3>
         <span class="text-xs text-subtle-foreground">共 {formatDuration(total())}</span>
       </div>
 
@@ -166,7 +166,7 @@ export function TimeTracker(props: TimeTrackerProps) {
         </Button>
       </div>
       <Show when={error()}>
-        <p role="alert" class="mt-1 text-xs text-danger">
+        <p role="alert" class="mt-1 text-xs text-error">
           {error()}
         </p>
       </Show>
@@ -188,7 +188,7 @@ export function TimeTracker(props: TimeTrackerProps) {
               <Show
                 when={editingId() === entry.id}
                 fallback={
-                  <span class="flex-1 text-sm text-foreground">
+                  <span class="flex-1 text-sm text-base-content">
                     <Show
                       when={entry.endedAt === null}
                       fallback={formatDuration(entry.duration)}

@@ -18,7 +18,7 @@ const GROUP_OPTIONS: readonly { value: TimeGroupBy; label: string }[] = [
 
 /* Borderless on purpose: the panels sit on the page background, so the tinted
  * shadow separates them and a border would only draw a second, harder edge. */
-const PANEL_CLASS = "rounded-xl bg-surface p-5 shadow-sm";
+const PANEL_CLASS = "rounded-xl bg-base-200 p-5 shadow-sm";
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
@@ -144,7 +144,7 @@ export function StatsView() {
             <div class="flex flex-col gap-5">
               <section aria-label="完成趋势" class={PANEL_CLASS}>
                 <div class="flex items-baseline justify-between gap-3">
-                  <h2 class="text-sm font-semibold tracking-tight text-foreground">完成趋势</h2>
+                  <h2 class="text-sm font-semibold tracking-tight text-base-content">完成趋势</h2>
                   <span class="text-xs text-subtle-foreground">共 {completed()} 个完成</span>
                 </div>
                 <LineChart
@@ -157,14 +157,14 @@ export function StatsView() {
               </section>
 
               <section aria-label="日历热力图" class={PANEL_CLASS}>
-                <h2 class="pb-3 text-sm font-semibold tracking-tight text-foreground">
+                <h2 class="pb-3 text-sm font-semibold tracking-tight text-base-content">
                   日历热力图
                 </h2>
                 <CalendarHeatmap days={stats.days()} values={stats.daily()} />
               </section>
 
               <section aria-label="项目进度" class={PANEL_CLASS}>
-                <h2 class="pb-3 text-sm font-semibold tracking-tight text-foreground">
+                <h2 class="pb-3 text-sm font-semibold tracking-tight text-base-content">
                   项目进度对比
                 </h2>
                 <BarList
@@ -177,7 +177,7 @@ export function StatsView() {
 
               <section aria-label="时间分布" class={PANEL_CLASS}>
                 <div class="flex items-center justify-between gap-3 pb-3">
-                  <h2 class="text-sm font-semibold tracking-tight text-foreground">
+                  <h2 class="text-sm font-semibold tracking-tight text-base-content">
                     时间分布
                     <span class="pl-2 text-xs font-normal text-subtle-foreground">
                       共 {formatDuration(trackedTotal())}

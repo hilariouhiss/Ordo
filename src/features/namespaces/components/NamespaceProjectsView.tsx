@@ -79,7 +79,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
 
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
-              <h1 class="truncate text-lg font-semibold tracking-tight text-foreground">
+              <h1 class="truncate text-lg font-semibold tracking-tight text-base-content">
                 {namespace().name}
               </h1>
               <Show when={namespace().status === "archived"}>
@@ -162,7 +162,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
           <ul class="flex flex-col gap-2">
             <For each={projects()}>
               {(project) => (
-                <li class="flex items-start gap-3 rounded-lg border border-border bg-surface px-3.5 py-3">
+                <li class="flex items-start gap-3 rounded-lg border border-border bg-base-200 px-3.5 py-3">
                   <span
                     class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md"
                     style={{
@@ -179,7 +179,7 @@ export function NamespaceProjectsView(props: { namespace: Namespace }) {
                     <Link
                       to="/projects/$projectId"
                       params={{ projectId: project.id }}
-                      class="rounded-sm text-sm font-medium text-foreground transition-colors hover:text-primary focus-ring"
+                      class="rounded-sm text-sm font-medium text-base-content transition-colors hover:text-primary focus-ring"
                     >
                       {project.name}
                     </Link>

@@ -14,7 +14,7 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
     <div
       role="group"
       aria-label={props.label}
-      class="inline-flex gap-0.5 rounded-lg bg-sunken p-0.5"
+      class="inline-flex gap-0.5 rounded-lg bg-base-300 p-0.5"
     >
       <For each={props.options}>
         {(option) => (
@@ -23,8 +23,8 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
             aria-pressed={props.value === option.value}
             class={`rounded-md px-2.5 py-1 text-xs transition duration-150 ease-out focus-ring ${
               props.value === option.value
-                ? "bg-surface font-medium text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-base-200 font-medium text-base-content shadow-sm"
+                : "text-muted-foreground hover:text-base-content"
             }`}
             onClick={() => props.onChange(option.value)}
           >

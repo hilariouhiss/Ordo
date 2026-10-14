@@ -8,20 +8,33 @@ function Root(props: ComponentProps<typeof KTabs>) {
 
 function List(props: ComponentProps<typeof KTabs.List>) {
   const [local, rest] = splitProps(props, ["class"]);
+  // `tabs-border` gives every tab its own underline rail (`base-300`) that the
+  // selected tab repaints — see `Trigger` for the green override.
+  //
+  // `--tab-height` is daisyUI's own knob for the tab box, so overriding the
+  // variable keeps the control at the app's 36px row height. Stating `h-9`
+  // instead would silently lose: daisyUI styles tabs through
+  // `.tab:is(.tabs > .tab)`, a descendant selector that out-ranks a plain
+  // utility.
   return (
     <KTabs.List
       {...rest}
-      class={`relative flex shrink-0 gap-1 border-b border-border ${local.class ?? ""}`}
+      class={`tabs tabs-border [--tab-height:2.25rem] shrink-0 gap-1 ${local.class ?? ""}`}
     />
   );
 }
 
 function Trigger(props: ComponentProps<typeof KTabs.Trigger>) {
   const [local, rest] = splitProps(props, ["class"]);
+  // The label size, label colour and focus ring are daisyUI's (its rules out-
+  // rank plain utilities here; see `List`). The one thing stated with the
+  // important marker is the bar under the selected tab: daisyUI paints it
+  // `currentColor` — the label colour — and the app's selected-tab mark has
+  // always been the brand accent rather than the text.
   return (
     <KTabs.Trigger
       {...rest}
-      class={`-mb-px select-none px-3 py-2 text-sm font-medium text-muted-foreground transition duration-150 ease-out hover:text-foreground data-[selected]:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-ring ${local.class ?? ""}`}
+      class={`tab select-none data-[selected]:before:bg-primary! focus-ring disabled:cursor-not-allowed disabled:opacity-50 ${local.class ?? ""}`}
     />
   );
 }
@@ -37,21 +50,10 @@ function Content(props: ComponentProps<typeof KTabs.Content>) {
   // whose content is all static text is Tab-reachable, and used to be reachable
   // with no focus indicator at all.
   return (
-    <KTabs.Content {...rest} class={`outline-none focus-ring ${local.class ?? ""}`} />
+    <KTabs.Content {...rest} class={`tab-content outline-none focus-ring ${local.class ?? ""}`} />
   );
 }
 
-function Indicator(props: ComponentProps<typeof KTabs.Indicator>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  // 2px rather than 1px: at this scale a hairline underline reads as a border
-  // rather than as the selected-state marker. The transition is on `transform`
-  // so the slide between tabs stays on the compositor.
-  return (
-    <KTabs.Indicator
-      {...rest}
-      class={`absolute bottom-0 left-0 h-0.5 rounded-full bg-primary transition-transform duration-200 ease-out ${local.class ?? ""}`}
-    />
-  );
-}
-
-export const Tabs = { Root, List, Trigger, Content, Indicator };
+// The hand-rolled sliding indicator is gone: daisyUI's `tabs-border` draws the
+// underline itself, per tab, so there is one mechanism instead of two.
+export const Tabs = { Root, List, Trigger, Content };

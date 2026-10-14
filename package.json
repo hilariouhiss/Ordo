@@ -35,6 +35,7 @@
     "@solidjs/testing-library": "^0.8.10",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
+    "daisyui": "^5.7.48",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",

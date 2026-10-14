@@ -19,7 +19,7 @@ function Content(props: ComponentProps<typeof KDropdownMenu.Content>) {
   return (
     <KDropdownMenu.Content
       {...rest}
-      class={`animate-surface-in z-50 min-w-40 rounded-lg bg-elevated p-1 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in z-50 min-w-40 rounded-box bg-elevated p-1 text-base-content shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }

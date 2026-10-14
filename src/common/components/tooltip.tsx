@@ -18,10 +18,12 @@ function Portal(props: ComponentProps<typeof KTooltip.Portal>) {
 
 function Content(props: ComponentProps<typeof KTooltip.Content>) {
   const [local, rest] = splitProps(props, ["class"]);
+  // Kobalte owns the behaviour (and the arrow), so this keeps the app's shape
+  // and takes only the theme's colours.
   return (
     <KTooltip.Content
       {...rest}
-      class={`z-50 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-foreground shadow-md ${local.class ?? ""}`}
+      class={`z-50 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-base-content shadow-md ${local.class ?? ""}`}
     />
   );
 }

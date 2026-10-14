@@ -49,7 +49,7 @@ export function ThemeToggle(props: ThemeToggleProps = {}) {
       type="button"
       class={`flex items-center transition duration-150 ease-out active:scale-[0.97] focus-ring ${
         props.class ??
-        "size-8 justify-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+        "size-8 justify-center rounded-field border border-border bg-base-200 text-muted-foreground hover:bg-surface-hover hover:text-base-content"
       }`}
       aria-label={`当前主题：${LABELS[themePreference()]}，点击切换`}
       title={`主题：${LABELS[themePreference()]}（点击切换）`}

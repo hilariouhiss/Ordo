@@ -3,11 +3,14 @@ import { splitProps, type ComponentProps } from "solid-js";
 
 /*
  * One field recipe shared by `<input>`, `<textarea>` and the date/number
- * variants. `h-8` matches the buttons and select triggers it sits beside, so
- * a toolbar of mixed controls lines up on one optical baseline.
+ * variants. `input-sm` is exactly `h-8` (daisyUI sizes a field as
+ * `--size-field * 8`), which matches the buttons and select triggers it sits
+ * beside, so a toolbar of mixed controls lines up on one optical baseline.
+ * The border, fill and inset are overridden back to the app's pair
+ * (`border-border` / `bg-base-200`, 10px) so the field keeps its look.
  */
 const FIELD_CLASS =
-  "h-8 w-full rounded-md border border-border bg-surface px-2.5 text-sm text-foreground transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50 data-[invalid]:border-danger data-[invalid]:hover:border-danger focus-ring";
+  "input input-sm w-full border-border bg-base-200 px-2.5 text-sm text-base-content transition duration-150 ease-out placeholder:text-subtle-foreground hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50 data-[invalid]:border-error data-[invalid]:hover:border-error focus-ring";
 
 function Root(props: ComponentProps<typeof KTextField>) {
   const [local, rest] = splitProps(props, ["class"]);
@@ -54,7 +57,7 @@ function ErrorMessage(props: ComponentProps<typeof KTextField.ErrorMessage>) {
   return (
     <KTextField.ErrorMessage
       {...rest}
-      class={`text-xs font-medium text-danger ${local.class ?? ""}`}
+      class={`text-xs font-medium text-error ${local.class ?? ""}`}
     />
   );
 }

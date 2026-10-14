@@ -129,7 +129,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       >
         <button
           type="button"
-          class="flex size-5 shrink-0 items-center justify-center rounded text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground focus-ring"
+          class="flex size-5 shrink-0 items-center justify-center rounded text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-base-content focus-ring"
           aria-expanded={props.expanded}
           aria-label={`${props.expanded ? "收起" : "展开"} ${props.task.title} 的子任务`}
           onClick={() => props.onToggleExpand(props.task)}
@@ -159,7 +159,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
       <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
         <button
           type="button"
-          class="min-w-0 truncate rounded-sm text-left text-sm text-foreground transition-colors hover:text-primary focus-ring"
+          class="min-w-0 truncate rounded-sm text-left text-sm text-base-content transition-colors hover:text-primary focus-ring"
           title={props.task.title}
           onClick={() => props.onOpenDetail(props.task)}
         >
@@ -251,7 +251,7 @@ export function TaskItemRow(props: TaskItemRowProps) {
               编辑
             </DropdownMenu.Item>
             <DropdownMenu.Item
-              class="text-danger data-[highlighted]:bg-danger/10"
+              class="text-error data-[highlighted]:bg-error/10"
               onSelect={() => props.onDelete(props.task)}
             >
               <Trash2 size={14} aria-hidden="true" />

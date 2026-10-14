@@ -73,7 +73,7 @@ function Content(props: ComponentProps<typeof KDialog.Content>) {
         event.preventDefault();
         opener?.focus();
       }}
-      class={`animate-surface-in fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-elevated p-5 text-foreground shadow-lg outline-none ${local.class ?? ""}`}
+      class={`animate-surface-in fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-box bg-elevated p-5 text-base-content shadow-lg outline-none ${local.class ?? ""}`}
     />
   );
 }
@@ -83,7 +83,7 @@ function Title(props: ComponentProps<typeof KDialog.Title>) {
   return (
     <KDialog.Title
       {...rest}
-      class={`pr-8 text-base font-semibold text-foreground ${local.class ?? ""}`}
+      class={`pr-8 text-base font-semibold text-base-content ${local.class ?? ""}`}
     />
   );
 }
@@ -103,7 +103,7 @@ function CloseButton(props: ComponentProps<typeof KDialog.CloseButton>) {
   return (
     <KDialog.CloseButton
       {...rest}
-      class={`absolute right-2.5 top-2.5 inline-flex size-7 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-foreground active:scale-90 focus-ring ${local.class ?? ""}`}
+      class={`absolute right-2.5 top-2.5 inline-flex size-7 items-center justify-center rounded-md text-subtle-foreground transition duration-150 ease-out hover:bg-surface-hover hover:text-base-content active:scale-90 focus-ring ${local.class ?? ""}`}
     >
       <X size={15} aria-hidden="true" />
     </KDialog.CloseButton>

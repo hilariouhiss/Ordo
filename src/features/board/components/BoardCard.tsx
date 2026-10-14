@@ -72,7 +72,7 @@ export function BoardCard(props: BoardCardProps) {
         </Checkbox.Root>
         <button
           type="button"
-          class="min-w-0 flex-1 rounded-sm text-left text-sm text-foreground transition-colors hover:text-primary focus-ring"
+          class="min-w-0 flex-1 rounded-sm text-left text-sm text-base-content transition-colors hover:text-primary focus-ring"
           title={props.task.title}
           onClick={() => props.onOpenDetail(props.task)}
         >

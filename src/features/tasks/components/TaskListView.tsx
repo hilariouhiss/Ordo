@@ -73,7 +73,7 @@ const PRIORITY_FILTER_OPTIONS: Array<{ value: Priority | "all"; label: string }>
  * reading as one family is what stops the row looking assembled by accident.
  */
 const FILTER_CLASS =
-  "flex h-8 select-none items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:text-foreground focus-ring";
+  "flex h-8 select-none items-center gap-1.5 rounded-md border border-border bg-base-200 px-2.5 text-sm text-muted-foreground transition duration-150 ease-out hover:border-border-strong hover:text-base-content focus-ring";
 
 export interface TaskListViewProps {
   /** Page title. Omitted where a parent header already names the view (the

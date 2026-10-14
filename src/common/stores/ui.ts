@@ -134,11 +134,16 @@ export function toggleSidebar(): void {
 
 function applyResolvedTheme(theme: ResolvedTheme): void {
   if (typeof document === "undefined") return;
-  document.documentElement.classList.toggle("dark", theme === "dark");
+  // The theme lives in a data attribute rather than a class because daisyUI
+  // (ADR 21) keys its themes — and the app's palette inside them — off
+  // `[data-theme]`. The CSS `dark:` variant in `index.css` matches the same
+  // attribute, so there is one switch, not two.
+  document.documentElement.dataset.theme = theme === "dark" ? "ordo-dark" : "ordo-light";
   document.documentElement.style.colorScheme = theme;
   // The canvas colour the pre-bundle script in `index.html` sets is re-applied
   // here so a theme switch keeps both in step. Same two values, same reason it
-  // is a CSSOM write rather than a stylesheet rule (`index.html`).
+  // is a CSSOM write rather than a stylesheet rule (`index.html`); they are
+  // `--color-base-100` in the two daisyUI themes.
   document.documentElement.style.background = theme === "dark" ? "#0d0908" : "#f5f1ec";
 
   // Tell the native window too, or the title bar keeps whatever the system is
