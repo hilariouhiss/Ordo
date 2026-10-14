@@ -4,3 +4,6 @@ dist
 .superpowers/
 # 更新签名私钥（~/.tauri/ordo.key）：只在开发机与仓库 secret 两处，永远不该进版本库
 *.key
+
+.agents/
+skills-lock.json
