@@ -7,3 +7,5 @@ dist
 
 .agents/
 skills-lock.json
+auto-imports.d.ts
+components.d.ts
