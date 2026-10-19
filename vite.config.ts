@@ -1,6 +1,14 @@
+import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  plugins: [vue()],
+  clearScreen: false,
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: { ignored: ["**/src-tauri/**"] },
+  },
   staged: {
     "*": "vp check --fix",
   },
