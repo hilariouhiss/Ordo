@@ -4,8 +4,11 @@ import { ref } from "vue";
 
 const name = ref("Ordo");
 const greeting = ref("在桌面应用中点击按钮，经 Rust 返回问候。");
+const hasError = ref(false);
 
 async function greet() {
+  hasError.value = false;
+
   if (!isTauri()) {
     greeting.value = "浏览器预览：Tauri IPC 不可用。";
     return;
@@ -14,28 +17,32 @@ async function greet() {
   try {
     greeting.value = await invoke<string>("greet", { name: name.value });
   } catch (error) {
+    hasError.value = true;
     greeting.value = "IPC 调用失败：" + String(error);
   }
 }
 </script>
 
 <template>
-  <section id="center">
-    <h1>Ordo</h1>
-    <p>Tauri 2 + Vue 3.6</p>
-    <input v-model="name" aria-label="Name" />
-    <button type="button" class="counter" @click="greet">Greet from Rust</button>
-    <p>{{ greeting }}</p>
-  </section>
-</template>
+  <main class="flex min-h-screen items-center justify-center bg-base-200 p-4 sm:p-8">
+    <section class="card w-full max-w-md bg-base-100 shadow-xl">
+      <div class="card-body gap-4">
+        <h1 class="card-title text-2xl sm:text-3xl">Ordo</h1>
+        <p class="text-base-content/70">Tauri 2 + Vue 3.6 + daisyUI</p>
 
-<style scoped>
-input {
-  font: inherit;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg);
-  color: var(--text-h);
-}
-</style>
+        <label class="input w-full">
+          <span class="label">名称</span>
+          <input v-model="name" type="text" placeholder="Ordo" />
+        </label>
+
+        <div class="card-actions">
+          <button type="button" class="btn btn-block" @click="greet">Greet from Rust</button>
+        </div>
+
+        <div role="alert" class="alert" :class="hasError ? 'alert-error' : 'alert-info'">
+          <span>{{ greeting }}</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</template>

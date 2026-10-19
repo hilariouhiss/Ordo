@@ -16,8 +16,11 @@
     "vue": "3.6.0-rc.12"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
     "@tauri-apps/cli": "^2.12.3",
     "@vitejs/plugin-vue": "^6.0.10",
+    "daisyui": "5.7.50",
+    "tailwindcss": "4.3.3",
     "typescript": "~6.0.2",
     "vite": "catalog:",
     "vite-plus": "catalog:",
