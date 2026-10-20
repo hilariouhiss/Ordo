@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { X } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
@@ -85,7 +86,9 @@ async function remove(): Promise<void> {
     <div class="w-full max-w-[520px] rounded-2xl bg-base-100 p-5 shadow-2xl">
       <div class="flex items-center">
         <h2 class="text-[15px] font-semibold">项目设置</h2>
-        <button class="ml-auto text-base-content/30" @click="emit('close')">✕</button>
+        <button class="ml-auto text-base-content/30" aria-label="关闭" @click="emit('close')">
+          <X :size="15" aria-hidden="true" />
+        </button>
       </div>
 
       <p v-if="error" class="mt-2 text-[12px] text-error">{{ error }}</p>
@@ -120,9 +123,10 @@ async function remove(): Promise<void> {
             <button
               v-if="!appVM.state.people.find((p) => p.id === personId)?.isMe"
               class="text-base-content/30"
+              aria-label="移出项目"
               @click="removeMember(personId)"
             >
-              ✕
+              <X :size="12" aria-hidden="true" />
             </button>
           </span>
         </div>

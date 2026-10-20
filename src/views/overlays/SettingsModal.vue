@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowDown, ArrowUp, Trash, X } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
@@ -101,7 +102,9 @@ function onTagKey(event: KeyboardEvent): void {
     >
       <div class="flex items-center">
         <h2 class="text-[15px] font-semibold">设置</h2>
-        <button class="ml-auto text-base-content/30" @click="vm.close()">✕</button>
+        <button class="ml-auto text-base-content/30" aria-label="关闭" @click="vm.close()">
+          <X :size="15" aria-hidden="true" />
+        </button>
       </div>
 
       <div role="tablist" class="tabs tabs-border tabs-sm mt-3">
@@ -291,14 +294,26 @@ function onTagKey(event: KeyboardEvent): void {
                 >
                   改
                 </button>
-                <button class="text-base-content/30" @click="vm.moveCategory(category.id, -1)">
-                  ↑
+                <button
+                  class="text-base-content/30"
+                  aria-label="上移"
+                  @click="vm.moveCategory(category.id, -1)"
+                >
+                  <ArrowUp :size="13" aria-hidden="true" />
                 </button>
-                <button class="text-base-content/30" @click="vm.moveCategory(category.id, 1)">
-                  ↓
+                <button
+                  class="text-base-content/30"
+                  aria-label="下移"
+                  @click="vm.moveCategory(category.id, 1)"
+                >
+                  <ArrowDown :size="13" aria-hidden="true" />
                 </button>
-                <button class="text-base-content/30" @click="vm.removeCategory(category.id)">
-                  ✕
+                <button
+                  class="text-base-content/30"
+                  aria-label="删除分类"
+                  @click="vm.removeCategory(category.id)"
+                >
+                  <Trash :size="13" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -319,7 +334,13 @@ function onTagKey(event: KeyboardEvent): void {
                 class="badge badge-ghost badge-md gap-1.5"
               >
                 {{ tag.name }}
-                <button class="text-base-content/30" @click="vm.removeTag(tag.id)">✕</button>
+                <button
+                  class="text-base-content/30"
+                  aria-label="删除标签"
+                  @click="vm.removeTag(tag.id)"
+                >
+                  <Trash :size="12" aria-hidden="true" />
+                </button>
               </span>
             </div>
             <input

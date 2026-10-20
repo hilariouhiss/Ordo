@@ -178,6 +178,9 @@ importers:
 
   .:
     dependencies:
+      '@lucide/vue':
+        specifier: ^1.59.0
+        version: 1.59.0(vue@3.6.0-rc.12(typescript@6.0.3))
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
@@ -261,6 +264,11 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@lucide/vue@1.59.0':
+    resolution: {integrity: sha512-X7O3FCwECqmVV9h6l2dPxksuiJx9/gszRTj15aOKsxsfU4jr+p7vUVFILn7K38fG8wfSmsy8jPVS9muDdTt0MA==}
+    peerDependencies:
+      vue: '>=3.0.1'
 
   '@oxc-project/runtime@0.154.0':
     resolution: {integrity: sha512-cBQNGoh659BNgvA8OC/e4BNDtFkv03dJaYdkp2adgOQNtISNAPQ+nB4S8XvWtNk7Xl+0g+7aa+iRGR25Xycd1Q==}
@@ -1569,6 +1577,10 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@lucide/vue@1.59.0(vue@3.6.0-rc.12(typescript@6.0.3))':
+    dependencies:
+      vue: 3.6.0-rc.12(typescript@6.0.3)
 
   '@oxc-project/runtime@0.154.0': {}
 

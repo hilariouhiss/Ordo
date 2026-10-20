@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ChevronRight } from "@lucide/vue";
 import { computed } from "vue";
 import type { CategoryProgress } from "../../model/types";
 
@@ -24,7 +25,11 @@ const pct = computed(() =>
       <span class="w-8 text-right text-[11px] tabular-nums text-base-content/50">
         {{ category.done }}/{{ category.total }}
       </span>
-      <span class="text-[10px] text-base-content/35">{{ expanded ? "▾" : "▸" }}</span>
+      <ChevronRight
+        :size="12"
+        aria-hidden="true"
+        :class="['text-base-content/35 transition-transform', { 'rotate-90': expanded }]"
+      />
     </button>
     <slot v-if="expanded"></slot>
   </div>

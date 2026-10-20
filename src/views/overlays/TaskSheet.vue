@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { X } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
 import { isImeEnter } from "../../lib/keys";
@@ -135,7 +136,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
     <aside class="h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl">
       <div class="flex items-start gap-2">
         <h2 class="text-[17px] font-semibold leading-snug">{{ taskSheetVM.state.task?.title }}</h2>
-        <button class="ml-auto text-base-content/30" @click="taskSheetVM.close()">✕</button>
+        <button class="ml-auto text-base-content/30" aria-label="关闭" @click="taskSheetVM.close()">
+          <X :size="15" aria-hidden="true" />
+        </button>
       </div>
 
       <p v-if="taskSheetVM.state.error" class="mt-2 text-[12px] text-error">
@@ -188,10 +191,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               当前
             </span>
             <button
-              class="ml-auto text-[10px] text-base-content/25"
+              class="ml-auto text-base-content/25"
+              aria-label="删除这一步"
               @click="taskSheetVM.remove(s.id)"
             >
-              ✕
+              <X :size="13" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -269,7 +273,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span v-for="tag in form.tags" :key="tag" class="badge badge-ghost badge-sm gap-1.5">
               {{ tag }}
-              <button class="text-base-content/30" @click="removeTag(tag)">✕</button>
+              <button class="text-base-content/30" aria-label="移除标签" @click="removeTag(tag)">
+                <X :size="12" aria-hidden="true" />
+              </button>
             </span>
             <input
               v-model="tagDraft"

@@ -12,6 +12,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@lucide/vue": "^1.59.0",
     "@tauri-apps/api": "^2.12.4",
     "vue": "3.6.0-rc.12",
     "vue-router": "^4.6.4"

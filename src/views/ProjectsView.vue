@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Ellipsis } from "@lucide/vue";
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { shortDate } from "../lib/dates";
@@ -61,10 +62,11 @@ function onCreateKey(event: KeyboardEvent): void {
           {{ project.done }}/{{ project.total }}
         </span>
         <button
-          class="text-[12px] text-base-content/35"
+          class="text-base-content/35"
+          aria-label="项目设置"
           @click.stop="projectsVM.openSettings(project.id)"
         >
-          ⋯
+          <Ellipsis :size="14" aria-hidden="true" />
         </button>
       </li>
     </ul>

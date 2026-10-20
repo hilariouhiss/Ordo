@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Ellipsis } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { shortDate, todayIso } from "../lib/dates";
 import type { Task } from "../model/types";
@@ -85,7 +86,9 @@ function openTask(task: Task): void {
             时间轴
           </button>
         </div>
-        <button class="text-[13px] text-base-content/35" @click="settingsOpen = true">⋯</button>
+        <button class="text-base-content/35" aria-label="项目设置" @click="settingsOpen = true">
+          <Ellipsis :size="15" aria-hidden="true" />
+        </button>
       </div>
     </div>
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Settings } from "@lucide/vue";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { onMounted } from "vue";
@@ -56,10 +57,11 @@ onMounted(async () => {
       </nav>
       <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs ml-auto"></span>
       <button
-        class="ml-auto text-[13px] text-base-content/35 hover:text-base-content/60"
+        class="ml-auto text-base-content/35 hover:text-base-content/60"
+        aria-label="设置"
         @click="settingsVM.open()"
       >
-        ⚙
+        <Settings :size="16" aria-hidden="true" />
       </button>
     </header>
     <main class="mx-auto max-w-[980px] px-6 py-5">
