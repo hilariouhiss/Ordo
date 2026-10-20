@@ -5,10 +5,11 @@ import {
   deleteStep,
   getTask,
   setDue as setDueApi,
+  setTaskStatus,
   toggleStep,
   updateTask,
 } from "../model/ipc";
-import type { Task, TaskFields } from "../model/types";
+import type { Status, Task, TaskFields } from "../model/types";
 
 export function createTaskSheetVM() {
   const state = reactive({
@@ -59,12 +60,17 @@ export function createTaskSheetVM() {
     state.task = await addDelayNote(state.openId, reason.trim());
   }
 
+  async function setStatus(status: Status): Promise<void> {
+    if (!state.openId) return;
+    state.task = await setTaskStatus(state.openId, status);
+  }
+
   async function save(fields: TaskFields): Promise<void> {
     if (!state.openId) return;
     state.task = await updateTask(state.openId, fields);
   }
 
-  return { state, open, close, toggle, add, remove, save, setDue, addNote };
+  return { state, open, close, toggle, add, remove, save, setDue, addNote, setStatus };
 }
 
 export const taskSheetVM = createTaskSheetVM();

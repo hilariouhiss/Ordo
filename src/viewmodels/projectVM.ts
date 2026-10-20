@@ -40,6 +40,7 @@ export function createProjectVM() {
       startDate: task.startDate,
       dueDate: task.dueDate,
       note: task.note,
+      tags: task.tags.map((t) => t.name),
     });
     state.draft = "";
     await load(projectId);

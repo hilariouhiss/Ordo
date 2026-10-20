@@ -1,6 +1,13 @@
 <script setup lang="ts">
+import { isImeEnter } from "../../lib/keys";
+
 const model = defineModel<string>({ required: true });
 const emit = defineEmits<{ submit: [string] }>();
+
+function onSubmit(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  emit("submit", model.value);
+}
 </script>
 
 <template>
@@ -9,7 +16,7 @@ const emit = defineEmits<{ submit: [string] }>();
       v-model="model"
       class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
       placeholder="记一句…"
-      @keydown.enter="emit('submit', model)"
+      @keydown.enter="onSubmit"
     />
     <span class="shrink-0 text-[10.5px] text-base-content/35">⏎ 保存</span>
   </div>

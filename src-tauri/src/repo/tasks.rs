@@ -121,7 +121,11 @@ pub fn set_status(
     now: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE tasks SET status = ?1, in_week = CASE WHEN ?2 THEN 0 ELSE in_week END, updated_at = ?3 WHERE id = ?4",
+        "UPDATE tasks SET status = ?1,
+            in_week = CASE WHEN ?2 THEN 0 ELSE 1 END,
+            done_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
+            updated_at = ?3
+         WHERE id = ?4",
         params![status, leave_week as i64, now, id],
     )?;
     Ok(())
@@ -149,12 +153,30 @@ pub fn update_fields(
             id
         ],
     )?;
+
+    conn.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
+    for tag in &f.tags {
+        let name = tag.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let tag = crate::repo::tags::find_or_create(
+            conn,
+            &uuid::Uuid::new_v4().to_string(),
+            name,
+            now,
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?1, ?2)",
+            params![id, tag.id],
+        )?;
+    }
     Ok(())
 }
 pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks
-         WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
+         WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL AND archived_at IS NULL
          ORDER BY due_date IS NULL, due_date, created_at",
     )?;
     let ids: Vec<String> = stmt
@@ -172,7 +194,11 @@ pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 
 pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1, updated_at = ?1 WHERE id = ?2",
+        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1,
+              status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
+              done_at = CASE WHEN status = 'done' THEN NULL ELSE done_at END,
+              updated_at = ?1
+         WHERE id = ?2",
         params![now, id],
     )?;
     Ok(())
@@ -203,4 +229,11 @@ pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result
 
 pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
     list_where(conn, "canceled_at IS NOT NULL", query)
+}
+pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+    list_where(
+        conn,
+        "status = 'done' AND canceled_at IS NULL AND archived_at IS NULL",
+        query,
+    )
 }

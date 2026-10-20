@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { shortDate } from "../lib/dates";
+import { isImeEnter } from "../lib/keys";
 import { projectsVM } from "../viewmodels/projectsVM";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
@@ -20,6 +21,11 @@ async function create(): Promise<void> {
     dueDate.value = "";
   }
 }
+
+function onCreateKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void create();
+}
 </script>
 
 <template>
@@ -29,7 +35,7 @@ async function create(): Promise<void> {
         v-model="name"
         class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
         placeholder="新项目名…"
-        @keydown.enter="create"
+        @keydown.enter="onCreateKey"
       />
       <input v-model="dueDate" type="date" class="input input-xs rounded-lg border-base-300" />
       <button

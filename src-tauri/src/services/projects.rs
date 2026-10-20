@@ -91,6 +91,21 @@ mod tests {
     }
 
     #[test]
+    fn deleting_project_deletes_its_tasks() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", None, NOW).unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
+            .unwrap();
+
+        crate::repo::projects::delete(&c, &p.id).unwrap();
+        let left: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
     fn owner_candidates_respect_project_membership() {
         let c = db::open_in_memory().unwrap();
         let a = projects::create(&c, "项目 A", None, NOW).unwrap();

@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { nextTick, onMounted, onUnmounted, ref } from "vue";
+import { isImeEnter } from "../lib/keys";
 import { createCaptureVM } from "../viewmodels/captureVM";
 
 const vm = createCaptureVM();
@@ -23,6 +24,11 @@ async function openMain(): Promise<void> {
 async function submit(): Promise<void> {
   await vm.save(vm.state.draft, hide);
   vm.state.draft = "";
+}
+
+function onEnter(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void submit();
 }
 
 function onBlur(): void {
@@ -57,7 +63,7 @@ onUnmounted(() => {
         v-model="vm.state.draft"
         class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
         placeholder="记一句…"
-        @keydown.enter="submit"
+        @keydown.enter="onEnter"
         @keydown.esc="hide"
       />
       <span v-if="vm.state.saved" class="shrink-0 text-[11px] text-success">已记下</span>

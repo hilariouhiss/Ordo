@@ -8,13 +8,13 @@ import {
 } from "../model/ipc";
 import type { ArchiveData } from "../model/types";
 
-export type ArchiveTab = "projects" | "tasks" | "canceled";
+export type ArchiveTab = "projects" | "tasks" | "canceled" | "done";
 
 export function createArchiveVM() {
   const state = reactive({
     query: "",
     tab: "projects" as ArchiveTab,
-    data: { projects: [], tasks: [], canceled: [] } as ArchiveData,
+    data: { projects: [], tasks: [], canceled: [], done: [] } as ArchiveData,
     loading: false,
   });
 

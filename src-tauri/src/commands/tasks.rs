@@ -172,3 +172,15 @@ pub async fn mark_notifications_seen(state: State<'_, AppState>) -> Result<(), S
     })
     .await
 }
+#[tauri::command]
+pub async fn set_status(
+    state: State<'_, AppState>,
+    id: String,
+    status: String,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::tasks::set_status(conn, &id, &status, &now)
+    })
+    .await
+}

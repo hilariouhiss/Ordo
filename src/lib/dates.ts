@@ -11,7 +11,11 @@ export function shortDate(iso: string | null): string {
   return `${Number(m)}/${Number(d)}`;
 }
 export function addDays(iso: string, offset: number): string {
-  const date = new Date(iso + "T00:00:00");
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
   date.setDate(date.getDate() + offset);
-  return date.toISOString().slice(0, 10);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }

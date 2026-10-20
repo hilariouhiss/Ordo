@@ -6,4 +6,5 @@ pub mod shortcut;
 pub mod stats;
 pub mod status;
 pub mod steps;
+pub mod tasks;
 pub mod week;

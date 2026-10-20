@@ -22,6 +22,20 @@ describe("timelineLayout", () => {
     expect(row.leftPct).toBe(0);
   });
 
+  it("extends a start-only bar to the window end", () => {
+    const row = timelineLayout(range, [t("t4", "2026-10-20", null)])[0];
+    expect(row.dashedEnd).toBe(true);
+    expect(row.widthPct).toBeCloseTo(66.67, 1);
+  });
+
+  it("clips a bar that starts before the window", () => {
+    const row = timelineLayout({ start: "2026-09-29", end: "2026-11-09" }, [
+      t("t5", "2026-09-01", "2026-10-10"),
+    ])[0];
+    expect(row.leftPct).toBe(0);
+    expect(row.widthPct).toBeCloseTo(26.83, 1);
+  });
+
   it("skips tasks without any date", () => {
     expect(timelineLayout(range, [t("t3", null, null)])).toEqual([]);
   });

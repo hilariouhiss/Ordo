@@ -8,7 +8,7 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
     let (total, done): (i64, i64) = conn
         .query_row(
             "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
-             WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL",
+             WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL AND archived_at IS NULL",
             [project_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -19,6 +19,7 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
             "SELECT c.id, c.name, COUNT(t.id), COALESCE(SUM(t.status = 'done'), 0)
              FROM tasks t JOIN categories c ON c.id = t.category_id
              WHERE t.project_id = ?1 AND t.deleted_at IS NULL AND t.canceled_at IS NULL
+               AND t.archived_at IS NULL AND c.deleted_at IS NULL
              GROUP BY c.id, c.name, c.sort_order
              ORDER BY c.sort_order",
         )

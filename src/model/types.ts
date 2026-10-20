@@ -19,6 +19,7 @@ export interface Tag {
 }
 
 export interface Settings {
+  shortcutWarning?: string | null;
   aiEnabled: boolean;
   aiBaseUrl: string;
   aiModel: string;
@@ -123,11 +124,13 @@ export interface TaskFields {
   startDate: string | null;
   dueDate: string | null;
   note: string | null;
+  tags: string[];
 }
 export interface ArchiveData {
   projects: Project[];
   tasks: Task[];
   canceled: Task[];
+  done: Task[];
 }
 export interface ShortcutOutcome {
   active: string;

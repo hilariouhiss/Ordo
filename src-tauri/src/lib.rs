@@ -152,7 +152,8 @@ pub fn run() {
       commands::ai::clear_ai_key,
       commands::ai::ai_test,
       commands::ai::ai_enrich,
-      commands::tasks::mark_notifications_seen
+      commands::tasks::mark_notifications_seen,
+      commands::tasks::set_status
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -170,10 +171,32 @@ pub fn run() {
           app.autolaunch().disable()
       };
       let _ = crate::services::export::backup_today(&conn, &data_dir.join("backups"));
+      let keep_days = crate::repo::settings::get(&conn, "backup_keep_days")
+          .ok()
+          .flatten()
+          .and_then(|v| v.parse().ok())
+          .unwrap_or(30);
+      let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+      let _ = crate::services::export::prune(&data_dir.join("backups"), keep_days, &today);
       let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
           .ok()
           .flatten()
           .unwrap_or_else(|| "Ctrl+Alt+O".into());
+      if let Ok(shortcut) = shortcut_setting.parse() {
+          match register_shortcut(app.handle(), shortcut) {
+              Ok(()) => {
+                  let _ = crate::repo::settings::set(&conn, "shortcut_warning", "");
+              }
+              Err(e) => {
+                  let _ = crate::repo::settings::set(
+                      &conn,
+                      "shortcut_warning",
+                      &format!("快捷键没生效：{e}"),
+                  );
+              }
+          }
+      }
+
       app.manage(crate::state::AppState::new(conn));
 
       let _capture = tauri::WebviewWindowBuilder::new(
@@ -189,10 +212,6 @@ pub fn run() {
         .resizable(false)
         .visible(false)
         .build()?;
-
-      if let Ok(shortcut) = shortcut_setting.parse() {
-          let _ = register_shortcut(app.handle(), shortcut);
-      }
 
       build_tray(app)?;
       crate::reminders::start(app.handle().clone());

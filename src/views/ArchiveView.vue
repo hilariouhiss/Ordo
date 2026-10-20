@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import { shortDate } from "../lib/dates";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
 
 onMounted(() => {
   void vm.load();
 });
+
+const currentList = computed(() =>
+  vm.state.tab === "tasks"
+    ? vm.state.data.tasks
+    : vm.state.tab === "done"
+      ? vm.state.data.done
+      : vm.state.data.canceled,
+);
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 function onSearch(): void {
@@ -63,6 +71,14 @@ function removeProject(id: string, name: string): void {
       >
         已取消 {{ vm.state.data.canceled.length }}
       </button>
+      <button
+        role="tab"
+        class="tab"
+        :class="{ 'tab-active': vm.state.tab === 'done' }"
+        @click="vm.state.tab = 'done'"
+      >
+        已完成 {{ vm.state.data.done.length }}
+      </button>
     </div>
 
     <div v-if="vm.state.tab === 'projects'" class="space-y-1.5">
@@ -95,7 +111,7 @@ function removeProject(id: string, name: string): void {
 
     <div v-else class="space-y-1.5">
       <div
-        v-for="task in vm.state.tab === 'tasks' ? vm.state.data.tasks : vm.state.data.canceled"
+        v-for="task in currentList"
         :key="task.id"
         class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
       >
@@ -114,10 +130,7 @@ function removeProject(id: string, name: string): void {
           删除
         </button>
       </div>
-      <p
-        v-if="!(vm.state.tab === 'tasks' ? vm.state.data.tasks : vm.state.data.canceled).length"
-        class="px-1 text-[12px] text-base-content/40"
-      >
+      <p v-if="!currentList.length" class="px-1 text-[12px] text-base-content/40">
         这里还没有东西。
       </p>
     </div>

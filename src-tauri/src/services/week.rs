@@ -96,17 +96,21 @@ pub fn mark_pass_done(conn: &Connection, today: &str) -> Result<(), String> {
 pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
     let start = week_start(today);
     let count = |sql: &str| -> Result<i64, String> {
-        conn.query_row(sql, [&start], |r| r.get(0))
+        conn.query_row(sql, rusqlite::params![&start, today], |r| r.get(0))
             .map_err(|e| e.to_string())
     };
     Ok(WeekStatsDto {
         added: count(
-            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND substr(created_at,1,10) >= ?1",
+            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL
+             AND date(created_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
         done: count(
-            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done' AND substr(updated_at,1,10) >= ?1",
+            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done' AND done_at IS NOT NULL
+             AND date(done_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
-        delayed: count("SELECT COUNT(*) FROM delays WHERE substr(created_at,1,10) >= ?1")?,
+        delayed: count(
+            "SELECT COUNT(*) FROM delays WHERE date(created_at,'localtime') BETWEEN ?1 AND ?2",
+        )?,
     })
 }
 
@@ -266,6 +270,28 @@ mod tests {
         assert!(t.in_week);
         assert!(t.suspended_until.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn stats_count_monday_after_midnight_in_local_time() {
+        let c = db::open_in_memory().unwrap();
+        // 2026-10-19 is Monday; 00:30 +08 = 2026-10-18T16:30Z
+        week::capture(&c, "一", "2026-10-18T16:30:00Z", "t1").unwrap();
+        assert_eq!(week::stats(&c, "2026-10-19").unwrap().added, 1);
+        assert_eq!(week::stats(&c, "2026-10-12").unwrap().added, 0);
+    }
+
+    #[test]
+    fn stats_count_done_by_done_at_not_updated_at() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET status='done', updated_at='2026-09-01T00:00:00Z',
+             done_at='2026-10-20T09:00:00Z' WHERE id='t1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(week::stats(&c, "2026-10-20").unwrap().done, 1);
     }
 
     #[test]

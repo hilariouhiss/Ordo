@@ -9,6 +9,7 @@ import type {
   Project,
   ProjectSummary,
   Settings,
+  Status,
   ShortcutOutcome,
   Tag,
   Task,
@@ -209,4 +210,7 @@ export function setAiKey(key: string): Promise<void> {
 
 export function clearAiKey(): Promise<void> {
   return invoke<void>("clear_ai_key");
+}
+export function setTaskStatus(id: string, status: Status): Promise<Task> {
+  return invoke<Task>("set_status", { id, status });
 }

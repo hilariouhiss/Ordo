@@ -54,6 +54,29 @@ fn dump(conn: &Connection, table: &str) -> Result<Vec<Value>, String> {
         .map_err(|e| e.to_string())
 }
 
+pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
+    let today = match chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return Ok(()),
+    };
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("ordo-") || !name.ends_with(".db") || name.len() < 15 {
+            continue;
+        }
+        let Ok(date) = chrono::NaiveDate::parse_from_str(&name[5..15], "%Y-%m-%d") else {
+            continue;
+        };
+        if (today - date).num_days() > keep_days {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let name = format!("ordo-{}.db", chrono::Local::now().format("%Y-%m-%d"));
@@ -87,6 +110,23 @@ mod tests {
         assert!(text.contains("\"tasks\""));
         assert!(text.contains("\"settings\""));
         assert!(text.contains("交底"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn old_backups_are_pruned() {
+        let dir = std::env::temp_dir().join(format!("ordo-prune-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ordo-2026-01-01.db"), b"old").unwrap();
+        std::fs::write(dir.join("ordo-2026-09-01.db"), b"old").unwrap();
+        std::fs::write(dir.join("ordo-2026-10-19.db"), b"keep").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"keep").unwrap();
+
+        export::prune(&dir, 30, "2026-10-20");
+        assert!(!dir.join("ordo-2026-01-01.db").exists());
+        assert!(!dir.join("ordo-2026-09-01.db").exists());
+        assert!(dir.join("ordo-2026-10-19.db").exists());
+        assert!(dir.join("notes.txt").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -7,6 +7,7 @@ pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String
         projects: projects::list_archived(conn, query).map_err(|e| e.to_string())?,
         tasks: tasks::list_archived(conn, query).map_err(|e| e.to_string())?,
         canceled: tasks::list_canceled(conn, query).map_err(|e| e.to_string())?,
+        done: tasks::list_done(conn, query).map_err(|e| e.to_string())?,
     })
 }
 
@@ -54,6 +55,46 @@ mod tests {
             .unwrap();
         assert_eq!(steps, 0);
         assert_eq!(delays, 0);
+    }
+
+    #[test]
+    fn archived_task_hides_from_project_list_and_stats() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
+            .unwrap();
+
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+        assert!(
+            crate::repo::tasks::list_project(&c, &p.id)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(crate::services::stats::summary(&c, &p.id).unwrap().total, 0);
+    }
+
+    #[test]
+    fn archiving_project_removes_its_tasks_from_week() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
+            .unwrap();
+
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+        assert!(week::list(&c).unwrap().is_empty());
+        assert!(week::pass_queue(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn restore_done_task_returns_it_as_doing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "做完了", NOW, "t1").unwrap();
+        crate::repo::tasks::set_status(&c, "t1", "done", true, NOW).unwrap();
+        let t = archive::restore_task(&c, "t1", NOW).unwrap();
+        assert_eq!(t.status, "doing");
+        assert!(t.in_week);
     }
 
     #[test]

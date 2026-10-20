@@ -22,29 +22,27 @@ export interface TimelineRow {
 
 const DAY = 86_400_000;
 
-function days(from: string, to: string): number {
-  return Math.round((Date.parse(to) - Date.parse(from)) / DAY);
-}
-
 function clampPct(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
 export function timelineLayout(range: TimelineRange, tasks: TimelineTask[]): TimelineRow[] {
-  const total = days(range.start, range.end);
+  const rangeStart = Date.parse(range.start);
+  const rangeEnd = Date.parse(range.end);
+  const total = (rangeEnd - rangeStart) / DAY;
   if (total <= 0) return [];
 
   return tasks
     .filter((task) => task.startDate || task.dueDate)
     .map((task) => {
-      const start = task.startDate ?? range.start;
-      const end = task.dueDate ?? task.startDate ?? range.end;
-      const leftPct = clampPct((days(range.start, start) / total) * 100);
-      const widthPct = clampPct((days(start, end) / total) * 100);
+      const rawStart = task.startDate ? Date.parse(task.startDate) : rangeStart;
+      const rawEnd = task.dueDate ? Date.parse(task.dueDate) : rangeEnd;
+      const start = Math.max(rawStart, rangeStart);
+      const end = Math.min(rawEnd, rangeEnd);
       return {
         taskId: task.id,
-        leftPct,
-        widthPct,
+        leftPct: clampPct(((start - rangeStart) / DAY / total) * 100),
+        widthPct: clampPct(Math.max(0, (end - start) / DAY / total) * 100),
         dashedStart: !task.startDate,
         dashedEnd: !task.dueDate,
       };

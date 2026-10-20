@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
@@ -72,6 +73,16 @@ async function addCategory(): Promise<void> {
 async function addTag(): Promise<void> {
   await vm.addTag(tagName.value);
   tagName.value = "";
+}
+
+function onCategoryKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void addCategory();
+}
+
+function onTagKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void addTag();
 }
 </script>
 
@@ -185,6 +196,9 @@ async function addTag(): Promise<void> {
           <p class="mt-2 text-[10.5px] text-base-content/35">
             关掉后完全离线，捕获照样能用。key 存在 Windows 凭据管理器里，不进导出。
           </p>
+          <p v-if="settings.shortcutWarning" class="mt-1 text-[10.5px] text-error">
+            {{ settings.shortcutWarning }}
+          </p>
         </div>
 
         <div v-else-if="vm.state.tab === 'general'" class="mt-4 rounded-xl bg-base-200 p-4">
@@ -281,7 +295,7 @@ async function addTag(): Promise<void> {
               v-model="categoryName"
               class="input input-sm mt-2 w-full rounded-lg border-dashed border-base-300 bg-transparent"
               placeholder="新增分类，回车保存"
-              @keydown.enter="addCategory"
+              @keydown.enter="onCategoryKey"
             />
           </div>
 
@@ -301,7 +315,7 @@ async function addTag(): Promise<void> {
               v-model="tagName"
               class="input input-sm mt-2 w-full rounded-lg border-dashed border-base-300 bg-transparent"
               placeholder="新增标签，回车保存"
-              @keydown.enter="addTag"
+              @keydown.enter="onTagKey"
             />
             <p class="mt-1.5 text-[10.5px] text-base-content/35">
               删除标签只影响显示，已经打过的任务不受影响。

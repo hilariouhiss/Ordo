@@ -22,6 +22,22 @@ pub fn set_due(
     )
     .map_err(|e| e.to_string())?;
 
+    if let Some(due) = new_due {
+        let today = chrono::DateTime::parse_from_rfc3339(now)
+            .map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+            .unwrap_or_default();
+        if !today.is_empty()
+            && crate::services::week::week_start(due) == crate::services::week::week_start(&today)
+        {
+            conn.execute(
+                "UPDATE tasks SET in_week = 1, suspended_until = NULL
+                 WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
+                [task_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
     if let (Some(old_due), Some(due)) = (old.as_deref(), new_due) {
         if due > old_due {
             delays::insert(
@@ -90,6 +106,16 @@ mod tests {
         assert_eq!(ds[0].old_due.as_deref(), Some("2026-11-18"));
         assert_eq!(ds[0].new_due.as_deref(), Some("2026-11-20"));
         assert_eq!(ds[0].reason.as_deref(), Some("甲方追加数据"));
+    }
+
+    #[test]
+    fn due_in_current_week_enters_the_week_set() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET in_week = 0 WHERE id='t1'", [])
+            .unwrap();
+        let t = deliverables::set_due(&c, "t1", Some("2026-10-21"), None, NOW).unwrap();
+        assert!(t.in_week);
     }
 
     #[test]

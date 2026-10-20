@@ -36,6 +36,7 @@ pub struct SettingsDto {
     pub week_start: i64,
     pub backup_keep_days: i64,
     pub last_pass_week: String,
+    pub shortcut_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +137,7 @@ pub struct ArchiveDto {
     pub projects: Vec<ProjectDto>,
     pub tasks: Vec<TaskDto>,
     pub canceled: Vec<TaskDto>,
+    pub done: Vec<TaskDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +157,8 @@ pub struct TaskFields {
     pub start_date: Option<String>,
     pub due_date: Option<String>,
     pub note: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]

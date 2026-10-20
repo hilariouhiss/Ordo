@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
@@ -48,6 +49,11 @@ async function addMember(): Promise<void> {
   memberName.value = "";
   appVM.state.people = await ipc.listPeople();
   await reload();
+}
+
+function onMemberKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void addMember();
 }
 
 async function removeMember(personId: string): Promise<void> {
@@ -125,7 +131,7 @@ async function remove(): Promise<void> {
             v-model="memberName"
             class="input input-sm flex-1 rounded-lg border-dashed border-base-300"
             placeholder="从已有人员里选，或输入一个新名字"
-            @keydown.enter="addMember"
+            @keydown.enter="onMemberKey"
           />
           <button
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"

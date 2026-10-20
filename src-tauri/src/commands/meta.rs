@@ -121,13 +121,21 @@ pub async fn backup_now(
         .map_err(|e| e.to_string())?
         .join("backups");
     with_db(&state, move |conn| {
-        match crate::services::export::backup_today(conn, &dir)? {
-            Some(path) => Ok(path.to_string_lossy().to_string()),
-            None => Ok(dir
-                .join(format!("ordo-{}.db", chrono::Local::now().format("%Y-%m-%d")))
+        let keep_days = crate::repo::settings::get(conn, "backup_keep_days")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let result = match crate::services::export::backup_today(conn, &dir)? {
+            Some(path) => path.to_string_lossy().to_string(),
+            None => dir
+                .join(format!("ordo-{}.db", today))
                 .to_string_lossy()
-                .to_string()),
-        }
+                .to_string(),
+        };
+        let _ = crate::services::export::prune(&dir, keep_days, &today);
+        Ok(result)
     })
     .await
 }

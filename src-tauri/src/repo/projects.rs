@@ -34,10 +34,17 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
         "UPDATE projects SET archived_at = ?1, updated_at = ?2 WHERE id = ?3",
         params![if archived { Some(now) } else { None }, now, id],
     )?;
+    if archived {
+        conn.execute(
+            "UPDATE tasks SET in_week = 0 WHERE project_id = ?1 AND deleted_at IS NULL",
+            [id],
+        )?;
+    }
     Ok(())
 }
 
 pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM tasks WHERE project_id = ?1", [id])?;
     conn.execute("DELETE FROM projects WHERE id = ?1", [id])?;
     Ok(())
 }

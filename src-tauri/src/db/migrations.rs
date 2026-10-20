@@ -123,6 +123,12 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         seed(conn)?;
         conn.pragma_update(None, "user_version", 1)?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 2 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")?;
+        conn.pragma_update(None, "user_version", 2)?;
+    }
     Ok(())
 }
 
