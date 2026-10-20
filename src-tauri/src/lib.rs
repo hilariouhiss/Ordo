@@ -89,8 +89,11 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &week, &pass, &settings, &quit])?;
 
+    // The tray sits on the taskbar, so it carries the mark without the paper plate.
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+
     TrayIconBuilder::with_id("main-tray")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(tray_icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -321,4 +324,15 @@ pub fn run() {
     })
     .run(tauri::generate_context!())
     .map_err(|e| eprintln!("ordo 启动失败：{e}"));
+}
+
+#[cfg(test)]
+mod tests {
+    /// The tray decodes this file at startup. A missing size or a repainted file would
+    /// otherwise only surface as an app that comes up without its tray icon.
+    #[test]
+    fn tray_icon_decodes() {
+        let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")).unwrap();
+        assert_eq!((icon.width(), icon.height()), (32, 32));
+    }
 }
