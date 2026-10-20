@@ -29,8 +29,11 @@ pub fn set_due(
         if !today.is_empty()
             && crate::services::week::week_start(due) == crate::services::week::week_start(&today)
         {
+            // A task already in the week keeps its slot; a due-date edit must not move it.
             conn.execute(
-                "UPDATE tasks SET in_week = 1, suspended_until = NULL
+                "UPDATE tasks SET in_week = 1, suspended_until = NULL,
+                        sort_order = CASE WHEN in_week = 1 THEN sort_order
+                                          ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks) END
                  WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
                 [task_id],
             )
@@ -116,6 +119,33 @@ mod tests {
             .unwrap();
         let t = deliverables::set_due(&c, "t1", Some("2026-10-21"), None, NOW).unwrap();
         assert!(t.in_week);
+    }
+
+    #[test]
+    fn due_in_current_week_enters_the_week_at_the_end() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        c.execute("UPDATE tasks SET in_week = 0 WHERE id = 't1'", [])
+            .unwrap();
+
+        deliverables::set_due(&c, "t1", Some("2026-10-21"), None, NOW).unwrap();
+
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t2", "t1"]);
+    }
+
+    #[test]
+    fn a_new_due_date_keeps_an_in_week_task_in_its_slot() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::capture(&c, "三", NOW, "t3").unwrap();
+
+        deliverables::set_due(&c, "t1", Some("2026-10-21"), None, NOW).unwrap();
+
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t1", "t2", "t3"]);
     }
 
     #[test]

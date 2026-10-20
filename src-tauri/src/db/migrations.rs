@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 2;
+pub const LATEST: i64 = 3;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -133,7 +133,32 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")?;
         conn.pragma_update(None, "user_version", 2)?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 3 {
+        // A crash between statements could leave the columns without the version bump,
+        // so this step only adds what is missing and commits as one transaction.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "sort_order")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")?;
+        }
+        if !has_task_column(&tx, "effort_days")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN effort_days REAL NOT NULL DEFAULT 1")?;
+        }
+        tx.execute_batch("UPDATE tasks SET sort_order = rowid")?;
+        tx.pragma_update(None, "user_version", 3)?;
+        tx.commit()?;
+    }
     Ok(())
+}
+
+fn has_task_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?1",
+        [column],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
 }
 
 fn now() -> String {
@@ -177,7 +202,97 @@ fn seed(conn: &Connection) -> rusqlite::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::db;
+
+    #[test]
+    fn migrates_to_v3_and_backfills_order() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(V1).unwrap();
+        seed(&c).unwrap();
+        for (id, title) in [("a", "甲"), ("b", "乙")] {
+            c.execute(
+                "INSERT INTO tasks (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+                rusqlite::params![id, title, "2026-10-20T08:00:00Z"],
+            )
+            .unwrap();
+        }
+        c.pragma_update(None, "user_version", 1).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let mut stmt = c
+            .prepare("SELECT id, sort_order, effort_days FROM tasks ORDER BY sort_order")
+            .unwrap();
+        let rows: Vec<(String, i64, f64)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(rows, vec![("a".to_string(), 1, 1.0), ("b".to_string(), 2, 1.0)]);
+    }
+
+    fn v2_database() -> rusqlite::Connection {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(V1).unwrap();
+        seed(&c).unwrap();
+        c.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")
+            .unwrap();
+        for (id, title) in [("a", "甲"), ("b", "乙")] {
+            c.execute(
+                "INSERT INTO tasks (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+                rusqlite::params![id, title, "2026-10-20T08:00:00Z"],
+            )
+            .unwrap();
+        }
+        c.pragma_update(None, "user_version", 2).unwrap();
+        c
+    }
+
+    #[test]
+    fn upgrades_a_v2_database_and_keeps_done_at() {
+        let c = v2_database();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let mut stmt = c
+            .prepare("SELECT id, sort_order, effort_days, done_at FROM tasks ORDER BY sort_order")
+            .unwrap();
+        let rows: Vec<(String, i64, f64, Option<String>)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].1, rows[0].2), (1, 1.0));
+        assert_eq!((rows[1].1, rows[1].2), (2, 1.0));
+        assert!(rows[0].3.is_none());
+    }
+
+    #[test]
+    fn retries_a_half_applied_v3_step() {
+        // A crash between statements leaves the columns without the version bump;
+        // the next start must finish the step instead of dying on duplicate column.
+        let c = v2_database();
+        c.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE tasks ADD COLUMN effort_days REAL NOT NULL DEFAULT 1;",
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let order: i64 = c
+            .query_row("SELECT sort_order FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(order, 1);
+    }
 
     #[test]
     fn migrates_schema_v1() {

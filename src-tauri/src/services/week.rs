@@ -39,7 +39,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
             "SELECT id FROM tasks
              WHERE in_week = 1 AND status <> 'done'
                AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
-             ORDER BY due_date IS NULL, due_date, created_at",
+             ORDER BY sort_order, id",
         )
         .map_err(|e| e.to_string())?;
     let ids: Vec<String> = stmt
@@ -136,7 +136,9 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
 
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     conn.execute(
-        "UPDATE tasks SET in_week = 1, suspended_until = NULL, updated_at = ?1 WHERE id = ?2",
+        "UPDATE tasks SET in_week = 1, suspended_until = NULL, updated_at = ?1,
+                sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
+         WHERE id = ?2",
         params![now, task_id],
     )
     .map_err(|e| e.to_string())?;
@@ -175,18 +177,32 @@ mod tests {
     }
 
     #[test]
-    fn week_sorts_by_due_then_created() {
+    fn week_follows_manual_order() {
         let c = db::open_in_memory().unwrap();
-        week::capture(&c, "没有截止", NOW, "t1").unwrap();
-        week::capture(&c, "晚的", NOW, "t2").unwrap();
-        week::capture(&c, "早的", NOW, "t3").unwrap();
-        c.execute("UPDATE tasks SET due_date='2026-11-20' WHERE id='t2'", [])
-            .unwrap();
-        c.execute("UPDATE tasks SET due_date='2026-10-21' WHERE id='t3'", [])
-            .unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::capture(&c, "三", NOW, "t3").unwrap();
+
+        crate::services::tasks::move_task(&c, "t3", Some("t1")).unwrap();
 
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
-        assert_eq!(ids, vec!["t3", "t2", "t1"]);
+        assert_eq!(ids, vec!["t3", "t1", "t2"]);
+    }
+
+    #[test]
+    fn pass_queue_follows_manual_order() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+
+        crate::services::tasks::move_task(&c, "t2", Some("t1")).unwrap();
+
+        let ids: Vec<String> = week::pass_queue(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec!["t2", "t1"]);
     }
 
     #[test]
@@ -274,6 +290,20 @@ mod tests {
         assert!(t.in_week);
         assert!(t.suspended_until.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn resume_appends_to_the_end() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::capture(&c, "三", NOW, "t3").unwrap();
+        week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), NOW).unwrap();
+
+        week::resume(&c, "t1", NOW).unwrap();
+
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t2", "t3", "t1"]);
     }
 
     #[test]

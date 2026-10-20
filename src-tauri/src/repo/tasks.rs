@@ -1,10 +1,12 @@
 use crate::dto::{DelayDto, StepDto, TagDto, TaskDto};
+use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
 pub fn insert(conn: &Connection, id: &str, title: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO tasks (id, title, owner_id, status, in_week, carry_count, created_at, updated_at)
-         VALUES (?1, ?2, (SELECT id FROM people WHERE is_me = 1 LIMIT 1), 'todo', 1, 0, ?3, ?3)",
+        "INSERT INTO tasks (id, title, owner_id, status, in_week, carry_count, sort_order, created_at, updated_at)
+         VALUES (?1, ?2, (SELECT id FROM people WHERE is_me = 1 LIMIT 1), 'todo', 1, 0,
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?3, ?3)",
         params![id, title, now],
     )?;
     Ok(())
@@ -14,7 +16,7 @@ pub fn list_week_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks
          WHERE in_week = 1 AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
-         ORDER BY due_date IS NULL, due_date, created_at",
+         ORDER BY sort_order, id",
     )?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     rows.collect()
@@ -31,7 +33,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let mut task = conn.query_row(
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,
                 in_week, carry_count, suspended_until, note, archived_at, canceled_at,
-                created_at, updated_at
+                created_at, updated_at, sort_order, effort_days
          FROM tasks WHERE id = ?1",
         [id],
         |r| {
@@ -55,6 +57,8 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
                 delays: vec![],
                 created_at: r.get(14)?,
                 updated_at: r.get(15)?,
+                sort_order: r.get(16)?,
+                effort_days: r.get(17)?,
             })
         },
     )?;
@@ -140,28 +144,35 @@ pub fn apply_patch(
 ) -> rusqlite::Result<()> {
     fn push(
         cols: &mut Vec<&'static str>,
-        vals: &mut Vec<Option<String>>,
+        vals: &mut Vec<Value>,
         col: &'static str,
         value: &Option<Option<String>>,
     ) {
         if let Some(value) = value {
             cols.push(col);
-            vals.push(value.clone());
+            vals.push(match value {
+                Some(text) => Value::Text(text.clone()),
+                None => Value::Null,
+            });
         }
     }
 
     let tx = conn.unchecked_transaction()?;
     let mut cols: Vec<&'static str> = Vec::new();
-    let mut vals: Vec<Option<String>> = Vec::new();
+    let mut vals: Vec<Value> = Vec::new();
     if let Some(title) = &patch.title {
         cols.push("title");
-        vals.push(Some(title.clone()));
+        vals.push(Value::Text(title.clone()));
     }
     push(&mut cols, &mut vals, "project_id", &patch.project_id);
     push(&mut cols, &mut vals, "category_id", &patch.category_id);
     push(&mut cols, &mut vals, "owner_id", &patch.owner_id);
     push(&mut cols, &mut vals, "start_date", &patch.start_date);
     push(&mut cols, &mut vals, "note", &patch.note);
+    if let Some(effort) = patch.effort_days {
+        cols.push("effort_days");
+        vals.push(Value::Real(effort));
+    }
 
     if let Some(tags) = &patch.tags {
         tx.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
@@ -188,7 +199,7 @@ pub fn apply_patch(
         return tx.commit();
     }
     cols.push("updated_at");
-    vals.push(Some(now.to_owned()));
+    vals.push(Value::Text(now.to_owned()));
     let set = cols
         .iter()
         .enumerate()
@@ -225,6 +236,7 @@ pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1,
+              sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
               status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
               done_at = CASE WHEN status = 'done' THEN NULL ELSE done_at END,
               updated_at = ?1
@@ -237,6 +249,24 @@ pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", [id])?;
     Ok(())
+}
+
+pub fn ordered_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE deleted_at IS NULL ORDER BY sort_order, id")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect()
+}
+
+/// Renumbers every task in one transaction, so the order stays dense and tie-free.
+pub fn write_orders(conn: &Connection, ids: &[String]) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare_cached("UPDATE tasks SET sort_order = ?1 WHERE id = ?2")?;
+        for (index, id) in ids.iter().enumerate() {
+            stmt.execute(params![index as i64, id])?;
+        }
+    }
+    tx.commit()
 }
 
 fn list_where(conn: &Connection, condition: &str, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {

@@ -86,6 +86,8 @@ pub struct TaskDto {
     pub delays: Vec<DelayDto>,
     pub created_at: String,
     pub updated_at: String,
+    pub sort_order: i64,
+    pub effort_days: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,6 +171,8 @@ pub struct TaskPatch {
     pub note: Option<Option<String>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub effort_days: Option<f64>,
 }
 
 /// Without this, serde maps an explicit `null` to the same `None` as a missing field.

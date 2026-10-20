@@ -40,6 +40,19 @@ mod tests {
     }
 
     #[test]
+    fn restored_task_appends_to_the_end() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        archive::restore_task(&c, "t1", NOW).unwrap();
+
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t2", "t1"]);
+    }
+
+    #[test]
     fn delete_cascades_steps_and_delays() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();

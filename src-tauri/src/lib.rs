@@ -198,7 +198,8 @@ pub fn run() {
       commands::ai::ai_test,
       commands::ai::ai_enrich,
       commands::tasks::mark_notifications_seen,
-      commands::tasks::set_status
+      commands::tasks::set_status,
+      commands::tasks::move_task
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;

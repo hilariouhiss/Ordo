@@ -10,6 +10,22 @@ export function shortDate(iso: string | null): string {
   const [, m, d] = iso.split("-");
   return `${Number(m)}/${Number(d)}`;
 }
+export function weekdayOf(iso: string): number {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day).getDay();
+}
+
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+export function weekdayLabel(iso: string): string {
+  return WEEKDAYS[weekdayOf(iso)];
+}
+
+export function isWeekend(iso: string): boolean {
+  const weekday = weekdayOf(iso);
+  return weekday === 0 || weekday === 6;
+}
+
 export function addDays(iso: string, offset: number): string {
   const [year, month, day] = iso.split("-").map(Number);
   const date = new Date(year, month - 1, day);

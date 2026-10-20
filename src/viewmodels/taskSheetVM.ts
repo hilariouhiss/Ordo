@@ -21,6 +21,7 @@ export interface TaskForm {
   dueDate: string;
   note: string;
   tags: string[];
+  effortDays: number;
 }
 
 /** The fields the user actually changed, so a save cannot wipe the ones it did not touch. */
@@ -36,6 +37,7 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
     patch.tags = form.tags;
   }
+  if (form.effortDays !== task.effortDays) patch.effortDays = form.effortDays;
   return patch;
 }
 

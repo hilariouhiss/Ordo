@@ -37,6 +37,10 @@ export function updateTaskPatch(id: string, patch: TaskPatch): Promise<Task> {
   return invoke<Task>("update_task", { id, patch });
 }
 
+export function moveTask(taskId: string, beforeId: string | null): Promise<Task[]> {
+  return invoke<Task[]>("move_task", { taskId, beforeId });
+}
+
 export function addStep(taskId: string, title: string): Promise<Task> {
   return invoke<Task>("add_step", { taskId, title });
 }

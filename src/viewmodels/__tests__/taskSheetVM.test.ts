@@ -24,6 +24,7 @@ function formOf(t: Task): TaskForm {
     dueDate: t.dueDate ?? "",
     note: t.note ?? "",
     tags: t.tags.map((tag) => tag.name),
+    effortDays: t.effortDays,
   };
 }
 
@@ -83,5 +84,10 @@ describe("taskSheetVM", () => {
   it("sends null when the user clears a field", () => {
     const t = task({ note: "旧备注" });
     expect(diffTask(t, { ...formOf(t), note: "" })).toEqual({ note: null });
+  });
+
+  it("sends an effort change on its own", () => {
+    const t = task({ effortDays: 1 });
+    expect(diffTask(t, { ...formOf(t), effortDays: 2 })).toEqual({ effortDays: 2 });
   });
 });

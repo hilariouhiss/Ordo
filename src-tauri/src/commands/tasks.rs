@@ -172,6 +172,19 @@ pub async fn mark_notifications_seen(state: State<'_, AppState>) -> Result<(), S
     .await
 }
 #[tauri::command]
+pub async fn move_task(
+    state: State<'_, AppState>,
+    task_id: String,
+    before_id: Option<String>,
+) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, move |conn| {
+        crate::services::tasks::move_task(conn, &task_id, before_id.as_deref())?;
+        week::list(conn)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn set_status(
     state: State<'_, AppState>,
     id: String,

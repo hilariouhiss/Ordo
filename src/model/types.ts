@@ -81,6 +81,8 @@ export interface Task {
   delays: Delay[];
   createdAt: string;
   updatedAt: string;
+  sortOrder: number;
+  effortDays: number;
 }
 
 export interface CategoryProgress {
@@ -128,6 +130,7 @@ export interface TaskPatch {
   startDate?: string | null;
   note?: string | null;
   tags?: string[];
+  effortDays?: number;
 }
 export interface ArchiveData {
   projects: Project[];

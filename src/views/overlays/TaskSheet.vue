@@ -24,6 +24,7 @@ const form = reactive({
   dueDate: "",
   note: "",
   tags: [] as string[],
+  effortDays: 1,
   status: "todo" as Status,
 });
 const candidates = ref<Person[]>([]);
@@ -53,6 +54,7 @@ watch(
     form.dueDate = task.dueDate ?? "";
     form.note = task.note ?? "";
     form.tags = task.tags.map((tag) => tag.name);
+    form.effortDays = task.effortDays;
     form.status = task.status;
     await refreshCandidates(task.projectId);
   },
@@ -265,6 +267,19 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               type="date"
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
+          </label>
+          <label class="block text-[11px] text-base-content/45">
+            预估人天
+            <select
+              v-model.number="form.effortDays"
+              class="select select-sm mt-1 w-full rounded-lg border-base-300"
+            >
+              <option :value="0.5">半天</option>
+              <option :value="1">1 天</option>
+              <option :value="2">2 天</option>
+              <option :value="3">3 天</option>
+              <option :value="5">5 天</option>
+            </select>
           </label>
         </div>
 

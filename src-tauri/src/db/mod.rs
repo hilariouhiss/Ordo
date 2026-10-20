@@ -252,7 +252,10 @@ mod tests {
         let path = dir.join("ordo.db");
         {
             let c = open(&path).unwrap();
-            c.execute("ALTER TABLE tasks DROP COLUMN done_at", []).unwrap();
+            for column in ["done_at", "sort_order", "effort_days"] {
+                c.execute(&format!("ALTER TABLE tasks DROP COLUMN {column}"), [])
+                    .unwrap();
+            }
             c.pragma_update(None, "user_version", 1).unwrap();
         }
 

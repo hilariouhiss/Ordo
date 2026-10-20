@@ -30,6 +30,8 @@ export function task(over: Partial<Task> = {}): Task {
     canceledAt: null,
     createdAt: "2026-10-20T00:00:00Z",
     updatedAt: "2026-10-20T00:00:00Z",
+    sortOrder: 0,
+    effortDays: 1,
     steps: [],
     tags: [],
     delays: [],
