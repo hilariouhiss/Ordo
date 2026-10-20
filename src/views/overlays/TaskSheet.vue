@@ -6,7 +6,7 @@ import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
-import { diffTask, taskSheetVM } from "../../viewmodels/taskSheetVM";
+import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 
 const statusOptions: { value: Status; label: string }[] = [
   { value: "todo", label: "未开始" },
@@ -68,11 +68,7 @@ async function save(): Promise<void> {
   if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
     await addMember(form.projectId, form.ownerId, null);
   }
-  if ((form.dueDate || null) !== (task.dueDate ?? null)) {
-    await taskSheetVM.setDue(form.dueDate || null);
-  }
-  const patch = diffTask(task, form);
-  if (Object.keys(patch).length) await taskSheetVM.patch(patch);
+  await taskSheetVM.saveForm(form);
 }
 
 async function setStatus(status: Status): Promise<void> {

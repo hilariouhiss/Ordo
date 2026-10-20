@@ -6,9 +6,10 @@ vi.mock("../../model/ipc", () => ({
   addStep: vi.fn(),
   updateTaskPatch: vi.fn(),
   deleteStep: vi.fn(),
+  setDue: vi.fn(),
 }));
 
-import { getTask, toggleStep, updateTaskPatch } from "../../model/ipc";
+import { getTask, setDue, toggleStep, updateTaskPatch } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { createTaskSheetVM, diffTask, type TaskForm } from "../taskSheetVM";
 import { step, task } from "./fixtures";
@@ -20,6 +21,7 @@ function formOf(t: Task): TaskForm {
     categoryId: t.categoryId,
     ownerId: t.ownerId,
     startDate: t.startDate ?? "",
+    dueDate: t.dueDate ?? "",
     note: t.note ?? "",
     tags: t.tags.map((tag) => tag.name),
   };
@@ -48,6 +50,23 @@ describe("taskSheetVM", () => {
     const vm = createTaskSheetVM();
     await vm.open("t1");
     await vm.patch({ title: "新" });
+    expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
+  });
+
+  it("keeps an edit made in the same save as a due-date change", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", title: "旧", dueDate: "2026-10-25" }));
+    // setDue refreshes the task; that refresh must not swallow what else was typed.
+    vi.mocked(setDue).mockResolvedValue(task({ id: "t1", title: "旧", dueDate: "2026-11-01" }));
+    vi.mocked(updateTaskPatch).mockResolvedValue(
+      task({ id: "t1", title: "新", dueDate: "2026-11-01" }),
+    );
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    const form = formOf(task({ title: "旧" }));
+    await vm.saveForm({ ...form, title: "新", dueDate: "2026-11-01" });
+
+    expect(setDue).toHaveBeenCalledWith("t1", "2026-11-01", null);
     expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
   });
 

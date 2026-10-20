@@ -18,6 +18,7 @@ export interface TaskForm {
   categoryId: string | null;
   ownerId: string | null;
   startDate: string;
+  dueDate: string;
   note: string;
   tags: string[];
 }
@@ -77,9 +78,17 @@ export function createTaskSheetVM() {
     state.task = await deleteStep(stepId);
   }
 
-  async function setDue(due: string | null): Promise<void> {
-    if (!state.openId) return;
-    state.task = await setDueApi(state.openId, due, null);
+  /// Saves the sheet: the deadline through set_due, everything else as a patch.
+  async function saveForm(form: TaskForm): Promise<void> {
+    const task = state.task;
+    const id = state.openId;
+    if (!task || !id) return;
+    // Diff first: setDue replaces state.task, and the view's watcher then rewrites the form.
+    const patch = diffTask(task, form);
+    if ((form.dueDate || null) !== task.dueDate) {
+      state.task = await setDueApi(id, form.dueDate || null, null);
+    }
+    if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
   }
 
   async function addNote(reason: string): Promise<void> {
@@ -97,7 +106,7 @@ export function createTaskSheetVM() {
     state.task = await updateTaskPatch(state.openId, patch);
   }
 
-  return { state, open, close, toggle, add, remove, patch, setDue, addNote, setStatus };
+  return { state, open, close, toggle, add, remove, patch, saveForm, addNote, setStatus };
 }
 
 export const taskSheetVM = createTaskSheetVM();
