@@ -213,6 +213,13 @@ pub fn run() {
           .notification()
           .on_action(move |action| {
               if action.action_id() == "tap" {
+                  let task_id = action
+                      .notification()
+                      .map(|n| n.id())
+                      .and_then(|id| notification_handle.state::<crate::state::AppState>().reminder_targets.task_for(id));
+                  if let Some(task_id) = task_id {
+                      let _ = notification_handle.emit_to("main", "reminder:open", task_id);
+                  }
                   show_main(&notification_handle);
               }
           });

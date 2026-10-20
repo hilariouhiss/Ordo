@@ -2,17 +2,24 @@
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { onMounted } from "vue";
-import { RouterLink, RouterView } from "vue-router";
+import { RouterLink, RouterView, useRouter } from "vue-router";
 import { appVM } from "./viewmodels/appVM";
 import { settingsVM } from "./viewmodels/settingsVM";
+import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { weekVM } from "./viewmodels/weekVM";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
+
+const router = useRouter();
 
 onMounted(async () => {
   await appVM.load();
   if (isTauri()) {
     await listen("capture:created", () => void weekVM.load());
     await listen("ai:enriched", () => void weekVM.load());
+    await listen<string>("reminder:open", async (event) => {
+      await router.push("/week");
+      await taskSheetVM.open(event.payload);
+    });
   }
 });
 </script>

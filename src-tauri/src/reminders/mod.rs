@@ -1,9 +1,33 @@
 pub mod rules;
 
 use crate::state::AppState;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Mutex;
 use tauri::Manager;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
+
+/// Notification id → task id, so a tap can open the task it was about.
+#[derive(Default)]
+pub struct ReminderTargets {
+    next: AtomicI32,
+    tasks: Mutex<HashMap<i32, String>>,
+}
+
+impl ReminderTargets {
+    pub fn next_id(&self, task_id: &str) -> i32 {
+        let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Ok(mut tasks) = self.tasks.lock() {
+            tasks.insert(id, task_id.to_owned());
+        }
+        id
+    }
+
+    pub fn task_for(&self, id: i32) -> Option<String> {
+        self.tasks.lock().ok()?.get(&id).cloned()
+    }
+}
 
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || loop {
@@ -20,7 +44,7 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     let today = now.format("%Y-%m-%d").to_string();
     let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
-    let mut fired_titles: Vec<String> = Vec::new();
+    let mut toasts: Vec<(String, String)> = Vec::new();
     let mut fired_any = false;
     for candidate in candidates {
         let title: String = conn
@@ -47,21 +71,23 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             "overdue" => format!("已逾期：{}", title),
             _ => format!("该开始了：{}", title),
         };
-        fired_titles.push(headline);
+        toasts.push((headline, candidate.task_id));
         fired_any = true;
     }
-    if fired_titles.len() == 1 {
+    if let [(headline, task_id)] = toasts.as_slice() {
+        let id = state.reminder_targets.next_id(task_id);
         let _ = app
             .notification()
             .builder()
-            .title(fired_titles.remove(0))
+            .id(id)
+            .title(headline)
             .body("打开 ordo 查看")
             .show();
-    } else if fired_titles.len() > 1 {
+    } else if toasts.len() > 1 {
         let _ = app
             .notification()
             .builder()
-            .title(format!("你错过了 {} 条提醒", fired_titles.len()))
+            .title(format!("你错过了 {} 条提醒", toasts.len()))
             .body("打开 ordo 查看")
             .show();
     }
@@ -74,4 +100,20 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         let _ = tray.set_tooltip(Some(format!("ordo · {} 条提醒", unread)));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reminder_targets_assign_and_resolve() {
+        let map = ReminderTargets::default();
+        let a = map.next_id("t1");
+        let b = map.next_id("t2");
+        assert_ne!(a, b);
+        assert_eq!(map.task_for(a).as_deref(), Some("t1"));
+        assert_eq!(map.task_for(b).as_deref(), Some("t2"));
+        assert_eq!(map.task_for(-1), None);
+    }
 }

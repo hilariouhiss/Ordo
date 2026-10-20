@@ -36,3 +36,4 @@ dist-ssr
 .claude/
 .superpowers/
 skills-lock.json
+.codegraph/
