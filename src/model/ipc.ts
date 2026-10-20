@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ArchiveData,
   Bootstrap,
   PassAction,
   Person,
@@ -128,4 +129,19 @@ export function getProjectSummary(id: string): Promise<ProjectSummary> {
 }
 export function listProjectTasks(projectId: string): Promise<Task[]> {
   return invoke<Task[]>("list_project_tasks", { projectId });
+}
+export function listArchive(query: string | null): Promise<ArchiveData> {
+  return invoke<ArchiveData>("list_archive", { query });
+}
+
+export function archiveTask(id: string): Promise<Task> {
+  return invoke<Task>("archive_task", { id });
+}
+
+export function restoreTask(id: string): Promise<Task> {
+  return invoke<Task>("restore_task", { id });
+}
+
+export function deleteTask(id: string): Promise<void> {
+  return invoke<void>("delete_task", { id });
 }

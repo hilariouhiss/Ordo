@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod deliverables;
 pub mod projects;
 pub mod stats;

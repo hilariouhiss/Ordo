@@ -10,3 +10,8 @@ export function shortDate(iso: string | null): string {
   const [, m, d] = iso.split("-");
   return `${Number(m)}/${Number(d)}`;
 }
+export function addDays(iso: string, offset: number): string {
+  const date = new Date(iso + "T00:00:00");
+  date.setDate(date.getDate() + offset);
+  return date.toISOString().slice(0, 10);
+}

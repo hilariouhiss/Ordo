@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
 import { overdueDays } from "../../model/mappers";
 import type { TaskFields } from "../../model/types";
+import { archiveTask } from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 
@@ -46,6 +47,13 @@ async function save(): Promise<void> {
     note: form.note || null,
   };
   await taskSheetVM.save(fields);
+}
+
+async function archive(): Promise<void> {
+  const task = taskSheetVM.state.task;
+  if (!task) return;
+  await archiveTask(task.id);
+  taskSheetVM.close();
 }
 
 async function submitStep(): Promise<void> {

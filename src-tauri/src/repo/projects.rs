@@ -131,3 +131,15 @@ pub fn member_people(conn: &Connection, project_id: &str) -> rusqlite::Result<Ve
     })?;
     rows.collect()
 }
+pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ProjectDto>> {
+    let pattern = query.map(|q| format!("%{}%", q));
+    let mut stmt = conn.prepare(
+        "SELECT id FROM projects
+         WHERE archived_at IS NOT NULL AND deleted_at IS NULL AND (?1 IS NULL OR name LIKE ?1)
+         ORDER BY archived_at DESC",
+    )?;
+    let ids: Vec<String> = stmt
+        .query_map([pattern], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ids.iter().map(|id| dto(conn, id)).collect()
+}

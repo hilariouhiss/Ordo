@@ -45,7 +45,11 @@ pub fn run() {
       commands::projects::add_member,
       commands::projects::remove_member,
       commands::projects::owner_candidates,
-      commands::projects::list_people
+      commands::projects::list_people,
+      commands::archive::list_archive,
+      commands::archive::archive_task,
+      commands::archive::restore_task,
+      commands::archive::delete_task
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;

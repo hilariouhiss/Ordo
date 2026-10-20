@@ -1,10 +1,125 @@
 <script setup lang="ts">
-defineProps<{ id?: string }>();
+import { onMounted } from "vue";
+import { shortDate } from "../lib/dates";
+import { archiveVM as vm } from "../viewmodels/archiveVM";
+
+onMounted(() => {
+  void vm.load();
+});
+
+let timer: ReturnType<typeof setTimeout> | undefined;
+function onSearch(): void {
+  clearTimeout(timer);
+  timer = setTimeout(() => void vm.load(), 250);
+}
+
+function removeTask(id: string, title: string): void {
+  if (!window.confirm(`永久删除「${title}」？步骤和延期记录会一起删掉，不能撤销。`)) return;
+  void vm.remove(id);
+}
+
+function removeProject(id: string, name: string): void {
+  if (!window.confirm(`永久删除项目「${name}」？里面的任务会一起消失，不能撤销。`)) return;
+  void vm.removeProject(id);
+}
 </script>
 
 <template>
-  <section class="text-[13px] text-base-content/50">
-    <h1 class="mb-2 text-[16px] font-semibold text-base-content">归档</h1>
-    <p>归档的项目、任务与已取消会出现在这里。</p>
+  <section class="space-y-2">
+    <div class="flex items-center gap-3">
+      <h1 class="text-[16px] font-semibold">归档</h1>
+      <div class="input input-sm ml-auto w-56 rounded-lg border-0 bg-base-100">
+        <input
+          v-model="vm.state.query"
+          class="w-full bg-transparent text-[12px] outline-none placeholder:text-base-content/35"
+          placeholder="搜任务或项目…"
+          @input="onSearch"
+        />
+      </div>
+    </div>
+
+    <div role="tablist" class="tabs tabs-border tabs-sm">
+      <button
+        role="tab"
+        class="tab"
+        :class="{ 'tab-active': vm.state.tab === 'projects' }"
+        @click="vm.state.tab = 'projects'"
+      >
+        项目 {{ vm.state.data.projects.length }}
+      </button>
+      <button
+        role="tab"
+        class="tab"
+        :class="{ 'tab-active': vm.state.tab === 'tasks' }"
+        @click="vm.state.tab = 'tasks'"
+      >
+        任务 {{ vm.state.data.tasks.length }}
+      </button>
+      <button
+        role="tab"
+        class="tab"
+        :class="{ 'tab-active': vm.state.tab === 'canceled' }"
+        @click="vm.state.tab = 'canceled'"
+      >
+        已取消 {{ vm.state.data.canceled.length }}
+      </button>
+    </div>
+
+    <div v-if="vm.state.tab === 'projects'" class="space-y-1.5">
+      <div
+        v-for="project in vm.state.data.projects"
+        :key="project.id"
+        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
+      >
+        <span class="text-[13px] font-medium">{{ project.name }}</span>
+        <span v-if="project.dueDate" class="text-[10.5px] text-base-content/40">
+          截止 {{ shortDate(project.dueDate) }}
+        </span>
+        <button
+          class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
+          @click="vm.restoreProject(project.id)"
+        >
+          恢复
+        </button>
+        <button
+          class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
+          @click="removeProject(project.id, project.name)"
+        >
+          删除
+        </button>
+      </div>
+      <p v-if="!vm.state.data.projects.length" class="px-1 text-[12px] text-base-content/40">
+        没有归档的项目。
+      </p>
+    </div>
+
+    <div v-else class="space-y-1.5">
+      <div
+        v-for="task in vm.state.tab === 'tasks' ? vm.state.data.tasks : vm.state.data.canceled"
+        :key="task.id"
+        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
+      >
+        <span class="text-[13px] text-base-content/70">{{ task.title }}</span>
+        <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">已取消</span>
+        <button
+          class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
+          @click="vm.restore(task.id)"
+        >
+          恢复
+        </button>
+        <button
+          class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
+          @click="removeTask(task.id, task.title)"
+        >
+          删除
+        </button>
+      </div>
+      <p
+        v-if="!(vm.state.tab === 'tasks' ? vm.state.data.tasks : vm.state.data.canceled).length"
+        class="px-1 text-[12px] text-base-content/40"
+      >
+        这里还没有东西。
+      </p>
+    </div>
   </section>
 </template>

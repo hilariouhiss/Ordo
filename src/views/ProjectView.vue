@@ -8,6 +8,7 @@ import CaptureBar from "./components/CaptureBar.vue";
 import CategoryProgress from "./components/CategoryProgress.vue";
 import SummaryLine from "./components/SummaryLine.vue";
 import TaskRow from "./components/TaskRow.vue";
+import TimelineView from "./components/TimelineView.vue";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 

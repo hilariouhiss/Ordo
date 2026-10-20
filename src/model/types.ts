@@ -124,3 +124,8 @@ export interface TaskFields {
   dueDate: string | null;
   note: string | null;
 }
+export interface ArchiveData {
+  projects: Project[];
+  tasks: Task[];
+  canceled: Task[];
+}

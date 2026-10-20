@@ -162,3 +162,45 @@ pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec
         .collect::<rusqlite::Result<Vec<_>>>()?;
     ids.iter().map(|id| dto(conn, id)).collect()
 }
+pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET archived_at = ?1, in_week = 0, updated_at = ?1 WHERE id = ?2",
+        params![now, id],
+    )?;
+    Ok(())
+}
+
+pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1, updated_at = ?1 WHERE id = ?2",
+        params![now, id],
+    )?;
+    Ok(())
+}
+
+pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM tasks WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+fn list_where(conn: &Connection, condition: &str, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+    let pattern = query.map(|q| format!("%{}%", q));
+    let sql = format!(
+        "SELECT id FROM tasks WHERE deleted_at IS NULL AND {} AND (?1 IS NULL OR title LIKE ?1)
+         ORDER BY updated_at DESC",
+        condition
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let ids: Vec<String> = stmt
+        .query_map([pattern], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ids.iter().map(|id| dto(conn, id)).collect()
+}
+
+pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+    list_where(conn, "archived_at IS NOT NULL AND canceled_at IS NULL", query)
+}
+
+pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+    list_where(conn, "canceled_at IS NOT NULL", query)
+}
