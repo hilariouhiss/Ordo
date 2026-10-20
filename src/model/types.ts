@@ -88,6 +88,12 @@ export interface ProjectSummary {
   summaryLine: string;
 }
 
+export interface WeekStats {
+  added: number;
+  done: number;
+  delayed: number;
+}
+
 export interface Bootstrap {
   people: Person[];
   categories: Category[];
@@ -95,7 +101,12 @@ export interface Bootstrap {
   settings: Settings;
   projects: ProjectSummary[];
   week: Task[];
+  suspended: Task[];
+  passNeeded: boolean;
+  weekStats: WeekStats;
 }
+
+export type PassAction = "keep" | "done" | "suspend" | "cancel";
 export interface TaskFields {
   title: string;
   projectId: string | null;

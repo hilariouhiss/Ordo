@@ -115,6 +115,17 @@ pub struct BootstrapDto {
     pub settings: SettingsDto,
     pub projects: Vec<ProjectSummaryDto>,
     pub week: Vec<TaskDto>,
+    pub suspended: Vec<TaskDto>,
+    pub pass_needed: bool,
+    pub week_stats: WeekStatsDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekStatsDto {
+    pub added: i64,
+    pub done: i64,
+    pub delayed: i64,
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

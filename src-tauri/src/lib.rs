@@ -24,7 +24,13 @@ pub fn run() {
       commands::tasks::update_task,
       commands::tasks::add_step,
       commands::tasks::toggle_step,
-      commands::tasks::delete_step
+      commands::tasks::delete_step,
+      commands::tasks::pass_queue,
+      commands::tasks::pass_resolve,
+      commands::tasks::mark_pass_done,
+      commands::tasks::week_stats,
+      commands::tasks::list_suspended,
+      commands::tasks::resume_task
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;

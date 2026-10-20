@@ -1,14 +1,22 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../../model/ipc", () => ({ capture: vi.fn(), listWeek: vi.fn() }));
+vi.mock("../../model/ipc", () => ({
+  capture: vi.fn(),
+  listWeek: vi.fn(),
+  listSuspended: vi.fn(),
+  weekStats: vi.fn(),
+  resumeTask: vi.fn(),
+}));
 
-import { capture, listWeek } from "../../model/ipc";
+import { capture, listSuspended, listWeek, weekStats } from "../../model/ipc";
 import { createWeekVM } from "../weekVM";
 import { task } from "./fixtures";
 
 describe("weekVM", () => {
   it("capture stores the task and clears the draft", async () => {
     vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     vi.mocked(capture).mockResolvedValue(task({ id: "t1", title: "周五前把软件方案评审发老李" }));
 
     const vm = createWeekVM();

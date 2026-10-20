@@ -4,13 +4,22 @@ use rusqlite::Connection;
 use tauri::State;
 
 pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let last = crate::repo::settings::get(conn, "last_pass_week")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let queue = crate::services::week::pass_queue(conn)?;
+    let pass_needed = last != crate::services::week::week_start(&today) && !queue.is_empty();
     Ok(BootstrapDto {
         people: crate::repo::people::list(conn).map_err(|e| e.to_string())?,
         categories: crate::repo::categories::list(conn).map_err(|e| e.to_string())?,
         tags: crate::repo::tags::list(conn).map_err(|e| e.to_string())?,
         settings: crate::repo::settings::dto(conn).map_err(|e| e.to_string())?,
         projects: vec![],
-        week: vec![],
+        week: queue,
+        suspended: crate::services::week::list_suspended(conn)?,
+        pass_needed,
+        week_stats: crate::services::week::stats(conn, &today)?,
     })
 }
 

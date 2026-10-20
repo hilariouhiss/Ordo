@@ -70,3 +70,51 @@ pub async fn delete_step(state: State<'_, AppState>, step_id: String) -> Result<
     })
     .await
 }
+#[tauri::command]
+pub async fn pass_queue(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, |conn| crate::services::week::pass_queue(conn)).await
+}
+
+#[tauri::command]
+pub async fn pass_resolve(
+    state: State<'_, AppState>,
+    task_id: String,
+    action: crate::services::week::PassAction,
+    suspend_until: Option<String>,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::week::resolve(conn, &task_id, action, suspend_until.as_deref(), &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn mark_pass_done(state: State<'_, AppState>, today: String) -> Result<(), String> {
+    with_db(&state, move |conn| {
+        crate::services::week::mark_pass_done(conn, &today)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn week_stats(
+    state: State<'_, AppState>,
+    today: String,
+) -> Result<crate::dto::WeekStatsDto, String> {
+    with_db(&state, move |conn| crate::services::week::stats(conn, &today)).await
+}
+
+#[tauri::command]
+pub async fn list_suspended(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, |conn| crate::services::week::list_suspended(conn)).await
+}
+
+#[tauri::command]
+pub async fn resume_task(state: State<'_, AppState>, id: String) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::week::resume(conn, &id, &now)
+    })
+    .await
+}

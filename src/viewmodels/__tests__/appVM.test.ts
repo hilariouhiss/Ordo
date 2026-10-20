@@ -15,6 +15,9 @@ describe("appVM", () => {
       settings: defaultSettings,
       projects: [],
       week: [],
+      suspended: [],
+      passNeeded: false,
+      weekStats: { added: 0, done: 0, delayed: 0 },
     });
     const vm = createAppVM();
     await vm.load();

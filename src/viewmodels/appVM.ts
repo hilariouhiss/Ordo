@@ -8,6 +8,7 @@ import type {
   Settings,
   Tag,
   Task,
+  WeekStats,
 } from "../model/types";
 
 export function createAppVM() {
@@ -19,6 +20,9 @@ export function createAppVM() {
     settings: null as Settings | null,
     projects: [] as ProjectSummary[],
     week: [] as Task[],
+    suspended: [] as Task[],
+    passNeeded: false,
+    weekStats: { added: 0, done: 0, delayed: 0 } as WeekStats,
   });
 
   async function load(): Promise<void> {
@@ -29,6 +33,9 @@ export function createAppVM() {
     state.settings = data.settings;
     state.projects = data.projects;
     state.week = data.week;
+    state.suspended = data.suspended;
+    state.passNeeded = data.passNeeded;
+    state.weekStats = data.weekStats;
     state.ready = true;
   }
 
