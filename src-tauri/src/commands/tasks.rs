@@ -144,3 +144,13 @@ pub async fn add_delay_note(
     })
     .await
 }
+#[tauri::command]
+pub async fn list_project_tasks(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, move |conn| {
+        crate::repo::tasks::list_project(conn, &project_id).map_err(|e| e.to_string())
+    })
+    .await
+}

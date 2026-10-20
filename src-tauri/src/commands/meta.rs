@@ -15,7 +15,7 @@ pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
         categories: crate::repo::categories::list(conn).map_err(|e| e.to_string())?,
         tags: crate::repo::tags::list(conn).map_err(|e| e.to_string())?,
         settings: crate::repo::settings::dto(conn).map_err(|e| e.to_string())?,
-        projects: crate::repo::projects::list_summaries(conn).map_err(|e| e.to_string())?,
+        projects: crate::services::stats::list(conn)?,
         week: queue,
         suspended: crate::services::week::list_suspended(conn)?,
         pass_needed,

@@ -123,3 +123,9 @@ export function ownerCandidates(projectId: string | null): Promise<Person[]> {
 export function listPeople(): Promise<Person[]> {
   return invoke<Person[]>("list_people");
 }
+export function getProjectSummary(id: string): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>("get_project_summary", { id });
+}
+export function listProjectTasks(projectId: string): Promise<Task[]> {
+  return invoke<Task[]>("list_project_tasks", { projectId });
+}

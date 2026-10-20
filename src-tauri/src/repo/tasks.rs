@@ -151,3 +151,14 @@ pub fn update_fields(
     )?;
     Ok(())
 }
+pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM tasks
+         WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
+         ORDER BY due_date IS NULL, due_date, created_at",
+    )?;
+    let ids: Vec<String> = stmt
+        .query_map([project_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ids.iter().map(|id| dto(conn, id)).collect()
+}

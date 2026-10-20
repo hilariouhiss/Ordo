@@ -8,8 +8,16 @@ fn now_iso() -> String {
 
 #[tauri::command]
 pub async fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectSummaryDto>, String> {
-    with_db(&state, |conn| {
-        crate::repo::projects::list_summaries(conn).map_err(|e| e.to_string())
+    with_db(&state, |conn| crate::services::stats::list(conn)).await
+}
+
+#[tauri::command]
+pub async fn get_project_summary(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ProjectSummaryDto, String> {
+    with_db(&state, move |conn| {
+        crate::services::stats::summary(conn, &id)
     })
     .await
 }
