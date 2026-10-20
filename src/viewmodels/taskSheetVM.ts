@@ -1,5 +1,13 @@
 import { reactive } from "vue";
-import { addStep, deleteStep, getTask, toggleStep, updateTask } from "../model/ipc";
+import {
+  addDelayNote,
+  addStep,
+  deleteStep,
+  getTask,
+  setDue as setDueApi,
+  toggleStep,
+  updateTask,
+} from "../model/ipc";
 import type { Task, TaskFields } from "../model/types";
 
 export function createTaskSheetVM() {
@@ -41,12 +49,22 @@ export function createTaskSheetVM() {
     state.task = await deleteStep(stepId);
   }
 
+  async function setDue(due: string | null): Promise<void> {
+    if (!state.openId) return;
+    state.task = await setDueApi(state.openId, due, null);
+  }
+
+  async function addNote(reason: string): Promise<void> {
+    if (!state.openId || !reason.trim()) return;
+    state.task = await addDelayNote(state.openId, reason.trim());
+  }
+
   async function save(fields: TaskFields): Promise<void> {
     if (!state.openId) return;
     state.task = await updateTask(state.openId, fields);
   }
 
-  return { state, open, close, toggle, add, remove, save };
+  return { state, open, close, toggle, add, remove, save, setDue, addNote };
 }
 
 export const taskSheetVM = createTaskSheetVM();

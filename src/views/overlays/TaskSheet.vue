@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { shortDate, todayIso } from "../../lib/dates";
+import { overdueDays } from "../../model/mappers";
 import type { TaskFields } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
@@ -13,6 +15,9 @@ const form = reactive({
   note: "",
 });
 const stepDraft = ref("");
+const noteDraft = ref("");
+
+const late = computed(() => overdueDays(taskSheetVM.state.task?.dueDate ?? null, todayIso()));
 
 watch(
   () => taskSheetVM.state.task,
@@ -157,6 +162,49 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
           </label>
+        </div>
+
+        <div v-if="taskSheetVM.state.task.delays.length" class="mt-3">
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">延期记录</div>
+          <div
+            v-for="d in taskSheetVM.state.task.delays"
+            :key="d.id"
+            class="mt-1 rounded-lg border border-base-300 px-3 py-1.5 text-[11px] text-base-content/60"
+          >
+            <span class="tabular-nums text-base-content/40">
+              {{ d.createdAt.slice(5, 10).replace("-", "/") }}
+            </span>
+            {{ d.reason || "未写原因" }}
+            <span v-if="d.kind === 'reschedule'" class="text-base-content/40">
+              · {{ shortDate(d.oldDue) }} → {{ shortDate(d.newDue) }}
+            </span>
+          </div>
+        </div>
+
+        <div v-if="late > 0 && taskSheetVM.state.task.status !== 'done'" class="mt-3">
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+            逾期 {{ late }} 天 · 记一句原因
+          </div>
+          <div class="mt-1 flex items-center gap-1.5">
+            <input
+              v-model="noteDraft"
+              class="input input-sm flex-1 rounded-lg border-base-300"
+              placeholder="为什么还没交"
+              @keydown.enter="
+                taskSheetVM.addNote(noteDraft);
+                noteDraft = '';
+              "
+            />
+            <button
+              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+              @click="
+                taskSheetVM.addNote(noteDraft);
+                noteDraft = '';
+              "
+            >
+              记下
+            </button>
+          </div>
         </div>
 
         <label class="mt-3 block text-[11px] text-base-content/45">

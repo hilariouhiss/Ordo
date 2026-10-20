@@ -60,3 +60,10 @@ export function listSuspended(): Promise<Task[]> {
 export function resumeTask(id: string): Promise<Task> {
   return invoke<Task>("resume_task", { id });
 }
+export function setDue(id: string, newDue: string | null, reason: string | null): Promise<Task> {
+  return invoke<Task>("set_due", { id, newDue, reason });
+}
+
+export function addDelayNote(id: string, reason: string): Promise<Task> {
+  return invoke<Task>("add_delay_note", { id, reason });
+}

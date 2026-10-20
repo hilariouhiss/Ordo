@@ -118,3 +118,29 @@ pub async fn resume_task(state: State<'_, AppState>, id: String) -> Result<TaskD
     })
     .await
 }
+#[tauri::command]
+pub async fn set_due(
+    state: State<'_, AppState>,
+    id: String,
+    new_due: Option<String>,
+    reason: Option<String>,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::deliverables::set_due(conn, &id, new_due.as_deref(), reason.as_deref(), &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn add_delay_note(
+    state: State<'_, AppState>,
+    id: String,
+    reason: String,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::deliverables::add_note(conn, &id, &reason, &now)
+    })
+    .await
+}

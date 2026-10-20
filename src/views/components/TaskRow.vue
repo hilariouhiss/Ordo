@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
+import { overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import StatusDot from "./StatusDot.vue";
@@ -15,9 +16,8 @@ const owner = computed(
   () => appVM.state.people.find((p) => p.id === props.task.ownerId)?.name ?? null,
 );
 const stepsDone = computed(() => props.task.steps.filter((s) => s.done).length);
-const overdue = computed(
-  () => !!props.task.dueDate && props.task.dueDate < todayIso() && props.task.status !== "done",
-);
+const late = computed(() => overdueDays(props.task.dueDate, todayIso()));
+const overdue = computed(() => late.value > 0 && props.task.status !== "done");
 </script>
 
 <template>
@@ -39,6 +39,7 @@ const overdue = computed(
     <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
       第 {{ task.carryCount }} 次
     </span>
+    <span v-if="overdue" class="badge badge-soft badge-error badge-xs">逾期 {{ late }} 天</span>
     <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
     <span
       v-if="task.dueDate"

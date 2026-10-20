@@ -30,7 +30,9 @@ pub fn run() {
       commands::tasks::mark_pass_done,
       commands::tasks::week_stats,
       commands::tasks::list_suspended,
-      commands::tasks::resume_task
+      commands::tasks::resume_task,
+      commands::tasks::set_due,
+      commands::tasks::add_delay_note
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
