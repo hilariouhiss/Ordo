@@ -198,7 +198,25 @@ pub fn run() {
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
       std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
-      let conn = crate::db::open(&data_dir.join("ordo.db")).map_err(|e| e.to_string())?;
+      let backups = data_dir.join("backups");
+      let conn = match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
+          Ok(conn) => conn,
+          Err(e) => {
+              let message = format!(
+                  "数据库打不开（{e}）。坏文件和备份都留在 {}，什么都没删。",
+                  data_dir.display()
+              );
+              eprintln!("{message}");
+              use tauri_plugin_notification::NotificationExt;
+              let _ = app
+                  .notification()
+                  .builder()
+                  .title("ordo 打不开数据库")
+                  .body(&message)
+                  .show();
+              return Err(message.into());
+          }
+      };
       use tauri_plugin_autostart::ManagerExt;
       let autostart = crate::repo::settings::get(&conn, "autostart")
           .ok()
@@ -210,14 +228,14 @@ pub fn run() {
       } else {
           app.autolaunch().disable()
       };
-      let _ = crate::services::export::backup_today(&conn, &data_dir.join("backups"));
+      let _ = crate::services::export::backup_today(&conn, &backups);
       let keep_days = crate::repo::settings::get(&conn, "backup_keep_days")
           .ok()
           .flatten()
           .and_then(|v| v.parse().ok())
           .unwrap_or(30);
       let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-      let _ = crate::services::export::prune(&data_dir.join("backups"), keep_days, &today);
+      let _ = crate::services::export::prune(&backups, keep_days, &today);
       let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
           .ok()
           .flatten()

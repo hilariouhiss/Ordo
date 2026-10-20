@@ -116,6 +116,9 @@ CREATE INDEX idx_steps_task ON steps(task_id, sort_order);
 CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
+/// The schema version this build writes. Bump it with every new step below.
+pub const LATEST: i64 = 2;
+
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version < 1 {
@@ -125,7 +128,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     }
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version < 2 {
+    if version < LATEST {
         conn.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")?;
         conn.pragma_update(None, "user_version", 2)?;
     }
