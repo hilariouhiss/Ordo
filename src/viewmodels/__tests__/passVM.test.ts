@@ -24,4 +24,13 @@ describe("passVM", () => {
     expect(vm.state.index).toBe(1);
     expect(vm.current.value?.id).toBe("t2");
   });
+
+  it("split returns the current card without advancing", async () => {
+    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" }), task({ id: "t2" })]);
+
+    const vm = createPassVM();
+    await vm.start();
+    expect(vm.splitCurrent()?.id).toBe("t1");
+    expect(vm.state.index).toBe(0);
+  });
 });

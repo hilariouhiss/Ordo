@@ -146,7 +146,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
-  <div class="fixed inset-0 z-40 flex justify-end bg-neutral/40" @click.self="taskSheetVM.close()">
+  <div class="fixed inset-0 z-60 flex justify-end bg-neutral/40" @click.self="taskSheetVM.close()">
     <aside class="h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl">
       <div class="flex items-start gap-2">
         <h2 class="text-[17px] font-semibold leading-snug">{{ taskSheetVM.state.task?.title }}</h2>

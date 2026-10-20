@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { shortDate } from "../../lib/dates";
 import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
+import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import { weekVM } from "../../viewmodels/weekVM";
 
 const suspendOpen = ref(false);
@@ -39,8 +40,15 @@ async function finish(): Promise<void> {
   await weekVM.load();
 }
 
+function split(): void {
+  const card = passVM.splitCurrent();
+  if (card) void taskSheetVM.open(card.id);
+}
+
 function onKey(event: KeyboardEvent): void {
   if (!passVM.state.open || finished.value) return;
+  // While the task sheet is open it owns the keyboard; its own Escape closes just it.
+  if (taskSheetVM.state.openId) return;
   if (event.key === "Escape") {
     passVM.close();
     return;
@@ -49,6 +57,7 @@ function onKey(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "d") return void act("done");
   if (event.key.toLowerCase() === "x") return void act("cancel");
   if (event.key.toLowerCase() === "s") suspendOpen.value = true;
+  if (event.key.toLowerCase() === "e") split();
 }
 
 onMounted(() => window.addEventListener("keydown", onKey));
@@ -106,6 +115,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               @click="act('done')"
             >
               完成 <kbd class="kbd kbd-xs ml-1">D</kbd>
+            </button>
+            <button class="btn rounded-lg border-base-300 bg-base-100 font-normal" @click="split">
+              拆开 <kbd class="kbd kbd-xs ml-1">E</kbd>
             </button>
             <button
               class="btn rounded-lg border-base-300 bg-base-100 font-normal"
