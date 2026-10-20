@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectSummary,
   Settings,
+  ShortcutOutcome,
   Tag,
   Task,
   TaskFields,
@@ -189,4 +190,7 @@ export function deleteTag(id: string): Promise<void> {
 }
 export function markNotificationsSeen(): Promise<void> {
   return invoke<void>("mark_notifications_seen");
+}
+export function setShortcut(next: string): Promise<ShortcutOutcome> {
+  return invoke<ShortcutOutcome>("set_shortcut", { next });
 }

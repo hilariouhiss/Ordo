@@ -1,11 +1,50 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
 
 const settings = computed(() => appVM.state.settings);
 const categoryName = ref("");
 const tagName = ref("");
+const recording = ref(false);
+const pendingShortcut = ref("");
+const shortcutWarning = ref("");
+
+function startRecord(): void {
+  pendingShortcut.value = "";
+  recording.value = true;
+}
+
+function onKey(event: KeyboardEvent): void {
+  if (!recording.value) return;
+  event.preventDefault();
+  if (event.key === "Escape") {
+    recording.value = false;
+    return;
+  }
+  if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
+  const parts: string[] = [];
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (event.metaKey) parts.push("Super");
+  parts.push(event.key.length === 1 ? event.key.toUpperCase() : event.key);
+  if (parts.length < 2) return;
+  pendingShortcut.value = parts.join("+");
+  recording.value = false;
+}
+
+async function applyShortcut(): Promise<void> {
+  if (!pendingShortcut.value) return;
+  const outcome = await ipc.setShortcut(pendingShortcut.value);
+  if (appVM.state.settings) appVM.state.settings.shortcut = outcome.active;
+  shortcutWarning.value = outcome.warning ?? "";
+  pendingShortcut.value = "";
+}
+
+onMounted(() => window.addEventListener("keydown", onKey));
+onUnmounted(() => window.removeEventListener("keydown", onKey));
 
 async function addCategory(): Promise<void> {
   await vm.addCategory(categoryName.value);
@@ -128,10 +167,28 @@ async function addTag(): Promise<void> {
           </div>
           <div class="mt-3 flex items-center justify-between text-[12px]">
             <span>全局快捷键</span>
-            <span class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50">
-              {{ settings.shortcut }}
+            <span class="flex items-center gap-2">
+              <span class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50">
+                {{ recording ? "按下组合键…" : pendingShortcut || settings.shortcut }}
+              </span>
+              <button
+                class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                @click="startRecord"
+              >
+                改
+              </button>
+              <button
+                v-if="pendingShortcut"
+                class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
+                @click="applyShortcut"
+              >
+                保存
+              </button>
             </span>
           </div>
+          <p v-if="shortcutWarning" class="mt-1 text-[10.5px] text-error">
+            没换成：{{ shortcutWarning }}
+          </p>
           <div class="mt-3 flex items-center justify-between text-[12px]">
             <span>周起点</span>
             <span class="text-[11px] text-base-content/40">周一</span>

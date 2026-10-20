@@ -206,3 +206,41 @@ pub async fn delete_tag(state: State<'_, AppState>, id: String) -> Result<(), St
     })
     .await
 }
+#[tauri::command]
+pub async fn set_shortcut(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    next: String,
+) -> Result<crate::services::shortcut::ShortcutOutcome, String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+
+    let current = crate::state::with_db(&state, |conn| {
+        crate::repo::settings::get(conn, "shortcut")
+            .map_err(|e| e.to_string())
+            .map(|v| v.unwrap_or_else(|| "Ctrl+Alt+O".into()))
+    })
+    .await?;
+
+    if let Ok(old) = current.parse::<Shortcut>() {
+        let _ = app.global_shortcut().unregister(old);
+    }
+
+    let app_for_register = app.clone();
+    let outcome = crate::services::shortcut::apply(&current, &next, |candidate| {
+        let parsed = candidate.parse::<Shortcut>().map_err(|e| e.to_string())?;
+        crate::register_shortcut(&app_for_register, parsed)
+    });
+
+    if outcome.warning.is_some() {
+        if let Ok(old) = current.parse::<Shortcut>() {
+            let _ = crate::register_shortcut(&app, old);
+        }
+    } else {
+        let active = outcome.active.clone();
+        crate::state::with_db(&state, move |conn| {
+            crate::repo::settings::set(conn, "shortcut", &active).map_err(|e| e.to_string())
+        })
+        .await?;
+    }
+    Ok(outcome)
+}

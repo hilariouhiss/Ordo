@@ -129,3 +129,7 @@ export interface ArchiveData {
   tasks: Task[];
   canceled: Task[];
 }
+export interface ShortcutOutcome {
+  active: string;
+  warning: string | null;
+}

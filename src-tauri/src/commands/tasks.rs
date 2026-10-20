@@ -1,6 +1,8 @@
 use crate::dto::TaskDto;
 use crate::services::week;
 use crate::state::{with_db, AppState};
+use tauri::Emitter;
+use tauri::Manager;
 use tauri::State;
 
 fn now_iso() -> String {
@@ -8,10 +10,18 @@ fn now_iso() -> String {
 }
 
 #[tauri::command]
-pub async fn capture(state: State<'_, AppState>, raw: String) -> Result<TaskDto, String> {
+pub async fn capture(
+    state: State<'_, AppState>,
+    window: tauri::WebviewWindow,
+    raw: String,
+) -> Result<TaskDto, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_iso();
-    with_db(&state, move |conn| week::capture(conn, &raw, &now, &id)).await
+    let task = with_db(&state, move |conn| week::capture(conn, &raw, &now, &id)).await?;
+    if window.label() == "capture" {
+        let _ = window.app_handle().emit_to("main", "capture:created", &task.id);
+    }
+    Ok(task)
 }
 
 #[tauri::command]

@@ -1,3 +1,4 @@
+use tauri::Emitter;
 use tauri::Manager;
 
 pub mod commands;
@@ -13,6 +14,33 @@ fn greet(name: &str) -> String {
   format!("Hello, {name}! From Rust.")
 }
 
+
+pub fn toggle_capture(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("capture") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = app.emit_to("capture", "capture:focus", ());
+        }
+    }
+}
+
+pub fn register_shortcut(
+    app: &tauri::AppHandle,
+    shortcut: tauri_plugin_global_shortcut::Shortcut,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                toggle_capture(app);
+            }
+        })
+        .map_err(|e| e.to_string())
+}
 
 fn show_main(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -60,6 +88,7 @@ pub fn run() {
       show_main(app);
     }))
     .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_global_shortcut::Builder::new().build())
     .plugin(tauri_plugin_autostart::init(
       tauri_plugin_autostart::MacosLauncher::LaunchAgent,
       None,
@@ -117,6 +146,7 @@ pub fn run() {
       commands::meta::reorder_categories,
       commands::meta::create_tag,
       commands::meta::delete_tag,
+      commands::meta::set_shortcut,
       commands::tasks::mark_notifications_seen
     ])
     .setup(|app| {
@@ -135,7 +165,29 @@ pub fn run() {
           app.autolaunch().disable()
       };
       let _ = crate::services::export::backup_today(&conn, &data_dir.join("backups"));
+      let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
+          .ok()
+          .flatten()
+          .unwrap_or_else(|| "Ctrl+Alt+O".into());
       app.manage(crate::state::AppState::new(conn));
+
+      let _capture = tauri::WebviewWindowBuilder::new(
+          app,
+          "capture",
+          tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("ordo")
+        .inner_size(560.0, 96.0)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .visible(false)
+        .build()?;
+
+      if let Ok(shortcut) = shortcut_setting.parse() {
+          let _ = register_shortcut(app.handle(), shortcut);
+      }
 
       build_tray(app)?;
       crate::reminders::start(app.handle().clone());

@@ -1,12 +1,18 @@
 <script setup lang="ts">
+import { listen } from "@tauri-apps/api/event";
+import { isTauri } from "@tauri-apps/api/core";
 import { onMounted } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import { appVM } from "./viewmodels/appVM";
 import { settingsVM } from "./viewmodels/settingsVM";
+import { weekVM } from "./viewmodels/weekVM";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
-onMounted(() => {
-  void appVM.load();
+onMounted(async () => {
+  await appVM.load();
+  if (isTauri()) {
+    await listen("capture:created", () => void weekVM.load());
+  }
 });
 </script>
 
