@@ -1,3 +1,8 @@
+use tauri::Manager;
+
+pub mod db;
+pub mod state;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
   format!("Hello, {name}! From Rust.")
@@ -8,6 +13,11 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![greet])
     .setup(|app| {
+      let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+      std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+      let conn = crate::db::open(&data_dir.join("ordo.db")).map_err(|e| e.to_string())?;
+      app.manage(crate::state::AppState::new(conn));
+
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
