@@ -2,6 +2,8 @@
 import { onMounted } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import { appVM } from "./viewmodels/appVM";
+import { settingsVM } from "./viewmodels/settingsVM";
+import SettingsModal from "./views/overlays/SettingsModal.vue";
 
 onMounted(() => {
   void appVM.load();
@@ -18,9 +20,16 @@ onMounted(() => {
         <RouterLink to="/archive" class="tab" active-class="tab-active">归档</RouterLink>
       </nav>
       <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs ml-auto"></span>
+      <button
+        class="ml-auto text-[13px] text-base-content/35 hover:text-base-content/60"
+        @click="settingsVM.open()"
+      >
+        ⚙
+      </button>
     </header>
     <main class="mx-auto max-w-[980px] px-6 py-5">
       <RouterView />
     </main>
+    <SettingsModal v-if="settingsVM.state.open" />
   </div>
 </template>

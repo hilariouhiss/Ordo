@@ -2,10 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ArchiveData,
   Bootstrap,
+  Category,
   PassAction,
   Person,
   Project,
   ProjectSummary,
+  Settings,
+  Tag,
   Task,
   TaskFields,
   WeekStats,
@@ -144,4 +147,43 @@ export function restoreTask(id: string): Promise<Task> {
 
 export function deleteTask(id: string): Promise<void> {
   return invoke<void>("delete_task", { id });
+}
+export function getSettings(): Promise<Settings> {
+  return invoke<Settings>("get_settings");
+}
+
+export function setSettings(patch: Partial<Settings>): Promise<Settings> {
+  return invoke<Settings>("set_settings", { patch });
+}
+
+export function exportJson(): Promise<string> {
+  return invoke<string>("export_json");
+}
+
+export function backupNow(): Promise<string> {
+  return invoke<string>("backup_now");
+}
+
+export function createCategory(name: string): Promise<Category> {
+  return invoke<Category>("create_category", { name });
+}
+
+export function renameCategory(id: string, name: string): Promise<void> {
+  return invoke<void>("rename_category", { id, name });
+}
+
+export function deleteCategory(id: string): Promise<void> {
+  return invoke<void>("delete_category", { id });
+}
+
+export function reorderCategories(ids: string[]): Promise<Category[]> {
+  return invoke<Category[]>("reorder_categories", { ids });
+}
+
+export function createTag(name: string): Promise<Tag> {
+  return invoke<Tag>("create_tag", { name });
+}
+
+export function deleteTag(id: string): Promise<void> {
+  return invoke<void>("delete_tag", { id });
 }

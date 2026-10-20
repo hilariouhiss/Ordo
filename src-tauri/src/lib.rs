@@ -49,12 +49,23 @@ pub fn run() {
       commands::archive::list_archive,
       commands::archive::archive_task,
       commands::archive::restore_task,
-      commands::archive::delete_task
+      commands::archive::delete_task,
+      commands::meta::get_settings,
+      commands::meta::set_settings,
+      commands::meta::export_json,
+      commands::meta::backup_now,
+      commands::meta::create_category,
+      commands::meta::rename_category,
+      commands::meta::delete_category,
+      commands::meta::reorder_categories,
+      commands::meta::create_tag,
+      commands::meta::delete_tag
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
       std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
       let conn = crate::db::open(&data_dir.join("ordo.db")).map_err(|e| e.to_string())?;
+      let _ = crate::services::export::backup_today(&conn, &data_dir.join("backups"));
       app.manage(crate::state::AppState::new(conn));
 
       if cfg!(debug_assertions) {

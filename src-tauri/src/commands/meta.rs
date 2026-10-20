@@ -1,7 +1,7 @@
-use crate::dto::BootstrapDto;
-use crate::state::AppState;
+use crate::dto::{BootstrapDto, CategoryDto, SettingsDto, SettingsPatch, TagDto};
+use crate::state::{with_db, AppState};
 use rusqlite::Connection;
-use tauri::State;
+use tauri::{Manager, State};
 
 pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -31,6 +31,14 @@ pub async fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapDto, Strin
 #[cfg(test)]
 mod tests {
     #[test]
+    fn settings_roundtrip() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::repo::settings::set(&c, "shortcut", "Ctrl+Alt+P").unwrap();
+        let s = crate::repo::settings::dto(&c).unwrap();
+        assert_eq!(s.shortcut, "Ctrl+Alt+P");
+    }
+
+    #[test]
     fn bootstrap_returns_seed() {
         let c = crate::db::open_in_memory().unwrap();
         let b = crate::commands::meta::build_bootstrap(&c).unwrap();
@@ -39,4 +47,162 @@ mod tests {
         assert_eq!(b.categories.len(), 8);
         assert_eq!(b.settings.shortcut, "Ctrl+Alt+O");
     }
+}
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
+    with_db(&state, |conn| {
+        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_settings(
+    state: State<'_, AppState>,
+    patch: SettingsPatch,
+) -> Result<SettingsDto, String> {
+    with_db(&state, move |conn| {
+        let sets: Vec<(&str, Option<String>)> = vec![
+            ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
+            ("ai.base_url", patch.ai_base_url),
+            ("ai.model", patch.ai_model),
+            ("shortcut", patch.shortcut),
+            ("autostart", patch.autostart.map(|v| v.to_string())),
+            ("week_start", patch.week_start.map(|v| v.to_string())),
+            ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
+        ];
+        for (key, value) in sets {
+            if let Some(value) = value {
+                crate::repo::settings::set(conn, key, &value).map_err(|e| e.to_string())?;
+            }
+        }
+        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn export_json(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("exports");
+    let file = dir.join(format!(
+        "ordo-export-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    ));
+    with_db(&state, move |conn| {
+        crate::services::export::to_json(conn, &file)?;
+        Ok(file.to_string_lossy().to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn backup_now(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("backups");
+    with_db(&state, move |conn| {
+        match crate::services::export::backup_today(conn, &dir)? {
+            Some(path) => Ok(path.to_string_lossy().to_string()),
+            None => Ok(dir
+                .join(format!("ordo-{}.db", chrono::Local::now().format("%Y-%m-%d")))
+                .to_string_lossy()
+                .to_string()),
+        }
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_category(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<CategoryDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        let sort = crate::repo::categories::next_sort(conn).map_err(|e| e.to_string())?;
+        crate::repo::categories::create(
+            conn,
+            &uuid::Uuid::new_v4().to_string(),
+            name.trim(),
+            sort,
+            &now,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_category(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::repo::categories::rename(conn, &id, name.trim(), &now).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_category(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::repo::categories::soft_delete(conn, &id, &now).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn reorder_categories(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<Vec<CategoryDto>, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::repo::categories::reorder(conn, &ids, &now).map_err(|e| e.to_string())?;
+        crate::repo::categories::list(conn).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_tag(state: State<'_, AppState>, name: String) -> Result<TagDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::repo::tags::find_or_create(
+            conn,
+            &uuid::Uuid::new_v4().to_string(),
+            name.trim(),
+            &now,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_tag(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::repo::tags::soft_delete(conn, &id, &now).map_err(|e| e.to_string())
+    })
+    .await
 }

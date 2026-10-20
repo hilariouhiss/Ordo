@@ -156,3 +156,14 @@ pub struct TaskFields {
     pub due_date: Option<String>,
     pub note: Option<String>,
 }
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsPatch {
+    pub ai_enabled: Option<bool>,
+    pub ai_base_url: Option<String>,
+    pub ai_model: Option<String>,
+    pub shortcut: Option<String>,
+    pub autostart: Option<bool>,
+    pub week_start: Option<i64>,
+    pub backup_keep_days: Option<i64>,
+}
