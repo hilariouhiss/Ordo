@@ -6,6 +6,7 @@ vi.mock("../../model/ipc", () => ({
   listSuspended: vi.fn(),
   weekStats: vi.fn(),
   resumeTask: vi.fn(),
+  markNotificationsSeen: vi.fn(),
 }));
 
 import { capture, listSuspended, listWeek, weekStats } from "../../model/ipc";

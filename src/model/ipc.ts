@@ -187,3 +187,6 @@ export function createTag(name: string): Promise<Tag> {
 export function deleteTag(id: string): Promise<void> {
   return invoke<void>("delete_tag", { id });
 }
+export function markNotificationsSeen(): Promise<void> {
+  return invoke<void>("mark_notifications_seen");
+}

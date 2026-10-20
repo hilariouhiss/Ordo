@@ -4,6 +4,7 @@ import {
   capture as captureApi,
   listSuspended,
   listWeek,
+  markNotificationsSeen,
   resumeTask,
   weekStats,
 } from "../model/ipc";
@@ -30,6 +31,7 @@ export function createWeekVM() {
       state.tasks = tasks;
       state.suspended = suspended;
       state.stats = stats;
+      void markNotificationsSeen();
     } finally {
       state.loading = false;
     }

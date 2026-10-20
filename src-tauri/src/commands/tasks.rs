@@ -154,3 +154,11 @@ pub async fn list_project_tasks(
     })
     .await
 }
+#[tauri::command]
+pub async fn mark_notifications_seen(state: State<'_, AppState>) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::repo::notifications::mark_all_seen(conn, &now).map_err(|e| e.to_string())
+    })
+    .await
+}
