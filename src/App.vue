@@ -4,6 +4,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { onMounted } from "vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import { appVM } from "./viewmodels/appVM";
+import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { weekVM } from "./viewmodels/weekVM";
@@ -20,6 +21,12 @@ onMounted(async () => {
       await router.push("/week");
       await taskSheetVM.open(event.payload);
     });
+    await listen("nav:week", async () => router.push("/week"));
+    await listen("nav:pass", async () => {
+      await router.push("/week");
+      await passVM.start();
+    });
+    await listen("open:settings", () => settingsVM.open());
   }
 });
 </script>

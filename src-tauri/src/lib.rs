@@ -46,13 +46,46 @@ fn show_main(app: &tauri::AppHandle) {
     }
 }
 
+/// Tells the user, once, that closing the window only hides it.
+fn first_close_hint(app: &tauri::AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+    let seen = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|conn| {
+            let seen = crate::repo::settings::get(&conn, "tray_hint_seen")
+                .ok()
+                .flatten()
+                .is_some();
+            if !seen {
+                let _ = crate::repo::settings::set(&conn, "tray_hint_seen", "true");
+            }
+            Some(seen)
+        })
+        .unwrap_or(true);
+    if seen {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("ordo 还在托盘运行")
+        .body("点托盘图标就能叫回来，右键菜单可以退出。")
+        .show();
+}
+
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     let open = MenuItem::with_id(app, "open", "打开 ordo", true, None::<&str>)?;
+    let week = MenuItem::with_id(app, "week", "本周", true, None::<&str>)?;
+    let pass = MenuItem::with_id(app, "pass", "过一遍", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &week, &pass, &settings, &quit])?;
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
@@ -60,6 +93,18 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
+            "week" => {
+                show_main(app);
+                let _ = app.emit_to("main", "nav:week", ());
+            }
+            "pass" => {
+                show_main(app);
+                let _ = app.emit_to("main", "nav:pass", ());
+            }
+            "settings" => {
+                show_main(app);
+                let _ = app.emit_to("main", "open:settings", ());
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -94,6 +139,7 @@ pub fn run() {
         if window.label() == "main" {
           api.prevent_close();
           let _ = window.hide();
+          first_close_hint(window.app_handle());
         }
       }
     })
