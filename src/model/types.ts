@@ -123,7 +123,6 @@ export interface TaskPatch {
   categoryId?: string | null;
   ownerId?: string | null;
   startDate?: string | null;
-  dueDate?: string | null;
   note?: string | null;
   tags?: string[];
 }

@@ -12,6 +12,13 @@ import SettingsModal from "./views/overlays/SettingsModal.vue";
 
 const router = useRouter();
 
+// The tray always lands somewhere clean; a leftover overlay would hide it.
+function closeOverlays(): void {
+  taskSheetVM.close();
+  passVM.close();
+  settingsVM.close();
+}
+
 onMounted(async () => {
   await appVM.load();
   if (isTauri()) {
@@ -21,12 +28,19 @@ onMounted(async () => {
       await router.push("/week");
       await taskSheetVM.open(event.payload);
     });
-    await listen("nav:week", async () => router.push("/week"));
+    await listen("nav:week", async () => {
+      closeOverlays();
+      await router.push("/week");
+    });
     await listen("nav:pass", async () => {
+      closeOverlays();
       await router.push("/week");
       await passVM.start();
     });
-    await listen("open:settings", () => settingsVM.open());
+    await listen("open:settings", () => {
+      closeOverlays();
+      settingsVM.open();
+    });
   }
 });
 </script>

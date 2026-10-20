@@ -149,6 +149,7 @@ pub struct WeekStatsDto {
 }
 /// A task edit. An absent field keeps its value; an explicit `null` clears it.
 /// `title` and `tags` are not nullable, so absent keeps and a value replaces.
+/// No `due_date`: a deadline only moves through `set_due`, which writes the delay record.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPatch {
@@ -162,8 +163,6 @@ pub struct TaskPatch {
     pub owner_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "clearable")]
     pub start_date: Option<Option<String>>,
-    #[serde(default, deserialize_with = "clearable")]
-    pub due_date: Option<Option<String>>,
     #[serde(default, deserialize_with = "clearable")]
     pub note: Option<Option<String>>,
     #[serde(default)]

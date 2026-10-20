@@ -73,6 +73,39 @@ mod tests {
     }
 
     #[test]
+    fn a_tags_only_patch_still_bumps_updated_at() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET updated_at = '2000-01-01T00:00:00Z' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        let patch = TaskPatch {
+            tags: Some(vec!["fix".into()]),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+        assert_eq!(t.updated_at, NOW);
+        assert_eq!(t.tags.len(), 1);
+    }
+
+    #[test]
+    fn a_due_date_in_the_payload_cannot_skip_the_reschedule_record() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET due_date = '2026-10-25' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        // Due dates only move through set_due, which writes the delay record.
+        let patch: TaskPatch = serde_json::from_str(r#"{"dueDate":"2026-12-01"}"#).unwrap();
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+        assert_eq!(t.due_date.as_deref(), Some("2026-10-25"));
+    }
+
+    #[test]
     fn patch_json_distinguishes_absent_from_null() {
         let patch: TaskPatch = serde_json::from_str(r#"{"title":"新"}"#).unwrap();
         assert_eq!(patch.title.as_deref(), Some("新"));

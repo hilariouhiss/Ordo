@@ -15,7 +15,10 @@ export function createPassVM() {
   const current = computed(() => state.queue[state.index] ?? null);
 
   async function start(): Promise<void> {
-    state.queue = await passQueue();
+    const queue = await passQueue();
+    // Nothing to go through: opening would show the "this round is done" screen for no reason.
+    if (!queue.length) return;
+    state.queue = queue;
     state.index = 0;
     state.open = true;
   }

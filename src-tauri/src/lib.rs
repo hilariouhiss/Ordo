@@ -54,26 +54,28 @@ fn first_close_hint(app: &tauri::AppHandle) {
         .lock()
         .ok()
         .and_then(|conn| {
-            let seen = crate::repo::settings::get(&conn, "tray_hint_seen")
+            crate::repo::settings::get(&conn, "tray_hint_seen")
                 .ok()
                 .flatten()
-                .is_some();
-            if !seen {
-                let _ = crate::repo::settings::set(&conn, "tray_hint_seen", "true");
-            }
-            Some(seen)
         })
-        .unwrap_or(true);
+        .is_some();
     if seen {
         return;
     }
     use tauri_plugin_notification::NotificationExt;
-    let _ = app
+    let shown = app
         .notification()
         .builder()
         .title("ordo 还在托盘运行")
         .body("点托盘图标就能叫回来，右键菜单可以退出。")
         .show();
+    // Mark it seen only after the toast went out; a suppressed one would otherwise
+    // cost the user the only explanation of where the window went.
+    if shown.is_ok() {
+        if let Ok(conn) = state.db.lock() {
+            let _ = crate::repo::settings::set(&conn, "tray_hint_seen", "true");
+        }
+    }
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {

@@ -161,25 +161,7 @@ pub fn apply_patch(
     push(&mut cols, &mut vals, "category_id", &patch.category_id);
     push(&mut cols, &mut vals, "owner_id", &patch.owner_id);
     push(&mut cols, &mut vals, "start_date", &patch.start_date);
-    push(&mut cols, &mut vals, "due_date", &patch.due_date);
     push(&mut cols, &mut vals, "note", &patch.note);
-
-    if !cols.is_empty() {
-        cols.push("updated_at");
-        vals.push(Some(now.to_owned()));
-        let set = cols
-            .iter()
-            .enumerate()
-            .map(|(i, col)| format!("{col} = ?{}", i + 1))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!("UPDATE tasks SET {set} WHERE id = ?{}", cols.len() + 1);
-        let mut args: Vec<&dyn rusqlite::ToSql> =
-            vals.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
-        let id_param: &str = id;
-        args.push(&id_param);
-        tx.prepare_cached(&sql)?.execute(args.as_slice())?;
-    }
 
     if let Some(tags) = &patch.tags {
         tx.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
@@ -200,6 +182,25 @@ pub fn apply_patch(
             )?;
         }
     }
+
+    // A tags-only patch still counts as an edit, so archived lists re-sort on it.
+    if cols.is_empty() && patch.tags.is_none() {
+        return tx.commit();
+    }
+    cols.push("updated_at");
+    vals.push(Some(now.to_owned()));
+    let set = cols
+        .iter()
+        .enumerate()
+        .map(|(i, col)| format!("{col} = ?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!("UPDATE tasks SET {set} WHERE id = ?{}", cols.len() + 1);
+    let mut args: Vec<&dyn rusqlite::ToSql> =
+        vals.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+    let id_param: &str = id;
+    args.push(&id_param);
+    tx.prepare_cached(&sql)?.execute(args.as_slice())?;
     tx.commit()
 }
 pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
