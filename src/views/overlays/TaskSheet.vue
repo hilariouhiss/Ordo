@@ -4,9 +4,9 @@ import { shortDate, todayIso } from "../../lib/dates";
 import { isImeEnter } from "../../lib/keys";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
-import type { Person, Status, TaskPatch } from "../../model/types";
+import type { Person, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
-import { taskSheetVM } from "../../viewmodels/taskSheetVM";
+import { diffTask, taskSheetVM } from "../../viewmodels/taskSheetVM";
 
 const statusOptions: { value: Status; label: string }[] = [
   { value: "todo", label: "未开始" },
@@ -71,18 +71,7 @@ async function save(): Promise<void> {
   if ((form.dueDate || null) !== (task.dueDate ?? null)) {
     await taskSheetVM.setDue(form.dueDate || null);
   }
-  // Send only what the user touched, so a save cannot wipe fields AI filled in.
-  const title = form.title.trim() || task.title;
-  const patch: TaskPatch = {};
-  if (title !== task.title) patch.title = title;
-  if (form.projectId !== task.projectId) patch.projectId = form.projectId;
-  if (form.categoryId !== task.categoryId) patch.categoryId = form.categoryId;
-  if (form.ownerId !== task.ownerId) patch.ownerId = form.ownerId;
-  if ((form.startDate || null) !== task.startDate) patch.startDate = form.startDate || null;
-  if ((form.note || null) !== task.note) patch.note = form.note || null;
-  if (form.tags.join("\u0000") !== task.tags.map((t) => t.name).join("\u0000")) {
-    patch.tags = form.tags;
-  }
+  const patch = diffTask(task, form);
   if (Object.keys(patch).length) await taskSheetVM.patch(patch);
 }
 

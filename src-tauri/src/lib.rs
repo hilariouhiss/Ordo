@@ -199,24 +199,40 @@ pub fn run() {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
       std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
       let backups = data_dir.join("backups");
-      let conn = match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
-          Ok(conn) => conn,
-          Err(e) => {
-              let message = format!(
-                  "数据库打不开（{e}）。坏文件和备份都留在 {}，什么都没删。",
-                  data_dir.display()
-              );
-              eprintln!("{message}");
-              use tauri_plugin_notification::NotificationExt;
-              let _ = app
-                  .notification()
-                  .builder()
-                  .title("ordo 打不开数据库")
-                  .body(&message)
-                  .show();
-              return Err(message.into());
-          }
-      };
+      let (conn, recovery) =
+          match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
+              Ok(found) => found,
+              Err(e) => {
+                  let message = format!(
+                      "数据库打不开（{e}）。坏文件和备份都留在 {}，什么都没删。",
+                      data_dir.display()
+                  );
+                  // stderr is invisible in a windows_subsystem release build, so leave a file.
+                  eprintln!("{message}");
+                  let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
+                  use tauri_plugin_notification::NotificationExt;
+                  let _ = app
+                      .notification()
+                      .builder()
+                      .title("ordo 打不开数据库")
+                      .body(&message)
+                      .show();
+                  return Err(message.into());
+              }
+          };
+      if let Some(recovery) = recovery {
+          use tauri_plugin_notification::NotificationExt;
+          let _ = app
+              .notification()
+              .builder()
+              .title("已从备份恢复数据库")
+              .body(format!(
+                  "用的是 {}。坏文件存为 {}，没有删任何东西。",
+                  recovery.restored_from.display(),
+                  recovery.broken_file_kept_at.display()
+              ))
+              .show();
+      }
       use tauri_plugin_autostart::ManagerExt;
       let autostart = crate::repo::settings::get(&conn, "autostart")
           .ok()
@@ -302,5 +318,5 @@ pub fn run() {
       Ok(())
     })
     .run(tauri::generate_context!())
-    .expect("error while building tauri application");
+    .map_err(|e| eprintln!("ordo 启动失败：{e}"));
 }
