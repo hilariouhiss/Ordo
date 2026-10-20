@@ -1,6 +1,9 @@
 use tauri::Manager;
 
+pub mod commands;
 pub mod db;
+pub mod dto;
+pub mod repo;
 pub mod state;
 
 #[tauri::command]
@@ -11,7 +14,7 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![greet])
+    .invoke_handler(tauri::generate_handler![greet, commands::meta::bootstrap])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
       std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;

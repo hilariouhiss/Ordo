@@ -1,0 +1,98 @@
+export type Status = "todo" | "doing" | "done";
+
+export interface Person {
+  id: string;
+  name: string;
+  isMe: boolean;
+  color: string | null;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+}
+
+export interface Settings {
+  aiEnabled: boolean;
+  aiBaseUrl: string;
+  aiModel: string;
+  aiHasKey: boolean;
+  shortcut: string;
+  autostart: boolean;
+  weekStart: number;
+  backupKeepDays: number;
+  lastPassWeek?: string;
+}
+
+export interface Step {
+  id: string;
+  taskId: string;
+  title: string;
+  sortOrder: number;
+  done: boolean;
+  dueDate: string | null;
+}
+
+export interface Delay {
+  id: string;
+  taskId: string;
+  kind: "reschedule" | "overdue_note";
+  oldDue: string | null;
+  newDue: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  projectId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  status: Status;
+  inWeek: boolean;
+  carryCount: number;
+  suspendedUntil: string | null;
+  note: string | null;
+  archivedAt: string | null;
+  canceledAt: string | null;
+  steps: Step[];
+  tags: Tag[];
+  delays: Delay[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CategoryProgress {
+  categoryId: string;
+  name: string;
+  total: number;
+  done: number;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  dueDate: string | null;
+  total: number;
+  done: number;
+  byCategory: CategoryProgress[];
+  summaryLine: string;
+}
+
+export interface Bootstrap {
+  people: Person[];
+  categories: Category[];
+  tags: Tag[];
+  settings: Settings;
+  projects: ProjectSummary[];
+  week: Task[];
+}

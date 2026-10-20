@@ -1,48 +1,26 @@
 <script setup lang="ts">
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { ref } from "vue";
+import { onMounted } from "vue";
+import { RouterLink, RouterView } from "vue-router";
+import { appVM } from "./viewmodels/appVM";
 
-const name = ref("Ordo");
-const greeting = ref("在桌面应用中点击按钮，经 Rust 返回问候。");
-const hasError = ref(false);
-
-async function greet() {
-  hasError.value = false;
-
-  if (!isTauri()) {
-    greeting.value = "浏览器预览：Tauri IPC 不可用。";
-    return;
-  }
-
-  try {
-    greeting.value = await invoke<string>("greet", { name: name.value });
-  } catch (error) {
-    hasError.value = true;
-    greeting.value = "IPC 调用失败：" + String(error);
-  }
-}
+onMounted(() => {
+  void appVM.load();
+});
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-base-200 p-4 sm:p-8">
-    <section class="card w-full max-w-md bg-base-100 shadow-xl">
-      <div class="card-body gap-4">
-        <h1 class="card-title text-2xl sm:text-3xl">Ordo</h1>
-        <p class="text-base-content/70">Tauri 2 + Vue 3.6 + daisyUI</p>
-
-        <label class="input w-full">
-          <span class="label">名称</span>
-          <input v-model="name" type="text" placeholder="Ordo" />
-        </label>
-
-        <div class="card-actions">
-          <button type="button" class="btn btn-block" @click="greet">Greet from Rust</button>
-        </div>
-
-        <div role="alert" class="alert" :class="hasError ? 'alert-error' : 'alert-info'">
-          <span>{{ greeting }}</span>
-        </div>
-      </div>
-    </section>
-  </main>
+  <div class="min-h-screen bg-base-200 text-base-content">
+    <header class="flex items-center gap-4 border-b border-base-300 bg-base-100 px-6 py-3">
+      <span class="text-[15px] font-semibold tracking-tight">ordo</span>
+      <nav role="tablist" class="tabs tabs-border tabs-sm">
+        <RouterLink to="/week" class="tab" active-class="tab-active">本周</RouterLink>
+        <RouterLink to="/projects" class="tab" active-class="tab-active">项目</RouterLink>
+        <RouterLink to="/archive" class="tab" active-class="tab-active">归档</RouterLink>
+      </nav>
+      <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs ml-auto"></span>
+    </header>
+    <main class="mx-auto max-w-[980px] px-6 py-5">
+      <RouterView />
+    </main>
+  </div>
 </template>
