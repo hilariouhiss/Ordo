@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Bootstrap, PassAction, Task, TaskFields, WeekStats } from "./types";
+import type {
+  Bootstrap,
+  PassAction,
+  Person,
+  Project,
+  ProjectSummary,
+  Task,
+  TaskFields,
+  WeekStats,
+} from "./types";
 
 export function bootstrap(): Promise<Bootstrap> {
   return invoke<Bootstrap>("bootstrap");
@@ -66,4 +75,51 @@ export function setDue(id: string, newDue: string | null, reason: string | null)
 
 export function addDelayNote(id: string, reason: string): Promise<Task> {
   return invoke<Task>("add_delay_note", { id, reason });
+}
+export function listProjects(): Promise<ProjectSummary[]> {
+  return invoke<ProjectSummary[]>("list_projects");
+}
+
+export function getProject(id: string): Promise<Project> {
+  return invoke<Project>("get_project", { id });
+}
+
+export function createProject(name: string, dueDate: string | null): Promise<Project> {
+  return invoke<Project>("create_project", { name, dueDate });
+}
+
+export function updateProject(id: string, name: string, dueDate: string | null): Promise<Project> {
+  return invoke<Project>("update_project", { id, name, dueDate });
+}
+
+export function archiveProject(id: string): Promise<void> {
+  return invoke<void>("archive_project", { id });
+}
+
+export function restoreProject(id: string): Promise<void> {
+  return invoke<void>("restore_project", { id });
+}
+
+export function deleteProject(id: string): Promise<void> {
+  return invoke<void>("delete_project", { id });
+}
+
+export function addMember(
+  projectId: string,
+  personId: string | null,
+  name: string | null,
+): Promise<Person> {
+  return invoke<Person>("add_member", { projectId, personId, name });
+}
+
+export function removeMember(projectId: string, personId: string): Promise<void> {
+  return invoke<void>("remove_member", { projectId, personId });
+}
+
+export function ownerCandidates(projectId: string | null): Promise<Person[]> {
+  return invoke<Person[]>("owner_candidates", { projectId });
+}
+
+export function listPeople(): Promise<Person[]> {
+  return invoke<Person[]>("list_people");
 }

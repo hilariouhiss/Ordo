@@ -32,7 +32,18 @@ pub fn run() {
       commands::tasks::list_suspended,
       commands::tasks::resume_task,
       commands::tasks::set_due,
-      commands::tasks::add_delay_note
+      commands::tasks::add_delay_note,
+      commands::projects::list_projects,
+      commands::projects::get_project,
+      commands::projects::create_project,
+      commands::projects::update_project,
+      commands::projects::archive_project,
+      commands::projects::restore_project,
+      commands::projects::delete_project,
+      commands::projects::add_member,
+      commands::projects::remove_member,
+      commands::projects::owner_candidates,
+      commands::projects::list_people
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;

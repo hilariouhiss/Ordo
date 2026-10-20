@@ -108,6 +108,16 @@ pub struct ProjectSummaryDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectDto {
+    pub id: String,
+    pub name: String,
+    pub due_date: Option<String>,
+    pub archived_at: Option<String>,
+    pub member_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BootstrapDto {
     pub people: Vec<PersonDto>,
     pub categories: Vec<CategoryDto>,

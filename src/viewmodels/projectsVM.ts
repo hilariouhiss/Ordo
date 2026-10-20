@@ -1,0 +1,39 @@
+import { reactive } from "vue";
+import { createProject, listProjects } from "../model/ipc";
+import type { Project, ProjectSummary } from "../model/types";
+
+export function createProjectsVM() {
+  const state = reactive({
+    projects: [] as ProjectSummary[],
+    settingsFor: null as string | null,
+    loading: false,
+  });
+
+  async function load(): Promise<void> {
+    state.loading = true;
+    try {
+      state.projects = await listProjects();
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  async function create(name: string, dueDate: string | null): Promise<Project | null> {
+    if (!name.trim()) return null;
+    const project = await createProject(name.trim(), dueDate);
+    await load();
+    return project;
+  }
+
+  function openSettings(id: string): void {
+    state.settingsFor = id;
+  }
+
+  function closeSettings(): void {
+    state.settingsFor = null;
+  }
+
+  return { state, load, create, openSettings, closeSettings };
+}
+
+export const projectsVM = createProjectsVM();

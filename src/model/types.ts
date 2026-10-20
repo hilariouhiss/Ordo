@@ -30,6 +30,14 @@ export interface Settings {
   lastPassWeek?: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  dueDate: string | null;
+  archivedAt: string | null;
+  memberIds: string[];
+}
+
 export interface Step {
   id: string;
   taskId: string;
