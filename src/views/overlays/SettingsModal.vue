@@ -161,12 +161,26 @@ async function addTag(): Promise<void> {
             </label>
             <label class="flex items-center gap-3">
               <span class="w-16 text-base-content/50">API key</span>
-              <span
-                class="flex-1 rounded-md bg-base-100 px-2.5 py-1.5 tracking-widest text-base-content/45"
+              <input
+                v-model="keyDraft"
+                type="password"
+                class="input input-sm flex-1 rounded-lg border-base-300"
+                :placeholder="settings.aiHasKey ? '已保存，输入新的可替换' : 'sk-…'"
+              />
+              <button
+                class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                @click="saveKey"
               >
-                {{ settings.aiHasKey ? "••••••••••••" : "未设置" }}
-              </span>
+                保存
+              </button>
+              <button
+                class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                @click="testAi"
+              >
+                测试
+              </button>
             </label>
+            <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">{{ aiStatus }}</p>
           </div>
           <p class="mt-2 text-[10.5px] text-base-content/35">
             关掉后完全离线，捕获照样能用。key 存在 Windows 凭据管理器里，不进导出。

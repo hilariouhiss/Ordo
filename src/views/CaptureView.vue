@@ -14,8 +14,9 @@ function hide(): void {
   void getCurrentWindow().hide();
 }
 
-function openMain(): void {
-  void WebviewWindow.getByLabel("main")?.show();
+async function openMain(): Promise<void> {
+  const main = await WebviewWindow.getByLabel("main");
+  await main?.show();
   hide();
 }
 

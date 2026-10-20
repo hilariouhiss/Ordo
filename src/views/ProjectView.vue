@@ -134,12 +134,7 @@ function openTask(task: Task): void {
       </div>
     </template>
 
-    <div
-      v-else
-      class="rounded-xl bg-base-100 px-4 py-10 text-center text-[12px] text-base-content/40"
-    >
-      时间轴在下一步接上。
-    </div>
+    <TimelineView v-else :tasks="vm.state.tasks" />
 
     <SummaryLine
       :text="vm.state.summary.summaryLine"

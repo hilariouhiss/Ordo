@@ -227,6 +227,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <div class="mt-5 flex justify-end gap-2">
           <button
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+            @click="archive"
+          >
+            归档
+          </button>
+          <button
+            class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="taskSheetVM.close()"
           >
             关闭
