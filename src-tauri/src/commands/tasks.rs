@@ -40,12 +40,11 @@ pub async fn get_task(state: State<'_, AppState>, id: String) -> Result<TaskDto,
 pub async fn update_task(
     state: State<'_, AppState>,
     id: String,
-    fields: crate::dto::TaskFields,
+    patch: crate::dto::TaskPatch,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::repo::tasks::update_fields(conn, &id, &fields, &now).map_err(|e| e.to_string())?;
-        crate::repo::tasks::dto(conn, &id).map_err(|e| e.to_string())
+        crate::services::tasks::update_patch(conn, &id, &patch, &now)
     })
     .await
 }

@@ -147,19 +147,38 @@ pub struct WeekStatsDto {
     pub done: i64,
     pub delayed: i64,
 }
-#[derive(Debug, Clone, Deserialize)]
+/// A task edit. An absent field keeps its value; an explicit `null` clears it.
+/// `title` and `tags` are not nullable, so absent keeps and a value replaces.
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TaskFields {
-    pub title: String,
-    pub project_id: Option<String>,
-    pub category_id: Option<String>,
-    pub owner_id: Option<String>,
-    pub start_date: Option<String>,
-    pub due_date: Option<String>,
-    pub note: Option<String>,
+pub struct TaskPatch {
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub project_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub category_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub owner_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub start_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub due_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub note: Option<Option<String>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
+
+/// Without this, serde maps an explicit `null` to the same `None` as a missing field.
+fn clearable<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(de)?))
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {

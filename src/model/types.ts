@@ -116,15 +116,16 @@ export interface Bootstrap {
 }
 
 export type PassAction = "keep" | "done" | "suspend" | "cancel";
-export interface TaskFields {
-  title: string;
-  projectId: string | null;
-  categoryId: string | null;
-  ownerId: string | null;
-  startDate: string | null;
-  dueDate: string | null;
-  note: string | null;
-  tags: string[];
+/** An absent field keeps its value; an explicit `null` clears it. */
+export interface TaskPatch {
+  title?: string;
+  projectId?: string | null;
+  categoryId?: string | null;
+  ownerId?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  note?: string | null;
+  tags?: string[];
 }
 export interface ArchiveData {
   projects: Project[];

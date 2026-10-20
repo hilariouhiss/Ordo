@@ -13,7 +13,7 @@ import type {
   ShortcutOutcome,
   Tag,
   Task,
-  TaskFields,
+  TaskPatch,
   WeekStats,
 } from "./types";
 
@@ -33,8 +33,8 @@ export function getTask(id: string): Promise<Task> {
   return invoke<Task>("get_task", { id });
 }
 
-export function updateTask(id: string, fields: TaskFields): Promise<Task> {
-  return invoke<Task>("update_task", { id, fields });
+export function updateTaskPatch(id: string, patch: TaskPatch): Promise<Task> {
+  return invoke<Task>("update_task", { id, patch });
 }
 
 export function addStep(taskId: string, title: string): Promise<Task> {

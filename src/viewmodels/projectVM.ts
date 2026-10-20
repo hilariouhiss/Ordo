@@ -1,5 +1,11 @@
 import { reactive } from "vue";
-import { aiEnrich, capture, getProjectSummary, listProjectTasks, updateTask } from "../model/ipc";
+import {
+  aiEnrich,
+  capture,
+  getProjectSummary,
+  listProjectTasks,
+  updateTaskPatch,
+} from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
 
 export function createProjectVM() {
@@ -32,16 +38,7 @@ export function createProjectVM() {
     const raw = state.draft.trim();
     if (!raw) return;
     const task = await capture(raw);
-    await updateTask(task.id, {
-      title: task.title,
-      projectId,
-      categoryId: task.categoryId,
-      ownerId: task.ownerId,
-      startDate: task.startDate,
-      dueDate: task.dueDate,
-      note: task.note,
-      tags: task.tags.map((t) => t.name),
-    });
+    await updateTaskPatch(task.id, { projectId });
     state.draft = "";
     void aiEnrich(task.id);
     await load(projectId);

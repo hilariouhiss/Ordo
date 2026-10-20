@@ -131,47 +131,76 @@ pub fn set_status(
     Ok(())
 }
 
-pub fn update_fields(
+/// Writes only the fields the patch names, so untouched columns keep their value.
+pub fn apply_patch(
     conn: &Connection,
     id: &str,
-    f: &crate::dto::TaskFields,
+    patch: &crate::dto::TaskPatch,
     now: &str,
 ) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE tasks SET title = ?1, project_id = ?2, category_id = ?3, owner_id = ?4,
-                          start_date = ?5, due_date = ?6, note = ?7, updated_at = ?8
-         WHERE id = ?9",
-        params![
-            f.title,
-            f.project_id,
-            f.category_id,
-            f.owner_id,
-            f.start_date,
-            f.due_date,
-            f.note,
-            now,
-            id
-        ],
-    )?;
-
-    conn.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
-    for tag in &f.tags {
-        let name = tag.trim();
-        if name.is_empty() {
-            continue;
+    fn push(
+        cols: &mut Vec<&'static str>,
+        vals: &mut Vec<Option<String>>,
+        col: &'static str,
+        value: &Option<Option<String>>,
+    ) {
+        if let Some(value) = value {
+            cols.push(col);
+            vals.push(value.clone());
         }
-        let tag = crate::repo::tags::find_or_create(
-            conn,
-            &uuid::Uuid::new_v4().to_string(),
-            name,
-            now,
-        )?;
-        conn.execute(
-            "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?1, ?2)",
-            params![id, tag.id],
-        )?;
     }
-    Ok(())
+
+    let tx = conn.unchecked_transaction()?;
+    let mut cols: Vec<&'static str> = Vec::new();
+    let mut vals: Vec<Option<String>> = Vec::new();
+    if let Some(title) = &patch.title {
+        cols.push("title");
+        vals.push(Some(title.clone()));
+    }
+    push(&mut cols, &mut vals, "project_id", &patch.project_id);
+    push(&mut cols, &mut vals, "category_id", &patch.category_id);
+    push(&mut cols, &mut vals, "owner_id", &patch.owner_id);
+    push(&mut cols, &mut vals, "start_date", &patch.start_date);
+    push(&mut cols, &mut vals, "due_date", &patch.due_date);
+    push(&mut cols, &mut vals, "note", &patch.note);
+
+    if !cols.is_empty() {
+        cols.push("updated_at");
+        vals.push(Some(now.to_owned()));
+        let set = cols
+            .iter()
+            .enumerate()
+            .map(|(i, col)| format!("{col} = ?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("UPDATE tasks SET {set} WHERE id = ?{}", cols.len() + 1);
+        let mut args: Vec<&dyn rusqlite::ToSql> =
+            vals.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+        let id_param: &str = id;
+        args.push(&id_param);
+        tx.prepare_cached(&sql)?.execute(args.as_slice())?;
+    }
+
+    if let Some(tags) = &patch.tags {
+        tx.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
+        for name in tags {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let tag = crate::repo::tags::find_or_create(
+                &tx,
+                &uuid::Uuid::new_v4().to_string(),
+                name,
+                now,
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?1, ?2)",
+                params![id, tag.id],
+            )?;
+        }
+    }
+    tx.commit()
 }
 pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
     let mut stmt = conn.prepare(
