@@ -9,6 +9,7 @@ export function createPassVM() {
     index: 0,
     open: false,
     busy: false,
+    counts: { keep: 0, done: 0, suspend: 0, cancel: 0 },
   });
 
   const current = computed(() => state.queue[state.index] ?? null);
@@ -25,6 +26,7 @@ export function createPassVM() {
     state.busy = true;
     try {
       await passResolve(task.id, action, suspendUntil);
+      state.counts[action] += 1;
       state.index += 1;
     } finally {
       state.busy = false;
@@ -36,6 +38,7 @@ export function createPassVM() {
     state.open = false;
     state.queue = [];
     state.index = 0;
+    state.counts = { keep: 0, done: 0, suspend: 0, cancel: 0 };
   }
 
   function close(): void {

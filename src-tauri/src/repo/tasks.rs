@@ -3,8 +3,8 @@ use rusqlite::{params, Connection};
 
 pub fn insert(conn: &Connection, id: &str, title: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO tasks (id, title, status, in_week, carry_count, created_at, updated_at)
-         VALUES (?1, ?2, 'todo', 1, 0, ?3, ?3)",
+        "INSERT INTO tasks (id, title, owner_id, status, in_week, carry_count, created_at, updated_at)
+         VALUES (?1, ?2, (SELECT id FROM people WHERE is_me = 1 LIMIT 1), 'todo', 1, 0, ?3, ?3)",
         params![id, title, now],
     )?;
     Ok(())

@@ -16,9 +16,11 @@ import { task } from "./fixtures";
 
 describe("weekVM", () => {
   it("capture stores the task and clears the draft", async () => {
-    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listWeek)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([task({ id: "t1", title: "周五前把软件方案评审发老李" })]);
     vi.mocked(listSuspended).mockResolvedValue([]);
-    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 0, delayed: 0 });
     vi.mocked(capture).mockResolvedValue(task({ id: "t1", title: "周五前把软件方案评审发老李" }));
 
     const vm = createWeekVM();

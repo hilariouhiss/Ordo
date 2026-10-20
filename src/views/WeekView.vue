@@ -18,6 +18,16 @@ onMounted(() => {
 });
 
 watch(
+  () => passVM.state.open,
+  (open, previous) => {
+    if (previous && !open) {
+      void appVM.load();
+      void weekVM.load();
+    }
+  },
+);
+
+watch(
   () => taskSheetVM.state.openId,
   (open) => {
     if (!open) void weekVM.load();

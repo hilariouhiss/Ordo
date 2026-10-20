@@ -35,6 +35,20 @@ pub async fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapDto, Strin
 #[cfg(test)]
 mod tests {
     #[test]
+    fn pass_needed_follows_last_pass_week() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "交底", "2026-10-20T08:00:00Z", "t1").unwrap();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let week = crate::services::week::week_start(&today);
+
+        crate::repo::settings::set(&c, "last_pass_week", &week).unwrap();
+        assert!(!crate::commands::meta::build_bootstrap(&c).unwrap().pass_needed);
+
+        crate::repo::settings::set(&c, "last_pass_week", "2000-01-01").unwrap();
+        assert!(crate::commands::meta::build_bootstrap(&c).unwrap().pass_needed);
+    }
+
+    #[test]
     fn settings_roundtrip() {
         let c = crate::db::open_in_memory().unwrap();
         crate::repo::settings::set(&c, "shortcut", "Ctrl+Alt+P").unwrap();
@@ -56,19 +70,31 @@ fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+fn settings_with_key(conn: &rusqlite::Connection) -> Result<SettingsDto, String> {
+    let mut settings = crate::repo::settings::dto(conn).map_err(|e| e.to_string())?;
+    settings.ai_has_key = crate::ai::client::get_key().is_some();
+    Ok(settings)
+}
+
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
-    with_db(&state, |conn| {
-        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, |conn| settings_with_key(conn)).await
 }
 
 #[tauri::command]
 pub async fn set_settings(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> Result<SettingsDto, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    if let Some(autostart) = patch.autostart {
+        let _ = if autostart {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        };
+    }
     with_db(&state, move |conn| {
         let sets: Vec<(&str, Option<String>)> = vec![
             ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
@@ -84,7 +110,7 @@ pub async fn set_settings(
                 crate::repo::settings::set(conn, key, &value).map_err(|e| e.to_string())?;
             }
         }
-        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
+        settings_with_key(conn)
     })
     .await
 }

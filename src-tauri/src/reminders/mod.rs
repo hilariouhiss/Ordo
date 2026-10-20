@@ -20,6 +20,8 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     let today = now.format("%Y-%m-%d").to_string();
     let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
+    let mut fired_titles: Vec<String> = Vec::new();
+    let mut fired_any = false;
     for candidate in candidates {
         let title: String = conn
             .query_row("SELECT title FROM tasks WHERE id = ?1", [&candidate.task_id], |r| {
@@ -39,19 +41,31 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         if !fired {
             continue;
         }
-        let (headline, body) = match candidate.kind {
-            "due_tomorrow" => (
-                if candidate.due_key == today {
-                    format!("今天截止：{}", title)
-                } else {
-                    format!("明天截止：{}", title)
-                },
-                format!("截止 {}", candidate.due_key),
-            ),
-            "overdue" => (format!("已逾期：{}", title), format!("原定 {}", candidate.due_key)),
-            _ => (format!("该开始了：{}", title), "挂起到期".to_string()),
+        let headline = match candidate.kind {
+            "due_tomorrow" if candidate.due_key == today => format!("今天截止：{}", title),
+            "due_tomorrow" => format!("明天截止：{}", title),
+            "overdue" => format!("已逾期：{}", title),
+            _ => format!("该开始了：{}", title),
         };
-        let _ = app.notification().builder().title(headline).body(body).show();
+        fired_titles.push(headline);
+        fired_any = true;
+    }
+    if fired_titles.len() == 1 {
+        let _ = app
+            .notification()
+            .builder()
+            .title(fired_titles.remove(0))
+            .body("打开 ordo 查看")
+            .show();
+    } else if fired_titles.len() > 1 {
+        let _ = app
+            .notification()
+            .builder()
+            .title(format!("你错过了 {} 条提醒", fired_titles.len()))
+            .body("打开 ordo 查看")
+            .show();
+    }
+    if fired_any {
         let _ = app.emit("reminder:fired", ());
     }
 

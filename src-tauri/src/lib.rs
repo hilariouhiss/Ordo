@@ -10,11 +10,6 @@ pub mod reminders;
 pub mod services;
 pub mod state;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-  format!("Hello, {name}! From Rust.")
-}
-
 
 pub fn toggle_capture(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -103,7 +98,6 @@ pub fn run() {
       }
     })
     .invoke_handler(tauri::generate_handler![
-      greet,
       commands::meta::bootstrap,
       commands::tasks::capture,
       commands::tasks::list_week,
@@ -229,12 +223,3 @@ pub fn run() {
     .expect("error while building tauri application");
 }
 
-#[cfg(test)]
-mod tests {
-  use super::greet;
-
-  #[test]
-  fn greet_formats_name() {
-    assert_eq!(greet("Ordo"), "Hello, Ordo! From Rust.");
-  }
-}

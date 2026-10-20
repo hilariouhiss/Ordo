@@ -13,6 +13,10 @@ const categoryName = computed(() => {
   const id = passVM.current.value?.categoryId;
   return appVM.state.categories.find((c) => c.id === id)?.name;
 });
+const projectName = computed(() => {
+  const id = passVM.current.value?.projectId;
+  return appVM.state.projects.find((p) => p.id === id)?.name;
+});
 const ownerName = computed(() => {
   const id = passVM.current.value?.ownerId;
   return appVM.state.people.find((p) => p.id === id)?.name;
@@ -72,6 +76,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             >
               第 {{ passVM.current.value.carryCount }} 次抄回来
             </span>
+            <span v-if="projectName" class="badge badge-ghost badge-sm">{{ projectName }}</span>
             <span v-if="categoryName" class="badge badge-ghost badge-sm">{{ categoryName }}</span>
             <span class="text-[11.5px] text-base-content/45">
               {{ ownerName }} · 截止 {{ shortDate(passVM.current.value.dueDate) || "未定" }}
@@ -146,7 +151,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
       <div v-else class="mt-5 rounded-2xl bg-base-100 p-8 text-center text-base-content">
         <p class="text-[16px] font-semibold">这一轮过完了</p>
-        <p class="mt-1 text-[12px] text-base-content/45">本周剩下的都在上面等着你。</p>
+        <p class="mt-1 text-[12px] text-base-content/45">
+          继续 {{ passVM.state.counts.keep }} · 完成 {{ passVM.state.counts.done }} · 挂起
+          {{ passVM.state.counts.suspend }} · 取消 {{ passVM.state.counts.cancel }}
+        </p>
         <button
           class="btn mt-4 rounded-lg border-0 bg-primary text-primary-content"
           @click="finish"

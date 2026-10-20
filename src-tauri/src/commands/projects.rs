@@ -50,6 +50,10 @@ pub async fn update_project(
     name: String,
     due_date: Option<String>,
 ) -> Result<ProjectDto, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("empty_project_name".into());
+    }
     let now = now_iso();
     with_db(&state, move |conn| {
         crate::repo::projects::update(conn, &id, &name, due_date.as_deref(), &now)

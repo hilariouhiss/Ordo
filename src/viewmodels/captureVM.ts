@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { capture } from "../model/ipc";
+import { aiEnrich, capture } from "../model/ipc";
 
 export function createCaptureVM() {
   const state = reactive({
@@ -10,7 +10,8 @@ export function createCaptureVM() {
   async function save(raw: string, hide: () => void): Promise<void> {
     const text = raw.trim();
     if (!text) return;
-    await capture(text);
+    const task = await capture(text);
+    void aiEnrich(task.id);
     state.saved = true;
     setTimeout(() => {
       state.saved = false;

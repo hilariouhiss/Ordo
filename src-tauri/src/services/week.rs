@@ -168,6 +168,10 @@ mod tests {
         assert_eq!(t.title.chars().count(), 2000);
         assert!(t.in_week);
         assert_eq!(t.carry_count, 0);
+        let me: String = c
+            .query_row("SELECT id FROM people WHERE is_me = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(t.owner_id.as_deref(), Some(me.as_str()));
     }
 
     #[test]

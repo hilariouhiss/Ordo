@@ -85,21 +85,6 @@ pub fn list(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
     ids.iter().map(|id| dto(conn, id)).collect()
 }
 
-pub fn list_summaries(conn: &Connection) -> rusqlite::Result<Vec<ProjectSummaryDto>> {
-    Ok(list(conn)?
-        .into_iter()
-        .map(|p| ProjectSummaryDto {
-            id: p.id,
-            name: p.name,
-            due_date: p.due_date,
-            total: 0,
-            done: 0,
-            by_category: vec![],
-            summary_line: String::new(),
-        })
-        .collect())
-}
-
 pub fn add_member(
     conn: &Connection,
     project_id: &str,

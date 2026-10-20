@@ -42,9 +42,9 @@ export function createWeekVM() {
     const text = raw.trim();
     if (!text) return;
     const task = await captureApi(text);
-    state.tasks = [task, ...state.tasks];
     void aiEnrich(task.id);
     if (state.draft.trim() === text) state.draft = "";
+    await load();
   }
 
   async function resume(id: string): Promise<void> {

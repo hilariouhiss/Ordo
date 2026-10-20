@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { capture, getProjectSummary, listProjectTasks, updateTask } from "../model/ipc";
+import { aiEnrich, capture, getProjectSummary, listProjectTasks, updateTask } from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
 
 export function createProjectVM() {
@@ -43,6 +43,7 @@ export function createProjectVM() {
       tags: task.tags.map((t) => t.name),
     });
     state.draft = "";
+    void aiEnrich(task.id);
     await load(projectId);
   }
 

@@ -75,6 +75,11 @@ async function addTag(): Promise<void> {
   tagName.value = "";
 }
 
+function renameCategory(id: string, current: string): void {
+  const name = window.prompt("分类名", current);
+  if (name) void vm.renameCategory(id, name);
+}
+
 function onCategoryKey(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
   void addCategory();
@@ -280,6 +285,12 @@ function onTagKey(event: KeyboardEvent): void {
                 class="flex items-center gap-2 rounded-lg bg-base-100 px-3 py-1.5 text-[12px]"
               >
                 <span class="flex-1">{{ category.name }}</span>
+                <button
+                  class="text-base-content/30"
+                  @click="renameCategory(category.id, category.name)"
+                >
+                  改
+                </button>
                 <button class="text-base-content/30" @click="vm.moveCategory(category.id, -1)">
                   ↑
                 </button>

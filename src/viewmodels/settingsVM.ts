@@ -48,6 +48,12 @@ export function createSettingsVM() {
     await appVM.load();
   }
 
+  async function renameCategory(id: string, name: string): Promise<void> {
+    if (!name.trim()) return;
+    await ipc.renameCategory(id, name.trim());
+    await appVM.load();
+  }
+
   async function removeCategory(id: string): Promise<void> {
     await ipc.deleteCategory(id);
     await appVM.load();
@@ -81,6 +87,7 @@ export function createSettingsVM() {
     backup,
     exportData,
     addCategory,
+    renameCategory,
     removeCategory,
     moveCategory,
     addTag,
