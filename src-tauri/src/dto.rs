@@ -37,6 +37,8 @@ pub struct SettingsDto {
     pub backup_keep_days: i64,
     pub last_pass_week: String,
     pub shortcut_warning: Option<String>,
+    /// "light", "dark" or "system".
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,4 +190,5 @@ pub struct SettingsPatch {
     pub autostart: Option<bool>,
     pub week_start: Option<i64>,
     pub backup_keep_days: Option<i64>,
+    pub theme: Option<String>,
 }

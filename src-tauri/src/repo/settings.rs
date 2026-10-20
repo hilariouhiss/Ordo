@@ -61,5 +61,6 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get("shortcut_warning")
             .cloned()
             .filter(|v| !v.is_empty()),
+        theme: map.get("theme").cloned().unwrap_or_else(|| "system".into()),
     })
 }

@@ -39,6 +39,43 @@
   --noise: 0;
 }
 
+/* Same warm, low-saturation family as "soft", turned inside out.
+   Brighter accents, because a dark surface eats colour. */
+@plugin "daisyui/theme" {
+  name: "soft-dark";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #1e1d1a;
+  --color-base-200: #151412;
+  --color-base-300: #2e2b26;
+  --color-base-content: #e8e4db;
+  --color-primary: #8fb7a9;
+  --color-primary-content: #10201c;
+  --color-secondary: #b3a795;
+  --color-secondary-content: #1a1712;
+  --color-accent: #d2a077;
+  --color-accent-content: #1d130c;
+  --color-neutral: #0c0b09;
+  --color-neutral-content: #e8e4db;
+  --color-info: #8ab0c4;
+  --color-info-content: #0d171c;
+  --color-success: #8fbb96;
+  --color-success-content: #0f1811;
+  --color-warning: #d9b26a;
+  --color-warning-content: #1a1409;
+  --color-error: #d98f81;
+  --color-error-content: #1c0f0c;
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
 body {
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;

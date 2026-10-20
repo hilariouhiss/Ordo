@@ -1,6 +1,7 @@
 import type { Settings, Step, Task } from "../../model/types";
 
 export const defaultSettings: Settings = {
+  theme: "system",
   aiEnabled: false,
   aiBaseUrl: "https://api.deepseek.com",
   aiModel: "deepseek-flash",

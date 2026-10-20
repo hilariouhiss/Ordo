@@ -57,6 +57,14 @@ mod tests {
     }
 
     #[test]
+    fn theme_defaults_to_system_and_round_trips() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().theme, "system");
+        crate::repo::settings::set(&c, "theme", "dark").unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().theme, "dark");
+    }
+
+    #[test]
     fn bootstrap_returns_seed() {
         let c = crate::db::open_in_memory().unwrap();
         let b = crate::commands::meta::build_bootstrap(&c).unwrap();
@@ -104,6 +112,7 @@ pub async fn set_settings(
             ("autostart", patch.autostart.map(|v| v.to_string())),
             ("week_start", patch.week_start.map(|v| v.to_string())),
             ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
+            ("theme", patch.theme),
         ];
         for (key, value) in sets {
             if let Some(value) = value {

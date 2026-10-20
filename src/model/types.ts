@@ -1,3 +1,5 @@
+import type { ThemePref } from "../lib/theme";
+
 export type Status = "todo" | "doing" | "done";
 
 export interface Person {
@@ -19,6 +21,7 @@ export interface Tag {
 }
 
 export interface Settings {
+  theme: ThemePref;
   shortcutWarning?: string | null;
   aiEnabled: boolean;
   aiBaseUrl: string;

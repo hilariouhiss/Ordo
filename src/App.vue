@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Settings } from "@lucide/vue";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
-import { onMounted } from "vue";
+import { onMounted, watch } from "vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
+import { applyTheme, resolveTheme, systemPrefersDark } from "./lib/theme";
 import { appVM } from "./viewmodels/appVM";
 import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
@@ -20,8 +21,18 @@ function closeOverlays(): void {
   settingsVM.close();
 }
 
+// The mini window is a separate document, so it has to be told too.
+function syncTheme(): void {
+  const theme = resolveTheme(appVM.state.settings?.theme, systemPrefersDark());
+  applyTheme(theme);
+  if (isTauri()) void emitTo("capture", "theme:changed", theme);
+}
+
 onMounted(async () => {
   await appVM.load();
+  syncTheme();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
+  watch(() => appVM.state.settings?.theme, syncTheme);
   if (isTauri()) {
     await listen("capture:created", () => void weekVM.load());
     await listen("ai:enriched", () => void weekVM.load());

@@ -151,6 +151,10 @@ export function restoreTask(id: string): Promise<Task> {
 export function deleteTask(id: string): Promise<void> {
   return invoke<void>("delete_task", { id });
 }
+export function getSettings(): Promise<Settings> {
+  return invoke<Settings>("get_settings");
+}
+
 export function setSettings(patch: Partial<Settings>): Promise<Settings> {
   return invoke<Settings>("set_settings", { patch });
 }

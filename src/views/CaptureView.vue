@@ -4,11 +4,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { nextTick, onMounted, onUnmounted, ref } from "vue";
 import { isImeEnter } from "../lib/keys";
+import { applyTheme, resolveTheme, systemPrefersDark, type AppliedTheme } from "../lib/theme";
+import { getSettings } from "../model/ipc";
 import { createCaptureVM } from "../viewmodels/captureVM";
 
 const vm = createCaptureVM();
 const input = ref<HTMLInputElement | null>(null);
 let unlisten: (() => void) | null = null;
+let unlistenTheme: (() => void) | null = null;
 let blurTimer: ReturnType<typeof setTimeout> | undefined;
 
 function hide(): void {
@@ -44,12 +47,18 @@ onMounted(async () => {
   await nextTick();
   input.value?.focus();
   unlisten = await listen("capture:focus", () => input.value?.focus());
+  // A separate document: it gets the theme once now, and again whenever it changes.
+  unlistenTheme = await listen<AppliedTheme>("theme:changed", (event) => {
+    applyTheme(event.payload);
+  });
+  applyTheme(resolveTheme((await getSettings()).theme, systemPrefersDark()));
   window.addEventListener("blur", onBlur);
   window.addEventListener("focus", onFocus);
 });
 
 onUnmounted(() => {
   unlisten?.();
+  unlistenTheme?.();
   window.removeEventListener("blur", onBlur);
   window.removeEventListener("focus", onFocus);
 });

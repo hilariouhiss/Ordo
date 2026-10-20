@@ -2,9 +2,16 @@
 import { ArrowDown, ArrowUp, Trash, X } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { isImeEnter } from "../../lib/keys";
+import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
+
+const themeOptions: { value: ThemePref; label: string }[] = [
+  { value: "system", label: "跟随系统" },
+  { value: "light", label: "浅色" },
+  { value: "dark", label: "深色" },
+];
 
 const settings = computed(() => appVM.state.settings);
 const categoryName = ref("");
@@ -211,6 +218,24 @@ function onTagKey(event: KeyboardEvent): void {
 
         <div v-else-if="vm.state.tab === 'general'" class="mt-4 rounded-xl bg-base-200 p-4">
           <div class="flex items-center justify-between text-[12px]">
+            <span>外观</span>
+            <span class="flex gap-1.5">
+              <button
+                v-for="option in themeOptions"
+                :key="option.value"
+                class="btn btn-xs rounded-md border-base-300 font-normal"
+                :class="
+                  settings.theme === option.value
+                    ? 'border-0 bg-primary text-primary-content'
+                    : 'bg-base-100'
+                "
+                @click="vm.save({ theme: option.value })"
+              >
+                {{ option.label }}
+              </button>
+            </span>
+          </div>
+          <div class="mt-3 flex items-center justify-between text-[12px]">
             <span>开机自启</span>
             <input
               type="checkbox"
