@@ -41,7 +41,7 @@ export function createPassVM() {
     state.counts = { keep: 0, done: 0, suspend: 0, cancel: 0 };
   }
 
-  /// The card on screen, for opening the task sheet without leaving the pass.
+  // The card on screen, for opening the task sheet without leaving the pass.
   function splitCurrent(): Task | null {
     return current.value;
   }
