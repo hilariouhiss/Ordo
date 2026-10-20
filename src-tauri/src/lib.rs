@@ -4,6 +4,7 @@ pub mod commands;
 pub mod db;
 pub mod dto;
 pub mod repo;
+pub mod services;
 pub mod state;
 
 #[tauri::command]
@@ -14,7 +15,17 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![greet, commands::meta::bootstrap])
+    .invoke_handler(tauri::generate_handler![
+      greet,
+      commands::meta::bootstrap,
+      commands::tasks::capture,
+      commands::tasks::list_week,
+      commands::tasks::get_task,
+      commands::tasks::update_task,
+      commands::tasks::add_step,
+      commands::tasks::toggle_step,
+      commands::tasks::delete_step
+    ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
       std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;

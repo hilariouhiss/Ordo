@@ -96,3 +96,12 @@ export interface Bootstrap {
   projects: ProjectSummary[];
   week: Task[];
 }
+export interface TaskFields {
+  title: string;
+  projectId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  note: string | null;
+}

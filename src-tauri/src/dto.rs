@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,4 +115,15 @@ pub struct BootstrapDto {
     pub settings: SettingsDto,
     pub projects: Vec<ProjectSummaryDto>,
     pub week: Vec<TaskDto>,
+}
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskFields {
+    pub title: String,
+    pub project_id: Option<String>,
+    pub category_id: Option<String>,
+    pub owner_id: Option<String>,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
+    pub note: Option<String>,
 }
