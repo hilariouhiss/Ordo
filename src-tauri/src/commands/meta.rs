@@ -14,7 +14,11 @@ pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
         people: crate::repo::people::list(conn).map_err(|e| e.to_string())?,
         categories: crate::repo::categories::list(conn).map_err(|e| e.to_string())?,
         tags: crate::repo::tags::list(conn).map_err(|e| e.to_string())?,
-        settings: crate::repo::settings::dto(conn).map_err(|e| e.to_string())?,
+        settings: {
+            let mut s = crate::repo::settings::dto(conn).map_err(|e| e.to_string())?;
+            s.ai_has_key = crate::ai::client::get_key().is_some();
+            s
+        },
         projects: crate::services::stats::list(conn)?,
         week: queue,
         suspended: crate::services::week::list_suspended(conn)?,

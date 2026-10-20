@@ -1,0 +1,206 @@
+use crate::ai::{client, AiContext, Enrichment};
+use crate::dto::TaskDto;
+use crate::state::{with_db, AppState};
+use rusqlite::{params, Connection};
+use serde::Serialize;
+use tauri::{Emitter, State};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiTestResult {
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub sample: Option<String>,
+    pub error: Option<String>,
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+fn ai_settings(conn: &Connection) -> (bool, String, String) {
+    let enabled = crate::repo::settings::get(conn, "ai.enabled")
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let base_url = crate::repo::settings::get(conn, "ai.base_url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "https://api.deepseek.com".into());
+    let model = crate::repo::settings::get(conn, "ai.model")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "deepseek-flash".into());
+    (enabled, base_url, model)
+}
+
+fn context(conn: &Connection) -> Result<AiContext, String> {
+    let projects = crate::repo::projects::list(conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+    let categories = crate::repo::categories::list(conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|c| (c.id, c.name))
+        .collect();
+    let people = crate::repo::people::list(conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+    Ok(AiContext {
+        projects,
+        categories,
+        people,
+    })
+}
+
+fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -> Result<TaskDto, String> {
+    conn.execute(
+        "UPDATE tasks SET
+            project_id = COALESCE(project_id, ?1),
+            category_id = COALESCE(category_id, ?2),
+            owner_id = COALESCE(owner_id, ?3),
+            start_date = COALESCE(start_date, ?4),
+            due_date = COALESCE(due_date, ?5),
+            updated_at = ?6
+         WHERE id = ?7",
+        params![
+            enrichment.project_id,
+            enrichment.category_id,
+            enrichment.owner_id,
+            enrichment.start_date,
+            enrichment.due_date,
+            now,
+            task_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    for tag in &enrichment.tags {
+        let created = crate::repo::tags::find_or_create(
+            conn,
+            &uuid::Uuid::new_v4().to_string(),
+            tag,
+            now,
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?1, ?2)",
+            params![task_id, created.id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    crate::repo::tasks::dto(conn, task_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_ai_key(key: String) -> Result<(), String> {
+    client::set_key(key.trim())
+}
+
+#[tauri::command]
+pub async fn clear_ai_key() -> Result<(), String> {
+    client::clear_key()
+}
+
+#[tauri::command]
+pub async fn ai_test(state: State<'_, AppState>) -> Result<AiTestResult, String> {
+    let (_, base_url, model) = with_db(&state, |conn| Ok(ai_settings(conn))).await?;
+    let Some(key) = client::get_key() else {
+        return Ok(AiTestResult {
+            ok: false,
+            latency_ms: 0,
+            sample: None,
+            error: Some("no_key".into()),
+        });
+    };
+    let started = std::time::Instant::now();
+    let client = client::DeepSeekClient {
+        base_url,
+        model,
+        key,
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        use crate::ai::Completions;
+        client.complete(
+            r#"只输出 json：{"ok":true}"#,
+            "回复一个 json",
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let latency_ms = started.elapsed().as_millis() as u64;
+    Ok(match result {
+        Ok(sample) if !sample.trim().is_empty() => AiTestResult {
+            ok: true,
+            latency_ms,
+            sample: Some(sample),
+            error: None,
+        },
+        Ok(_) => AiTestResult {
+            ok: false,
+            latency_ms,
+            sample: None,
+            error: Some("empty_response".into()),
+        },
+        Err(e) => AiTestResult {
+            ok: false,
+            latency_ms,
+            sample: None,
+            error: Some(e),
+        },
+    })
+}
+
+#[tauri::command]
+pub async fn ai_enrich(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<(), String> {
+    let (enabled, base_url, model) = with_db(&state, |conn| Ok(ai_settings(conn))).await?;
+    let Some(key) = client::get_key() else {
+        return Ok(());
+    };
+    if !enabled {
+        return Ok(());
+    }
+
+    let id = task_id.clone();
+    let (title, ctx) = with_db(&state, move |conn| {
+        let title: String = conn
+            .query_row("SELECT title FROM tasks WHERE id = ?1", [&id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok((title, context(conn)?))
+    })
+    .await?;
+
+    let client = client::DeepSeekClient {
+        base_url,
+        model,
+        key,
+    };
+    let enrichment = tauri::async_runtime::spawn_blocking(move || {
+        crate::ai::enrich(&client, &ctx, &title)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let Ok(enrichment) = enrichment else {
+        return Ok(());
+    };
+
+    let now = now_iso();
+    let task = with_db(&state, move |conn| {
+        apply(conn, &task_id, &enrichment, &now)
+    })
+    .await?;
+
+    let _ = app.emit("ai:enriched", &task);
+    Ok(())
+}

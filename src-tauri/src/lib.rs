@@ -1,6 +1,7 @@
 use tauri::Emitter;
 use tauri::Manager;
 
+pub mod ai;
 pub mod commands;
 pub mod db;
 pub mod dto;
@@ -147,6 +148,10 @@ pub fn run() {
       commands::meta::create_tag,
       commands::meta::delete_tag,
       commands::meta::set_shortcut,
+      commands::ai::set_ai_key,
+      commands::ai::clear_ai_key,
+      commands::ai::ai_test,
+      commands::ai::ai_enrich,
       commands::tasks::mark_notifications_seen
     ])
     .setup(|app| {

@@ -12,6 +12,7 @@ onMounted(async () => {
   await appVM.load();
   if (isTauri()) {
     await listen("capture:created", () => void weekVM.load());
+    await listen("ai:enriched", () => void weekVM.load());
   }
 });
 </script>

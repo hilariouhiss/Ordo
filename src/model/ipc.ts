@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AiTestResult,
   ArchiveData,
   Bootstrap,
   Category,
@@ -193,4 +194,19 @@ export function markNotificationsSeen(): Promise<void> {
 }
 export function setShortcut(next: string): Promise<ShortcutOutcome> {
   return invoke<ShortcutOutcome>("set_shortcut", { next });
+}
+export function aiEnrich(taskId: string): Promise<void> {
+  return invoke<void>("ai_enrich", { taskId });
+}
+
+export function aiTest(): Promise<AiTestResult> {
+  return invoke<AiTestResult>("ai_test");
+}
+
+export function setAiKey(key: string): Promise<void> {
+  return invoke<void>("set_ai_key", { key });
+}
+
+export function clearAiKey(): Promise<void> {
+  return invoke<void>("clear_ai_key");
 }

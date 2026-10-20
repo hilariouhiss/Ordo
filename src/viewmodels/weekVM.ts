@@ -1,6 +1,7 @@
 import { reactive } from "vue";
 import { todayIso } from "../lib/dates";
 import {
+  aiEnrich,
   capture as captureApi,
   listSuspended,
   listWeek,
@@ -42,6 +43,7 @@ export function createWeekVM() {
     if (!text) return;
     const task = await captureApi(text);
     state.tasks = [task, ...state.tasks];
+    void aiEnrich(task.id);
     if (state.draft.trim() === text) state.draft = "";
   }
 

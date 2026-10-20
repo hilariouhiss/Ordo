@@ -10,6 +10,8 @@ const tagName = ref("");
 const recording = ref(false);
 const pendingShortcut = ref("");
 const shortcutWarning = ref("");
+const keyDraft = ref("");
+const aiStatus = ref("");
 
 function startRecord(): void {
   pendingShortcut.value = "";
@@ -33,6 +35,22 @@ function onKey(event: KeyboardEvent): void {
   if (parts.length < 2) return;
   pendingShortcut.value = parts.join("+");
   recording.value = false;
+}
+
+async function saveKey(): Promise<void> {
+  if (!keyDraft.value.trim()) return;
+  await ipc.setAiKey(keyDraft.value.trim());
+  keyDraft.value = "";
+  aiStatus.value = "key 已保存";
+  if (appVM.state.settings) appVM.state.settings.aiHasKey = true;
+}
+
+async function testAi(): Promise<void> {
+  aiStatus.value = "测试中…";
+  const result = await ipc.aiTest();
+  aiStatus.value = result.ok
+    ? `连接正常（${result.latencyMs}ms）`
+    : `失败：${result.error ?? "未知错误"}`;
 }
 
 async function applyShortcut(): Promise<void> {

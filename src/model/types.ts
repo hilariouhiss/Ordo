@@ -133,3 +133,9 @@ export interface ShortcutOutcome {
   active: string;
   warning: string | null;
 }
+export interface AiTestResult {
+  ok: boolean;
+  latencyMs: number;
+  sample: string | null;
+  error: string | null;
+}

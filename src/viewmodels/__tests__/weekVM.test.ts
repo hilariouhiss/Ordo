@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../../model/ipc", () => ({
+  aiEnrich: vi.fn(),
   capture: vi.fn(),
   listWeek: vi.fn(),
   listSuspended: vi.fn(),

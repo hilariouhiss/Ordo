@@ -30,3 +30,5 @@ tauri-plugin-notification = "2.7.0"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-single-instance = "2.5.4"
 tauri-plugin-global-shortcut = "2.4.1"
+keyring = "4.2.0"
+reqwest = { version = "0.13.5", features = ["json", "blocking"] }
