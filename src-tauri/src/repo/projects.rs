@@ -1,4 +1,4 @@
-use crate::dto::{PersonDto, ProjectDto, ProjectSummaryDto};
+use crate::dto::{PersonDto, ProjectDto};
 use rusqlite::{params, Connection};
 
 pub fn insert(

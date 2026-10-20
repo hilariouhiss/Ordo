@@ -207,6 +207,16 @@ pub fn run() {
         .visible(false)
         .build()?;
 
+      use tauri_plugin_notification::NotificationExt;
+      let notification_handle = app.handle().clone();
+      let _ = app
+          .notification()
+          .on_action(move |action| {
+              if action.action_id() == "tap" {
+                  show_main(&notification_handle);
+              }
+          });
+
       build_tray(app)?;
       crate::reminders::start(app.handle().clone());
 
@@ -222,4 +232,3 @@ pub fn run() {
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
 }
-
