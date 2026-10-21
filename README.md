@@ -29,6 +29,7 @@ pnpm tauri build
 装一次安装包，然后按顺序走一遍，每条都过了才算能日常用。
 
 - [ ] 安装包双击安装，不报错
+- [ ] 安装包图标是 ordo；安装向导为中文，欢迎页左侧显示品牌栏，内页页眉显示品牌图
 - [ ] 从开始菜单启动，窗口正常显示
 - [ ] 主窗口没有系统标题栏：拖顶栏空白处能移动窗口，双击最大化/还原，右上角最小化/最大化/关闭都能用；关闭仍收进托盘
 - [ ] 提醒弹出来时，标题是任务名，图标是 ordo
@@ -49,4 +50,5 @@ pnpm tauri build
 - 数据库文件坏了不会静默重建：先把坏文件连同它的 `-wal` 存成 `ordo.db.corrupt-<时间戳>`，再从 `backups/` 里从新到旧挑第一份能打开的恢复，并弹一条通知说明用的是哪一份；没有能用的备份就写 `startup-error.txt` 后报错，什么都不删。只有文件确实损坏才走这条路，别的错误原样报出来，不会拿旧数据顶替。
 - 全局快捷键默认 `Ctrl+Alt+O`，呼出迷你窗口；在设置里可改。
 - AI 补字段走 DeepSeek（OpenAI 兼容），key 存在 Windows 凭据管理器；不填 key 就不联网。
+- Windows 安装器：setup.exe 和卸载器图标用 `src-tauri/icons/icon.ico`；NSIS 的页眉、侧栏图在 `src-tauri/installer/`，安装语言固定简体中文。MSI 仍用 WiX 默认英文界面。
 - 设计文档：`docs/superpowers/specs/`，实现计划：`docs/superpowers/plans/`。
