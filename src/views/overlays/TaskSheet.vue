@@ -47,7 +47,12 @@ let seededFor: string | null = null;
 watch(
   () => taskSheetVM.state.task,
   async (task) => {
-    if (!task || seededFor === task.id) return;
+    if (!task) return;
+    if (seededFor === task.id) {
+      // Steps change the derived status, so keep the buttons in step without reseeding.
+      form.status = task.status;
+      return;
+    }
     seededFor = task.id;
     form.title = task.title;
     form.projectId = task.projectId;

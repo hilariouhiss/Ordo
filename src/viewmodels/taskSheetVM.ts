@@ -87,7 +87,7 @@ export function createTaskSheetVM() {
     if (!task || !id) return false;
     state.error = null;
     try {
-      // Diff first: setDue replaces state.task, and the view's watcher then rewrites the form.
+      // Diff first: setDue replaces state.task before the rest of the patch is sent.
       const patch = diffTask(task, form);
       if ((form.dueDate || null) !== task.dueDate) {
         state.task = await setDueApi(id, form.dueDate || null, null);
