@@ -10,6 +10,8 @@ pub mod reminders;
 pub mod services;
 pub mod state;
 
+/// The bundle identifier before the macOS-safe rename; old installs keep their ledger there.
+const LEGACY_IDENTIFIER: &str = "com.ordo.app";
 
 pub fn toggle_capture(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -203,6 +205,33 @@ pub fn run() {
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+      let legacy_dir = data_dir.with_file_name(LEGACY_IDENTIFIER);
+      match crate::db::migrate_legacy_data(&legacy_dir, &data_dir) {
+          Ok(true) => eprintln!(
+              "旧数据已从 {} 迁到 {}（旧目录保留）",
+              legacy_dir.display(),
+              data_dir.display()
+          ),
+          Ok(false) => {}
+          Err(e) => {
+              let message = format!(
+                  "旧数据迁移失败（{e}）。旧数据还在 {}，没有删。",
+                  legacy_dir.display()
+              );
+              // stderr is invisible in a windows_subsystem release build, so leave a file.
+              eprintln!("{message}");
+              let _ = std::fs::create_dir_all(&data_dir);
+              let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
+              use tauri_plugin_notification::NotificationExt;
+              let _ = app
+                  .notification()
+                  .builder()
+                  .title("ordo 迁移不了旧数据")
+                  .body(&message)
+                  .show();
+              return Err(message.into());
+          }
+      }
       std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
       let backups = data_dir.join("backups");
       let (conn, recovery) =

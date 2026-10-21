@@ -43,7 +43,7 @@ pnpm tauri build
 
 ## 几个约定
 
-- 数据在 `%APPDATA%/com.ordo.app/ordo.db`，每天自动备份到 `backups/`，可手动导出 JSON。
+- 数据在 `%APPDATA%/com.ordo.taskbook/ordo.db`，每天自动备份到 `backups/`，可手动导出 JSON；旧版 `com.ordo.app` 的数据首次启动会复制过来，旧目录保留。
 - 提醒的点击只有提示条还在屏幕上时才会交给 ordo（Windows 的限制，插件文档写明了）。收进通知中心之后再点，系统不会告诉 ordo 是哪一条，只能把主窗口叫出来——这不是 bug，验收清单里按实际记。
 - 数据库文件坏了不会静默重建：先把坏文件连同它的 `-wal` 存成 `ordo.db.corrupt-<时间戳>`，再从 `backups/` 里从新到旧挑第一份能打开的恢复，并弹一条通知说明用的是哪一份；没有能用的备份就写 `startup-error.txt` 后报错，什么都不删。只有文件确实损坏才走这条路，别的错误原样报出来，不会拿旧数据顶替。
 - 全局快捷键默认 `Ctrl+Alt+O`，呼出迷你窗口；在设置里可改。

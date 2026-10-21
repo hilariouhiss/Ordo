@@ -119,6 +119,58 @@ fn backups_newest_first(backups: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+const DB_FILES: [&str; 3] = ["ordo.db", "ordo.db-wal", "ordo.db-shm"];
+
+/// Copies the ledger out of the pre-rename bundle identifier's directory once.
+/// The old directory is left in place as a safety copy.
+pub fn migrate_legacy_data(old: &Path, new: &Path) -> std::io::Result<bool> {
+    if !old.join("ordo.db").is_file() || new.join("ordo.db").exists() {
+        return Ok(false);
+    }
+    std::fs::create_dir_all(new)?;
+    let copied = copy_tree(old, new);
+    if copied.is_err() {
+        // A half-copied database must not look like a finished migration next time.
+        for name in DB_FILES {
+            let _ = std::fs::remove_file(new.join(name));
+        }
+    }
+    copied.map(|()| true)
+}
+
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if DB_FILES.contains(&name.as_ref()) {
+            continue;
+        }
+        copy_entry(&entry.path(), &to.join(name.as_ref()))?;
+    }
+    // The database trio goes last, so a half-copied directory has no ordo.db.
+    for name in DB_FILES {
+        let from = from.join(name);
+        if from.exists() {
+            std::fs::copy(&from, to.join(name))?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_entry(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(from, to).map(|_| ())
+    }
+}
+
 pub fn open_in_memory() -> rusqlite::Result<Connection> {
     let conn = Connection::open_in_memory()?;
     configure(&conn)?;
@@ -281,6 +333,66 @@ mod tests {
         assert!(open_with_recovery(&path, &dir.join("backups")).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), BROKEN);
         assert_eq!(corrupt_copies(&dir), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migrates_the_old_data_directory_once() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(old.join("backups")).unwrap();
+        std::fs::create_dir_all(old.join("exports")).unwrap();
+        std::fs::write(old.join("ordo.db"), b"ledger").unwrap();
+        std::fs::write(old.join("ordo.db-wal"), b"wal").unwrap();
+        std::fs::write(old.join("backups").join("ordo-2026-10-20.db"), b"backup").unwrap();
+        std::fs::write(old.join("exports").join("ordo.json"), b"{}").unwrap();
+
+        assert!(migrate_legacy_data(&old, &new).unwrap());
+        assert_eq!(std::fs::read(new.join("ordo.db")).unwrap(), b"ledger");
+        assert_eq!(std::fs::read(new.join("ordo.db-wal")).unwrap(), b"wal");
+        assert_eq!(
+            std::fs::read(new.join("backups").join("ordo-2026-10-20.db")).unwrap(),
+            b"backup"
+        );
+        assert_eq!(
+            std::fs::read(new.join("exports").join("ordo.json")).unwrap(),
+            b"{}"
+        );
+        // The old directory is a safety copy, not something migration deletes.
+        assert_eq!(std::fs::read(old.join("ordo.db")).unwrap(), b"ledger");
+
+        // A database already in the new directory means migration already ran.
+        std::fs::write(new.join("ordo.db"), b"newer").unwrap();
+        assert!(!migrate_legacy_data(&old, &new).unwrap());
+        assert_eq!(std::fs::read(new.join("ordo.db")).unwrap(), b"newer");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn leaves_an_existing_database_alone() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("ordo.db"), b"old").unwrap();
+        std::fs::write(new.join("ordo.db"), b"new").unwrap();
+
+        assert!(!migrate_legacy_data(&old, &new).unwrap());
+        assert_eq!(std::fs::read(new.join("ordo.db")).unwrap(), b"new");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn does_nothing_when_old_data_is_missing() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&old).unwrap();
+
+        assert!(!migrate_legacy_data(&old, &new).unwrap());
+        assert!(!new.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
