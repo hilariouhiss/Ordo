@@ -29,6 +29,19 @@ pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
         .collect()
 }
 
+pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM tasks
+         WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
+         ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
+                  due_date IS NULL, due_date, created_at",
+    )?;
+    let ids: Vec<String> = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ids.iter().map(|id| dto(conn, id)).collect()
+}
+
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let mut task = conn.query_row(
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,

@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod deliverables;
 pub mod export;
+pub mod people;
 pub mod projects;
 pub mod shortcut;
 pub mod stats;

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, Trash, X } from "@lucide/vue";
+import { X } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { isImeEnter } from "../../lib/keys";
 import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
@@ -14,8 +13,6 @@ const themeOptions: { value: ThemePref; label: string }[] = [
 ];
 
 const settings = computed(() => appVM.state.settings);
-const categoryName = ref("");
-const tagName = ref("");
 const recording = ref(false);
 const pendingShortcut = ref("");
 const shortcutWarning = ref("");
@@ -72,31 +69,6 @@ async function applyShortcut(): Promise<void> {
 
 onMounted(() => window.addEventListener("keydown", onKey));
 onUnmounted(() => window.removeEventListener("keydown", onKey));
-
-async function addCategory(): Promise<void> {
-  await vm.addCategory(categoryName.value);
-  categoryName.value = "";
-}
-
-async function addTag(): Promise<void> {
-  await vm.addTag(tagName.value);
-  tagName.value = "";
-}
-
-function renameCategory(id: string, current: string): void {
-  const name = window.prompt("分类名", current);
-  if (name) void vm.renameCategory(id, name);
-}
-
-function onCategoryKey(event: KeyboardEvent): void {
-  if (isImeEnter(event)) return;
-  void addCategory();
-}
-
-function onTagKey(event: KeyboardEvent): void {
-  if (isImeEnter(event)) return;
-  void addTag();
-}
 </script>
 
 <template>
@@ -138,14 +110,6 @@ function onTagKey(event: KeyboardEvent): void {
           @click="vm.state.tab = 'data'"
         >
           数据
-        </button>
-        <button
-          role="tab"
-          class="tab"
-          :class="{ 'tab-active': vm.state.tab === 'meta' }"
-          @click="vm.state.tab = 'meta'"
-        >
-          分类与标签
         </button>
       </div>
 
@@ -301,83 +265,6 @@ function onTagKey(event: KeyboardEvent): void {
           <p v-if="vm.state.exportPath" class="mt-1 break-all text-[10.5px] text-base-content/40">
             导出：{{ vm.state.exportPath }}
           </p>
-        </div>
-
-        <div v-else class="mt-4 space-y-3">
-          <div class="rounded-xl bg-base-200 p-4">
-            <div class="text-[12px] font-medium">分类</div>
-            <div class="mt-2 space-y-1">
-              <div
-                v-for="category in appVM.state.categories"
-                :key="category.id"
-                class="flex items-center gap-2 rounded-lg bg-base-100 px-3 py-1.5 text-[12px]"
-              >
-                <span class="flex-1">{{ category.name }}</span>
-                <button
-                  class="text-base-content/30"
-                  @click="renameCategory(category.id, category.name)"
-                >
-                  改
-                </button>
-                <button
-                  class="text-base-content/30"
-                  aria-label="上移"
-                  @click="vm.moveCategory(category.id, -1)"
-                >
-                  <ArrowUp :size="13" aria-hidden="true" />
-                </button>
-                <button
-                  class="text-base-content/30"
-                  aria-label="下移"
-                  @click="vm.moveCategory(category.id, 1)"
-                >
-                  <ArrowDown :size="13" aria-hidden="true" />
-                </button>
-                <button
-                  class="text-base-content/30"
-                  aria-label="删除分类"
-                  @click="vm.removeCategory(category.id)"
-                >
-                  <Trash :size="13" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            <input
-              v-model="categoryName"
-              class="input input-sm mt-2 w-full rounded-lg border-dashed border-base-300 bg-transparent"
-              placeholder="新增分类，回车保存"
-              @keydown.enter="onCategoryKey"
-            />
-          </div>
-
-          <div class="rounded-xl bg-base-200 p-4">
-            <div class="text-[12px] font-medium">标签</div>
-            <div class="mt-2 flex flex-wrap gap-1.5">
-              <span
-                v-for="tag in appVM.state.tags"
-                :key="tag.id"
-                class="badge badge-ghost badge-md gap-1.5"
-              >
-                {{ tag.name }}
-                <button
-                  class="text-base-content/30"
-                  aria-label="删除标签"
-                  @click="vm.removeTag(tag.id)"
-                >
-                  <Trash :size="12" aria-hidden="true" />
-                </button>
-              </span>
-            </div>
-            <input
-              v-model="tagName"
-              class="input input-sm mt-2 w-full rounded-lg border-dashed border-base-300 bg-transparent"
-              placeholder="新增标签，回车保存"
-              @keydown.enter="onTagKey"
-            />
-            <p class="mt-1.5 text-[10.5px] text-base-content/35">
-              删除标签只影响显示，已经打过的任务不受影响。
-            </p>
-          </div>
         </div>
       </template>
     </div>

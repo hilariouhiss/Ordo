@@ -139,3 +139,30 @@ pub async fn list_people(state: State<'_, AppState>) -> Result<Vec<PersonDto>, S
     })
     .await
 }
+
+#[tauri::command]
+pub async fn create_person(state: State<'_, AppState>, name: String) -> Result<PersonDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::people::create(conn, &name, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_person(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<PersonDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::people::rename(conn, &id, &name, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_person(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    with_db(&state, move |conn| crate::services::people::delete(conn, &id)).await
+}

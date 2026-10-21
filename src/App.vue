@@ -16,6 +16,7 @@ import { appVM } from "./viewmodels/appVM";
 import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
+import { tasksVM } from "./viewmodels/tasksVM";
 import { weekVM } from "./viewmodels/weekVM";
 import WindowControls from "./views/components/WindowControls.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
@@ -66,8 +67,14 @@ onMounted(async () => {
     () => void syncTheme(),
   );
   if (isTauri()) {
-    await listen("capture:created", () => void weekVM.load());
-    await listen("ai:enriched", () => void weekVM.load());
+    await listen("capture:created", () => {
+      void weekVM.load();
+      void tasksVM.load();
+    });
+    await listen("ai:enriched", () => {
+      void weekVM.load();
+      void tasksVM.load();
+    });
     await listen<string>("reminder:open", async (event) => {
       await router.push("/week");
       await taskSheetVM.open(event.payload);
@@ -98,7 +105,11 @@ onMounted(async () => {
       <span class="text-[15px] font-semibold tracking-tight">ordo</span>
       <nav role="tablist" class="tabs tabs-border tabs-sm">
         <RouterLink to="/week" class="tab" active-class="tab-active">本周</RouterLink>
+        <RouterLink to="/tasks" class="tab" active-class="tab-active">任务</RouterLink>
         <RouterLink to="/projects" class="tab" active-class="tab-active">项目</RouterLink>
+        <RouterLink to="/categories" class="tab" active-class="tab-active">分类</RouterLink>
+        <RouterLink to="/tags" class="tab" active-class="tab-active">标签</RouterLink>
+        <RouterLink to="/people" class="tab" active-class="tab-active">人员</RouterLink>
         <RouterLink to="/archive" class="tab" active-class="tab-active">归档</RouterLink>
       </nav>
       <div class="ml-auto flex h-full items-center gap-2">

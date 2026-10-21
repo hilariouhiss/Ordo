@@ -52,3 +52,16 @@ pub fn create(conn: &Connection, id: &str, name: &str, now: &str) -> rusqlite::R
     )?;
     get(conn, id)
 }
+
+pub fn rename(conn: &Connection, id: &str, name: &str, now: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE people SET name = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+        rusqlite::params![name, now, id],
+    )?;
+    Ok(())
+}
+
+pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM people WHERE id = ?1", [id])?;
+    Ok(())
+}

@@ -29,6 +29,10 @@ export function listWeek(): Promise<Task[]> {
   return invoke<Task[]>("list_week");
 }
 
+export function listAllTasks(): Promise<Task[]> {
+  return invoke<Task[]>("list_all_tasks");
+}
+
 export function getTask(id: string): Promise<Task> {
   return invoke<Task>("get_task", { id });
 }
@@ -133,6 +137,18 @@ export function ownerCandidates(projectId: string | null): Promise<Person[]> {
 
 export function listPeople(): Promise<Person[]> {
   return invoke<Person[]>("list_people");
+}
+
+export function createPerson(name: string): Promise<Person> {
+  return invoke<Person>("create_person", { name });
+}
+
+export function renamePerson(id: string, name: string): Promise<Person> {
+  return invoke<Person>("rename_person", { id, name });
+}
+
+export function deletePerson(id: string): Promise<void> {
+  return invoke<void>("delete_person", { id });
 }
 export function getProjectSummary(id: string): Promise<ProjectSummary> {
   return invoke<ProjectSummary>("get_project_summary", { id });

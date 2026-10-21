@@ -334,6 +334,25 @@ mod tests {
     }
 
     #[test]
+    fn list_all_active_includes_done_and_out_of_week_but_not_archived_or_canceled() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::capture(&c, "三", NOW, "t3").unwrap();
+        week::capture(&c, "四", NOW, "t4").unwrap();
+        tasks::set_status(&c, "t2", "done", NOW).unwrap();
+        week::resolve(&c, "t3", crate::services::week::PassAction::Cancel, None, NOW).unwrap();
+        crate::repo::tasks::archive(&c, "t4", NOW).unwrap();
+
+        let ids: Vec<String> = crate::repo::tasks::list_all_active(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec!["t1", "t2"]);
+    }
+
+    #[test]
     fn invalid_status_is_rejected() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();

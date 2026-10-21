@@ -28,6 +28,15 @@ pub async fn capture(
 pub async fn list_week(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
     with_db(&state, |conn| week::list(conn)).await
 }
+
+#[tauri::command]
+pub async fn list_all_tasks(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, |conn| {
+        crate::repo::tasks::list_all_active(conn).map_err(|e| e.to_string())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn get_task(state: State<'_, AppState>, id: String) -> Result<TaskDto, String> {
     with_db(&state, move |conn| {
