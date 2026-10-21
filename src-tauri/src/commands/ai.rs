@@ -204,3 +204,41 @@ pub async fn ai_enrich(
     let _ = app.emit("ai:enriched", &task);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: &str = "2026-10-20T08:00:00Z";
+    const LATER: &str = "2026-10-21T00:00:00Z";
+
+    #[test]
+    fn enrichment_fills_empty_fields_and_keeps_the_users() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET note = '用户写的', due_date = '2026-11-01' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        let enrichment = Enrichment {
+            due_date: Some("2026-12-01".into()),
+            start_date: Some("2026-10-22".into()),
+            tags: vec!["fix".into()],
+            ..Default::default()
+        };
+
+        let t = apply(&c, "t1", &enrichment, LATER).unwrap();
+
+        assert_eq!(t.due_date.as_deref(), Some("2026-11-01"));
+        assert_eq!(t.start_date.as_deref(), Some("2026-10-22"));
+        assert_eq!(t.note.as_deref(), Some("用户写的"));
+        assert_eq!(t.updated_at, LATER);
+        let tags: Vec<String> = t.tags.into_iter().map(|tag| tag.name).collect();
+        assert_eq!(tags, vec!["fix".to_string()]);
+
+        // Running the same enrichment twice must not duplicate the tag.
+        apply(&c, "t1", &enrichment, "2026-10-21T00:00:01Z").unwrap();
+        assert_eq!(crate::repo::tasks::dto(&c, "t1").unwrap().tags.len(), 1);
+    }
+}
