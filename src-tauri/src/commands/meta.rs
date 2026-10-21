@@ -1,4 +1,5 @@
 use crate::dto::{BootstrapDto, CategoryDto, SettingsDto, SettingsPatch, TagDto};
+use crate::now_iso;
 use crate::state::{with_db, AppState};
 use rusqlite::Connection;
 use tauri::{Manager, State};
@@ -71,10 +72,6 @@ mod tests {
         assert_eq!(b.settings.shortcut, "Ctrl+Alt+O");
     }
 }
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
 fn settings_with_key(conn: &rusqlite::Connection) -> Result<SettingsDto, String> {
     let mut settings = crate::repo::settings::dto(conn).map_err(|e| e.to_string())?;
     settings.ai_has_key = crate::ai::client::get_key().is_some();

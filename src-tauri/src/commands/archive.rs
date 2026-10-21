@@ -1,10 +1,7 @@
 use crate::dto::{ArchiveDto, TaskDto};
+use crate::now_iso;
 use crate::state::{with_db, AppState};
 use tauri::State;
-
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
 
 #[tauri::command]
 pub async fn list_archive(

@@ -1,5 +1,6 @@
 use crate::ai::{client, AiContext, Enrichment};
 use crate::dto::TaskDto;
+use crate::now_iso;
 use crate::state::{with_db, AppState};
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -12,10 +13,6 @@ pub struct AiTestResult {
     pub latency_ms: u64,
     pub sample: Option<String>,
     pub error: Option<String>,
-}
-
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 fn ai_settings(conn: &Connection) -> (bool, String, String) {

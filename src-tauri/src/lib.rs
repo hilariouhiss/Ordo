@@ -13,6 +13,11 @@ pub mod state;
 /// The bundle identifier before the macOS-safe rename; old installs keep their ledger there.
 const LEGACY_IDENTIFIER: &str = "com.ordo.app";
 
+/// Every command writes timestamps in this one shape: RFC3339 UTC, second precision.
+pub fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
 pub fn toggle_capture(app: &tauri::AppHandle) {
     use tauri::Manager;
     if let Some(window) = app.get_webview_window("capture") {

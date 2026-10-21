@@ -1,13 +1,10 @@
 use crate::dto::TaskDto;
+use crate::now_iso;
 use crate::services::week;
 use crate::state::{with_db, AppState};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
-
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
 
 #[tauri::command]
 pub async fn capture(
