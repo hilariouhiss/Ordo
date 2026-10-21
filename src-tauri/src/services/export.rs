@@ -164,6 +164,22 @@ mod tests {
     }
 
     #[test]
+    fn daily_backup_leaves_old_copies_alone_when_todays_backup_exists() {
+        let c = db::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-daily-skip-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        std::fs::write(dir.join(format!("ordo-{today}.db")), b"today").unwrap();
+        std::fs::write(dir.join("ordo-2000-01-01.db"), b"old").unwrap();
+
+        let made = export::backup_daily(&c, &dir).unwrap();
+
+        assert!(made.is_none());
+        assert!(dir.join("ordo-2000-01-01.db").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn backup_is_idempotent_per_day() {
         let c = db::open_in_memory().unwrap();
         let dir = std::env::temp_dir().join(format!("ordo-backup-{}", uuid::Uuid::new_v4()));
