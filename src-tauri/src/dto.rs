@@ -129,10 +129,7 @@ pub struct BootstrapDto {
     pub tags: Vec<TagDto>,
     pub settings: SettingsDto,
     pub projects: Vec<ProjectSummaryDto>,
-    pub week: Vec<TaskDto>,
-    pub suspended: Vec<TaskDto>,
     pub pass_needed: bool,
-    pub week_stats: WeekStatsDto,
 }
 
 #[derive(Debug, Clone, Serialize)]

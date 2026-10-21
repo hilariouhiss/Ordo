@@ -114,10 +114,7 @@ export interface Bootstrap {
   tags: Tag[];
   settings: Settings;
   projects: ProjectSummary[];
-  week: Task[];
-  suspended: Task[];
   passNeeded: boolean;
-  weekStats: WeekStats;
 }
 
 export type PassAction = "keep" | "done" | "suspend" | "cancel";

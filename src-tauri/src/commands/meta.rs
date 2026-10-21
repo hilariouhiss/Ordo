@@ -20,10 +20,7 @@ pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
             s
         },
         projects: crate::services::stats::list(conn)?,
-        week: queue,
-        suspended: crate::services::week::list_suspended(conn)?,
         pass_needed,
-        week_stats: crate::services::week::stats(conn, &today)?,
     })
 }
 
