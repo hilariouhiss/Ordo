@@ -105,9 +105,7 @@ pub async fn set_settings(
             ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
             ("ai.base_url", patch.ai_base_url),
             ("ai.model", patch.ai_model),
-            ("shortcut", patch.shortcut),
             ("autostart", patch.autostart.map(|v| v.to_string())),
-            ("week_start", patch.week_start.map(|v| v.to_string())),
             ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
             ("theme", patch.theme),
         ];

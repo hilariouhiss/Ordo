@@ -33,7 +33,6 @@ pub struct SettingsDto {
     pub ai_has_key: bool,
     pub shortcut: String,
     pub autostart: bool,
-    pub week_start: i64,
     pub backup_keep_days: i64,
     pub last_pass_week: String,
     pub shortcut_warning: Option<String>,
@@ -187,9 +186,7 @@ pub struct SettingsPatch {
     pub ai_enabled: Option<bool>,
     pub ai_base_url: Option<String>,
     pub ai_model: Option<String>,
-    pub shortcut: Option<String>,
     pub autostart: Option<bool>,
-    pub week_start: Option<i64>,
     pub backup_keep_days: Option<i64>,
     pub theme: Option<String>,
 }

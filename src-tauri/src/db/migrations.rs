@@ -210,7 +210,6 @@ fn seed(conn: &Connection) -> rusqlite::Result<()> {
         ("ai.model", "deepseek-flash"),
         ("shortcut", "Ctrl+Alt+O"),
         ("autostart", "true"),
-        ("week_start", "1"),
         ("backup_keep_days", "30"),
         ("last_pass_week", ""),
     ] {

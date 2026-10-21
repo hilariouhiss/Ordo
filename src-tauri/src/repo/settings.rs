@@ -54,7 +54,6 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .cloned()
             .unwrap_or_else(|| "Ctrl+Alt+O".into()),
         autostart: flag(&map, "autostart", true),
-        week_start: num(&map, "week_start", 1),
         backup_keep_days: num(&map, "backup_keep_days", 30),
         last_pass_week: map.get("last_pass_week").cloned().unwrap_or_default(),
         shortcut_warning: map

@@ -29,7 +29,6 @@ export interface Settings {
   aiHasKey: boolean;
   shortcut: string;
   autostart: boolean;
-  weekStart: number;
   backupKeepDays: number;
   lastPassWeek?: string;
 }

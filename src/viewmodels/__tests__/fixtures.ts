@@ -8,7 +8,6 @@ export const defaultSettings: Settings = {
   aiHasKey: false,
   shortcut: "Ctrl+Alt+O",
   autostart: true,
-  weekStart: 1,
   backupKeepDays: 30,
 };
 
