@@ -283,14 +283,7 @@ pub fn run() {
       } else {
           app.autolaunch().disable()
       };
-      let _ = crate::services::export::backup_today(&conn, &backups);
-      let keep_days = crate::repo::settings::get(&conn, "backup_keep_days")
-          .ok()
-          .flatten()
-          .and_then(|v| v.parse().ok())
-          .unwrap_or(30);
-      let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-      let _ = crate::services::export::prune(&backups, keep_days, &today);
+      let _ = crate::services::export::backup_daily(&conn, &backups);
       let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
           .ok()
           .flatten()

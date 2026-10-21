@@ -99,7 +99,17 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
         let _ = tray.set_tooltip(Some(format!("ordo · {} 条提醒", unread)));
     }
+
+    backup_ledger(app, &conn);
     Ok(())
+}
+
+/// Backs up the ledger once a day; every other tick only checks a file exists.
+fn backup_ledger(app: &AppHandle, conn: &rusqlite::Connection) {
+    let Ok(data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let _ = crate::services::export::backup_daily(conn, &data_dir.join("backups"));
 }
 
 #[cfg(test)]

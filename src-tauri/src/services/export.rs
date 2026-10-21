@@ -89,6 +89,22 @@ pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, St
     Ok(Some(path))
 }
 
+/// Backs up once per day: a no-op when today's copy already exists, and old copies
+/// are pruned only after a new one was actually written.
+pub fn backup_daily(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, String> {
+    let made = backup_today(conn, dir)?;
+    if made.is_some() {
+        let keep_days = crate::repo::settings::get(conn, "backup_keep_days")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let _ = prune(dir, keep_days, &today);
+    }
+    Ok(made)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::db;
@@ -127,6 +143,23 @@ mod tests {
         assert!(!dir.join("ordo-2026-09-01.db").exists());
         assert!(dir.join("ordo-2026-10-19.db").exists());
         assert!(dir.join("notes.txt").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn daily_backup_writes_once_a_day_and_prunes_old_copies() {
+        let c = db::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-daily-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ordo-2000-01-01.db"), b"old").unwrap();
+
+        let first = export::backup_daily(&c, &dir).unwrap();
+        assert!(first.is_some());
+        assert!(!dir.join("ordo-2000-01-01.db").exists());
+
+        let second = export::backup_daily(&c, &dir).unwrap();
+        assert!(second.is_none());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
