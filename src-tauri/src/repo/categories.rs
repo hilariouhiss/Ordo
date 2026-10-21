@@ -65,3 +65,66 @@ pub fn reorder(conn: &Connection, ids: &[String], now: &str) -> rusqlite::Result
     }
     Ok(())
 }
+
+/// Soft-deletes a category and takes it off its tasks in one transaction.
+pub fn soft_delete_and_detach(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE tasks SET category_id = NULL, updated_at = ?1
+         WHERE category_id = ?2 AND deleted_at IS NULL",
+        rusqlite::params![now, id],
+    )?;
+    soft_delete(&tx, id, now)?;
+    tx.commit()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn deleting_a_category_detaches_its_tasks() {
+        let c = db::open_in_memory().unwrap();
+        let software = list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|category| category.name == "软件")
+            .unwrap();
+        let docs = list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|category| category.name == "资料")
+            .unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::services::week::capture(&c, "别的", NOW, "t2").unwrap();
+        c.execute(
+            "UPDATE tasks SET category_id = ?1 WHERE id = 't1'",
+            rusqlite::params![software.id],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET category_id = ?1 WHERE id = 't2'",
+            rusqlite::params![docs.id],
+        )
+        .unwrap();
+
+        soft_delete_and_detach(&c, &software.id, NOW).unwrap();
+
+        let detached: Option<String> = c
+            .query_row("SELECT category_id FROM tasks WHERE id = 't1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(detached.is_none());
+        assert!(list(&c).unwrap().iter().all(|category| category.id != software.id));
+        let kept: Option<String> = c
+            .query_row("SELECT category_id FROM tasks WHERE id = 't2'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept.as_deref(), Some(docs.id.as_str()));
+    }
+}

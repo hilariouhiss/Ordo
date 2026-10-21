@@ -212,7 +212,7 @@ pub async fn rename_category(
 pub async fn delete_category(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::repo::categories::soft_delete(conn, &id, &now).map_err(|e| e.to_string())
+        crate::repo::categories::soft_delete_and_detach(conn, &id, &now).map_err(|e| e.to_string())
     })
     .await
 }

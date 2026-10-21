@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 3;
+pub const LATEST: i64 = 4;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -147,6 +147,21 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
         tx.execute_batch("UPDATE tasks SET sort_order = rowid")?;
         tx.pragma_update(None, "user_version", 3)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 4 {
+        // Categories are soft-deleted, so their tasks used to keep the dead id and drop out
+        // of the project page. Data only: no schema change, and updated_at stays put.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE tasks SET category_id = NULL
+             WHERE category_id IS NOT NULL
+               AND category_id NOT IN (SELECT id FROM categories WHERE deleted_at IS NULL)",
+            [],
+        )?;
+        tx.pragma_update(None, "user_version", 4)?;
         tx.commit()?;
     }
     Ok(())
@@ -249,6 +264,60 @@ mod tests {
         }
         c.pragma_update(None, "user_version", 2).unwrap();
         c
+    }
+
+    fn v3_database() -> rusqlite::Connection {
+        let c = v2_database();
+        c.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE tasks ADD COLUMN effort_days REAL NOT NULL DEFAULT 1;",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 3).unwrap();
+        c
+    }
+
+    #[test]
+    fn repairs_tasks_left_on_a_deleted_category() {
+        let c = v3_database();
+        let live: String = c
+            .query_row("SELECT id FROM categories WHERE name = '软件'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        c.execute(
+            "INSERT INTO categories (id, name, sort_order, created_at, updated_at, deleted_at)
+             VALUES ('c-deleted', '旧分类', 99, ?1, ?1, ?1)",
+            rusqlite::params!["2026-10-20T08:00:00Z"],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET category_id = ?1 WHERE id = 'a'",
+            rusqlite::params![live],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET category_id = 'c-deleted' WHERE id = 'b'",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let kept: Option<String> = c
+            .query_row("SELECT category_id FROM tasks WHERE id = 'a'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let repaired: Option<String> = c
+            .query_row("SELECT category_id FROM tasks WHERE id = 'b'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept.as_deref(), Some(live.as_str()));
+        assert!(repaired.is_none());
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
     }
 
     #[test]

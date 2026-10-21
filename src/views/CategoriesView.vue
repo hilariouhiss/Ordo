@@ -2,7 +2,7 @@
 import { ArrowDown, ArrowUp, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
-import { askText } from "../lib/dialog";
+import { askConfirm, askText } from "../lib/dialog";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
@@ -23,6 +23,11 @@ function onKey(event: KeyboardEvent): void {
 async function rename(id: string, current: string): Promise<void> {
   const next = await askText("修改分类名", current);
   if (next) await metaVM.renameCategory(id, next);
+}
+
+async function remove(id: string, categoryName: string): Promise<void> {
+  if (!(await askConfirm("删除分类", `删除「${categoryName}」？任务会变成未分类。`))) return;
+  await metaVM.removeCategory(id);
 }
 </script>
 
@@ -64,7 +69,7 @@ async function rename(id: string, current: string): Promise<void> {
         <button
           class="text-base-content/35 hover:text-error"
           aria-label="删除分类"
-          @click="metaVM.removeCategory(category.id)"
+          @click="remove(category.id, category.name)"
         >
           <Trash :size="14" aria-hidden="true" />
         </button>
