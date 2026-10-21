@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { addDays, isWeekend, weekdayLabel, weekdayOf } from "../dates";
+import { setLanguage } from "../i18n";
+
+afterEach(() => setLanguage("zh"));
 
 describe("addDays", () => {
   it("stays on the same local date for offset 0", () => {
@@ -22,6 +25,13 @@ describe("weekdays", () => {
     expect(weekdayLabel("2026-10-20")).toBe("周二");
     expect(weekdayLabel("2026-10-25")).toBe("周日");
     expect(weekdayLabel("2026-01-01")).toBe("周四");
+  });
+
+  it("labels the day in English", () => {
+    setLanguage("en");
+    expect(weekdayLabel("2026-10-20")).toBe("Tue");
+    expect(weekdayLabel("2026-10-25")).toBe("Sun");
+    expect(weekdayLabel("2026-01-01")).toBe("Thu");
   });
 
   it("calls Saturday and Sunday weekends", () => {

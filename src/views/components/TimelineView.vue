@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { addDays, shortDate, todayIso } from "../../lib/dates";
+import { t } from "../../lib/i18n";
 import { timelineLayout } from "../../lib/timeline";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -46,7 +47,8 @@ const groups = computed(() => {
     map.set(key, list);
   }
   return [...map.entries()].map(([categoryId, tasks]) => ({
-    name: appVM.state.categories.find((c) => c.id === categoryId)?.name ?? "未分类",
+    name:
+      appVM.state.categories.find((c) => c.id === categoryId)?.name ?? t("common.uncategorized"),
     tasks,
   }));
 });
@@ -72,7 +74,7 @@ const groups = computed(() => {
           class="absolute -top-0.5 -translate-x-1/2 rounded-sm bg-error px-1 text-[9px] leading-3 text-error-content"
           :style="{ left: todayPct + '%' }"
         >
-          今天
+          {{ t("common.today") }}
         </div>
       </div>
 
@@ -103,9 +105,10 @@ const groups = computed(() => {
     </div>
 
     <div class="mt-2 flex items-center gap-4 text-[10.5px] text-base-content/40">
-      <span>实线＝有计划</span><span>虚线＝缺一端日期</span
-      ><span class="text-error">红线＝今天</span>
-      <span class="ml-auto">只画时间，不画依赖</span>
+      <span>{{ t("timeline.legendPlan") }}</span
+      ><span>{{ t("timeline.legendPartial") }}</span
+      ><span class="text-error">{{ t("timeline.legendToday") }}</span>
+      <span class="ml-auto">{{ t("timeline.note") }}</span>
     </div>
   </div>
 </template>

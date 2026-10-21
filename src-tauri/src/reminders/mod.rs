@@ -39,6 +39,7 @@ pub fn start(app: AppHandle) {
 fn tick(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
+    let lang = crate::i18n::from_conn(&conn);
     // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
     backup_ledger(app, &conn);
     let now = chrono::Local::now();
@@ -67,12 +68,12 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         if !fired {
             continue;
         }
-        let headline = match candidate.kind {
-            "due_tomorrow" if candidate.due_key == today => format!("今天截止：{}", title),
-            "due_tomorrow" => format!("明天截止：{}", title),
-            "overdue" => format!("已逾期：{}", title),
-            _ => format!("该开始了：{}", title),
-        };
+        let headline = crate::i18n::reminder_headline(
+            lang,
+            candidate.kind,
+            candidate.due_key == today,
+            &title,
+        );
         toasts.push((headline, candidate.task_id));
         fired_any = true;
     }
@@ -83,14 +84,14 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             .builder()
             .id(id)
             .title(headline)
-            .body("打开 ordo 查看")
+            .body(crate::i18n::reminder_body(lang))
             .show();
     } else if toasts.len() > 1 {
         let _ = app
             .notification()
             .builder()
-            .title(format!("你错过了 {} 条提醒", toasts.len()))
-            .body("打开 ordo 查看")
+            .title(crate::i18n::missed_reminders(lang, toasts.len()))
+            .body(crate::i18n::reminder_body(lang))
             .show();
     }
     if fired_any {
@@ -99,7 +100,7 @@ fn tick(app: &AppHandle) -> Result<(), String> {
 
     if let Some(tray) = app.tray_by_id("main-tray") {
         let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
-        let _ = tray.set_tooltip(Some(format!("ordo · {} 条提醒", unread)));
+        let _ = tray.set_tooltip(Some(crate::i18n::tray_tooltip(lang, unread)));
     }
 
     Ok(())

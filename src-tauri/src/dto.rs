@@ -27,6 +27,8 @@ pub struct TagDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
+    /// "zh" or "en".
+    pub language: String,
     pub ai_enabled: bool,
     pub ai_base_url: String,
     pub ai_model: String,
@@ -107,7 +109,6 @@ pub struct ProjectSummaryDto {
     pub total: i64,
     pub done: i64,
     pub by_category: Vec<CategoryProgressDto>,
-    pub summary_line: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,6 +184,7 @@ where
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
+    pub language: Option<String>,
     pub ai_enabled: Option<bool>,
     pub ai_base_url: Option<String>,
     pub ai_model: Option<String>,

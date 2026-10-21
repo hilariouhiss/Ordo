@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 export function todayIso(): string {
   const d = new Date();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -15,10 +17,18 @@ export function weekdayOf(iso: string): number {
   return new Date(year, month - 1, day).getDay();
 }
 
-const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+const WEEKDAY_KEYS = [
+  "date.sun",
+  "date.mon",
+  "date.tue",
+  "date.wed",
+  "date.thu",
+  "date.fri",
+  "date.sat",
+] as const;
 
 export function weekdayLabel(iso: string): string {
-  return WEEKDAYS[weekdayOf(iso)];
+  return t(WEEKDAY_KEYS[weekdayOf(iso)]);
 }
 
 export function isWeekend(iso: string): boolean {

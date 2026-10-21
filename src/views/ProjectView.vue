@@ -3,6 +3,7 @@ import { Ellipsis } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { shortDate, todayIso } from "../lib/dates";
+import { t } from "../lib/i18n";
 import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Task } from "../model/types";
 import { createProjectVM } from "../viewmodels/projectVM";
@@ -64,9 +65,9 @@ function openTask(task: Task): void {
         <div class="text-[16px] font-semibold tracking-tight">{{ vm.state.summary.name }}</div>
         <div class="mt-0.5 flex items-center gap-2 text-[11.5px] text-base-content/50">
           <span v-if="vm.state.summary.dueDate" class="badge badge-ghost badge-xs">
-            截止 {{ shortDate(vm.state.summary.dueDate) }}
+            {{ t("project.due", { date: shortDate(vm.state.summary.dueDate) }) }}
           </span>
-          <span v-if="daysLeft !== null">剩 {{ daysLeft }} 天</span>
+          <span v-if="daysLeft !== null">{{ t("project.daysLeft", { days: daysLeft }) }}</span>
         </div>
       </div>
       <div class="ml-auto flex items-center gap-2">
@@ -77,7 +78,7 @@ function openTask(task: Task): void {
             :class="{ 'tab-active': vm.state.view === 'group' }"
             @click="vm.state.view = 'group'"
           >
-            分组
+            {{ t("project.group") }}
           </button>
           <button
             role="tab"
@@ -85,10 +86,14 @@ function openTask(task: Task): void {
             :class="{ 'tab-active': vm.state.view === 'timeline' }"
             @click="vm.state.view = 'timeline'"
           >
-            时间轴
+            {{ t("project.timeline") }}
           </button>
         </div>
-        <button class="text-base-content/35" aria-label="项目设置" @click="settingsOpen = true">
+        <button
+          class="text-base-content/35"
+          :aria-label="t('project.settingsAria')"
+          @click="settingsOpen = true"
+        >
           <Ellipsis :size="15" aria-hidden="true" />
         </button>
       </div>
@@ -138,7 +143,9 @@ function openTask(task: Task): void {
           v-if="(tasksByCategory.get('') ?? []).length"
           class="rounded-xl bg-base-100 px-3 py-2.5"
         >
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">未分类</div>
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+            {{ t("common.uncategorized") }}
+          </div>
           <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
             <TaskRow
               v-for="task in tasksByCategory.get('') ?? []"
@@ -155,11 +162,7 @@ function openTask(task: Task): void {
       </motion.div>
     </AnimatePresence>
 
-    <SummaryLine
-      :text="vm.state.summary.summaryLine"
-      :copied="vm.state.copied"
-      @copy="vm.copySummary"
-    />
+    <SummaryLine :text="vm.summaryLine.value" :copied="vm.state.copied" @copy="vm.copySummary" />
 
     <AnimatePresence>
       <TaskSheet v-if="taskSheetVM.state.openId" />

@@ -5,6 +5,7 @@ pub mod ai;
 pub mod commands;
 pub mod db;
 pub mod dto;
+pub mod i18n;
 pub mod repo;
 pub mod reminders;
 pub mod services;
@@ -56,26 +57,22 @@ fn show_main(app: &tauri::AppHandle) {
 /// Tells the user, once, that closing the window only hides it.
 fn first_close_hint(app: &tauri::AppHandle) {
     let state = app.state::<crate::state::AppState>();
-    let seen = state
-        .db
-        .lock()
-        .ok()
-        .and_then(|conn| {
+    let (seen, lang) = match state.db.lock() {
+        Ok(conn) => (
             crate::repo::settings::get(&conn, "tray_hint_seen")
                 .ok()
                 .flatten()
-        })
-        .is_some();
+                .is_some(),
+            crate::i18n::from_conn(&conn),
+        ),
+        Err(_) => (false, crate::i18n::Lang::Zh),
+    };
     if seen {
         return;
     }
+    let (title, body) = crate::i18n::tray_hint(lang);
     use tauri_plugin_notification::NotificationExt;
-    let shown = app
-        .notification()
-        .builder()
-        .title("ordo 还在托盘运行")
-        .body("点托盘图标就能叫回来，右键菜单可以退出。")
-        .show();
+    let shown = app.notification().builder().title(title).body(body).show();
     // Mark it seen only after the toast went out; a suppressed one would otherwise
     // cost the user the only explanation of where the window went.
     if shown.is_ok() {
@@ -85,16 +82,24 @@ fn first_close_hint(app: &tauri::AppHandle) {
     }
 }
 
-fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+fn tray_menu(
+    app: &tauri::AppHandle,
+    lang: crate::i18n::Lang,
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem};
+    let labels = crate::i18n::tray_labels(lang);
+    let open = MenuItem::with_id(app, "open", labels[0], true, None::<&str>)?;
+    let week = MenuItem::with_id(app, "week", labels[1], true, None::<&str>)?;
+    let pass = MenuItem::with_id(app, "pass", labels[2], true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", labels[3], true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", labels[4], true, None::<&str>)?;
+    Menu::with_items(app, &[&open, &week, &pass, &settings, &quit])
+}
+
+fn build_tray(app: &tauri::App, lang: crate::i18n::Lang) -> tauri::Result<()> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let open = MenuItem::with_id(app, "open", "打开 ordo", true, None::<&str>)?;
-    let week = MenuItem::with_id(app, "week", "本周", true, None::<&str>)?;
-    let pass = MenuItem::with_id(app, "pass", "过一遍", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &week, &pass, &settings, &quit])?;
+    let menu = tray_menu(app.handle(), lang)?;
 
     // Same artwork as the taskbar icon, so the two never drift.
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
@@ -132,6 +137,19 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+/// Rebuilds the tray menu after a language change; a failure keeps the old menu.
+pub(crate) fn refresh_tray(app: &tauri::AppHandle, lang: crate::i18n::Lang) {
+    let Some(tray) = app.tray_by_id("main-tray") else {
+        return;
+    };
+    match tray_menu(app, lang) {
+        Ok(menu) => {
+            let _ = tray.set_menu(Some(menu));
+        }
+        Err(e) => eprintln!("托盘菜单重建失败：{e}"),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -266,16 +284,13 @@ pub fn run() {
           };
       if let Some(recovery) = recovery {
           use tauri_plugin_notification::NotificationExt;
-          let _ = app
-              .notification()
-              .builder()
-              .title("已从备份恢复数据库")
-              .body(format!(
-                  "用的是 {}。坏文件存为 {}，没有删任何东西。",
-                  recovery.restored_from.display(),
-                  recovery.broken_file_kept_at.display()
-              ))
-              .show();
+          let lang = crate::i18n::from_conn(&conn);
+          let (title, body) = crate::i18n::recovery_notice(
+              lang,
+              &recovery.restored_from.display().to_string(),
+              &recovery.broken_file_kept_at.display().to_string(),
+          );
+          let _ = app.notification().builder().title(title).body(body).show();
       }
       use tauri_plugin_autostart::ManagerExt;
       let autostart = crate::repo::settings::get(&conn, "autostart")
@@ -299,15 +314,12 @@ pub fn run() {
                   let _ = crate::repo::settings::set(&conn, "shortcut_warning", "");
               }
               Err(e) => {
-                  let _ = crate::repo::settings::set(
-                      &conn,
-                      "shortcut_warning",
-                      &format!("快捷键没生效：{e}"),
-                  );
+                  let _ = crate::repo::settings::set(&conn, "shortcut_warning", &e.to_string());
               }
           }
       }
 
+      let lang = crate::i18n::from_conn(&conn);
       app.manage(crate::state::AppState::new(conn));
 
       let _capture = tauri::WebviewWindowBuilder::new(
@@ -342,7 +354,7 @@ pub fn run() {
               }
           });
 
-      build_tray(app)?;
+      build_tray(app, lang)?;
       crate::reminders::start(app.handle().clone());
 
       if cfg!(debug_assertions) {

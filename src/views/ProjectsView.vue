@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion-v";
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { shortDate } from "../lib/dates";
+import { t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { projectsVM } from "../viewmodels/projectsVM";
@@ -37,7 +38,7 @@ function onCreateKey(event: KeyboardEvent): void {
       <input
         v-model="name"
         class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
-        placeholder="新项目名…"
+        :placeholder="t('projects.placeholder')"
         @keydown.enter="onCreateKey"
       />
       <input v-model="dueDate" type="date" class="input input-xs rounded-lg border-base-300" />
@@ -45,7 +46,7 @@ function onCreateKey(event: KeyboardEvent): void {
         class="btn btn-sm shrink-0 rounded-lg border-0 bg-primary text-primary-content"
         @click="create"
       >
-        新建
+        {{ t("projects.create") }}
       </button>
     </div>
 
@@ -65,14 +66,14 @@ function onCreateKey(event: KeyboardEvent): void {
       >
         <span class="text-[13.5px] font-medium">{{ project.name }}</span>
         <span v-if="project.dueDate" class="badge badge-ghost badge-xs">
-          截止 {{ shortDate(project.dueDate) }}
+          {{ t("projects.due", { date: shortDate(project.dueDate) }) }}
         </span>
         <span class="ml-auto text-[11px] tabular-nums text-base-content/45">
           {{ project.done }}/{{ project.total }}
         </span>
         <button
           class="text-base-content/35"
-          aria-label="项目设置"
+          :aria-label="t('projects.settingsAria')"
           @click.stop="projectsVM.openSettings(project.id)"
         >
           <Ellipsis :size="14" aria-hidden="true" />
@@ -81,7 +82,7 @@ function onCreateKey(event: KeyboardEvent): void {
     </AnimatePresence>
 
     <p v-else-if="!projectsVM.state.loading" class="px-1 text-[13px] text-base-content/40">
-      还没有项目。在上面建一个。
+      {{ t("projects.empty") }}
     </p>
 
     <AnimatePresence>

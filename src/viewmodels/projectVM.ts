@@ -1,4 +1,5 @@
-import { reactive } from "vue";
+import { computed, reactive } from "vue";
+import { projectSummaryLine } from "../lib/summary";
 import {
   aiEnrich,
   capture,
@@ -18,6 +19,8 @@ export function createProjectVM() {
     loading: false,
     copied: false,
   });
+
+  const summaryLine = computed(() => (state.summary ? projectSummaryLine(state.summary) : ""));
 
   async function load(id: string): Promise<void> {
     state.loading = true;
@@ -46,12 +49,12 @@ export function createProjectVM() {
 
   async function copySummary(): Promise<void> {
     if (!state.summary) return;
-    await navigator.clipboard.writeText(state.summary.summaryLine);
+    await navigator.clipboard.writeText(summaryLine.value);
     state.copied = true;
     setTimeout(() => {
       state.copied = false;
     }, 1500);
   }
 
-  return { state, load, toggle, captureInto, copySummary };
+  return { state, summaryLine, load, toggle, captureInto, copySummary };
 }

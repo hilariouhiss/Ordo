@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "motion-v";
 import { nextTick, ref, watch } from "vue";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
+import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion } from "../../lib/motion";
 
@@ -72,7 +73,7 @@ function onEnter(event: KeyboardEvent): void {
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="closeDialog(null)"
           >
-            取消
+            {{ t("dialog.cancel") }}
           </button>
           <button
             ref="confirmButton"
@@ -84,7 +85,7 @@ function onEnter(event: KeyboardEvent): void {
             "
             @click="confirm"
           >
-            确定
+            {{ t("dialog.ok") }}
           </button>
         </div>
       </motion.div>

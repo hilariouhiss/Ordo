@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 4;
+pub const LATEST: i64 = 5;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -172,6 +172,28 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 4)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 5 {
+        // "非项目" was only ever a seeded bucket for tasks outside projects. It is
+        // gone now; detach first so the tasks stay, then soft-delete the category.
+        let tx = conn.unchecked_transaction()?;
+        let stamp = now();
+        tx.execute(
+            "UPDATE tasks SET category_id = NULL, updated_at = ?1
+             WHERE category_id IN (
+                 SELECT id FROM categories WHERE name = '非项目' AND deleted_at IS NULL
+             )",
+            [stamp.as_str()],
+        )?;
+        tx.execute(
+            "UPDATE categories SET deleted_at = ?1, updated_at = ?1
+             WHERE name = '非项目' AND deleted_at IS NULL",
+            [stamp.as_str()],
+        )?;
+        tx.pragma_update(None, "user_version", 5)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -196,7 +218,7 @@ fn seed(conn: &Connection) -> rusqlite::Result<()> {
         rusqlite::params![Uuid::new_v4().to_string(), ts],
     )?;
 
-    let categories = ["软件", "硬件", "测试", "结构", "生产", "资料", "杂事", "非项目"];
+    let categories = ["软件", "硬件", "测试", "结构", "生产", "资料", "杂事"];
     for (i, name) in categories.iter().enumerate() {
         conn.execute(
             "INSERT INTO categories (id, name, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
@@ -387,6 +409,58 @@ mod tests {
         assert_eq!(version, LATEST);
     }
 
+
+    #[test]
+    fn removes_the_non_project_category_and_detaches_tasks() {
+        let c = v3_database();
+        c.execute(
+            "INSERT INTO categories (id, name, sort_order, created_at, updated_at)
+             VALUES ('c-np', '非项目', 7, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, category_id, created_at, updated_at)
+             VALUES ('t-np', '随手记', 'c-np', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET category_id = (SELECT id FROM categories WHERE name = '软件')
+             WHERE id = 'a'",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 4).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let deleted: Option<String> = c
+            .query_row("SELECT deleted_at FROM categories WHERE id = 'c-np'", [], |r| r.get(0))
+            .unwrap();
+        assert!(deleted.is_some());
+        let detached: Option<String> = c
+            .query_row("SELECT category_id FROM tasks WHERE id = 't-np'", [], |r| r.get(0))
+            .unwrap();
+        assert!(detached.is_none());
+        let kept: Option<String> = c
+            .query_row("SELECT category_id FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert!(kept.is_some());
+
+        migrate(&c).unwrap();
+        let live: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM categories WHERE name = '非项目' AND deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, 0);
+    }
+
     #[test]
     fn migrates_schema_v1() {
         let c = db::open_in_memory().unwrap();
@@ -407,6 +481,6 @@ mod tests {
         let cats: i64 = c
             .query_row("select count(*) from categories", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(cats, 8);
+        assert_eq!(cats, 7);
     }
 }

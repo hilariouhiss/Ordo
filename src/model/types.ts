@@ -1,3 +1,4 @@
+import type { Language } from "../lib/i18n";
 import type { ThemePref } from "../lib/theme";
 
 export type Status = "todo" | "doing" | "done";
@@ -22,6 +23,7 @@ export interface Tag {
 
 export interface Settings {
   theme: ThemePref;
+  language: Language;
   shortcutWarning?: string | null;
   aiEnabled: boolean;
   aiBaseUrl: string;
@@ -98,7 +100,6 @@ export interface ProjectSummary {
   total: number;
   done: number;
   byCategory: CategoryProgress[];
-  summaryLine: string;
 }
 
 export interface WeekStats {

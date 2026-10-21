@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from "../../lib/i18n";
+
 defineProps<{ text: string; copied: boolean }>();
 const emit = defineEmits<{ copy: [] }>();
 </script>
@@ -10,7 +12,7 @@ const emit = defineEmits<{ copy: [] }>();
       class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
       @click="emit('copy')"
     >
-      {{ copied ? "已复制" : "复制" }}
+      {{ copied ? t("common.copied") : t("common.copy") }}
     </button>
   </div>
 </template>

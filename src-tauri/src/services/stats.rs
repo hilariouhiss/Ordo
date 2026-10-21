@@ -37,14 +37,12 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())?;
 
-    let line = summary_line(&project.name, project.due_date.as_deref(), total, done, &by_category);
     Ok(ProjectSummaryDto {
         id: project.id,
         name: project.name,
         due_date: project.due_date,
         total,
         done,
-        summary_line: line,
         by_category,
     })
 }
@@ -55,44 +53,6 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
         .iter()
         .map(|p| summary(conn, &p.id))
         .collect()
-}
-
-fn summary_line(
-    name: &str,
-    due: Option<&str>,
-    total: i64,
-    done: i64,
-    by_category: &[CategoryProgressDto],
-) -> String {
-    let head = match due.and_then(mmdd) {
-        Some(d) => format!("{} {} 截止，{} 项完成 {}", name, d, total, done),
-        None => format!("{}，{} 项完成 {}", name, total, done),
-    };
-    let mut parts = Vec::new();
-    for c in by_category {
-        if c.total == 0 {
-            continue;
-        }
-        if c.done == 0 {
-            parts.push(format!("{}未动", c.name));
-        } else {
-            parts.push(format!("{} {}/{}", c.name, c.done, c.total));
-        }
-    }
-    if parts.is_empty() {
-        format!("{}。", head)
-    } else {
-        format!("{}；{}。", head, parts.join("，"))
-    }
-}
-
-fn mmdd(iso: &str) -> Option<String> {
-    let date = chrono::NaiveDate::parse_from_str(iso, "%Y-%m-%d").ok()?;
-    Some(format!(
-        "{}/{}",
-        chrono::Datelike::month(&date),
-        chrono::Datelike::day(&date)
-    ))
 }
 
 #[cfg(test)]
@@ -154,15 +114,5 @@ mod tests {
         assert_eq!(s.by_category[1].name, "资料");
         assert_eq!(s.by_category[1].total, 1);
         assert_eq!(s.by_category[1].done, 0);
-    }
-
-    #[test]
-    fn summary_line_is_exact() {
-        let (c, id) = setup();
-        let s = stats::summary(&c, &id).unwrap();
-        assert_eq!(
-            s.summary_line,
-            "华东客户交付 11/20 截止，3 项完成 1；软件 1/2，资料未动。"
-        );
     }
 }

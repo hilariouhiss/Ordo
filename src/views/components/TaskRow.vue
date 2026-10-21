@@ -2,6 +2,7 @@
 import { motion } from "motion-v";
 import { computed } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
+import { t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
 import { overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
@@ -24,9 +25,11 @@ const owner = computed(
 const stepsDone = computed(() => props.task.steps.filter((s) => s.done).length);
 const late = computed(() => overdueDays(props.task.dueDate, todayIso()));
 const overdue = computed(() => late.value > 0 && props.task.status !== "done");
-const conflictTitle = computed(
-  () =>
-    `计划 ${shortDate(props.plan?.end ?? null)} 才做完，晚于截止 ${shortDate(props.task.dueDate)}`,
+const conflictTitle = computed(() =>
+  t("task.conflictTitle", {
+    date: shortDate(props.plan?.end ?? null),
+    due: shortDate(props.task.dueDate),
+  }),
 );
 </script>
 
@@ -53,21 +56,23 @@ const conflictTitle = computed(
       {{ stepsDone }}/{{ task.steps.length }}
     </span>
     <span v-if="task.effortDays !== 1" class="badge badge-ghost badge-xs">
-      {{ task.effortDays }} 天
+      {{ t("task.effortDays", { days: task.effortDays }) }}
     </span>
     <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
-      {{ shortDate(plan.end) }} 完
+      {{ t("task.plannedEnd", { date: shortDate(plan.end) }) }}
     </span>
     <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
-      第 {{ task.carryCount }} 次
+      {{ t("task.carry", { count: task.carryCount }) }}
     </span>
-    <span v-if="overdue" class="badge badge-soft badge-error badge-xs">逾期 {{ late }} 天</span>
+    <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
+      t("task.overdue", { days: late })
+    }}</span>
     <span
       v-if="plan?.conflict"
       class="badge badge-soft badge-error badge-xs"
       :title="conflictTitle"
     >
-      排不进
+      {{ t("task.notFit") }}
     </span>
     <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
     <span

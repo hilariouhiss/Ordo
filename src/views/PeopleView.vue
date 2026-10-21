@@ -3,6 +3,7 @@ import { Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
 import { askConfirm, askText } from "../lib/dialog";
+import { errorText, t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
@@ -11,15 +12,6 @@ import { metaVM } from "../viewmodels/metaVM";
 const name = ref("");
 const error = ref("");
 
-function explain(e: unknown): string {
-  const text = String(e);
-  if (text.includes("person_in_use")) return "这个人名下还有任务，先把任务换给别人再删。";
-  if (text.includes("person_exists")) return "已经有同名的人了。";
-  if (text.includes("empty_person_name")) return "名字不能为空。";
-  if (text.includes("cannot_delete_me")) return "「我」不能删。";
-  return text;
-}
-
 async function add(): Promise<void> {
   if (!name.value.trim()) return;
   error.value = "";
@@ -27,7 +19,7 @@ async function add(): Promise<void> {
     await metaVM.addPerson(name.value);
     name.value = "";
   } catch (e) {
-    error.value = explain(e);
+    error.value = String(e);
   }
 }
 
@@ -37,24 +29,24 @@ function onKey(event: KeyboardEvent): void {
 }
 
 async function rename(id: string, current: string): Promise<void> {
-  const next = await askText("修改名字", current);
+  const next = await askText(t("people.editTitle"), current);
   if (!next) return;
   error.value = "";
   try {
     await metaVM.renamePerson(id, next);
   } catch (e) {
-    error.value = explain(e);
+    error.value = String(e);
   }
 }
 
 async function remove(id: string, personName: string): Promise<void> {
-  if (!(await askConfirm("删除人员", `删除「${personName}」？只有没有任何任务引用的人才能删除。`)))
+  if (!(await askConfirm(t("people.deleteTitle"), t("people.deleteMessage", { name: personName }))))
     return;
   error.value = "";
   try {
     await metaVM.removePerson(id);
   } catch (e) {
-    error.value = explain(e);
+    error.value = String(e);
   }
 }
 </script>
@@ -62,11 +54,11 @@ async function remove(id: string, personName: string): Promise<void> {
 <template>
   <section class="space-y-2">
     <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">人员</h1>
-      <span class="text-[11px] text-base-content/45">人名全局唯一，改名对所有任务生效</span>
+      <h1 class="text-[16px] font-semibold">{{ t("people.title") }}</h1>
+      <span class="text-[11px] text-base-content/45">{{ t("people.hint") }}</span>
     </div>
 
-    <p v-if="error" class="px-1 text-[12px] text-error">{{ error }}</p>
+    <p v-if="error" class="px-1 text-[12px] text-error">{{ errorText(error) }}</p>
 
     <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
       <motion.li
@@ -76,17 +68,19 @@ async function remove(id: string, personName: string): Promise<void> {
         class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
       >
         <span>{{ person.name }}</span>
-        <span v-if="person.isMe" class="badge badge-soft badge-primary badge-xs">我</span>
+        <span v-if="person.isMe" class="badge badge-soft badge-primary badge-xs">{{
+          t("people.me")
+        }}</span>
         <button
           class="ml-auto text-base-content/35 hover:text-base-content"
           @click="rename(person.id, person.name)"
         >
-          改
+          {{ t("common.edit") }}
         </button>
         <button
           v-if="!person.isMe"
           class="text-base-content/35 hover:text-error"
-          aria-label="删除人员"
+          :aria-label="t('people.deleteAria')"
           @click="remove(person.id, person.name)"
         >
           <Trash :size="14" aria-hidden="true" />
@@ -98,12 +92,12 @@ async function remove(id: string, personName: string): Promise<void> {
       <input
         v-model="name"
         class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
-        placeholder="新增人员，回车保存"
+        :placeholder="t('people.placeholder')"
         @keydown.enter="onKey"
       />
     </div>
     <p class="px-1 text-[10.5px] text-base-content/35">
-      新增的人要先在项目设置里加入项目，才能被选为负责人。只有没有任何任务引用的人才能删除。
+      {{ t("people.footer") }}
     </p>
   </section>
 </template>

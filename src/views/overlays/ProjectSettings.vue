@@ -3,6 +3,7 @@ import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { onMounted, reactive, ref } from "vue";
 import { askConfirm } from "../../lib/dialog";
+import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
@@ -32,7 +33,7 @@ onMounted(() => {
 });
 
 function memberNameOf(id: string): string {
-  return appVM.state.people.find((p) => p.id === id)?.name ?? "（未知）";
+  return appVM.state.people.find((p) => p.id === id)?.name ?? t("common.unknown");
 }
 
 async function save(): Promise<void> {
@@ -74,7 +75,8 @@ async function archive(): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  if (!(await askConfirm("删除项目", "永久删除这个项目？任务会一起消失，不能撤销。"))) return;
+  if (!(await askConfirm(t("projectSettings.dialogTitle"), t("projectSettings.dialogMessage"))))
+    return;
   await ipc.deleteProject(props.id);
   await projectsVM.load();
   emit("close");
@@ -92,21 +94,25 @@ async function remove(): Promise<void> {
       class="w-full max-w-[520px] rounded-2xl bg-base-100 p-5 shadow-2xl"
     >
       <div class="flex items-center">
-        <h2 class="text-[15px] font-semibold">项目设置</h2>
-        <button class="ml-auto text-base-content/30" aria-label="关闭" @click="emit('close')">
+        <h2 class="text-[15px] font-semibold">{{ t("projectSettings.title") }}</h2>
+        <button
+          class="ml-auto text-base-content/30"
+          :aria-label="t('common.close')"
+          @click="emit('close')"
+        >
           <X :size="15" aria-hidden="true" />
         </button>
       </div>
 
-      <p v-if="error" class="mt-2 text-[12px] text-error">{{ error }}</p>
+      <p v-if="error" class="mt-2 text-[12px] text-error">{{ errorText(error) }}</p>
 
       <div class="mt-4 space-y-2 text-[12px]">
         <label class="flex items-center gap-3">
-          <span class="w-14 text-base-content/50">名称</span>
+          <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.name") }}</span>
           <input v-model="form.name" class="input input-sm flex-1 rounded-lg border-base-300" />
         </label>
         <label class="flex items-center gap-3">
-          <span class="w-14 text-base-content/50">截止</span>
+          <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.due") }}</span>
           <input
             v-model="form.dueDate"
             type="date"
@@ -117,8 +123,10 @@ async function remove(): Promise<void> {
 
       <div class="mt-4">
         <div class="flex items-baseline gap-2">
-          <span class="text-[12px] font-medium">成员</span>
-          <span class="text-[10.5px] text-base-content/40">任务负责人从这里选</span>
+          <span class="text-[12px] font-medium">{{ t("projectSettings.members") }}</span>
+          <span class="text-[10.5px] text-base-content/40">{{
+            t("projectSettings.membersHint")
+          }}</span>
         </div>
         <AnimatePresence
           as="div"
@@ -136,7 +144,7 @@ async function remove(): Promise<void> {
             <button
               v-if="!appVM.state.people.find((p) => p.id === personId)?.isMe"
               class="text-base-content/30"
-              aria-label="移出项目"
+              :aria-label="t('projectSettings.removeMemberAria')"
               @click="removeMember(personId)"
             >
               <X :size="12" aria-hidden="true" />
@@ -147,18 +155,18 @@ async function remove(): Promise<void> {
           <input
             v-model="memberName"
             class="input input-sm flex-1 rounded-lg border-dashed border-base-300"
-            placeholder="从已有人员里选，或输入一个新名字"
+            :placeholder="t('projectSettings.memberPlaceholder')"
             @keydown.enter="onMemberKey"
           />
           <button
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="addMember"
           >
-            添加
+            {{ t("projectSettings.addMember") }}
           </button>
         </div>
         <p class="mt-1.5 text-[10.5px] text-base-content/35">
-          只属于这个项目。别的项目要用同一个人，再选一次就行（不会重复建人）。
+          {{ t("projectSettings.membersNote") }}
         </p>
       </div>
 
@@ -167,25 +175,25 @@ async function remove(): Promise<void> {
           class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
           @click="archive"
         >
-          归档项目
+          {{ t("projectSettings.archive") }}
         </button>
         <button
           class="btn btn-sm rounded-lg border-error/25 bg-base-100 font-normal text-error"
           @click="remove"
         >
-          删除项目
+          {{ t("projectSettings.delete") }}
         </button>
         <button
           class="btn btn-sm ml-auto rounded-lg border-base-300 bg-base-100 font-normal"
           @click="emit('close')"
         >
-          取消
+          {{ t("common.cancel") }}
         </button>
         <button
           class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
           @click="save"
         >
-          保存
+          {{ t("common.save") }}
         </button>
       </div>
     </motion.div>

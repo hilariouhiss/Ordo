@@ -26,6 +26,24 @@ pub fn set(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Only two languages are supported; an absent or unknown value follows the
+/// system UI language.
+pub fn normalize_language(value: Option<&str>) -> &'static str {
+    match value {
+        Some("zh") => "zh",
+        Some("en") => "en",
+        _ => crate::i18n::system_language(),
+    }
+}
+
+pub fn valid_language(value: &str) -> bool {
+    matches!(value, "zh" | "en")
+}
+
+pub fn language(conn: &Connection) -> String {
+    normalize_language(get(conn, "language").ok().flatten().as_deref()).into()
+}
+
 fn flag(map: &HashMap<String, String>, key: &str, default: bool) -> bool {
     map.get(key).map(|v| v == "true").unwrap_or(default)
 }
@@ -39,6 +57,7 @@ fn num(map: &HashMap<String, String>, key: &str, default: i64) -> i64 {
 pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
     let map = get_all(conn)?;
     Ok(SettingsDto {
+        language: normalize_language(map.get("language").map(String::as_str)).into(),
         ai_enabled: flag(&map, "ai.enabled", false),
         ai_base_url: map
             .get("ai.base_url")

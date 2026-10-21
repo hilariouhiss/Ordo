@@ -2,24 +2,46 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
 import { backdropMotion, modalPanelMotion, panelSwapMotion } from "../../lib/motion";
 import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
 
-const themeOptions: { value: ThemePref; label: string }[] = [
-  { value: "system", label: "跟随系统" },
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
+const themeOptions: { value: ThemePref; key: MessageKey }[] = [
+  { value: "system", key: "settings.themeSystem" },
+  { value: "light", key: "settings.themeLight" },
+  { value: "dark", key: "settings.themeDark" },
 ];
+
+// Each language names itself, so the switch reads from either side.
+const languageOptions: { value: Language; label: string }[] = [
+  { value: "zh", label: "中文" },
+  { value: "en", label: "English" },
+];
+
+type AiStatus =
+  | { kind: "saved" }
+  | { kind: "testing" }
+  | { kind: "ok"; ms: number }
+  | { kind: "failed"; error: string }
+  | null;
 
 const settings = computed(() => appVM.state.settings);
 const recording = ref(false);
 const pendingShortcut = ref("");
 const shortcutWarning = ref("");
 const keyDraft = ref("");
-const aiStatus = ref("");
+const aiStatus = ref<AiStatus>(null);
+const aiStatusText = computed(() => {
+  const status = aiStatus.value;
+  if (!status) return "";
+  if (status.kind === "saved") return t("settings.aiKeySaved");
+  if (status.kind === "testing") return t("settings.aiTesting");
+  if (status.kind === "ok") return t("settings.aiOk", { ms: status.ms });
+  return t("settings.aiFailed", { error: errorText(status.error) || t("settings.aiUnknown") });
+});
 
 function startRecord(): void {
   pendingShortcut.value = "";
@@ -49,16 +71,16 @@ async function saveKey(): Promise<void> {
   if (!keyDraft.value.trim()) return;
   await ipc.setAiKey(keyDraft.value.trim());
   keyDraft.value = "";
-  aiStatus.value = "key 已保存";
+  aiStatus.value = { kind: "saved" };
   if (appVM.state.settings) appVM.state.settings.aiHasKey = true;
 }
 
 async function testAi(): Promise<void> {
-  aiStatus.value = "测试中…";
+  aiStatus.value = { kind: "testing" };
   const result = await ipc.aiTest();
   aiStatus.value = result.ok
-    ? `连接正常（${result.latencyMs}ms）`
-    : `失败：${result.error ?? "未知错误"}`;
+    ? { kind: "ok", ms: result.latencyMs }
+    : { kind: "failed", error: result.error ?? "" };
 }
 
 async function applyShortcut(): Promise<void> {
@@ -84,8 +106,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
       class="max-h-[86vh] w-full max-w-[640px] overflow-y-auto rounded-2xl bg-base-100 p-5 shadow-2xl"
     >
       <div class="flex items-center">
-        <h2 class="text-[15px] font-semibold">设置</h2>
-        <button class="ml-auto text-base-content/30" aria-label="关闭" @click="vm.close()">
+        <h2 class="text-[15px] font-semibold">{{ t("app.settingsTitle") }}</h2>
+        <button
+          class="ml-auto text-base-content/30"
+          :aria-label="t('common.close')"
+          @click="vm.close()"
+        >
           <X :size="15" aria-hidden="true" />
         </button>
       </div>
@@ -105,7 +131,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           :class="{ 'tab-active': vm.state.tab === 'general' }"
           @click="vm.state.tab = 'general'"
         >
-          通用
+          {{ t("app.tabGeneral") }}
         </button>
         <button
           role="tab"
@@ -113,11 +139,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           :class="{ 'tab-active': vm.state.tab === 'data' }"
           @click="vm.state.tab = 'data'"
         >
-          数据
+          {{ t("app.tabData") }}
         </button>
       </div>
 
-      <p v-if="vm.state.error" class="mt-2 text-[12px] text-error">{{ vm.state.error }}</p>
+      <p v-if="vm.state.error" class="mt-2 text-[12px] text-error">
+        {{ errorText(vm.state.error) }}
+      </p>
 
       <template v-if="settings">
         <AnimatePresence mode="wait" :initial="false">
@@ -129,7 +157,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                   class="badge badge-soft badge-xs"
                   :class="settings.aiEnabled ? 'badge-success' : 'badge-ghost'"
                 >
-                  {{ settings.aiEnabled ? "开启" : "关闭" }}
+                  {{ settings.aiEnabled ? t("settings.aiEnabledOn") : t("settings.aiEnabledOff") }}
                 </span>
                 <input
                   type="checkbox"
@@ -140,7 +168,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               </div>
               <div class="mt-3 space-y-2 text-[11.5px]">
                 <label class="flex items-center gap-3">
-                  <span class="w-16 text-base-content/50">服务地址</span>
+                  <span
+                    class="w-20 shrink-0 text-base-content/50"
+                    v-text="t('settings.aiServiceUrl')"
+                  ></span>
                   <input
                     class="input input-sm flex-1 rounded-lg border-base-300"
                     :value="settings.aiBaseUrl"
@@ -148,7 +179,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                   />
                 </label>
                 <label class="flex items-center gap-3">
-                  <span class="w-16 text-base-content/50">模型</span>
+                  <span
+                    class="w-20 shrink-0 text-base-content/50"
+                    v-text="t('settings.aiModel')"
+                  ></span>
                   <input
                     class="input input-sm flex-1 rounded-lg border-base-300"
                     :value="settings.aiModel"
@@ -156,39 +190,46 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                   />
                 </label>
                 <label class="flex items-center gap-3">
-                  <span class="w-16 text-base-content/50">API key</span>
+                  <span
+                    class="w-20 shrink-0 text-base-content/50"
+                    v-text="t('settings.aiApiKey')"
+                  ></span>
                   <input
                     v-model="keyDraft"
                     type="password"
                     class="input input-sm flex-1 rounded-lg border-base-300"
-                    :placeholder="settings.aiHasKey ? '已保存，输入新的可替换' : 'sk-…'"
+                    :placeholder="
+                      settings.aiHasKey
+                        ? t('settings.aiKeyPlaceholder')
+                        : t('settings.aiKeyPlaceholderEmpty')
+                    "
                   />
                   <button
                     class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
                     @click="saveKey"
                   >
-                    保存
+                    {{ t("common.save") }}
                   </button>
                   <button
                     class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
                     @click="testAi"
                   >
-                    测试
+                    {{ t("settings.aiTest") }}
                   </button>
                 </label>
-                <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">{{ aiStatus }}</p>
+                <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">{{ aiStatusText }}</p>
               </div>
               <p class="mt-2 text-[10.5px] text-base-content/35">
-                关掉后完全离线，捕获照样能用。key 存在 Windows 凭据管理器里，不进导出。
+                {{ t("settings.aiNote") }}
               </p>
               <p v-if="settings.shortcutWarning" class="mt-1 text-[10.5px] text-error">
-                {{ settings.shortcutWarning }}
+                {{ t("settings.shortcutWarning", { error: settings.shortcutWarning }) }}
               </p>
             </div>
 
             <div v-else-if="vm.state.tab === 'general'" class="mt-4 rounded-xl bg-base-200 p-4">
               <div class="flex items-center justify-between text-[12px]">
-                <span>外观</span>
+                <span>{{ t("settings.theme") }}</span>
                 <span class="flex gap-1.5">
                   <button
                     v-for="option in themeOptions"
@@ -201,12 +242,33 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                     "
                     @click="vm.save({ theme: option.value })"
                   >
-                    {{ option.label }}
+                    {{ t(option.key) }}
                   </button>
                 </span>
               </div>
               <div class="mt-3 flex items-center justify-between text-[12px]">
-                <span>开机自启</span>
+                <span>{{ t("settings.language") }}</span>
+                <span class="flex gap-1.5">
+                  <button
+                    v-for="option in languageOptions"
+                    :key="option.value"
+                    class="btn btn-xs rounded-md border-base-300 font-normal"
+                    :class="
+                      settings.language === option.value
+                        ? 'border-0 bg-primary text-primary-content'
+                        : 'bg-base-100'
+                    "
+                    @click="vm.save({ language: option.value })"
+                  >
+                    {{ option.label }}
+                  </button>
+                </span>
+              </div>
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.languageHint") }}
+              </p>
+              <div class="mt-3 flex items-center justify-between text-[12px]">
+                <span>{{ t("settings.autostart") }}</span>
                 <input
                   type="checkbox"
                   class="toggle toggle-xs toggle-success"
@@ -215,67 +277,71 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 />
               </div>
               <div class="mt-3 flex items-center justify-between text-[12px]">
-                <span>全局快捷键</span>
+                <span>{{ t("settings.shortcut") }}</span>
                 <span class="flex items-center gap-2">
                   <span class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50">
-                    {{ recording ? "按下组合键…" : pendingShortcut || settings.shortcut }}
+                    {{
+                      recording
+                        ? t("settings.shortcutRecording")
+                        : pendingShortcut || settings.shortcut
+                    }}
                   </span>
                   <button
                     class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
                     @click="startRecord"
                   >
-                    改
+                    {{ t("settings.shortcutChange") }}
                   </button>
                   <button
                     v-if="pendingShortcut"
                     class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
                     @click="applyShortcut"
                   >
-                    保存
+                    {{ t("common.save") }}
                   </button>
                 </span>
               </div>
               <p v-if="shortcutWarning" class="mt-1 text-[10.5px] text-error">
-                没换成：{{ shortcutWarning }}
+                {{ t("settings.shortcutWarning", { error: shortcutWarning }) }}
               </p>
               <div class="mt-3 flex items-center justify-between text-[12px]">
-                <span>周起点</span>
-                <span class="text-[11px] text-base-content/40">周一</span>
+                <span>{{ t("settings.weekStart") }}</span>
+                <span class="text-[11px] text-base-content/40">{{ t("settings.monday") }}</span>
               </div>
             </div>
 
             <div v-else-if="vm.state.tab === 'data'" class="mt-4 rounded-xl bg-base-200 p-4">
               <div class="flex items-center justify-between text-[12px]">
-                <span>每日自动备份</span>
-                <span class="text-[11px] text-base-content/40"
-                  >保留 {{ settings.backupKeepDays }} 天</span
-                >
+                <span>{{ t("settings.backupDaily") }}</span>
+                <span class="text-[11px] text-base-content/40">
+                  {{ t("settings.backupKeep", { days: settings.backupKeepDays }) }}
+                </span>
               </div>
               <div class="mt-3 flex items-center gap-2">
                 <button
                   class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
                   @click="vm.backup"
                 >
-                  立即备份
+                  {{ t("settings.backupNow") }}
                 </button>
                 <button
                   class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
                   @click="vm.exportData"
                 >
-                  导出 JSON
+                  {{ t("settings.exportJson") }}
                 </button>
               </div>
               <p
                 v-if="vm.state.backupPath"
                 class="mt-2 break-all text-[10.5px] text-base-content/40"
               >
-                备份：{{ vm.state.backupPath }}
+                {{ t("settings.backupPath", { path: vm.state.backupPath }) }}
               </p>
               <p
                 v-if="vm.state.exportPath"
                 class="mt-1 break-all text-[10.5px] text-base-content/40"
               >
-                导出：{{ vm.state.exportPath }}
+                {{ t("settings.exportPath", { path: vm.state.exportPath }) }}
               </p>
             </div>
           </motion.div>

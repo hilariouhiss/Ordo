@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
 import { askConfirm, askText } from "../lib/dialog";
+import { t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
@@ -21,12 +22,18 @@ function onKey(event: KeyboardEvent): void {
 }
 
 async function rename(id: string, current: string): Promise<void> {
-  const next = await askText("修改分类名", current);
+  const next = await askText(t("categories.renameTitle"), current);
   if (next) await metaVM.renameCategory(id, next);
 }
 
 async function remove(id: string, categoryName: string): Promise<void> {
-  if (!(await askConfirm("删除分类", `删除「${categoryName}」？任务会变成未分类。`))) return;
+  if (
+    !(await askConfirm(
+      t("categories.deleteTitle"),
+      t("categories.deleteMessage", { name: categoryName }),
+    ))
+  )
+    return;
   await metaVM.removeCategory(id);
 }
 </script>
@@ -34,8 +41,8 @@ async function remove(id: string, categoryName: string): Promise<void> {
 <template>
   <section class="space-y-2">
     <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">分类</h1>
-      <span class="text-[11px] text-base-content/45">排序决定项目页里的分组顺序</span>
+      <h1 class="text-[16px] font-semibold">{{ t("categories.title") }}</h1>
+      <span class="text-[11px] text-base-content/45">{{ t("categories.hint") }}</span>
     </div>
 
     <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
@@ -50,25 +57,25 @@ async function remove(id: string, categoryName: string): Promise<void> {
           class="text-base-content/35 hover:text-base-content"
           @click="rename(category.id, category.name)"
         >
-          改
+          {{ t("common.edit") }}
         </button>
         <button
           class="text-base-content/35 hover:text-base-content"
-          aria-label="上移"
+          :aria-label="t('categories.upAria')"
           @click="metaVM.moveCategory(category.id, -1)"
         >
           <ArrowUp :size="14" aria-hidden="true" />
         </button>
         <button
           class="text-base-content/35 hover:text-base-content"
-          aria-label="下移"
+          :aria-label="t('categories.downAria')"
           @click="metaVM.moveCategory(category.id, 1)"
         >
           <ArrowDown :size="14" aria-hidden="true" />
         </button>
         <button
           class="text-base-content/35 hover:text-error"
-          aria-label="删除分类"
+          :aria-label="t('categories.deleteAria')"
           @click="remove(category.id, category.name)"
         >
           <Trash :size="14" aria-hidden="true" />
@@ -80,10 +87,10 @@ async function remove(id: string, categoryName: string): Promise<void> {
       <input
         v-model="name"
         class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
-        placeholder="新增分类，回车保存"
+        :placeholder="t('categories.placeholder')"
         @keydown.enter="onKey"
       />
     </div>
-    <p class="px-1 text-[10.5px] text-base-content/35">删除分类不会删任务，任务会变成未分类。</p>
+    <p class="px-1 text-[10.5px] text-base-content/35">{{ t("categories.footer") }}</p>
   </section>
 </template>

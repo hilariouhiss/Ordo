@@ -3,6 +3,7 @@ import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
+import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
@@ -11,10 +12,10 @@ import type { Person, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 
-const statusOptions: { value: Status; label: string }[] = [
-  { value: "todo", label: "未开始" },
-  { value: "doing", label: "进行中" },
-  { value: "done", label: "已完成" },
+const statusOptions: { value: Status; key: MessageKey }[] = [
+  { value: "todo", key: "task.statusTodo" },
+  { value: "doing", key: "task.statusDoing" },
+  { value: "done", key: "task.statusDone" },
 ];
 
 const form = reactive({
@@ -161,21 +162,27 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
     >
       <div class="flex items-start gap-2">
         <h2 class="text-[17px] font-semibold leading-snug">{{ taskSheetVM.state.task?.title }}</h2>
-        <button class="ml-auto text-base-content/30" aria-label="关闭" @click="taskSheetVM.close()">
+        <button
+          class="ml-auto text-base-content/30"
+          :aria-label="t('common.close')"
+          @click="taskSheetVM.close()"
+        >
           <X :size="15" aria-hidden="true" />
         </button>
       </div>
 
       <p v-if="taskSheetVM.state.error" class="mt-2 text-[12px] text-error">
-        {{ taskSheetVM.state.error }}
+        {{ errorText(taskSheetVM.state.error) }}
       </p>
 
       <template v-if="taskSheetVM.state.task">
-        <label class="mt-4 block text-[11px] text-base-content/45">标题</label>
+        <label class="mt-4 block text-[11px] text-base-content/45">{{ t("task.title") }}</label>
         <input v-model="form.title" class="input input-sm mt-1 w-full rounded-lg border-base-300" />
 
         <div v-if="!hasSteps" class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">状态</div>
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+            {{ t("task.status") }}
+          </div>
           <div class="mt-1.5 flex gap-1.5">
             <button
               v-for="option in statusOptions"
@@ -188,12 +195,14 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               "
               @click="setStatus(option.value)"
             >
-              {{ option.label }}
+              {{ t(option.key) }}
             </button>
           </div>
         </div>
 
-        <div class="mt-4 text-[10.5px] font-medium tracking-wide text-base-content/40">步骤</div>
+        <div class="mt-4 text-[10.5px] font-medium tracking-wide text-base-content/40">
+          {{ t("task.steps") }}
+        </div>
         <AnimatePresence as="div" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
           <motion.div
             v-for="(s, i) in taskSheetVM.state.task.steps"
@@ -214,11 +223,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               v-if="!s.done && taskSheetVM.state.task.steps.findIndex((x) => !x.done) === i"
               class="badge badge-ghost badge-xs text-primary"
             >
-              当前
+              {{ t("task.current") }}
             </span>
             <button
               class="ml-auto text-base-content/25"
-              aria-label="删除这一步"
+              :aria-label="t('task.deleteStepAria')"
               @click="taskSheetVM.remove(s.id)"
             >
               <X :size="13" aria-hidden="true" />
@@ -229,22 +238,22 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <input
           v-model="stepDraft"
           class="mt-1 w-full bg-transparent px-1 py-1.5 text-[12px] outline-none placeholder:text-base-content/35"
-          placeholder="+ 再加一步（回车继续写）"
+          :placeholder="t('task.stepPlaceholder')"
           @keydown.enter="onStepKey"
         />
 
         <p class="mt-2 rounded-lg bg-success/10 px-3 py-2 text-[11px] text-success">
-          勾完最后一步，这件事自动变成已完成。
+          {{ t("task.stepsHint") }}
         </p>
 
         <label class="mt-3 block text-[11px] text-base-content/45">
-          项目
+          {{ t("task.project") }}
           <select
             v-model="form.projectId"
             class="select select-sm mt-1 w-full rounded-lg border-base-300"
             @change="onProjectChange"
           >
-            <option :value="null">无项目</option>
+            <option :value="null">{{ t("task.noProject") }}</option>
             <option v-for="project in appVM.state.projects" :key="project.id" :value="project.id">
               {{ project.name }}
             </option>
@@ -253,24 +262,24 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
         <div class="mt-2 grid grid-cols-2 gap-2">
           <label class="block text-[11px] text-base-content/45">
-            分类
+            {{ t("task.category") }}
             <select
               v-model="form.categoryId"
               class="select select-sm mt-1 w-full rounded-lg border-base-300"
             >
-              <option :value="null">未分类</option>
+              <option :value="null">{{ t("common.uncategorized") }}</option>
               <option v-for="c in appVM.state.categories" :key="c.id" :value="c.id">
                 {{ c.name }}
               </option>
             </select>
           </label>
           <label class="block text-[11px] text-base-content/45">
-            负责人
+            {{ t("task.owner") }}
             <select
               v-model="form.ownerId"
               class="select select-sm mt-1 w-full rounded-lg border-base-300"
             >
-              <option :value="null">未指定</option>
+              <option :value="null">{{ t("task.unassigned") }}</option>
               <option
                 v-if="form.ownerId && !candidates.some((p) => p.id === form.ownerId)"
                 :value="form.ownerId"
@@ -283,7 +292,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </select>
           </label>
           <label class="block text-[11px] text-base-content/45">
-            开始
+            {{ t("task.start") }}
             <input
               v-model="form.startDate"
               type="date"
@@ -291,7 +300,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             />
           </label>
           <label class="block text-[11px] text-base-content/45">
-            截止
+            {{ t("task.due") }}
             <input
               v-model="form.dueDate"
               type="date"
@@ -299,22 +308,24 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             />
           </label>
           <label class="block text-[11px] text-base-content/45">
-            预估人天
+            {{ t("task.effort") }}
             <select
               v-model.number="form.effortDays"
               class="select select-sm mt-1 w-full rounded-lg border-base-300"
             >
-              <option :value="0.5">半天</option>
-              <option :value="1">1 天</option>
-              <option :value="2">2 天</option>
-              <option :value="3">3 天</option>
-              <option :value="5">5 天</option>
+              <option :value="0.5">{{ t("task.effortHalf") }}</option>
+              <option :value="1">{{ t("task.effortDays", { days: 1 }) }}</option>
+              <option :value="2">{{ t("task.effortDays", { days: 2 }) }}</option>
+              <option :value="3">{{ t("task.effortDays", { days: 3 }) }}</option>
+              <option :value="5">{{ t("task.effortDays", { days: 5 }) }}</option>
             </select>
           </label>
         </div>
 
         <div class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">标签</div>
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+            {{ t("task.tags") }}
+          </div>
           <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
             <AnimatePresence mode="popLayout" :initial="false">
               <motion.span
@@ -324,7 +335,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 class="badge badge-ghost badge-sm gap-1.5"
               >
                 {{ tag }}
-                <button class="text-base-content/30" aria-label="移除标签" @click="removeTag(tag)">
+                <button
+                  class="text-base-content/30"
+                  :aria-label="t('task.removeTagAria')"
+                  @click="removeTag(tag)"
+                >
                   <X :size="12" aria-hidden="true" />
                 </button>
               </motion.span>
@@ -332,14 +347,16 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <input
               v-model="tagDraft"
               class="input input-xs w-24 rounded-md border-dashed border-base-300 bg-transparent"
-              placeholder="+ 标签"
+              :placeholder="t('task.addTag')"
               @keydown.enter="onTagKey"
             />
           </div>
         </div>
 
         <div v-if="taskSheetVM.state.task.delays.length" class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">延期记录</div>
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+            {{ t("task.delays") }}
+          </div>
           <div
             v-for="d in taskSheetVM.state.task.delays"
             :key="d.id"
@@ -348,7 +365,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <span class="tabular-nums text-base-content/40">
               {{ d.createdAt.slice(5, 10).replace("-", "/") }}
             </span>
-            {{ d.reason || "未写原因" }}
+            {{ d.reason || t("task.noReason") }}
             <span v-if="d.kind === 'reschedule'" class="text-base-content/40">
               · {{ shortDate(d.oldDue) }} → {{ shortDate(d.newDue) }}
             </span>
@@ -357,26 +374,26 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
         <div v-if="late > 0 && taskSheetVM.state.task.status !== 'done'" class="mt-3">
           <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
-            逾期 {{ late }} 天 · 记一句原因
+            {{ t("task.overdueNote", { days: late }) }}
           </div>
           <div class="mt-1 flex items-center gap-1.5">
             <input
               v-model="noteDraft"
               class="input input-sm flex-1 rounded-lg border-base-300"
-              placeholder="为什么还没交"
+              :placeholder="t('task.notePlaceholder')"
               @keydown.enter="onNoteKey"
             />
             <button
               class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
               @click="saveNote"
             >
-              记下
+              {{ t("task.saveNote") }}
             </button>
           </div>
         </div>
 
         <label class="mt-3 block text-[11px] text-base-content/45">
-          备注
+          {{ t("common.note") }}
           <textarea
             v-model="form.note"
             class="textarea textarea-sm mt-1 w-full rounded-lg border-base-300"
@@ -389,19 +406,19 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="archive"
           >
-            归档
+            {{ t("common.archive") }}
           </button>
           <button
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="taskSheetVM.close()"
           >
-            取消
+            {{ t("common.cancel") }}
           </button>
           <button
             class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
             @click="save"
           >
-            保存
+            {{ t("common.save") }}
           </button>
         </div>
       </template>

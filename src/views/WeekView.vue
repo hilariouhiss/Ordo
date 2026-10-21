@@ -3,6 +3,7 @@ import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, weekdayLabel } from "../lib/dates";
+import { t } from "../lib/i18n";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -147,13 +148,15 @@ function openTask(task: Task): void {
       v-if="appVM.state.passNeeded"
       class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
     >
-      <span class="text-[12.5px]">这一周的事还没结清</span>
-      <span class="text-[11px] text-base-content/45">{{ state.tasks.length }} 件待定</span>
+      <span class="text-[12.5px]">{{ t("week.passNeeded") }}</span>
+      <span class="text-[11px] text-base-content/45">{{
+        t("week.pending", { count: state.tasks.length })
+      }}</span>
       <button
         class="btn btn-sm ml-auto rounded-lg border-0 bg-primary text-primary-content"
         @click="passVM.start"
       >
-        过一遍
+        {{ t("week.pass") }}
       </button>
     </div>
 
@@ -165,10 +168,15 @@ function openTask(task: Task): void {
       aria-live="polite"
     >
       <span>
-        按这个顺序，最晚 {{ shortDate(planEnd) }}（{{ planEnd ? weekdayLabel(planEnd) : "" }}）做完
+        {{
+          t("week.planEnd", {
+            date: shortDate(planEnd),
+            weekday: planEnd ? weekdayLabel(planEnd) : "",
+          })
+        }}
       </span>
       <span v-if="conflictCount" class="badge badge-soft badge-error badge-xs">
-        {{ conflictCount }} 件赶不上截止日
+        {{ t("week.conflict", { count: conflictCount }) }}
       </span>
     </div>
 
@@ -177,7 +185,9 @@ function openTask(task: Task): void {
         <div class="flex items-center gap-2 px-1 pt-1.5 pb-1 text-[10.5px] text-base-content/40">
           <span class="font-medium">{{ day.weekday }}</span>
           <span>{{ shortDate(day.date) }}</span>
-          <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">今天</span>
+          <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
+            t("week.today")
+          }}</span>
         </div>
         <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
           <TaskRow
@@ -193,7 +203,7 @@ function openTask(task: Task): void {
             <template #leading>
               <button
                 class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
-                :aria-label="`调整「${row.task.title}」的顺序，上下方向键移动`"
+                :aria-label="t('week.reorderAria', { title: row.task.title })"
                 @click.stop
                 @pointerdown="onHandleDown($event, row.task.id)"
                 @pointermove="onHandleMove"
@@ -215,12 +225,12 @@ function openTask(task: Task): void {
     </div>
 
     <p v-else-if="!state.loading" class="px-1 text-[13px] text-base-content/40">
-      这周还是空的。在上面记一句。
+      {{ t("week.empty") }}
     </p>
 
     <div v-if="suspendedOpen" class="rounded-xl bg-base-100 px-3 py-2.5">
       <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
-        挂起 ({{ state.suspended.length }})
+        {{ t("week.suspended", { count: state.suspended.length }) }}
       </div>
       <div
         v-for="task in state.suspended"
@@ -229,18 +239,23 @@ function openTask(task: Task): void {
       >
         <span>{{ task.title }}</span>
         <span class="text-[10.5px] text-base-content/40">
-          {{ shortDate(task.suspendedUntil) }} 再看
+          {{ t("week.reviewAt", { date: shortDate(task.suspendedUntil) }) }}
         </span>
         <button class="ml-auto text-[10.5px] text-primary" @click="resume(task.id)">
-          捞回本周
+          {{ t("week.resume") }}
         </button>
       </div>
     </div>
 
     <div class="flex items-center gap-3 px-1 text-[11px] text-base-content/45">
       <span class="tabular-nums">
-        本周完成 {{ state.stats.done }} · 新增 {{ state.stats.added }} · 延期
-        {{ state.stats.delayed }}
+        {{
+          t("week.stats", {
+            done: state.stats.done,
+            added: state.stats.added,
+            delayed: state.stats.delayed,
+          })
+        }}
       </span>
     </div>
 

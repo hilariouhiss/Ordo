@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted } from "vue";
 import { shortDate } from "../lib/dates";
 import { askConfirm } from "../lib/dialog";
+import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
 
@@ -26,16 +27,16 @@ function onSearch(): void {
 
 async function removeTask(id: string, title: string): Promise<void> {
   const ok = await askConfirm(
-    "删除任务",
-    `永久删除「${title}」？步骤和延期记录会一起删掉，不能撤销。`,
+    t("archive.deleteTaskTitle"),
+    t("archive.deleteTaskMessage", { title }),
   );
   if (ok) await vm.remove(id);
 }
 
 async function removeProject(id: string, name: string): Promise<void> {
   const ok = await askConfirm(
-    "删除项目",
-    `永久删除项目「${name}」？里面的任务会一起消失，不能撤销。`,
+    t("archive.deleteProjectTitle"),
+    t("archive.deleteProjectMessage", { name }),
   );
   if (ok) await vm.removeProject(id);
 }
@@ -44,12 +45,12 @@ async function removeProject(id: string, name: string): Promise<void> {
 <template>
   <section class="space-y-2">
     <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">归档</h1>
+      <h1 class="text-[16px] font-semibold">{{ t("archive.title") }}</h1>
       <div class="input input-sm ml-auto w-56 rounded-lg border-0 bg-base-100">
         <input
           v-model="vm.state.query"
           class="w-full bg-transparent text-[12px] outline-none placeholder:text-base-content/35"
-          placeholder="搜任务或项目…"
+          :placeholder="t('archive.search')"
           @input="onSearch"
         />
       </div>
@@ -62,7 +63,7 @@ async function removeProject(id: string, name: string): Promise<void> {
         :class="{ 'tab-active': vm.state.tab === 'projects' }"
         @click="vm.state.tab = 'projects'"
       >
-        项目 {{ vm.state.data.projects.length }}
+        {{ t("archive.projects", { count: vm.state.data.projects.length }) }}
       </button>
       <button
         role="tab"
@@ -70,7 +71,7 @@ async function removeProject(id: string, name: string): Promise<void> {
         :class="{ 'tab-active': vm.state.tab === 'tasks' }"
         @click="vm.state.tab = 'tasks'"
       >
-        任务 {{ vm.state.data.tasks.length }}
+        {{ t("archive.tasks", { count: vm.state.data.tasks.length }) }}
       </button>
       <button
         role="tab"
@@ -78,7 +79,7 @@ async function removeProject(id: string, name: string): Promise<void> {
         :class="{ 'tab-active': vm.state.tab === 'canceled' }"
         @click="vm.state.tab = 'canceled'"
       >
-        已取消 {{ vm.state.data.canceled.length }}
+        {{ t("archive.canceled", { count: vm.state.data.canceled.length }) }}
       </button>
       <button
         role="tab"
@@ -86,7 +87,7 @@ async function removeProject(id: string, name: string): Promise<void> {
         :class="{ 'tab-active': vm.state.tab === 'done' }"
         @click="vm.state.tab = 'done'"
       >
-        已完成 {{ vm.state.data.done.length }}
+        {{ t("archive.done", { count: vm.state.data.done.length }) }}
       </button>
     </div>
 
@@ -100,24 +101,24 @@ async function removeProject(id: string, name: string): Promise<void> {
         >
           <span class="text-[13px] font-medium">{{ project.name }}</span>
           <span v-if="project.dueDate" class="text-[10.5px] text-base-content/40">
-            截止 {{ shortDate(project.dueDate) }}
+            {{ t("projects.due", { date: shortDate(project.dueDate) }) }}
           </span>
           <button
             class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
             @click="vm.restoreProject(project.id)"
           >
-            恢复
+            {{ t("common.restore") }}
           </button>
           <button
             class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
             @click="removeProject(project.id, project.name)"
           >
-            删除
+            {{ t("common.delete") }}
           </button>
         </motion.div>
       </AnimatePresence>
       <p v-if="!vm.state.data.projects.length" class="px-1 text-[12px] text-base-content/40">
-        没有归档的项目。
+        {{ t("archive.emptyProjects") }}
       </p>
     </div>
 
@@ -130,32 +131,34 @@ async function removeProject(id: string, name: string): Promise<void> {
           class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
         >
           <span class="text-[13px] text-base-content/70">{{ task.title }}</span>
-          <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">已取消</span>
+          <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">{{
+            t("archive.canceledBadge")
+          }}</span>
           <button
             class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
             @click="vm.restore(task.id)"
           >
-            恢复
+            {{ t("common.restore") }}
           </button>
           <button
             v-if="!task.archivedAt && !task.canceledAt"
             class="btn btn-xs rounded-md border-base-300 bg-base-200 font-normal"
-            title="归档后才能永久删除"
+            :title="t('archive.archiveOnlyTitle')"
             @click="vm.archive(task.id)"
           >
-            归档
+            {{ t("common.archive") }}
           </button>
           <button
             v-else
             class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
             @click="removeTask(task.id, task.title)"
           >
-            删除
+            {{ t("common.delete") }}
           </button>
         </motion.div>
       </AnimatePresence>
       <p v-if="!currentList.length" class="px-1 text-[12px] text-base-content/40">
-        这里还没有东西。
+        {{ t("archive.empty") }}
       </p>
     </div>
   </section>

@@ -62,13 +62,32 @@ mod tests {
         assert_eq!(crate::repo::settings::dto(&c).unwrap().theme, "dark");
     }
 
+
+    #[test]
+    fn language_falls_back_to_the_system_and_round_trips() {
+        let c = crate::db::open_in_memory().unwrap();
+        let system = crate::i18n::system_language();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().language, system);
+        crate::repo::settings::set(&c, "language", "en").unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().language, "en");
+        crate::repo::settings::set(&c, "language", "zh").unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().language, "zh");
+        crate::repo::settings::set(&c, "language", "fr").unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().language, system);
+        assert!(crate::repo::settings::valid_language("en"));
+        assert!(crate::repo::settings::valid_language("zh"));
+        assert!(!crate::repo::settings::valid_language("fr"));
+    }
+
     #[test]
     fn bootstrap_returns_seed() {
         let c = crate::db::open_in_memory().unwrap();
+        assert!(crate::repo::settings::get(&c, "language").unwrap().is_none());
         let b = crate::commands::meta::build_bootstrap(&c).unwrap();
         assert_eq!(b.people.len(), 1);
         assert!(b.people[0].is_me);
-        assert_eq!(b.categories.len(), 8);
+        assert_eq!(b.categories.len(), 7);
+        assert_eq!(b.settings.language, crate::i18n::system_language());
         assert_eq!(b.settings.shortcut, "Ctrl+Alt+O");
     }
 }
@@ -90,6 +109,11 @@ pub async fn set_settings(
     patch: SettingsPatch,
 ) -> Result<SettingsDto, String> {
     use tauri_plugin_autostart::ManagerExt;
+    if let Some(language) = patch.language.as_deref() {
+        if !crate::repo::settings::valid_language(language) {
+            return Err("invalid_language".into());
+        }
+    }
     if let Some(autostart) = patch.autostart {
         let _ = if autostart {
             app.autolaunch().enable()
@@ -97,8 +121,10 @@ pub async fn set_settings(
             app.autolaunch().disable()
         };
     }
-    with_db(&state, move |conn| {
+    let language_requested = patch.language.is_some();
+    let settings = with_db(&state, move |conn| {
         let sets: Vec<(&str, Option<String>)> = vec![
+            ("language", patch.language),
             ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
             ("ai.base_url", patch.ai_base_url),
             ("ai.model", patch.ai_model),
@@ -113,7 +139,16 @@ pub async fn set_settings(
         }
         settings_with_key(conn)
     })
-    .await
+    .await?;
+    if language_requested {
+        let lang = if settings.language == "en" {
+            crate::i18n::Lang::En
+        } else {
+            crate::i18n::Lang::Zh
+        };
+        crate::refresh_tray(&app, lang);
+    }
+    Ok(settings)
 }
 
 #[tauri::command]

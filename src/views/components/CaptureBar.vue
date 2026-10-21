@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 
 const model = defineModel<string>({ required: true });
@@ -15,9 +16,9 @@ function onSubmit(event: KeyboardEvent): void {
     <input
       v-model="model"
       class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
-      placeholder="记一句…"
+      :placeholder="t('capture.placeholder')"
       @keydown.enter="onSubmit"
     />
-    <span class="shrink-0 text-[10.5px] text-base-content/35">⏎ 保存</span>
+    <span class="shrink-0 text-[10.5px] text-base-content/35">{{ t("capture.saveHint") }}</span>
   </div>
 </template>

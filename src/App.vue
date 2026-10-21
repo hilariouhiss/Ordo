@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
+import { setLanguage, t } from "./lib/i18n";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
   applyTheme,
@@ -24,15 +25,18 @@ import WindowControls from "./views/components/WindowControls.vue";
 import AppDialog from "./views/overlays/AppDialog.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
-const navItems = [
-  { name: "week", to: "/week", label: "本周" },
-  { name: "tasks", to: "/tasks", label: "任务" },
-  { name: "projects", to: "/projects", label: "项目" },
-  { name: "categories", to: "/categories", label: "分类" },
-  { name: "tags", to: "/tags", label: "标签" },
-  { name: "people", to: "/people", label: "人员" },
-  { name: "archive", to: "/archive", label: "归档" },
-] as const;
+const navItems = computed(
+  () =>
+    [
+      { name: "week", to: "/week", label: t("nav.week") },
+      { name: "tasks", to: "/tasks", label: t("nav.tasks") },
+      { name: "projects", to: "/projects", label: t("nav.projects") },
+      { name: "categories", to: "/categories", label: t("nav.categories") },
+      { name: "tags", to: "/tags", label: t("nav.tags") },
+      { name: "people", to: "/people", label: t("nav.people") },
+      { name: "archive", to: "/archive", label: t("nav.archive") },
+    ] as const,
+);
 
 const router = useRouter();
 const route = useRoute();
@@ -52,6 +56,16 @@ watch(
   (to, from) => {
     direction.value = pageDirection(routeName(from), routeName(to));
   },
+);
+
+watch(
+  () => appVM.state.settings?.language,
+  (lang) => {
+    if (lang !== "zh" && lang !== "en") return;
+    setLanguage(lang);
+    if (isTauri()) void emitTo("capture", "language:changed", lang);
+  },
+  { immediate: true },
 );
 
 // The tray always lands somewhere clean; a leftover overlay would hide it.
@@ -160,7 +174,7 @@ onMounted(async () => {
           <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
           <button
             class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
-            aria-label="设置"
+            :aria-label="t('app.settings')"
             @click="settingsVM.open()"
           >
             <Settings :size="16" aria-hidden="true" />

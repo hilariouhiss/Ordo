@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AnimatePresence } from "motion-v";
 import { onMounted, watch } from "vue";
+import { t } from "../lib/i18n";
 import type { Task } from "../model/types";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { tasksVM } from "../viewmodels/tasksVM";
@@ -24,11 +25,11 @@ function openTask(task: Task): void {
 <template>
   <section class="space-y-2">
     <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">任务</h1>
+      <h1 class="text-[16px] font-semibold">{{ t("tasks.title") }}</h1>
       <span class="text-[11px] tabular-nums text-base-content/45">
-        共 {{ tasksVM.state.tasks.length }} 条
+        {{ t("tasks.count", { count: tasksVM.state.tasks.length }) }}
       </span>
-      <span class="ml-auto text-[10.5px] text-base-content/35">不在本周的也在这里</span>
+      <span class="ml-auto text-[10.5px] text-base-content/35">{{ t("tasks.hint") }}</span>
     </div>
 
     <AnimatePresence
@@ -41,7 +42,7 @@ function openTask(task: Task): void {
       <TaskRow v-for="task in tasksVM.state.tasks" :key="task.id" :task="task" @open="openTask" />
     </AnimatePresence>
     <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
-      还没有任务。
+      {{ t("tasks.empty") }}
     </p>
 
     <AnimatePresence>
