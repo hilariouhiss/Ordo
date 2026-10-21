@@ -44,10 +44,14 @@ async function refreshCandidates(projectId: string | null): Promise<void> {
   }
 }
 
+// Step and status edits return a fresh task; only a different task reseeds the form.
+let seededFor: string | null = null;
+
 watch(
   () => taskSheetVM.state.task,
   async (task) => {
-    if (!task) return;
+    if (!task || seededFor === task.id) return;
+    seededFor = task.id;
     form.title = task.title;
     form.projectId = task.projectId;
     form.categoryId = task.categoryId;
