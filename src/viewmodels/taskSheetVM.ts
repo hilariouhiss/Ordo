@@ -81,16 +81,23 @@ export function createTaskSheetVM() {
   }
 
   /// Saves the sheet: the deadline through set_due, everything else as a patch.
-  async function saveForm(form: TaskForm): Promise<void> {
+  async function saveForm(form: TaskForm): Promise<boolean> {
     const task = state.task;
     const id = state.openId;
-    if (!task || !id) return;
-    // Diff first: setDue replaces state.task, and the view's watcher then rewrites the form.
-    const patch = diffTask(task, form);
-    if ((form.dueDate || null) !== task.dueDate) {
-      state.task = await setDueApi(id, form.dueDate || null, null);
+    if (!task || !id) return false;
+    state.error = null;
+    try {
+      // Diff first: setDue replaces state.task, and the view's watcher then rewrites the form.
+      const patch = diffTask(task, form);
+      if ((form.dueDate || null) !== task.dueDate) {
+        state.task = await setDueApi(id, form.dueDate || null, null);
+      }
+      if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
+      return true;
+    } catch (e) {
+      state.error = String(e);
+      return false;
     }
-    if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
   }
 
   async function addNote(reason: string): Promise<void> {

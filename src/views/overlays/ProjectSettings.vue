@@ -36,8 +36,8 @@ async function save(): Promise<void> {
   error.value = "";
   try {
     await ipc.updateProject(props.id, form.name.trim(), form.dueDate || null);
-    await reload();
     await projectsVM.load();
+    emit("close");
   } catch (e) {
     error.value = String(e);
   }
@@ -163,7 +163,13 @@ async function remove(): Promise<void> {
           删除项目
         </button>
         <button
-          class="btn btn-sm ml-auto rounded-lg border-0 bg-primary text-primary-content"
+          class="btn btn-sm ml-auto rounded-lg border-base-300 bg-base-100 font-normal"
+          @click="emit('close')"
+        >
+          取消
+        </button>
+        <button
+          class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
           @click="save"
         >
           保存

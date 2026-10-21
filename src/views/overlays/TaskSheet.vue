@@ -68,10 +68,14 @@ async function onProjectChange(): Promise<void> {
 async function save(): Promise<void> {
   const task = taskSheetVM.state.task;
   if (!task) return;
-  if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
-    await addMember(form.projectId, form.ownerId, null);
+  try {
+    if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
+      await addMember(form.projectId, form.ownerId, null);
+    }
+    if (await taskSheetVM.saveForm(form)) taskSheetVM.close();
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
   }
-  await taskSheetVM.saveForm(form);
 }
 
 async function setStatus(status: Status): Promise<void> {
@@ -358,7 +362,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="taskSheetVM.close()"
           >
-            关闭
+            取消
           </button>
           <button
             class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"

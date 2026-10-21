@@ -65,10 +65,23 @@ describe("taskSheetVM", () => {
     const vm = createTaskSheetVM();
     await vm.open("t1");
     const form = formOf(task({ title: "旧" }));
-    await vm.saveForm({ ...form, title: "新", dueDate: "2026-11-01" });
+    const saved = await vm.saveForm({ ...form, title: "新", dueDate: "2026-11-01" });
 
+    expect(saved).toBe(true);
     expect(setDue).toHaveBeenCalledWith("t1", "2026-11-01", null);
     expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
+  });
+
+  it("returns false and reports a failed save", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", dueDate: "2026-10-25" }));
+    vi.mocked(setDue).mockRejectedValue("boom");
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    const saved = await vm.saveForm({ ...formOf(task({ id: "t1" })), dueDate: "2026-11-01" });
+
+    expect(saved).toBe(false);
+    expect(vm.state.error).toBe("boom");
   });
 
   it("sends only the fields the user changed", () => {
