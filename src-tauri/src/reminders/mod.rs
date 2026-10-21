@@ -39,6 +39,8 @@ pub fn start(app: AppHandle) {
 fn tick(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
+    // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
+    backup_ledger(app, &conn);
     let now = chrono::Local::now();
     let candidates = rules::candidates(&conn, now)?;
     let today = now.format("%Y-%m-%d").to_string();
@@ -100,7 +102,6 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         let _ = tray.set_tooltip(Some(format!("ordo · {} 条提醒", unread)));
     }
 
-    backup_ledger(app, &conn);
     Ok(())
 }
 
