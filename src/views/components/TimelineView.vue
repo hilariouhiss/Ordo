@@ -66,15 +66,14 @@ const groups = computed(() => {
     </div>
 
     <div class="relative mt-1">
-      <div
-        class="absolute inset-y-0 z-10 w-px bg-error/60"
-        :style="{ left: `calc(110px + ${todayPct}%)` }"
-      ></div>
-      <div
-        class="absolute -top-0.5 z-10 -translate-x-1/2 rounded-sm bg-error px-1 text-[9px] leading-3 text-error-content"
-        :style="{ left: `calc(110px + ${todayPct}%)` }"
-      >
-        今天
+      <div class="pointer-events-none absolute inset-y-0 right-0 left-[110px] z-10">
+        <div class="absolute inset-y-0 w-px bg-error/60" :style="{ left: todayPct + '%' }"></div>
+        <div
+          class="absolute -top-0.5 -translate-x-1/2 rounded-sm bg-error px-1 text-[9px] leading-3 text-error-content"
+          :style="{ left: todayPct + '%' }"
+        >
+          今天
+        </div>
       </div>
 
       <div v-for="group in groups" :key="group.name" class="mt-2">
