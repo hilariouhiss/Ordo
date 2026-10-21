@@ -4,7 +4,13 @@ import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { onMounted, watch } from "vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
-import { applyTheme, resolveTheme, systemPrefersDark } from "./lib/theme";
+import {
+  applyTheme,
+  systemPrefersDark,
+  systemTheme,
+  type AppliedTheme,
+  type ThemeWindow,
+} from "./lib/theme";
 import { appVM } from "./viewmodels/appVM";
 import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
@@ -21,18 +27,43 @@ function closeOverlays(): void {
   settingsVM.close();
 }
 
+async function themeWindow(): Promise<ThemeWindow | null> {
+  if (!isTauri()) return null;
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  return getCurrentWindow();
+}
+
+let themeRun = 0;
+
 // The mini window is a separate document, so it has to be told too.
-function syncTheme(): void {
-  const theme = resolveTheme(appVM.state.settings?.theme, systemPrefersDark());
+async function syncTheme(): Promise<void> {
+  const run = ++themeRun;
+  const pref = appVM.state.settings?.theme;
+  const win = await themeWindow();
+  if (run !== themeRun) return;
+  let theme: AppliedTheme;
+  if (pref === "light" || pref === "dark") {
+    theme = pref;
+    // Only an explicit choice pins the native frame; pinning also freezes the webview's media query.
+    if (win) await win.setTheme(pref).catch(() => {});
+  } else {
+    theme = await systemTheme(win, systemPrefersDark());
+  }
+  if (run !== themeRun) return;
   applyTheme(theme);
   if (isTauri()) void emitTo("capture", "theme:changed", theme);
 }
 
 onMounted(async () => {
   await appVM.load();
-  syncTheme();
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
-  watch(() => appVM.state.settings?.theme, syncTheme);
+  void syncTheme();
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => void syncTheme());
+  watch(
+    () => appVM.state.settings?.theme,
+    () => void syncTheme(),
+  );
   if (isTauri()) {
     await listen("capture:created", () => void weekVM.load());
     await listen("ai:enriched", () => void weekVM.load());
