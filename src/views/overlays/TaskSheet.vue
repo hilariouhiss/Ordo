@@ -39,9 +39,6 @@ const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0)
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
-  if (form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
-    form.ownerId = null;
-  }
 }
 
 // Step and status edits return a fresh task; only a different task reseeds the form.
@@ -69,6 +66,10 @@ watch(
 
 async function onProjectChange(): Promise<void> {
   await refreshCandidates(form.projectId);
+  // Switching project is an explicit choice: drop an owner the new project does not know.
+  if (form.ownerId && !candidates.value.some((person) => person.id === form.ownerId)) {
+    form.ownerId = null;
+  }
 }
 
 async function save(): Promise<void> {
@@ -265,6 +266,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               class="select select-sm mt-1 w-full rounded-lg border-base-300"
             >
               <option :value="null">未指定</option>
+              <option
+                v-if="form.ownerId && !candidates.some((p) => p.id === form.ownerId)"
+                :value="form.ownerId"
+              >
+                {{ appVM.state.people.find((p) => p.id === form.ownerId)?.name }}
+              </option>
               <option v-for="p in candidates" :key="p.id" :value="p.id">
                 {{ p.name }}
               </option>
