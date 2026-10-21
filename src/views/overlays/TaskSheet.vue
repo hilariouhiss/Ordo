@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
 import { isImeEnter } from "../../lib/keys";
+import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Status } from "../../model/types";
@@ -138,8 +140,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
-  <div class="fixed inset-0 z-60 flex justify-end bg-neutral/40" @click.self="taskSheetVM.close()">
-    <aside class="h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl">
+  <motion.div
+    v-bind="backdropMotion"
+    class="fixed inset-0 z-60 flex justify-end bg-neutral/40"
+    @click.self="taskSheetVM.close()"
+  >
+    <motion.aside
+      v-bind="sheetPanelMotion"
+      class="h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl"
+    >
       <div class="flex items-start gap-2">
         <h2 class="text-[17px] font-semibold leading-snug">{{ taskSheetVM.state.task?.title }}</h2>
         <button class="ml-auto text-base-content/30" aria-label="关闭" @click="taskSheetVM.close()">
@@ -175,10 +184,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </div>
 
         <div class="mt-4 text-[10.5px] font-medium tracking-wide text-base-content/40">步骤</div>
-        <div class="mt-1.5 space-y-1">
-          <div
+        <AnimatePresence as="div" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
+          <motion.div
             v-for="(s, i) in taskSheetVM.state.task.steps"
             :key="s.id"
+            v-bind="listItemMotion"
             class="flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-base-200"
           >
             <span class="w-3 text-[10px] text-base-content/30">{{ i + 1 }}</span>
@@ -203,8 +213,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             >
               <X :size="13" aria-hidden="true" />
             </button>
-          </div>
-        </div>
+          </motion.div>
+        </AnimatePresence>
 
         <input
           v-model="stepDraft"
@@ -290,12 +300,19 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <div class="mt-3">
           <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">标签</div>
           <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span v-for="tag in form.tags" :key="tag" class="badge badge-ghost badge-sm gap-1.5">
-              {{ tag }}
-              <button class="text-base-content/30" aria-label="移除标签" @click="removeTag(tag)">
-                <X :size="12" aria-hidden="true" />
-              </button>
-            </span>
+            <AnimatePresence mode="popLayout" :initial="false">
+              <motion.span
+                v-for="tag in form.tags"
+                :key="tag"
+                v-bind="listItemMotion"
+                class="badge badge-ghost badge-sm gap-1.5"
+              >
+                {{ tag }}
+                <button class="text-base-content/30" aria-label="移除标签" @click="removeTag(tag)">
+                  <X :size="12" aria-hidden="true" />
+                </button>
+              </motion.span>
+            </AnimatePresence>
             <input
               v-model="tagDraft"
               class="input input-xs w-24 rounded-md border-dashed border-base-300 bg-transparent"
@@ -372,6 +389,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </button>
         </div>
       </template>
-    </aside>
-  </div>
+    </motion.aside>
+  </motion.div>
 </template>

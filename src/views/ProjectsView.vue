@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { Ellipsis } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { shortDate } from "../lib/dates";
 import { isImeEnter } from "../lib/keys";
+import { listItemMotion } from "../lib/motion";
 import { projectsVM } from "../viewmodels/projectsVM";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
@@ -47,10 +49,17 @@ function onCreateKey(event: KeyboardEvent): void {
       </button>
     </div>
 
-    <ul v-if="projectsVM.state.projects.length" class="space-y-1.5">
-      <li
+    <AnimatePresence
+      v-if="projectsVM.state.projects.length"
+      as="ul"
+      mode="popLayout"
+      :initial="false"
+      class="space-y-1.5"
+    >
+      <motion.li
         v-for="project in projectsVM.state.projects"
         :key="project.id"
+        v-bind="listItemMotion"
         class="flex cursor-pointer items-center gap-3 rounded-xl bg-base-100 px-4 py-3 hover:opacity-90"
         @click="router.push(`/projects/${project.id}`)"
       >
@@ -68,17 +77,19 @@ function onCreateKey(event: KeyboardEvent): void {
         >
           <Ellipsis :size="14" aria-hidden="true" />
         </button>
-      </li>
-    </ul>
+      </motion.li>
+    </AnimatePresence>
 
     <p v-else-if="!projectsVM.state.loading" class="px-1 text-[13px] text-base-content/40">
       还没有项目。在上面建一个。
     </p>
 
-    <ProjectSettings
-      v-if="projectsVM.state.settingsFor"
-      :id="projectsVM.state.settingsFor"
-      @close="projectsVM.closeSettings()"
-    />
+    <AnimatePresence>
+      <ProjectSettings
+        v-if="projectsVM.state.settingsFor"
+        :id="projectsVM.state.settingsFor"
+        @close="projectsVM.closeSettings()"
+      />
+    </AnimatePresence>
   </section>
 </template>

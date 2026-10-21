@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Ellipsis } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { shortDate, todayIso } from "../lib/dates";
+import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Task } from "../model/types";
 import { createProjectVM } from "../viewmodels/projectVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
@@ -94,10 +96,12 @@ function openTask(task: Task): void {
 
     <div class="flex items-center gap-3 px-1">
       <span class="h-1.5 flex-1 overflow-hidden rounded-full bg-base-300">
-        <span
+        <motion.span
           class="block h-full rounded-full bg-primary"
-          :style="{ width: progressPct + '%' }"
-        ></span>
+          :initial="{ width: 0 }"
+          :animate="{ width: progressPct + '%' }"
+          :transition="springSoft"
+        ></motion.span>
       </span>
       <span class="text-[11.5px] tabular-nums text-base-content/55">
         {{ vm.state.summary.done }}/{{ vm.state.summary.total }}
@@ -106,38 +110,50 @@ function openTask(task: Task): void {
 
     <CaptureBar v-model="vm.state.draft" @submit="vm.captureInto(props.id)" />
 
-    <template v-if="vm.state.view === 'group'">
-      <CategoryProgress
-        v-for="category in vm.state.summary.byCategory"
-        :key="category.categoryId"
-        :category="category"
-        :expanded="!!vm.state.expanded[category.categoryId]"
-        @toggle="vm.toggle(category.categoryId)"
+    <AnimatePresence mode="wait" :initial="false">
+      <motion.div
+        v-if="vm.state.view === 'group'"
+        key="group"
+        v-bind="panelSwapMotion"
+        class="space-y-2"
       >
-        <ul class="mt-1.5 space-y-1">
-          <TaskRow
-            v-for="task in tasksByCategory.get(category.categoryId) ?? []"
-            :key="task.id"
-            :task="task"
-            @open="openTask"
-          />
-        </ul>
-      </CategoryProgress>
+        <CategoryProgress
+          v-for="category in vm.state.summary.byCategory"
+          :key="category.categoryId"
+          :category="category"
+          :expanded="!!vm.state.expanded[category.categoryId]"
+          @toggle="vm.toggle(category.categoryId)"
+        >
+          <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
+            <TaskRow
+              v-for="task in tasksByCategory.get(category.categoryId) ?? []"
+              :key="task.id"
+              :task="task"
+              @open="openTask"
+            />
+          </AnimatePresence>
+        </CategoryProgress>
 
-      <div v-if="(tasksByCategory.get('') ?? []).length" class="rounded-xl bg-base-100 px-3 py-2.5">
-        <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">未分类</div>
-        <ul class="mt-1.5 space-y-1">
-          <TaskRow
-            v-for="task in tasksByCategory.get('') ?? []"
-            :key="task.id"
-            :task="task"
-            @open="openTask"
-          />
-        </ul>
-      </div>
-    </template>
+        <div
+          v-if="(tasksByCategory.get('') ?? []).length"
+          class="rounded-xl bg-base-100 px-3 py-2.5"
+        >
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">未分类</div>
+          <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
+            <TaskRow
+              v-for="task in tasksByCategory.get('') ?? []"
+              :key="task.id"
+              :task="task"
+              @open="openTask"
+            />
+          </AnimatePresence>
+        </div>
+      </motion.div>
 
-    <TimelineView v-else :tasks="vm.state.tasks" />
+      <motion.div v-else key="timeline" v-bind="panelSwapMotion">
+        <TimelineView :tasks="vm.state.tasks" />
+      </motion.div>
+    </AnimatePresence>
 
     <SummaryLine
       :text="vm.state.summary.summaryLine"
@@ -145,14 +161,18 @@ function openTask(task: Task): void {
       @copy="vm.copySummary"
     />
 
-    <TaskSheet v-if="taskSheetVM.state.openId" />
-    <ProjectSettings
-      v-if="settingsOpen"
-      :id="props.id"
-      @close="
-        settingsOpen = false;
-        vm.load(props.id);
-      "
-    />
+    <AnimatePresence>
+      <TaskSheet v-if="taskSheetVM.state.openId" />
+    </AnimatePresence>
+    <AnimatePresence>
+      <ProjectSettings
+        v-if="settingsOpen"
+        :id="props.id"
+        @close="
+          settingsOpen = false;
+          vm.load(props.id);
+        "
+      />
+    </AnimatePresence>
   </section>
 </template>

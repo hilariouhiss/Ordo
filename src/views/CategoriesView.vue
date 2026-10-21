@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowUp, Trash } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
 import { askText } from "../lib/dialog";
 import { isImeEnter } from "../lib/keys";
+import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
 
@@ -31,10 +33,11 @@ async function rename(id: string, current: string): Promise<void> {
       <span class="text-[11px] text-base-content/45">排序决定项目页里的分组顺序</span>
     </div>
 
-    <ul class="space-y-1.5">
-      <li
+    <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
+      <motion.li
         v-for="category in appVM.state.categories"
         :key="category.id"
+        v-bind="listItemMotion"
         class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
       >
         <span class="flex-1">{{ category.name }}</span>
@@ -65,8 +68,8 @@ async function rename(id: string, current: string): Promise<void> {
         >
           <Trash :size="14" aria-hidden="true" />
         </button>
-      </li>
-    </ul>
+      </motion.li>
+    </AnimatePresence>
 
     <div class="flex items-center gap-2 rounded-xl bg-base-100 px-4 py-2.5">
       <input

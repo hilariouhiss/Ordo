@@ -80,3 +80,20 @@ body {
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  button {
+    transition-property: color, background-color, border-color, box-shadow, scale;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  button:active {
+    scale: 0.97;
+  }
+}
+
+/* The top nav slides a shared underline instead of daisyUI's static border. */
+.app-nav > .tab::before {
+  display: none;
+}

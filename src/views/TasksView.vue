@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AnimatePresence } from "motion-v";
 import { onMounted, watch } from "vue";
 import type { Task } from "../model/types";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
@@ -30,13 +31,21 @@ function openTask(task: Task): void {
       <span class="ml-auto text-[10.5px] text-base-content/35">不在本周的也在这里</span>
     </div>
 
-    <ul v-if="tasksVM.state.tasks.length" class="space-y-1.5">
+    <AnimatePresence
+      v-if="tasksVM.state.tasks.length"
+      as="ul"
+      mode="popLayout"
+      :initial="false"
+      class="space-y-1.5"
+    >
       <TaskRow v-for="task in tasksVM.state.tasks" :key="task.id" :task="task" @open="openTask" />
-    </ul>
+    </AnimatePresence>
     <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
       还没有任务。
     </p>
 
-    <TaskSheet v-if="taskSheetVM.state.openId" />
+    <AnimatePresence>
+      <TaskSheet v-if="taskSheetVM.state.openId" />
+    </AnimatePresence>
   </section>
 </template>

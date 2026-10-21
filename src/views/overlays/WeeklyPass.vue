@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { shortDate } from "../../lib/dates";
+import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
 import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
@@ -65,8 +67,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 overflow-y-auto bg-neutral/92 p-6 text-neutral-content">
-    <div class="mx-auto max-w-[720px]">
+  <motion.div
+    v-bind="backdropMotion"
+    class="fixed inset-0 z-50 overflow-y-auto bg-neutral/92 p-6 text-neutral-content"
+  >
+    <motion.div v-bind="screenColumnMotion" class="mx-auto max-w-[720px]">
       <div class="flex items-center gap-3 text-[12px]">
         <span class="font-medium">过一遍</span>
         <span class="opacity-50">把上周抄下来的逐条结掉</span>
@@ -76,8 +81,14 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </span>
       </div>
 
-      <template v-if="passVM.current.value">
-        <div class="mt-5 rounded-2xl bg-base-100 p-6 text-base-content">
+      <AnimatePresence mode="popLayout" :initial="false">
+        <motion.div
+          v-if="passVM.current.value"
+          :key="passVM.current.value.id"
+          v-bind="passCardMotion"
+          layout
+          class="mt-5 rounded-2xl bg-base-100 p-6 text-base-content"
+        >
           <div class="flex flex-wrap items-center gap-2">
             <span
               v-if="passVM.current.value.carryCount"
@@ -158,22 +169,27 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               日子是必填的。到那天早上九点它会来问你开始没有。
             </p>
           </div>
-        </div>
-      </template>
+        </motion.div>
 
-      <div v-else class="mt-5 rounded-2xl bg-base-100 p-8 text-center text-base-content">
-        <p class="text-[16px] font-semibold">这一轮过完了</p>
-        <p class="mt-1 text-[12px] text-base-content/45">
-          继续 {{ passVM.state.counts.keep }} · 完成 {{ passVM.state.counts.done }} · 挂起
-          {{ passVM.state.counts.suspend }} · 取消 {{ passVM.state.counts.cancel }}
-        </p>
-        <button
-          class="btn mt-4 rounded-lg border-0 bg-primary text-primary-content"
-          @click="finish"
+        <motion.div
+          v-else
+          key="done"
+          v-bind="passCardMotion"
+          class="mt-5 rounded-2xl bg-base-100 p-8 text-center text-base-content"
         >
-          回到本周
-        </button>
-      </div>
-    </div>
-  </div>
+          <p class="text-[16px] font-semibold">这一轮过完了</p>
+          <p class="mt-1 text-[12px] text-base-content/45">
+            继续 {{ passVM.state.counts.keep }} · 完成 {{ passVM.state.counts.done }} · 挂起
+            {{ passVM.state.counts.suspend }} · 取消 {{ passVM.state.counts.cancel }}
+          </p>
+          <button
+            class="btn mt-4 rounded-lg border-0 bg-primary text-primary-content"
+            @click="finish"
+          >
+            回到本周
+          </button>
+        </motion.div>
+      </AnimatePresence>
+    </motion.div>
+  </motion.div>
 </template>

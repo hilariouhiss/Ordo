@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Trash } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
 import { isImeEnter } from "../lib/keys";
+import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
 
@@ -29,10 +31,17 @@ function onKey(event: KeyboardEvent): void {
       <p v-if="!appVM.state.tags.length" class="text-[12px] text-base-content/40">
         还没有标签。在任务里输入新标签也会自动收进来。
       </p>
-      <div v-else class="flex flex-wrap gap-1.5">
-        <span
+      <AnimatePresence
+        v-else
+        as="div"
+        mode="popLayout"
+        :initial="false"
+        class="flex flex-wrap gap-1.5"
+      >
+        <motion.span
           v-for="tag in appVM.state.tags"
           :key="tag.id"
+          v-bind="listItemMotion"
           class="badge badge-ghost badge-md gap-1.5"
         >
           {{ tag.name }}
@@ -43,8 +52,8 @@ function onKey(event: KeyboardEvent): void {
           >
             <Trash :size="12" aria-hidden="true" />
           </button>
-        </span>
-      </div>
+        </motion.span>
+      </AnimatePresence>
       <input
         v-model="name"
         class="input input-sm mt-2 w-full rounded-lg border-dashed border-base-300 bg-transparent"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { GripVertical } from "@lucide/vue";
+import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, weekdayLabel } from "../lib/dates";
 import type { Task } from "../model/types";
@@ -178,7 +179,7 @@ function openTask(task: Task): void {
           <span>{{ shortDate(day.date) }}</span>
           <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">今天</span>
         </div>
-        <ul class="space-y-1.5">
+        <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
           <TaskRow
             v-for="row in day.rows"
             :key="row.task.id"
@@ -205,7 +206,7 @@ function openTask(task: Task): void {
               </button>
             </template>
           </TaskRow>
-        </ul>
+        </AnimatePresence>
         <div
           v-if="dayIndex === days.length - 1 && dragMoved && dropBeforeId === null"
           class="mt-1.5 h-6 rounded-xl border border-dashed border-primary/50"
@@ -243,7 +244,11 @@ function openTask(task: Task): void {
       </span>
     </div>
 
-    <TaskSheet v-if="taskSheetVM.state.openId" />
-    <WeeklyPass v-if="passVM.state.open" />
+    <AnimatePresence>
+      <TaskSheet v-if="taskSheetVM.state.openId" />
+    </AnimatePresence>
+    <AnimatePresence>
+      <WeeklyPass v-if="passVM.state.open" />
+    </AnimatePresence>
   </section>
 </template>

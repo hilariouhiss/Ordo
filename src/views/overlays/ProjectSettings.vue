@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { onMounted, reactive, ref } from "vue";
 import { askConfirm } from "../../lib/dialog";
+import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
@@ -80,11 +82,15 @@ async function remove(): Promise<void> {
 </script>
 
 <template>
-  <div
+  <motion.div
+    v-bind="backdropMotion"
     class="fixed inset-0 z-40 flex items-center justify-center bg-neutral/40 p-4"
     @click.self="emit('close')"
   >
-    <div class="w-full max-w-[520px] rounded-2xl bg-base-100 p-5 shadow-2xl">
+    <motion.div
+      v-bind="modalPanelMotion"
+      class="w-full max-w-[520px] rounded-2xl bg-base-100 p-5 shadow-2xl"
+    >
       <div class="flex items-center">
         <h2 class="text-[15px] font-semibold">项目设置</h2>
         <button class="ml-auto text-base-content/30" aria-label="关闭" @click="emit('close')">
@@ -114,10 +120,16 @@ async function remove(): Promise<void> {
           <span class="text-[12px] font-medium">成员</span>
           <span class="text-[10.5px] text-base-content/40">任务负责人从这里选</span>
         </div>
-        <div class="mt-2 flex flex-wrap items-center gap-1.5">
-          <span
+        <AnimatePresence
+          as="div"
+          mode="popLayout"
+          :initial="false"
+          class="mt-2 flex flex-wrap items-center gap-1.5"
+        >
+          <motion.span
             v-for="personId in form.memberIds"
             :key="personId"
+            v-bind="listItemMotion"
             class="badge badge-ghost badge-md gap-1.5"
           >
             {{ memberNameOf(personId) }}
@@ -129,8 +141,8 @@ async function remove(): Promise<void> {
             >
               <X :size="12" aria-hidden="true" />
             </button>
-          </span>
-        </div>
+          </motion.span>
+        </AnimatePresence>
         <div class="mt-2 flex items-center gap-2">
           <input
             v-model="memberName"
@@ -176,6 +188,6 @@ async function remove(): Promise<void> {
           保存
         </button>
       </div>
-    </div>
-  </div>
+    </motion.div>
+  </motion.div>
 </template>

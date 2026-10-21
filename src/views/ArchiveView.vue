@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted } from "vue";
 import { shortDate } from "../lib/dates";
 import { askConfirm } from "../lib/dialog";
+import { listItemMotion } from "../lib/motion";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
 
 onMounted(() => {
@@ -89,54 +91,60 @@ async function removeProject(id: string, name: string): Promise<void> {
     </div>
 
     <div v-if="vm.state.tab === 'projects'" class="space-y-1.5">
-      <div
-        v-for="project in vm.state.data.projects"
-        :key="project.id"
-        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
-      >
-        <span class="text-[13px] font-medium">{{ project.name }}</span>
-        <span v-if="project.dueDate" class="text-[10.5px] text-base-content/40">
-          截止 {{ shortDate(project.dueDate) }}
-        </span>
-        <button
-          class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
-          @click="vm.restoreProject(project.id)"
+      <AnimatePresence mode="popLayout" :initial="false">
+        <motion.div
+          v-for="project in vm.state.data.projects"
+          :key="project.id"
+          v-bind="listItemMotion"
+          class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
         >
-          恢复
-        </button>
-        <button
-          class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
-          @click="removeProject(project.id, project.name)"
-        >
-          删除
-        </button>
-      </div>
+          <span class="text-[13px] font-medium">{{ project.name }}</span>
+          <span v-if="project.dueDate" class="text-[10.5px] text-base-content/40">
+            截止 {{ shortDate(project.dueDate) }}
+          </span>
+          <button
+            class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
+            @click="vm.restoreProject(project.id)"
+          >
+            恢复
+          </button>
+          <button
+            class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
+            @click="removeProject(project.id, project.name)"
+          >
+            删除
+          </button>
+        </motion.div>
+      </AnimatePresence>
       <p v-if="!vm.state.data.projects.length" class="px-1 text-[12px] text-base-content/40">
         没有归档的项目。
       </p>
     </div>
 
     <div v-else class="space-y-1.5">
-      <div
-        v-for="task in currentList"
-        :key="task.id"
-        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
-      >
-        <span class="text-[13px] text-base-content/70">{{ task.title }}</span>
-        <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">已取消</span>
-        <button
-          class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
-          @click="vm.restore(task.id)"
+      <AnimatePresence mode="popLayout" :initial="false">
+        <motion.div
+          v-for="task in currentList"
+          :key="task.id"
+          v-bind="listItemMotion"
+          class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
         >
-          恢复
-        </button>
-        <button
-          class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
-          @click="removeTask(task.id, task.title)"
-        >
-          删除
-        </button>
-      </div>
+          <span class="text-[13px] text-base-content/70">{{ task.title }}</span>
+          <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">已取消</span>
+          <button
+            class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
+            @click="vm.restore(task.id)"
+          >
+            恢复
+          </button>
+          <button
+            class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
+            @click="removeTask(task.id, task.title)"
+          >
+            删除
+          </button>
+        </motion.div>
+      </AnimatePresence>
       <p v-if="!currentList.length" class="px-1 text-[12px] text-base-content/40">
         这里还没有东西。
       </p>

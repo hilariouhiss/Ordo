@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { motion } from "motion-v";
 import { computed } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
+import { listItemMotion } from "../../lib/motion";
 import { overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -29,7 +31,8 @@ const conflictTitle = computed(
 </script>
 
 <template>
-  <li
+  <motion.li
+    v-bind="listItemMotion"
     class="relative flex cursor-pointer items-center gap-2.5 rounded-xl bg-base-100 px-3 py-3 transition-opacity hover:opacity-90"
     @click="emit('open', task)"
   >
@@ -74,5 +77,5 @@ const conflictTitle = computed(
     >
       {{ shortDate(task.dueDate) }}
     </span>
-  </li>
+  </motion.li>
 </template>

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Trash } from "@lucide/vue";
+import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
 import { askConfirm, askText } from "../lib/dialog";
 import { isImeEnter } from "../lib/keys";
+import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
 
@@ -66,10 +68,11 @@ async function remove(id: string, personName: string): Promise<void> {
 
     <p v-if="error" class="px-1 text-[12px] text-error">{{ error }}</p>
 
-    <ul class="space-y-1.5">
-      <li
+    <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
+      <motion.li
         v-for="person in appVM.state.people"
         :key="person.id"
+        v-bind="listItemMotion"
         class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
       >
         <span>{{ person.name }}</span>
@@ -88,8 +91,8 @@ async function remove(id: string, personName: string): Promise<void> {
         >
           <Trash :size="14" aria-hidden="true" />
         </button>
-      </li>
-    </ul>
+      </motion.li>
+    </AnimatePresence>
 
     <div class="flex items-center gap-2 rounded-xl bg-base-100 px-4 py-2.5">
       <input
