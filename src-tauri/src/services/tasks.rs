@@ -392,6 +392,25 @@ mod tests {
     }
 
     #[test]
+    fn a_legacy_suspended_row_stays_out_of_the_week() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        // The old build could save in_week = 1 together with a suspension date.
+        c.execute(
+            "UPDATE tasks SET in_week = 1, suspended_until = '2026-11-02' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+
+        assert!(week::list(&c).unwrap().is_empty());
+        assert!(week::pass_queue(&c).unwrap().is_empty());
+        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+
+        let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
+        assert!(!t.in_week);
+    }
+
+    #[test]
     fn invalid_status_is_rejected() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();

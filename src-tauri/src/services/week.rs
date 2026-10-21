@@ -37,7 +37,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND status <> 'done'
+             WHERE in_week = 1 AND status <> 'done' AND suspended_until IS NULL
                AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
              ORDER BY sort_order, id",
         )
@@ -119,8 +119,8 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id FROM tasks
-             WHERE suspended_until IS NOT NULL AND canceled_at IS NULL AND archived_at IS NULL
-               AND deleted_at IS NULL
+             WHERE suspended_until IS NOT NULL AND status <> 'done'
+               AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
              ORDER BY suspended_until",
         )
         .map_err(|e| e.to_string())?;
@@ -278,6 +278,20 @@ mod tests {
         assert_eq!(s.added, 2);
         assert_eq!(s.done, 1);
         assert_eq!(s.delayed, 1);
+    }
+
+    #[test]
+    fn suspended_list_hides_completed_tasks() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET status = 'done', in_week = 0, suspended_until = '2026-11-02'
+             WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+
+        assert!(week::list_suspended(&c).unwrap().is_empty());
     }
 
     #[test]

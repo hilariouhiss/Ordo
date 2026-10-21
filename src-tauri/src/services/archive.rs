@@ -101,6 +101,27 @@ mod tests {
     }
 
     #[test]
+    fn restoring_a_suspended_task_clears_the_suspension() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::resolve(
+            &c,
+            "t1",
+            crate::services::week::PassAction::Suspend,
+            Some("2026-11-02"),
+            NOW,
+        )
+        .unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        let t = archive::restore_task(&c, "t1", NOW).unwrap();
+
+        assert!(t.in_week);
+        assert!(t.suspended_until.is_none());
+        assert!(week::list_suspended(&c).unwrap().is_empty());
+    }
+
+    #[test]
     fn restore_done_task_returns_it_as_doing() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "做完了", NOW, "t1").unwrap();

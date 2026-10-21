@@ -15,7 +15,8 @@ pub fn insert(conn: &Connection, id: &str, title: &str, now: &str) -> rusqlite::
 pub fn list_week_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks
-         WHERE in_week = 1 AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
+         WHERE in_week = 1 AND suspended_until IS NULL
+           AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
          ORDER BY sort_order, id",
     )?;
     let rows = stmt.query_map([], |r| r.get(0))?;
@@ -138,7 +139,7 @@ pub fn set_status(
 ) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET status = ?1,
-            in_week = CASE WHEN ?2 THEN 0 WHEN suspended_until IS NOT NULL THEN in_week ELSE 1 END,
+            in_week = CASE WHEN ?2 THEN 0 WHEN suspended_until IS NOT NULL THEN 0 ELSE 1 END,
             suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
             done_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
             updated_at = ?3
@@ -249,6 +250,7 @@ pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1,
+              suspended_until = NULL,
               sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
               status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
               done_at = CASE WHEN status = 'done' THEN NULL ELSE done_at END,
