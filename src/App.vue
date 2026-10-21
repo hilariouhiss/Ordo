@@ -16,6 +16,7 @@ import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { weekVM } from "./viewmodels/weekVM";
+import WindowControls from "./views/components/WindowControls.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
 const router = useRouter();
@@ -89,25 +90,33 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-base-200 text-base-content">
-    <header class="flex items-center gap-4 border-b border-base-300 bg-base-100 px-6 py-3">
+  <div class="flex h-screen flex-col bg-base-200 text-base-content">
+    <header
+      data-tauri-drag-region="deep"
+      class="flex h-12 shrink-0 items-center gap-4 border-b border-base-300 bg-base-100 pl-6 select-none"
+    >
       <span class="text-[15px] font-semibold tracking-tight">ordo</span>
       <nav role="tablist" class="tabs tabs-border tabs-sm">
         <RouterLink to="/week" class="tab" active-class="tab-active">本周</RouterLink>
         <RouterLink to="/projects" class="tab" active-class="tab-active">项目</RouterLink>
         <RouterLink to="/archive" class="tab" active-class="tab-active">归档</RouterLink>
       </nav>
-      <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs ml-auto"></span>
-      <button
-        class="ml-auto text-base-content/35 hover:text-base-content/60"
-        aria-label="设置"
-        @click="settingsVM.open()"
-      >
-        <Settings :size="16" aria-hidden="true" />
-      </button>
+      <div class="ml-auto flex h-full items-center gap-2">
+        <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+        <button
+          class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
+          aria-label="设置"
+          @click="settingsVM.open()"
+        >
+          <Settings :size="16" aria-hidden="true" />
+        </button>
+        <WindowControls />
+      </div>
     </header>
-    <main class="mx-auto max-w-[980px] px-6 py-5">
-      <RouterView />
+    <main class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-[980px] px-6 py-5">
+        <RouterView />
+      </div>
     </main>
     <SettingsModal v-if="settingsVM.state.open" />
   </div>

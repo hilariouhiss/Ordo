@@ -55,13 +55,14 @@ function autoScroll(): void {
   }
   const edge = 56;
   const delta = pointerY < edge ? -12 : pointerY > window.innerHeight - edge ? 12 : 0;
-  if (!delta) {
+  const scroller = listEl.value?.closest<HTMLElement>("main");
+  if (!delta || !scroller) {
     scrollFrame = 0;
     return;
   }
-  const before = window.scrollY;
-  window.scrollBy(0, delta);
-  if (window.scrollY !== before) updateDropTarget();
+  const before = scroller.scrollTop;
+  scroller.scrollBy(0, delta);
+  if (scroller.scrollTop !== before) updateDropTarget();
   scrollFrame = requestAnimationFrame(autoScroll);
 }
 
