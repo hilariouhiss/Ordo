@@ -10,13 +10,14 @@ pub fn set_due(
     reason: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
-    let old: Option<String> = conn
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let old: Option<String> = tx
         .query_row("SELECT due_date FROM tasks WHERE id = ?1", [task_id], |r| {
             r.get(0)
         })
         .map_err(|e| e.to_string())?;
 
-    conn.execute(
+    tx.execute(
         "UPDATE tasks SET due_date = ?1, updated_at = ?2 WHERE id = ?3",
         params![new_due, now, task_id],
     )
@@ -30,7 +31,7 @@ pub fn set_due(
             && crate::services::week::week_start(due) == crate::services::week::week_start(&today)
         {
             // A task already in the week keeps its slot; a due-date edit must not move it.
-            conn.execute(
+            tx.execute(
                 "UPDATE tasks SET in_week = 1, suspended_until = NULL,
                         sort_order = CASE WHEN in_week = 1 THEN sort_order
                                           ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks) END
@@ -44,7 +45,7 @@ pub fn set_due(
     if let (Some(old_due), Some(due)) = (old.as_deref(), new_due) {
         if due > old_due {
             delays::insert(
-                conn,
+                &tx,
                 &Uuid::new_v4().to_string(),
                 task_id,
                 "reschedule",
@@ -57,6 +58,7 @@ pub fn set_due(
         }
     }
 
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
