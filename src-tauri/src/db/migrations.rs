@@ -122,16 +122,24 @@ pub const LATEST: i64 = 4;
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version < 1 {
-        conn.execute_batch(V1)?;
-        seed(conn)?;
-        conn.pragma_update(None, "user_version", 1)?;
+        // One transaction, so a crash cannot leave half the schema behind.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(V1)?;
+        seed(&tx)?;
+        tx.pragma_update(None, "user_version", 1)?;
+        tx.commit()?;
     }
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     // Kept at 2 on purpose: bumping LATEST must not re-run this step.
     if version < 2 {
-        conn.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")?;
-        conn.pragma_update(None, "user_version", 2)?;
+        // The guard finishes a step cut short by a crash instead of dying on duplicate column.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "done_at")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")?;
+        }
+        tx.pragma_update(None, "user_version", 2)?;
+        tx.commit()?;
     }
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -361,6 +369,23 @@ mod tests {
             .query_row("SELECT sort_order FROM tasks WHERE id = 'a'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(order, 1);
+    }
+
+    #[test]
+    fn retries_a_half_applied_v2_step() {
+        // A crash between the ALTER and the version bump leaves the column without the bump;
+        // the next start must finish the step instead of dying on duplicate column.
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(V1).unwrap();
+        seed(&c).unwrap();
+        c.execute_batch("ALTER TABLE tasks ADD COLUMN done_at TEXT;")
+            .unwrap();
+        c.pragma_update(None, "user_version", 1).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
     }
 
     #[test]
