@@ -2,6 +2,7 @@
 import { Settings } from "@lucide/vue";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onMounted, watch } from "vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import {
@@ -28,9 +29,8 @@ function closeOverlays(): void {
   settingsVM.close();
 }
 
-async function themeWindow(): Promise<ThemeWindow | null> {
+function themeWindow(): ThemeWindow | null {
   if (!isTauri()) return null;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
   return getCurrentWindow();
 }
 
@@ -40,7 +40,7 @@ let themeRun = 0;
 async function syncTheme(): Promise<void> {
   const run = ++themeRun;
   const pref = appVM.state.settings?.theme;
-  const win = await themeWindow();
+  const win = themeWindow();
   if (run !== themeRun) return;
   let theme: AppliedTheme;
   if (pref === "light" || pref === "dark") {
