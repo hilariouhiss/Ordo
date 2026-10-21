@@ -43,40 +43,39 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
 }
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
-    let mut task = conn.query_row(
+    let mut task_stmt = conn.prepare_cached(
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,
                 in_week, carry_count, suspended_until, note, archived_at, canceled_at,
                 created_at, updated_at, sort_order, effort_days
          FROM tasks WHERE id = ?1",
-        [id],
-        |r| {
-            Ok(TaskDto {
-                id: r.get(0)?,
-                title: r.get(1)?,
-                project_id: r.get(2)?,
-                category_id: r.get(3)?,
-                owner_id: r.get(4)?,
-                start_date: r.get(5)?,
-                due_date: r.get(6)?,
-                status: r.get(7)?,
-                in_week: r.get::<_, i64>(8)? == 1,
-                carry_count: r.get(9)?,
-                suspended_until: r.get(10)?,
-                note: r.get(11)?,
-                archived_at: r.get(12)?,
-                canceled_at: r.get(13)?,
-                steps: vec![],
-                tags: vec![],
-                delays: vec![],
-                created_at: r.get(14)?,
-                updated_at: r.get(15)?,
-                sort_order: r.get(16)?,
-                effort_days: r.get(17)?,
-            })
-        },
     )?;
+    let mut task = task_stmt.query_row([id], |r| {
+        Ok(TaskDto {
+            id: r.get(0)?,
+            title: r.get(1)?,
+            project_id: r.get(2)?,
+            category_id: r.get(3)?,
+            owner_id: r.get(4)?,
+            start_date: r.get(5)?,
+            due_date: r.get(6)?,
+            status: r.get(7)?,
+            in_week: r.get::<_, i64>(8)? == 1,
+            carry_count: r.get(9)?,
+            suspended_until: r.get(10)?,
+            note: r.get(11)?,
+            archived_at: r.get(12)?,
+            canceled_at: r.get(13)?,
+            steps: vec![],
+            tags: vec![],
+            delays: vec![],
+            created_at: r.get(14)?,
+            updated_at: r.get(15)?,
+            sort_order: r.get(16)?,
+            effort_days: r.get(17)?,
+        })
+    })?;
 
-    let mut steps = conn.prepare(
+    let mut steps = conn.prepare_cached(
         "SELECT id, task_id, title, sort_order, done, due_date FROM steps
          WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY sort_order",
     )?;
@@ -93,7 +92,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    let mut tags = conn.prepare(
+    let mut tags = conn.prepare_cached(
         "SELECT t.id, t.name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id
          WHERE tt.task_id = ?1 AND t.deleted_at IS NULL ORDER BY t.name",
     )?;
@@ -106,7 +105,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    let mut delays = conn.prepare(
+    let mut delays = conn.prepare_cached(
         "SELECT id, task_id, kind, old_due, new_due, reason, created_at FROM delays
          WHERE task_id = ?1 ORDER BY created_at",
     )?;
