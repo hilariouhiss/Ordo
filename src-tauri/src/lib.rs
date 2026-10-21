@@ -131,7 +131,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  let result = tauri::Builder::default()
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
       show_main(app);
     }))
@@ -352,8 +352,11 @@ pub fn run() {
       }
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .map_err(|e| eprintln!("ordo 启动失败：{e}"));
+    .run(tauri::generate_context!());
+  if let Err(e) = result {
+    eprintln!("ordo 启动失败：{e}");
+    std::process::exit(1);
+  }
 }
 
 #[cfg(test)]

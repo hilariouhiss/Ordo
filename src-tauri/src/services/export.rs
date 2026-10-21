@@ -122,7 +122,7 @@ mod tests {
         std::fs::write(dir.join("ordo-2026-10-19.db"), b"keep").unwrap();
         std::fs::write(dir.join("notes.txt"), b"keep").unwrap();
 
-        export::prune(&dir, 30, "2026-10-20");
+        export::prune(&dir, 30, "2026-10-20").unwrap();
         assert!(!dir.join("ordo-2026-01-01.db").exists());
         assert!(!dir.join("ordo-2026-09-01.db").exists());
         assert!(dir.join("ordo-2026-10-19.db").exists());
