@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Trash } from "@lucide/vue";
 import { ref } from "vue";
+import { askConfirm, askText } from "../lib/dialog";
 import { isImeEnter } from "../lib/keys";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
@@ -34,7 +35,7 @@ function onKey(event: KeyboardEvent): void {
 }
 
 async function rename(id: string, current: string): Promise<void> {
-  const next = window.prompt("名字", current);
+  const next = await askText("修改名字", current);
   if (!next) return;
   error.value = "";
   try {
@@ -45,7 +46,8 @@ async function rename(id: string, current: string): Promise<void> {
 }
 
 async function remove(id: string, personName: string): Promise<void> {
-  if (!window.confirm(`删除「${personName}」？只有没有任何任务引用的人才能删除。`)) return;
+  if (!(await askConfirm("删除人员", `删除「${personName}」？只有没有任何任务引用的人才能删除。`)))
+    return;
   error.value = "";
   try {
     await metaVM.removePerson(id);

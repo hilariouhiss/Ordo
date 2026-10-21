@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowUp, Trash } from "@lucide/vue";
 import { ref } from "vue";
+import { askText } from "../lib/dialog";
 import { isImeEnter } from "../lib/keys";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
@@ -17,9 +18,9 @@ function onKey(event: KeyboardEvent): void {
   void add();
 }
 
-function rename(id: string, current: string): void {
-  const next = window.prompt("分类名", current);
-  if (next) void metaVM.renameCategory(id, next);
+async function rename(id: string, current: string): Promise<void> {
+  const next = await askText("修改分类名", current);
+  if (next) await metaVM.renameCategory(id, next);
 }
 </script>
 

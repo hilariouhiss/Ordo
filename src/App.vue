@@ -19,6 +19,7 @@ import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
 import { weekVM } from "./viewmodels/weekVM";
 import WindowControls from "./views/components/WindowControls.vue";
+import AppDialog from "./views/overlays/AppDialog.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
 const router = useRouter();
@@ -130,5 +131,6 @@ onMounted(async () => {
       </div>
     </main>
     <SettingsModal v-if="settingsVM.state.open" />
+    <AppDialog />
   </div>
 </template>

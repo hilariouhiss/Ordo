@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
+import { askConfirm } from "../../lib/dialog";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
@@ -71,7 +72,7 @@ async function archive(): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  if (!window.confirm("永久删除这个项目？任务会一起消失，不能撤销。")) return;
+  if (!(await askConfirm("删除项目", "永久删除这个项目？任务会一起消失，不能撤销。"))) return;
   await ipc.deleteProject(props.id);
   await projectsVM.load();
   emit("close");

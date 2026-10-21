@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { shortDate } from "../lib/dates";
+import { askConfirm } from "../lib/dialog";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
 
 onMounted(() => {
@@ -21,14 +22,20 @@ function onSearch(): void {
   timer = setTimeout(() => void vm.load(), 250);
 }
 
-function removeTask(id: string, title: string): void {
-  if (!window.confirm(`永久删除「${title}」？步骤和延期记录会一起删掉，不能撤销。`)) return;
-  void vm.remove(id);
+async function removeTask(id: string, title: string): Promise<void> {
+  const ok = await askConfirm(
+    "删除任务",
+    `永久删除「${title}」？步骤和延期记录会一起删掉，不能撤销。`,
+  );
+  if (ok) await vm.remove(id);
 }
 
-function removeProject(id: string, name: string): void {
-  if (!window.confirm(`永久删除项目「${name}」？里面的任务会一起消失，不能撤销。`)) return;
-  void vm.removeProject(id);
+async function removeProject(id: string, name: string): Promise<void> {
+  const ok = await askConfirm(
+    "删除项目",
+    `永久删除项目「${name}」？里面的任务会一起消失，不能撤销。`,
+  );
+  if (ok) await vm.removeProject(id);
 }
 </script>
 
