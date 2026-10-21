@@ -1,5 +1,6 @@
 import { reactive } from "vue";
 import {
+  archiveTask as archiveTaskApi,
   deleteProject as deleteProjectApi,
   deleteTask as deleteTaskApi,
   listArchive,
@@ -32,6 +33,11 @@ export function createArchiveVM() {
     await load();
   }
 
+  async function archive(id: string): Promise<void> {
+    await archiveTaskApi(id);
+    await load();
+  }
+
   async function remove(id: string): Promise<void> {
     await deleteTaskApi(id);
     await load();
@@ -47,7 +53,7 @@ export function createArchiveVM() {
     await load();
   }
 
-  return { state, load, restore, remove, restoreProject, removeProject };
+  return { state, load, restore, archive, remove, restoreProject, removeProject };
 }
 
 export const archiveVM = createArchiveVM();

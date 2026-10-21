@@ -17,7 +17,25 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
 }
 
 pub fn delete_task(conn: &Connection, id: &str) -> Result<(), String> {
-    tasks::delete(conn, id).map_err(|e| e.to_string())
+    let row = conn.query_row(
+        "SELECT archived_at, canceled_at FROM tasks WHERE id = ?1",
+        [id],
+        |r| {
+            Ok((
+                r.get::<_, Option<String>>(0)?,
+                r.get::<_, Option<String>>(1)?,
+            ))
+        },
+    );
+    match row {
+        // Deleting is the last step: an active task has to be archived (or canceled) first.
+        Ok((archived, canceled)) if archived.is_none() && canceled.is_none() => {
+            Err("task_not_archived".into())
+        }
+        Ok(_) => tasks::delete(conn, id).map_err(|e| e.to_string()),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -58,6 +76,7 @@ mod tests {
         week::capture(&c, "交底", NOW, "t1").unwrap();
         crate::services::steps::add(&c, "t1", "一步", NOW).unwrap();
         crate::services::deliverables::add_note(&c, "t1", "等回复", NOW).unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
 
         archive::delete_task(&c, "t1").unwrap();
         let steps: i64 = c
@@ -68,6 +87,45 @@ mod tests {
             .unwrap();
         assert_eq!(steps, 0);
         assert_eq!(delays, 0);
+    }
+
+    #[test]
+    fn a_task_must_be_archived_before_it_is_deleted() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        assert_eq!(
+            archive::delete_task(&c, "t1").unwrap_err(),
+            "task_not_archived"
+        );
+
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+        archive::delete_task(&c, "t1").unwrap();
+        let left: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn a_canceled_task_can_be_deleted() {
+        // Canceling is the design's "archive directly" exit, so the archive page may delete it.
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "不再需要", NOW, "t1").unwrap();
+        week::resolve(
+            &c,
+            "t1",
+            crate::services::week::PassAction::Cancel,
+            None,
+            NOW,
+        )
+        .unwrap();
+
+        archive::delete_task(&c, "t1").unwrap();
+        let left: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     #[test]

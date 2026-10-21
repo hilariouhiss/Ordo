@@ -138,6 +138,15 @@ async function removeProject(id: string, name: string): Promise<void> {
             恢复
           </button>
           <button
+            v-if="!task.archivedAt && !task.canceledAt"
+            class="btn btn-xs rounded-md border-base-300 bg-base-200 font-normal"
+            title="归档后才能永久删除"
+            @click="vm.archive(task.id)"
+          >
+            归档
+          </button>
+          <button
+            v-else
             class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
             @click="removeTask(task.id, task.title)"
           >
