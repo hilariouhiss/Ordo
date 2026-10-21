@@ -139,7 +139,8 @@ pub fn set_status(
 ) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET status = ?1,
-            in_week = CASE WHEN ?2 THEN 0 ELSE 1 END,
+            in_week = CASE WHEN ?2 THEN 0 WHEN suspended_until IS NOT NULL THEN in_week ELSE 1 END,
+            suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
             done_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
             updated_at = ?3
          WHERE id = ?4",

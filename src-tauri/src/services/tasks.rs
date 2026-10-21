@@ -353,6 +353,45 @@ mod tests {
     }
 
     #[test]
+    fn a_status_change_keeps_a_suspended_task_out_of_the_week() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::resolve(
+            &c,
+            "t1",
+            crate::services::week::PassAction::Suspend,
+            Some("2026-11-02"),
+            NOW,
+        )
+        .unwrap();
+
+        let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
+
+        assert!(!t.in_week);
+        assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn completing_a_suspended_task_drops_the_suspension() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::resolve(
+            &c,
+            "t1",
+            crate::services::week::PassAction::Suspend,
+            Some("2026-11-02"),
+            NOW,
+        )
+        .unwrap();
+
+        let t = tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        assert!(t.suspended_until.is_none());
+        assert!(week::list_suspended(&c).unwrap().is_empty());
+    }
+
+    #[test]
     fn invalid_status_is_rejected() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
