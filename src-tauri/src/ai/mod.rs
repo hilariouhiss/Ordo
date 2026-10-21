@@ -18,8 +18,6 @@ pub struct Enrichment {
     pub due_date: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
-    pub extra_tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -79,12 +77,6 @@ pub fn validate(raw: Enrichment, ctx: &AiContext) -> Enrichment {
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .take(3)
-            .collect(),
-        extra_tasks: raw
-            .extra_tasks
-            .iter()
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty())
             .collect(),
     }
 }
