@@ -1,5 +1,5 @@
-use crate::dto::{TaskDto, WeekStatsDto};
-use crate::repo::{settings, tasks};
+use crate::dto::{CaptureFields, TaskDto, WeekStatsDto};
+use crate::repo::{people, projects, settings, tasks};
 use chrono::{Datelike, Duration, NaiveDate};
 use rusqlite::{params, Connection};
 use serde::Deserialize;
@@ -14,11 +14,46 @@ pub enum PassAction {
 }
 
 pub fn capture(conn: &Connection, raw: &str, now: &str, id: &str) -> Result<TaskDto, String> {
+    capture_with_fields(conn, raw, &CaptureFields::default(), now, id)
+}
+
+pub fn capture_with_fields(
+    conn: &Connection,
+    raw: &str,
+    fields: &CaptureFields,
+    now: &str,
+    id: &str,
+) -> Result<TaskDto, String> {
     let title = raw.trim();
     if title.is_empty() {
         return Err("empty_title".into());
     }
-    tasks::insert(conn, id, title, now).map_err(|e| e.to_string())?;
+    if let Some(priority) = fields.priority.as_deref() {
+        if !crate::services::tasks::valid_priority(priority) {
+            return Err("invalid_priority".into());
+        }
+    }
+    if let Some(due) = fields.due_date.as_deref() {
+        if chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d").is_err() {
+            return Err("invalid_due_date".into());
+        }
+    }
+    if let Some(effort) = fields.effort_days {
+        if !crate::services::tasks::valid_effort(effort) {
+            return Err("invalid_effort".into());
+        }
+    }
+    if let Some(project_id) = fields.project_id.as_deref() {
+        if !projects::exists(conn, project_id).map_err(|e| e.to_string())? {
+            return Err("invalid_project".into());
+        }
+    }
+    if let Some(owner_id) = fields.owner_id.as_deref() {
+        if !people::exists(conn, owner_id).map_err(|e| e.to_string())? {
+            return Err("invalid_owner".into());
+        }
+    }
+    tasks::insert(conn, id, title, fields, now).map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -148,10 +183,27 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
 #[cfg(test)]
 mod tests {
     use crate::db;
+    use crate::dto::CaptureFields;
     use crate::services::week;
     use crate::services::week::PassAction;
+    use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    fn seed_known(c: &Connection) {
+        c.execute(
+            "INSERT INTO projects (id, name, created_at, updated_at)
+             VALUES ('p1', '华东客户交付', ?1, ?1)",
+            [NOW],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO people (id, name, is_me, created_at, updated_at)
+             VALUES ('u1', '老李', 0, ?1, ?1)",
+            [NOW],
+        )
+        .unwrap();
+    }
 
     #[test]
     fn capture_rejects_blank() {
@@ -174,6 +226,84 @@ mod tests {
             .query_row("SELECT id FROM people WHERE is_me = 1", [], |r| r.get(0))
             .unwrap();
         assert_eq!(t.owner_id.as_deref(), Some(me.as_str()));
+        assert_eq!(t.priority, "normal");
+        assert_eq!(t.effort_days, 1.0);
+    }
+
+    #[test]
+    fn capture_with_fields_saves_recognized_attributes() {
+        let c = db::open_in_memory().unwrap();
+        seed_known(&c);
+        let fields = CaptureFields {
+            project_id: Some("p1".into()),
+            owner_id: Some("u1".into()),
+            priority: Some("high".into()),
+            due_date: Some("2026-11-20".into()),
+            effort_days: Some(2.5),
+        };
+
+        let t = week::capture_with_fields(&c, "  交底  ", &fields, NOW, "t1").unwrap();
+
+        assert_eq!(t.title, "交底");
+        assert_eq!(t.project_id.as_deref(), Some("p1"));
+        assert_eq!(t.owner_id.as_deref(), Some("u1"));
+        assert_eq!(t.priority, "high");
+        assert_eq!(t.due_date.as_deref(), Some("2026-11-20"));
+        assert_eq!(t.effort_days, 2.5);
+    }
+
+    #[test]
+    fn capture_with_fields_rejects_bad_values_before_inserting() {
+        let c = db::open_in_memory().unwrap();
+        seed_known(&c);
+
+        for (fields, expected) in [
+            (
+                CaptureFields {
+                    priority: Some("urgent".into()),
+                    ..Default::default()
+                },
+                "invalid_priority",
+            ),
+            (
+                CaptureFields {
+                    due_date: Some("周五".into()),
+                    ..Default::default()
+                },
+                "invalid_due_date",
+            ),
+            (
+                CaptureFields {
+                    effort_days: Some(0.25),
+                    ..Default::default()
+                },
+                "invalid_effort",
+            ),
+            (
+                CaptureFields {
+                    project_id: Some("missing".into()),
+                    ..Default::default()
+                },
+                "invalid_project",
+            ),
+            (
+                CaptureFields {
+                    owner_id: Some("missing".into()),
+                    ..Default::default()
+                },
+                "invalid_owner",
+            ),
+        ] {
+            assert_eq!(
+                week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap_err(),
+                expected
+            );
+        }
+
+        let count: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

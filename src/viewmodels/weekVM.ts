@@ -1,4 +1,5 @@
 import { computed, reactive } from "vue";
+import type { CaptureSubmission } from "../lib/capture";
 import { todayIso, weekdayLabel } from "../lib/dates";
 import { planSchedule } from "../lib/schedule";
 import {
@@ -95,12 +96,12 @@ export function createWeekVM() {
     }
   }
 
-  async function capture(raw: string): Promise<void> {
-    const text = raw.trim();
-    if (!text) return;
-    const task = await captureApi(text);
+  async function capture(submission: CaptureSubmission): Promise<void> {
+    const title = submission.title.trim();
+    if (!title) return;
+    const task = await captureApi(title, submission.fields);
     void aiEnrich(task.id);
-    if (state.draft.trim() === text) state.draft = "";
+    if (state.draft.trim() === submission.raw.trim()) state.draft = "";
     await load();
   }
 

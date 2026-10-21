@@ -8,7 +8,7 @@ import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
-import type { Person, Status } from "../../model/types";
+import type { Person, Priority, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 
@@ -28,6 +28,7 @@ const form = reactive({
   note: "",
   tags: [] as string[],
   effortDays: 1,
+  priority: "normal" as Priority,
   status: "todo" as Status,
 });
 const candidates = ref<Person[]>([]);
@@ -64,6 +65,7 @@ watch(
     form.note = task.note ?? "";
     form.tags = task.tags.map((tag) => tag.name);
     form.effortDays = task.effortDays;
+    form.priority = task.priority;
     form.status = task.status;
     await refreshCandidates(task.projectId);
   },
@@ -94,6 +96,19 @@ async function save(): Promise<void> {
 async function setStatus(status: Status): Promise<void> {
   await taskSheetVM.setStatus(status);
   form.status = status;
+}
+
+function onPriorityChange(event: Event): void {
+  form.priority = (event.target as HTMLSelectElement).value as Priority;
+}
+
+function onEffortChange(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const value = Number(input.value);
+  if (Number.isFinite(value) && value >= 0.5 && value <= 60 && Number.isInteger(value * 2)) {
+    form.effortDays = value;
+  }
+  input.value = String(form.effortDays);
 }
 
 function addTag(): void {
@@ -292,6 +307,18 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </select>
           </label>
           <label class="block text-[11px] text-base-content/45">
+            {{ t("task.priority") }}
+            <select
+              :value="form.priority"
+              class="select select-sm mt-1 w-full rounded-lg border-base-300"
+              @change="onPriorityChange"
+            >
+              <option value="high">{{ t("task.priorityHigh") }}</option>
+              <option value="normal">{{ t("task.priorityNormal") }}</option>
+              <option value="low">{{ t("task.priorityLow") }}</option>
+            </select>
+          </label>
+          <label class="block text-[11px] text-base-content/45">
             {{ t("task.start") }}
             <input
               v-model="form.startDate"
@@ -309,16 +336,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.effort") }}
-            <select
-              v-model.number="form.effortDays"
-              class="select select-sm mt-1 w-full rounded-lg border-base-300"
-            >
-              <option :value="0.5">{{ t("task.effortHalf") }}</option>
-              <option :value="1">{{ t("task.effortDays", { days: 1 }) }}</option>
-              <option :value="2">{{ t("task.effortDays", { days: 2 }) }}</option>
-              <option :value="3">{{ t("task.effortDays", { days: 3 }) }}</option>
-              <option :value="5">{{ t("task.effortDays", { days: 5 }) }}</option>
-            </select>
+            <input
+              :value="form.effortDays"
+              type="number"
+              min="0.5"
+              max="60"
+              step="0.5"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300"
+              @change="onEffortChange"
+            />
           </label>
         </div>
 

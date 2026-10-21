@@ -52,6 +52,9 @@ const conflictTitle = computed(() =>
       {{ task.title }}
     </span>
     <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
+    <span v-if="task.priority === 'high'" class="badge badge-soft badge-warning badge-xs">
+      {{ t("task.priorityHigh") }}
+    </span>
     <span v-if="task.steps.length" class="text-[10px] text-base-content/40">
       {{ stepsDone }}/{{ task.steps.length }}
     </span>

@@ -11,6 +11,7 @@ vi.mock("../../model/ipc", () => ({
   moveTask: vi.fn(),
 }));
 
+import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { capture, listSuspended, listWeek, moveTask, weekStats } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { createWeekVM } from "../weekVM";
@@ -28,15 +29,20 @@ describe("weekVM", () => {
     const vm = createWeekVM();
     await vm.load();
     vm.state.draft = "周五前把软件方案评审发老李";
-    await vm.capture(vm.state.draft);
+    await vm.capture({
+      raw: vm.state.draft,
+      title: vm.state.draft,
+      fields: CAPTURE_DEFAULTS,
+    });
 
+    expect(capture).toHaveBeenCalledWith("周五前把软件方案评审发老李", CAPTURE_DEFAULTS);
     expect(vm.state.tasks[0].id).toBe("t1");
     expect(vm.state.draft).toBe("");
   });
 
   it("ignores a blank draft", async () => {
     const vm = createWeekVM();
-    await vm.capture("   ");
+    await vm.capture({ raw: "   ", title: "   ", fields: CAPTURE_DEFAULTS });
     expect(capture).not.toHaveBeenCalled();
   });
 

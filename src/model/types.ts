@@ -2,6 +2,7 @@ import type { Language } from "../lib/i18n";
 import type { ThemePref } from "../lib/theme";
 
 export type Status = "todo" | "doing" | "done";
+export type Priority = "high" | "normal" | "low";
 
 export interface Person {
   id: string;
@@ -84,6 +85,7 @@ export interface Task {
   updatedAt: string;
   sortOrder: number;
   effortDays: number;
+  priority: Priority;
 }
 
 export interface CategoryProgress {
@@ -128,6 +130,16 @@ export interface TaskPatch {
   note?: string | null;
   tags?: string[];
   effortDays?: number;
+  priority?: Priority;
+}
+
+/** The five attributes a capture can carry, already resolved to ids and local dates. */
+export interface CaptureFields {
+  projectId: string | null;
+  ownerId: string | null;
+  priority: Priority;
+  dueDate: string | null;
+  effortDays: number;
 }
 export interface ArchiveData {
   projects: Project[];

@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 5;
+pub const LATEST: i64 = 6;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -192,6 +192,21 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             [stamp.as_str()],
         )?;
         tx.pragma_update(None, "user_version", 5)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 6 {
+        // A crash between the ALTER and the version bump leaves the column without
+        // the bump; the guard finishes the step instead of dying on duplicate column.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "priority")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'
+                 CHECK (priority IN ('high','normal','low'))",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 6)?;
         tx.commit()?;
     }
     Ok(())
@@ -482,5 +497,45 @@ mod tests {
             .query_row("select count(*) from categories", [], |r| r.get(0))
             .unwrap();
         assert_eq!(cats, 7);
+    }
+
+    #[test]
+    fn adds_priority_with_a_normal_default() {
+        let c = v3_database();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let priorities: Vec<String> = c
+            .prepare("SELECT priority FROM tasks ORDER BY sort_order")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(priorities, vec!["normal".to_string(), "normal".to_string()]);
+    }
+
+    #[test]
+    fn retries_a_half_applied_v6_step() {
+        let c = v3_database();
+        c.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'
+             CHECK (priority IN ('high','normal','low'));",
+        )
+        .unwrap();
+        c.execute("UPDATE tasks SET priority = 'high' WHERE id = 'a'", [])
+            .unwrap();
+        c.pragma_update(None, "user_version", 5).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let priority: String = c
+            .query_row("SELECT priority FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(priority, "high");
     }
 }

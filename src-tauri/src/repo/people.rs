@@ -1,5 +1,5 @@
 use crate::dto::PersonDto;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<PersonDto>> {
     let mut stmt = conn.prepare(
@@ -28,6 +28,16 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<PersonDto> {
             })
         },
     )
+}
+
+pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM people WHERE id = ?1 AND deleted_at IS NULL",
+        [id],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
 }
 
 pub fn find_by_name(conn: &Connection, name: &str) -> rusqlite::Result<Option<PersonDto>> {

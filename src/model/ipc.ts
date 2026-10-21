@@ -3,6 +3,7 @@ import type {
   AiTestResult,
   ArchiveData,
   Bootstrap,
+  CaptureFields,
   Category,
   PassAction,
   Person,
@@ -21,8 +22,8 @@ export function bootstrap(): Promise<Bootstrap> {
   return invoke<Bootstrap>("bootstrap");
 }
 
-export function capture(raw: string): Promise<Task> {
-  return invoke<Task>("capture", { raw });
+export function capture(title: string, fields: CaptureFields): Promise<Task> {
+  return invoke<Task>("capture", { title, fields });
 }
 
 export function listWeek(): Promise<Task[]> {

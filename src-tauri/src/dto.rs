@@ -89,6 +89,7 @@ pub struct TaskDto {
     pub updated_at: String,
     pub sort_order: i64,
     pub effort_days: f64,
+    pub priority: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -168,6 +169,25 @@ pub struct TaskPatch {
     pub note: Option<Option<String>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub effort_days: Option<f64>,
+    #[serde(default)]
+    pub priority: Option<String>,
+}
+
+/// The fields a quick capture can carry. All optional: a missing field keeps the
+/// database default (owner "me", priority "normal", effort 1 day).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureFields {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub owner_id: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub due_date: Option<String>,
     #[serde(default)]
     pub effort_days: Option<f64>,
 }

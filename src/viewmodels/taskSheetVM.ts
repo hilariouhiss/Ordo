@@ -9,7 +9,7 @@ import {
   toggleStep,
   updateTaskPatch,
 } from "../model/ipc";
-import type { Status, Task, TaskPatch } from "../model/types";
+import type { Priority, Status, Task, TaskPatch } from "../model/types";
 
 /** What the task sheet holds while it is open. */
 export interface TaskForm {
@@ -22,6 +22,7 @@ export interface TaskForm {
   note: string;
   tags: string[];
   effortDays: number;
+  priority: Priority;
 }
 
 /** The fields the user actually changed, so a save cannot wipe the ones it did not touch. */
@@ -38,6 +39,7 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
     patch.tags = form.tags;
   }
   if (form.effortDays !== task.effortDays) patch.effortDays = form.effortDays;
+  if (form.priority !== task.priority) patch.priority = form.priority;
   return patch;
 }
 

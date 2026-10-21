@@ -32,6 +32,7 @@ export function task(over: Partial<Task> = {}): Task {
     updatedAt: "2026-10-20T00:00:00Z",
     sortOrder: 0,
     effortDays: 1,
+    priority: "normal",
     steps: [],
     tags: [],
     delays: [],

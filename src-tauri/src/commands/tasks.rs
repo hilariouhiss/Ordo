@@ -10,11 +10,16 @@ use tauri::State;
 pub async fn capture(
     state: State<'_, AppState>,
     window: tauri::WebviewWindow,
-    raw: String,
+    title: String,
+    fields: Option<crate::dto::CaptureFields>,
 ) -> Result<TaskDto, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_iso();
-    let task = with_db(&state, move |conn| week::capture(conn, &raw, &now, &id)).await?;
+    let fields = fields.unwrap_or_default();
+    let task = with_db(&state, move |conn| {
+        week::capture_with_fields(conn, &title, &fields, &now, &id)
+    })
+    .await?;
     if window.label() == "capture" {
         let _ = window.app_handle().emit_to("main", "capture:created", &task.id);
     }

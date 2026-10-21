@@ -125,6 +125,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"tasks\""));
         assert!(text.contains("\"settings\""));
+        assert!(text.contains("\"priority\""));
         assert!(text.contains("交底"));
         std::fs::remove_dir_all(&dir).ok();
     }

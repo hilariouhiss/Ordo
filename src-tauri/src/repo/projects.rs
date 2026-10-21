@@ -1,5 +1,5 @@
 use crate::dto::{PersonDto, ProjectDto};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 pub fn insert(
     conn: &Connection,
@@ -73,6 +73,17 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
     )?;
     project.member_ids = member_ids(conn, id)?;
     Ok(project)
+}
+
+pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM projects
+         WHERE id = ?1 AND deleted_at IS NULL AND archived_at IS NULL",
+        [id],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
 }
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {

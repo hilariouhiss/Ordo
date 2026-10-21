@@ -1,13 +1,32 @@
-use crate::dto::{DelayDto, StepDto, TagDto, TaskDto};
+use crate::dto::{CaptureFields, DelayDto, StepDto, TagDto, TaskDto};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
-pub fn insert(conn: &Connection, id: &str, title: &str, now: &str) -> rusqlite::Result<()> {
+pub fn insert(
+    conn: &Connection,
+    id: &str,
+    title: &str,
+    fields: &CaptureFields,
+    now: &str,
+) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO tasks (id, title, owner_id, status, in_week, carry_count, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, (SELECT id FROM people WHERE is_me = 1 LIMIT 1), 'todo', 1, 0,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?3, ?3)",
-        params![id, title, now],
+        "INSERT INTO tasks (id, title, project_id, owner_id, priority, due_date, effort_days,
+                            status, in_week, carry_count, sort_order, created_at, updated_at)
+         VALUES (?1, ?2, ?3,
+                 COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
+                 COALESCE(?5, 'normal'), ?6, COALESCE(?7, 1),
+                 'todo', 1, 0,
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8)",
+        params![
+            id,
+            title,
+            fields.project_id.as_deref(),
+            fields.owner_id.as_deref(),
+            fields.priority.as_deref(),
+            fields.due_date.as_deref(),
+            fields.effort_days,
+            now
+        ],
     )?;
     Ok(())
 }
@@ -47,7 +66,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let mut task_stmt = conn.prepare_cached(
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,
                 in_week, carry_count, suspended_until, note, archived_at, canceled_at,
-                created_at, updated_at, sort_order, effort_days
+                created_at, updated_at, sort_order, effort_days, priority
          FROM tasks WHERE id = ?1",
     )?;
     let mut task = task_stmt.query_row([id], |r| {
@@ -73,6 +92,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
             updated_at: r.get(15)?,
             sort_order: r.get(16)?,
             effort_days: r.get(17)?,
+            priority: r.get(18)?,
         })
     })?;
 
@@ -186,6 +206,10 @@ pub fn apply_patch(
     if let Some(effort) = patch.effort_days {
         cols.push("effort_days");
         vals.push(Value::Real(effort));
+    }
+    if let Some(priority) = &patch.priority {
+        cols.push("priority");
+        vals.push(Value::Text(priority.clone()));
     }
 
     if let Some(tags) = &patch.tags {

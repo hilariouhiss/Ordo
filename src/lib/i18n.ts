@@ -119,11 +119,16 @@ export const zh = {
   "archive.deleteProjectMessage": "永久删除项目「{name}」？里面的任务会一起消失，不能撤销。",
   "archive.archiveOnlyTitle": "归档后才能永久删除",
 
-  "capture.placeholder": "记一句…",
+  "capture.placeholder": "记一句… #项目 @人 !高 ^周五 ~2天",
   "capture.saveHint": "⏎ 保存",
   "capture.saved": "已记下",
   "capture.hint": "⏎ 保存 · Esc 关闭",
   "capture.mainWindow": "主窗口",
+  "capture.syntax": "符号：#项目 @负责人 !高/中/低 ^周五 ~2天",
+  "capture.priority": "优先级",
+  "capture.ownerDefault": "默认（我）",
+  "capture.effort": "工时",
+  "capture.effortUnit": "天",
 
   "task.title": "标题",
   "task.status": "状态",
@@ -145,6 +150,10 @@ export const zh = {
   "task.effort": "预估人天",
   "task.effortHalf": "半天",
   "task.effortDays": "{days} 天",
+  "task.priority": "优先级",
+  "task.priorityHigh": "高",
+  "task.priorityNormal": "中",
+  "task.priorityLow": "低",
   "task.tags": "标签",
   "task.addTag": "+ 标签",
   "task.removeTagAria": "移除标签",
@@ -273,6 +282,10 @@ export const zh = {
   "error.no_key": "还没填 API key。",
   "error.empty_response": "模型返回了空内容。",
   "error.invalid_language": "不支持这个语言。",
+  "error.invalid_priority": "优先级只能是高、中、低。",
+  "error.invalid_due_date": "截止日期格式不对。",
+  "error.invalid_project": "项目不存在或已删除。",
+  "error.invalid_owner": "负责人不存在或已删除。",
 } as const;
 
 export type MessageKey = keyof typeof zh;
@@ -392,11 +405,16 @@ export const en: Record<MessageKey, string> = {
     'Permanently delete project "{name}"? Its tasks go with it. This cannot be undone.',
   "archive.archiveOnlyTitle": "Archive before permanent delete",
 
-  "capture.placeholder": "Jot a line…",
+  "capture.placeholder": "Jot a line… #project @person !high ^Fri ~2d",
   "capture.saveHint": "⏎ save",
   "capture.saved": "Saved",
   "capture.hint": "⏎ save · Esc close",
   "capture.mainWindow": "Main window",
+  "capture.syntax": "Symbols: #project @owner !high/normal/low ^Fri ~2d",
+  "capture.priority": "Priority",
+  "capture.ownerDefault": "Default (me)",
+  "capture.effort": "Effort",
+  "capture.effortUnit": "d",
 
   "task.title": "Title",
   "task.status": "Status",
@@ -418,6 +436,10 @@ export const en: Record<MessageKey, string> = {
   "task.effort": "Effort",
   "task.effortHalf": "0.5 d",
   "task.effortDays": "{days} d",
+  "task.priority": "Priority",
+  "task.priorityHigh": "High",
+  "task.priorityNormal": "Normal",
+  "task.priorityLow": "Low",
   "task.tags": "Tags",
   "task.addTag": "+ tag",
   "task.removeTagAria": "Remove tag",
@@ -549,6 +571,10 @@ export const en: Record<MessageKey, string> = {
   "error.no_key": "No API key yet.",
   "error.empty_response": "The model returned nothing.",
   "error.invalid_language": "Unsupported language.",
+  "error.invalid_priority": "Priority must be high, normal or low.",
+  "error.invalid_due_date": "The due date is not valid.",
+  "error.invalid_project": "That project no longer exists.",
+  "error.invalid_owner": "That person no longer exists.",
 };
 
 export const messages = { zh, en } as const;
@@ -587,6 +613,10 @@ const knownErrors = [
   "no_key",
   "empty_response",
   "invalid_language",
+  "invalid_priority",
+  "invalid_due_date",
+  "invalid_project",
+  "invalid_owner",
 ] as const;
 
 /** Maps the backend's short error codes; anything else is shown as-is. */

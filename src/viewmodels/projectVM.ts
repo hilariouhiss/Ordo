@@ -1,12 +1,7 @@
 import { computed, reactive } from "vue";
+import type { CaptureSubmission } from "../lib/capture";
 import { projectSummaryLine } from "../lib/summary";
-import {
-  aiEnrich,
-  capture,
-  getProjectSummary,
-  listProjectTasks,
-  updateTaskPatch,
-} from "../model/ipc";
+import { aiEnrich, capture, getProjectSummary, listProjectTasks } from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
 
 export function createProjectVM() {
@@ -37,13 +32,12 @@ export function createProjectVM() {
     state.expanded[categoryId] = !state.expanded[categoryId];
   }
 
-  async function captureInto(projectId: string): Promise<void> {
-    const raw = state.draft.trim();
-    if (!raw) return;
-    const task = await capture(raw);
-    await updateTaskPatch(task.id, { projectId });
-    state.draft = "";
+  async function captureInto(projectId: string, submission: CaptureSubmission): Promise<void> {
+    const title = submission.title.trim();
+    if (!title) return;
+    const task = await capture(title, submission.fields);
     void aiEnrich(task.id);
+    state.draft = "";
     await load(projectId);
   }
 

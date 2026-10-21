@@ -1,6 +1,14 @@
 use crate::dto::{TaskDto, TaskPatch};
 use rusqlite::Connection;
 
+pub fn valid_effort(effort: f64) -> bool {
+    effort.is_finite() && (0.5..=60.0).contains(&effort) && (effort * 2.0).fract() == 0.0
+}
+
+pub fn valid_priority(priority: &str) -> bool {
+    matches!(priority, "high" | "normal" | "low")
+}
+
 pub fn update_patch(
     conn: &Connection,
     id: &str,
@@ -8,8 +16,13 @@ pub fn update_patch(
     now: &str,
 ) -> Result<TaskDto, String> {
     if let Some(effort) = patch.effort_days {
-        if !effort.is_finite() || effort < 0.5 || effort > 60.0 || (effort * 2.0).fract() != 0.0 {
+        if !valid_effort(effort) {
             return Err("invalid_effort".into());
+        }
+    }
+    if let Some(priority) = patch.priority.as_deref() {
+        if !valid_priority(priority) {
+            return Err("invalid_priority".into());
         }
     }
     crate::repo::tasks::apply_patch(conn, id, patch, now).map_err(|e| e.to_string())?;
@@ -331,6 +344,37 @@ mod tests {
                 "invalid_effort"
             );
         }
+    }
+
+    #[test]
+    fn priority_is_validated_and_saved() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let bad = TaskPatch {
+            priority: Some("urgent".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &bad, NOW).unwrap_err(),
+            "invalid_priority"
+        );
+
+        for accepted in ["high", "normal", "low"] {
+            let patch = TaskPatch {
+                priority: Some(accepted.into()),
+                ..Default::default()
+            };
+            let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+            assert_eq!(t.priority, accepted);
+        }
+
+        let later = TaskPatch {
+            title: Some("改名".into()),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &later, NOW).unwrap();
+        assert_eq!(t.priority, "low");
     }
 
     #[test]

@@ -113,7 +113,11 @@ function openTask(task: Task): void {
       </span>
     </div>
 
-    <CaptureBar v-model="vm.state.draft" @submit="vm.captureInto(props.id)" />
+    <CaptureBar
+      v-model="vm.state.draft"
+      :project-id="props.id"
+      @submit="vm.captureInto(props.id, $event)"
+    />
 
     <AnimatePresence mode="wait" :initial="false">
       <motion.div

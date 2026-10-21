@@ -25,6 +25,7 @@ function formOf(t: Task): TaskForm {
     note: t.note ?? "",
     tags: t.tags.map((tag) => tag.name),
     effortDays: t.effortDays,
+    priority: t.priority,
   };
 }
 
@@ -102,5 +103,10 @@ describe("taskSheetVM", () => {
   it("sends an effort change on its own", () => {
     const t = task({ effortDays: 1 });
     expect(diffTask(t, { ...formOf(t), effortDays: 2 })).toEqual({ effortDays: 2 });
+  });
+
+  it("sends a priority change on its own", () => {
+    const t = task({ priority: "normal" });
+    expect(diffTask(t, { ...formOf(t), priority: "high" })).toEqual({ priority: "high" });
   });
 });
