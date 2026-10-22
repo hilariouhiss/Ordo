@@ -378,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn list_all_active_includes_done_and_out_of_week_but_not_archived_or_canceled() {
+    fn list_all_active_excludes_done_but_keeps_active_out_of_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
@@ -393,7 +393,7 @@ mod tests {
             .into_iter()
             .map(|t| t.id)
             .collect();
-        assert_eq!(ids, vec!["t1", "t2"]);
+        assert_eq!(ids, vec!["t1"]);
     }
 
     #[test]

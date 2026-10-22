@@ -53,6 +53,7 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks
          WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
+           AND status <> 'done'
          ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
                   due_date IS NULL, due_date, created_at",
     )?;

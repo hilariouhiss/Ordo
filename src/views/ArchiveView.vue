@@ -1,15 +1,24 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { shortDate } from "../lib/dates";
 import { askConfirm } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
+import { taskSheetVM } from "../viewmodels/taskSheetVM";
+import TaskSheet from "./overlays/TaskSheet.vue";
 
 onMounted(() => {
   void vm.load();
 });
+
+watch(
+  () => taskSheetVM.state.openId,
+  (open) => {
+    if (!open) void vm.load();
+  },
+);
 
 const currentList = computed(() =>
   vm.state.tab === "tasks"
@@ -39,6 +48,10 @@ async function removeProject(id: string, name: string): Promise<void> {
     t("archive.deleteProjectMessage", { name }),
   );
   if (ok) await vm.removeProject(id);
+}
+
+function openTask(id: string): void {
+  void taskSheetVM.open(id);
 }
 </script>
 
@@ -129,6 +142,8 @@ async function removeProject(id: string, name: string): Promise<void> {
           :key="task.id"
           v-bind="listItemMotion"
           class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
+          :class="{ 'cursor-pointer': vm.state.tab === 'done' }"
+          @click="vm.state.tab === 'done' && openTask(task.id)"
         >
           <span class="text-[13px] text-base-content/70">{{ task.title }}</span>
           <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">{{
@@ -136,7 +151,7 @@ async function removeProject(id: string, name: string): Promise<void> {
           }}</span>
           <button
             class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"
-            @click="vm.restore(task.id)"
+            @click.stop="vm.restore(task.id)"
           >
             {{ t("common.restore") }}
           </button>
@@ -144,14 +159,14 @@ async function removeProject(id: string, name: string): Promise<void> {
             v-if="!task.archivedAt && !task.canceledAt"
             class="btn btn-xs rounded-md border-base-300 bg-base-200 font-normal"
             :title="t('archive.archiveOnlyTitle')"
-            @click="vm.archive(task.id)"
+            @click.stop="vm.archive(task.id)"
           >
             {{ t("common.archive") }}
           </button>
           <button
             v-else
             class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
-            @click="removeTask(task.id, task.title)"
+            @click.stop="removeTask(task.id, task.title)"
           >
             {{ t("common.delete") }}
           </button>
@@ -161,5 +176,9 @@ async function removeProject(id: string, name: string): Promise<void> {
         {{ t("archive.empty") }}
       </p>
     </div>
+
+    <AnimatePresence>
+      <TaskSheet v-if="taskSheetVM.state.openId" />
+    </AnimatePresence>
   </section>
 </template>
