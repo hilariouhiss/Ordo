@@ -69,6 +69,11 @@ function toggleDone(): void {
   void run(() => taskRowVM.toggleDone(props.task));
 }
 
+function onRowKey(event: KeyboardEvent): void {
+  if (event.target !== event.currentTarget) return;
+  emit("open", props.task);
+}
+
 function start(): void {
   void run(() => taskRowVM.start(props.task));
 }
@@ -92,8 +97,10 @@ async function suspend(): Promise<void> {
 <template>
   <motion.li
     v-bind="listItemMotion"
-    class="relative flex cursor-pointer items-center gap-2.5 rounded-xl bg-base-100 px-3 py-3 transition-opacity hover:opacity-90"
+    class="relative flex cursor-pointer items-center gap-2.5 rounded-xl bg-base-100 px-3 py-3 transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary/40"
+    tabindex="0"
     @click="emit('open', task)"
+    @keydown.enter="onRowKey"
   >
     <span
       v-if="dropLine"
