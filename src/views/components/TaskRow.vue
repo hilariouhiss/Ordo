@@ -124,10 +124,10 @@ async function suspend(): Promise<void> {
       :disabled="busy"
       @click.stop="toggleDone"
     >
-      <StatusDot :status="task.status" />
+      <StatusDot :status="task.status" :suspended="task.suspended" />
     </button>
     <span v-else class="shrink-0" :title="t('task.stepsHint')" @click.stop>
-      <StatusDot :status="task.status" />
+      <StatusDot :status="task.status" :suspended="task.suspended" />
     </span>
     <span
       class="text-[13px]"

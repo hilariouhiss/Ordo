@@ -1,26 +1,42 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
-import type { Status } from "../../model/types";
+import { computed } from "vue";
 import { springSnappy } from "../../lib/motion";
+import { statusDisplay } from "../../lib/status";
+import type { Status } from "../../model/types";
 
-defineProps<{ status: Status }>();
+const props = defineProps<{ status: Status; suspended?: boolean }>();
+const display = computed(() => statusDisplay(props.status, props.suspended ?? false));
+const dotClass = computed(() => {
+  switch (display.value) {
+    case "done":
+      return "border-success bg-success";
+    case "doing":
+      return "border-primary bg-primary/25";
+    case "suspended":
+      return "border-warning bg-warning/15";
+    default:
+      return "border-base-content/25";
+  }
+});
 </script>
 
 <template>
   <motion.span
-    :key="status"
+    :key="display"
     class="inline-flex shrink-0"
     :initial="{ scale: 0.6 }"
     :animate="{ scale: 1 }"
     :transition="springSnappy"
   >
     <span
-      class="size-4 rounded-full border-[1.5px] transition-colors"
-      :class="{
-        'border-base-content/25': status === 'todo',
-        'border-primary bg-primary/25': status === 'doing',
-        'border-success bg-success': status === 'done',
-      }"
-    ></span>
+      class="relative grid size-4 place-items-center rounded-full border-[1.5px] transition-colors"
+      :class="dotClass"
+    >
+      <span v-if="display === 'suspended'" class="flex gap-[2px]" aria-hidden="true">
+        <span class="h-[5px] w-[1.5px] rounded-full bg-warning"></span>
+        <span class="h-[5px] w-[1.5px] rounded-full bg-warning"></span>
+      </span>
+    </span>
   </motion.span>
 </template>
