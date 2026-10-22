@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { Ellipsis } from "@lucide/vue";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, todayIso } from "../lib/dates";
 import { t } from "../lib/i18n";
 import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Task } from "../model/types";
+import { appVM } from "../viewmodels/appVM";
 import { createProjectVM } from "../viewmodels/projectVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import CaptureBar from "./components/CaptureBar.vue";
@@ -19,9 +22,24 @@ import TaskSheet from "./overlays/TaskSheet.vue";
 const props = defineProps<{ id: string }>();
 const vm = createProjectVM();
 const settingsOpen = ref(false);
+let unlistenAi: (() => void) | undefined;
+let unlistenCapture: (() => void) | undefined;
 
-onMounted(() => {
+onMounted(async () => {
   void vm.load(props.id);
+  if (!isTauri()) return;
+  unlistenAi = await listen("ai:enriched", () => {
+    void vm.load(props.id);
+    void appVM.load();
+  });
+  unlistenCapture = await listen("capture:created", () => {
+    void vm.load(props.id);
+  });
+});
+
+onUnmounted(() => {
+  unlistenAi?.();
+  unlistenCapture?.();
 });
 
 watch(
