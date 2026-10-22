@@ -327,7 +327,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               >
                 {{
                   t("settings.shortcutWarning", {
-                    error: shortcutWarning || settings.shortcutWarning,
+                    error: shortcutWarning || settings.shortcutWarning || "",
                   })
                 }}
               </p>
