@@ -99,7 +99,10 @@ async function testAi(): Promise<void> {
 async function applyShortcut(): Promise<void> {
   if (!pendingShortcut.value) return;
   const outcome = await ipc.setShortcut(pendingShortcut.value);
-  if (appVM.state.settings) appVM.state.settings.shortcut = outcome.active;
+  if (appVM.state.settings) {
+    appVM.state.settings.shortcut = outcome.active;
+    appVM.state.settings.shortcutWarning = outcome.warning;
+  }
   shortcutWarning.value = outcome.warning ?? "";
   pendingShortcut.value = "";
 }
@@ -242,9 +245,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <p class="mt-2 text-[10.5px] text-base-content/35">
                 {{ t("settings.aiNote") }}
               </p>
-              <p v-if="settings.shortcutWarning" class="mt-1 text-[10.5px] text-error">
-                {{ t("settings.shortcutWarning", { error: settings.shortcutWarning }) }}
-              </p>
             </div>
 
             <div v-else-if="vm.state.tab === 'general'" class="mt-4 rounded-xl bg-base-200 p-4">
@@ -321,8 +321,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                   </button>
                 </span>
               </div>
-              <p v-if="shortcutWarning" class="mt-1 text-[10.5px] text-error">
-                {{ t("settings.shortcutWarning", { error: shortcutWarning }) }}
+              <p
+                v-if="shortcutWarning || settings.shortcutWarning"
+                class="mt-1 text-[10.5px] text-error"
+              >
+                {{
+                  t("settings.shortcutWarning", {
+                    error: shortcutWarning || settings.shortcutWarning,
+                  })
+                }}
               </p>
               <div class="mt-3 flex items-center justify-between text-[12px]">
                 <span>{{ t("settings.weekStart") }}</span>
