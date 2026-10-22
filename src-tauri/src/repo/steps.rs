@@ -69,6 +69,16 @@ pub fn set_done(conn: &Connection, id: &str, done: bool, now: &str) -> rusqlite:
     Ok(())
 }
 
+/// Ticks every live step, so the task's derived status agrees with the row.
+pub fn complete_all(conn: &Connection, task_id: &str, now: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE steps SET done = 1, updated_at = ?1
+         WHERE task_id = ?2 AND deleted_at IS NULL AND done = 0",
+        params![now, task_id],
+    )?;
+    Ok(())
+}
+
 pub fn soft_delete(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE steps SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2",

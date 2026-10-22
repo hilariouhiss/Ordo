@@ -103,7 +103,11 @@ pub fn resolve(
             .map_err(|e| e.to_string())?;
         }
         PassAction::Done => {
-            tasks::set_status(conn, task_id, "done", true, now).map_err(|e| e.to_string())?;
+            // The task's status is derived from its steps, so finish them together with it.
+            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+            crate::repo::steps::complete_all(&tx, task_id, now).map_err(|e| e.to_string())?;
+            tasks::set_status(&tx, task_id, "done", true, now).map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
         }
         PassAction::Suspend => {
             return suspend(conn, task_id, suspend_until, now);
@@ -432,6 +436,27 @@ mod tests {
         let t = week::resolve(&c, "t1", PassAction::Done, None, NOW).unwrap();
         assert_eq!(t.status, "done");
         assert!(!t.in_week);
+    }
+
+    #[test]
+    fn pass_done_completes_the_steps() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
+        crate::services::steps::add(&c, "t1", "汇编初稿", NOW).unwrap();
+
+        let t = week::resolve(&c, "t1", PassAction::Done, None, NOW).unwrap();
+
+        assert_eq!(t.status, "done");
+        assert!(!t.in_week);
+        assert!(t.steps.iter().all(|s| s.done));
+
+        // Undoing a step reopens the task; redoing it completes it again.
+        let reopened = crate::services::steps::toggle(&c, &t.steps[0].id, NOW).unwrap();
+        assert_eq!(reopened.status, "doing");
+        let closed = crate::services::steps::toggle(&c, &t.steps[0].id, NOW).unwrap();
+        assert_eq!(closed.status, "done");
+        assert!(!closed.in_week);
     }
 
     #[test]
