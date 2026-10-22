@@ -6,8 +6,8 @@ export function createTaskRowVM() {
     return startTask(task.id);
   }
 
-  function suspend(task: Task, until: string): Promise<Task> {
-    return suspendTask(task.id, until);
+  function suspend(task: Task, until: string | null, reason: string | null): Promise<Task> {
+    return suspendTask(task.id, until, reason);
   }
 
   function toggleDone(task: Task): Promise<Task> {

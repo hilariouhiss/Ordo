@@ -385,7 +385,15 @@ mod tests {
         week::capture(&c, "三", NOW, "t3").unwrap();
         week::capture(&c, "四", NOW, "t4").unwrap();
         tasks::set_status(&c, "t2", "done", NOW).unwrap();
-        week::resolve(&c, "t3", crate::services::week::PassAction::Cancel, None, NOW).unwrap();
+        week::resolve(
+            &c,
+            "t3",
+            crate::services::week::PassAction::Cancel,
+            None,
+            None,
+            NOW,
+        )
+        .unwrap();
         crate::repo::tasks::archive(&c, "t4", NOW).unwrap();
 
         let ids: Vec<String> = crate::repo::tasks::list_all_active(&c)
@@ -405,6 +413,7 @@ mod tests {
             "t1",
             crate::services::week::PassAction::Suspend,
             Some("2026-11-02"),
+            Some("等甲方"),
             NOW,
         )
         .unwrap();
@@ -412,7 +421,9 @@ mod tests {
         let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
 
         assert!(!t.in_week);
+        assert!(t.suspended);
         assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.suspend_reason.as_deref(), Some("等甲方"));
         assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
     }
 
@@ -425,13 +436,16 @@ mod tests {
             "t1",
             crate::services::week::PassAction::Suspend,
             Some("2026-11-02"),
+            Some("等甲方"),
             NOW,
         )
         .unwrap();
 
         let t = tasks::set_status(&c, "t1", "done", NOW).unwrap();
 
+        assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspend_reason.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
     }
 
@@ -441,7 +455,8 @@ mod tests {
         week::capture(&c, "交底", NOW, "t1").unwrap();
         // The old build could save in_week = 1 together with a suspension date.
         c.execute(
-            "UPDATE tasks SET in_week = 1, suspended_until = '2026-11-02' WHERE id = 't1'",
+            "UPDATE tasks SET in_week = 1, suspended = 1, suspended_until = '2026-11-02'
+             WHERE id = 't1'",
             [],
         )
         .unwrap();

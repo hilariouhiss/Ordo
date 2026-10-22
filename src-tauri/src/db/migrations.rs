@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 6;
+pub const LATEST: i64 = 7;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -207,6 +207,22 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             )?;
         }
         tx.pragma_update(None, "user_version", 6)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 7 {
+        // A suspension can now have neither a date nor a reason, so the marker cannot
+        // live in suspended_until. Old rows with a date are still suspended.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "suspended")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0")?;
+        }
+        if !has_task_column(&tx, "suspend_reason")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN suspend_reason TEXT")?;
+        }
+        tx.execute_batch("UPDATE tasks SET suspended = 1 WHERE suspended_until IS NOT NULL")?;
+        tx.pragma_update(None, "user_version", 7)?;
         tx.commit()?;
     }
     Ok(())
@@ -497,6 +513,34 @@ mod tests {
             .query_row("select count(*) from categories", [], |r| r.get(0))
             .unwrap();
         assert_eq!(cats, 7);
+    }
+
+    #[test]
+    fn adds_the_suspension_marker_and_backfills_dated_rows() {
+        let c = v3_database();
+        c.execute(
+            "UPDATE tasks SET suspended_until = '2026-11-02' WHERE id = 'a'",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let (suspended, reason): (i64, Option<String>) = c
+            .query_row(
+                "SELECT suspended, suspend_reason FROM tasks WHERE id = 'a'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(suspended, 1);
+        assert!(reason.is_none());
+        let other: i64 = c
+            .query_row("SELECT suspended FROM tasks WHERE id = 'b'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(other, 0);
     }
 
     #[test]

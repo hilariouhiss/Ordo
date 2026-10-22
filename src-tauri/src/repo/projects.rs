@@ -46,7 +46,7 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
             let mut stmt = conn.prepare(
                 "SELECT id FROM tasks
                  WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
-                   AND archived_at IS NULL AND status <> 'done' AND suspended_until IS NULL
+                   AND archived_at IS NULL AND status <> 'done' AND suspended = 0
                  ORDER BY sort_order, id",
             )?;
             stmt.query_map([id], |r| r.get(0))?

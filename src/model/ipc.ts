@@ -66,8 +66,9 @@ export function passResolve(
   taskId: string,
   action: PassAction,
   suspendUntil: string | null,
+  suspendReason: string | null,
 ): Promise<Task> {
-  return invoke<Task>("pass_resolve", { taskId, action, suspendUntil });
+  return invoke<Task>("pass_resolve", { taskId, action, suspendUntil, suspendReason });
 }
 
 export function markPassDone(today: string): Promise<void> {
@@ -88,8 +89,12 @@ export function resumeTask(id: string): Promise<Task> {
 export function startTask(id: string): Promise<Task> {
   return invoke<Task>("start_task", { id });
 }
-export function suspendTask(id: string, until: string): Promise<Task> {
-  return invoke<Task>("suspend_task", { id, until });
+export function suspendTask(
+  id: string,
+  until: string | null,
+  reason: string | null,
+): Promise<Task> {
+  return invoke<Task>("suspend_task", { id, until, reason });
 }
 export function setDue(id: string, newDue: string | null, reason: string | null): Promise<Task> {
   return invoke<Task>("set_due", { id, newDue, reason });

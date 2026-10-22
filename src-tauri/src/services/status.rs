@@ -40,6 +40,7 @@ mod tests {
             "t1",
             crate::services::week::PassAction::Suspend,
             Some("2026-11-02"),
+            None,
             "2026-10-20T08:00:00Z",
         )
         .unwrap();

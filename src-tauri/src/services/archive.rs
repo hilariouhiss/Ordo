@@ -117,6 +117,7 @@ mod tests {
             "t1",
             crate::services::week::PassAction::Cancel,
             None,
+            None,
             NOW,
         )
         .unwrap();
@@ -176,6 +177,7 @@ mod tests {
             "t3",
             crate::services::week::PassAction::Suspend,
             Some("2026-11-02"),
+            None,
             NOW,
         )
         .unwrap();
@@ -183,6 +185,7 @@ mod tests {
             &c,
             "t4",
             crate::services::week::PassAction::Cancel,
+            None,
             None,
             NOW,
         )
@@ -256,6 +259,7 @@ mod tests {
             "t1",
             crate::services::week::PassAction::Suspend,
             Some("2026-11-02"),
+            None,
             NOW,
         )
         .unwrap();
@@ -264,7 +268,9 @@ mod tests {
         let t = archive::restore_task(&c, "t1", NOW).unwrap();
 
         assert!(t.in_week);
+        assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspend_reason.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
     }
 

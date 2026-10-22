@@ -25,6 +25,8 @@ export function task(over: Partial<Task> = {}): Task {
     inWeek: true,
     carryCount: 0,
     suspendedUntil: null,
+    suspended: false,
+    suspendReason: null,
     note: null,
     archivedAt: null,
     canceledAt: null,

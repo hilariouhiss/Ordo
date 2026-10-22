@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { mondayOf, shortDate, todayIso } from "../../lib/dates";
 import { t } from "../../lib/i18n";
+import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
 import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
@@ -12,6 +13,7 @@ import DateField from "../components/DateField.vue";
 
 const suspendOpen = ref(false);
 const suspendDate = ref("");
+const suspendReason = ref("");
 
 const finished = computed(() => passVM.state.queue.length > 0 && !passVM.current.value);
 const categoryName = computed(() => {
@@ -29,13 +31,23 @@ const ownerName = computed(() => {
 
 async function act(action: "keep" | "done" | "cancel"): Promise<void> {
   await passVM.resolve(action);
+  if (suspendOpen.value) cancelSuspend();
 }
 
 async function actSuspend(): Promise<void> {
-  if (!suspendDate.value) return;
-  await passVM.resolve("suspend", suspendDate.value);
+  await passVM.resolve("suspend", suspendDate.value || null, suspendReason.value.trim() || null);
+  cancelSuspend();
+}
+
+function cancelSuspend(): void {
   suspendOpen.value = false;
   suspendDate.value = "";
+  suspendReason.value = "";
+}
+
+function onSuspendEnter(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void actSuspend();
 }
 
 async function finish(): Promise<void> {
@@ -54,9 +66,9 @@ function onKey(event: KeyboardEvent): void {
   // While the task sheet is open it owns the keyboard; its own Escape closes just it.
   if (taskSheetVM.state.openId) return;
 
-  // The date panel owns the keyboard while it is open; only Esc leaves it.
+  // The suspend panel owns the keyboard while it is open; only Esc leaves it.
   if (suspendOpen.value) {
-    if (event.key === "Escape") suspendOpen.value = false;
+    if (event.key === "Escape") cancelSuspend();
     return;
   }
 
@@ -171,12 +183,26 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
           <div v-if="suspendOpen" class="mt-4 rounded-xl bg-base-200 p-3">
             <div class="text-[12px] font-medium">{{ t("pass.suspendPrompt") }}</div>
-            <div class="mt-2 flex items-center gap-2">
+            <label class="mt-2 block text-[10.5px] text-base-content/45">
+              {{ t("task.suspendReasonLabel") }}
+              <input
+                v-model="suspendReason"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12px]"
+                :placeholder="t('task.suspendReasonPlaceholder')"
+                @keydown.enter="onSuspendEnter"
+              />
+            </label>
+            <label class="mt-2 block text-[10.5px] text-base-content/45">
+              {{ t("task.suspendUntilLabel") }}
               <DateField
                 v-model="suspendDate"
                 :min="todayIso()"
-                class="input input-sm rounded-lg border-base-300"
+                :aria-label="t('task.suspendUntilLabel')"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12px]"
+                @enter="actSuspend"
               />
+            </label>
+            <div class="mt-3 flex items-center gap-2">
               <button
                 class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
                 @click="actSuspend"
@@ -185,7 +211,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               </button>
               <button
                 class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                @click="suspendOpen = false"
+                @click="cancelSuspend"
               >
                 {{ t("pass.back") }}
               </button>

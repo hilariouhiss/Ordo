@@ -175,13 +175,24 @@ mod tests {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET in_week=0, suspended_until='2026-10-20' WHERE id='t1'",
+            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='2026-10-20'
+             WHERE id='t1'",
             [],
         )
         .unwrap();
         let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].kind, "suspend_start");
+    }
+
+    #[test]
+    fn an_undated_suspension_has_no_reminder() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::services::week::suspend(&c, "t1", None, Some("等甲方"), NOW).unwrap();
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
+        assert!(cands.iter().all(|c| c.kind != "suspend_start"));
     }
 
     #[test]

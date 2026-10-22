@@ -101,10 +101,18 @@ pub async fn pass_resolve(
     task_id: String,
     action: crate::services::week::PassAction,
     suspend_until: Option<String>,
+    suspend_reason: Option<String>,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::week::resolve(conn, &task_id, action, suspend_until.as_deref(), &now)
+        crate::services::week::resolve(
+            conn,
+            &task_id,
+            action,
+            suspend_until.as_deref(),
+            suspend_reason.as_deref(),
+            &now,
+        )
     })
     .await
 }
@@ -152,11 +160,12 @@ pub async fn start_task(state: State<'_, AppState>, id: String) -> Result<TaskDt
 pub async fn suspend_task(
     state: State<'_, AppState>,
     id: String,
-    until: String,
+    until: Option<String>,
+    reason: Option<String>,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::week::suspend(conn, &id, Some(&until), &now)
+        crate::services::week::suspend(conn, &id, until.as_deref(), reason.as_deref(), &now)
     })
     .await
 }

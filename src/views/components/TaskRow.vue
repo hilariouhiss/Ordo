@@ -3,7 +3,7 @@ import { Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
-import { askDate } from "../../lib/dialog";
+import { askSuspend } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
 import { overdueDays } from "../../model/mappers";
@@ -39,12 +39,9 @@ const busy = ref(false);
 const hasSteps = computed(() => props.task.steps.length > 0);
 const isDone = computed(() => props.task.status === "done");
 const canStart = computed(
-  () =>
-    !hasSteps.value &&
-    !isDone.value &&
-    (props.task.status === "todo" || props.task.suspendedUntil !== null),
+  () => !hasSteps.value && !isDone.value && (props.task.status === "todo" || props.task.suspended),
 );
-const canSuspend = computed(() => !isDone.value && !props.task.suspendedUntil);
+const canSuspend = computed(() => !isDone.value && !props.task.suspended);
 const doneLabel = computed(() =>
   t(isDone.value ? "task.reopenAria" : "task.doneAria", { title: props.task.title }),
 );
@@ -89,9 +86,9 @@ async function suspend(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   try {
-    const until = await askDate(t("task.suspendPrompt"), "");
-    if (!until) return;
-    await taskRowVM.suspend(props.task, until);
+    const draft = await askSuspend(t("task.suspendAria", { title: props.task.title }));
+    if (!draft) return;
+    await taskRowVM.suspend(props.task, draft.until || null, draft.reason || null);
     emit("changed");
   } catch {
     // Same as run: the next load shows the real state.
@@ -149,8 +146,16 @@ async function suspend(): Promise<void> {
     <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
       {{ t("task.carry", { count: task.carryCount }) }}
     </span>
-    <span v-if="task.suspendedUntil" class="badge badge-ghost badge-xs">
-      {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
+    <span
+      v-if="task.suspended"
+      class="badge badge-ghost badge-xs"
+      :title="task.suspendReason ?? undefined"
+    >
+      {{
+        task.suspendedUntil
+          ? t("task.suspended", { date: shortDate(task.suspendedUntil) })
+          : t("task.suspendedNoDate")
+      }}
     </span>
     <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
       t("task.overdue", { days: late })

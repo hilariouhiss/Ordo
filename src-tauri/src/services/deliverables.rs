@@ -32,7 +32,8 @@ pub fn set_due(
         {
             // A task already in the week keeps its slot; a due-date edit must not move it.
             tx.execute(
-                "UPDATE tasks SET in_week = 1, suspended_until = NULL,
+                "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
+                        suspend_reason = NULL,
                         sort_order = CASE WHEN in_week = 1 THEN sort_order
                                           ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks) END
                  WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
@@ -135,6 +136,28 @@ mod tests {
 
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t1"]);
+    }
+
+    #[test]
+    fn a_due_date_in_the_current_week_clears_a_suspension() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::resolve(
+            &c,
+            "t1",
+            crate::services::week::PassAction::Suspend,
+            None,
+            Some("等甲方"),
+            NOW,
+        )
+        .unwrap();
+
+        let t = deliverables::set_due(&c, "t1", Some("2026-10-21"), None, NOW).unwrap();
+
+        assert!(t.in_week);
+        assert!(!t.suspended);
+        assert!(t.suspended_until.is_none());
+        assert!(t.suspend_reason.is_none());
     }
 
     #[test]

@@ -72,7 +72,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND status <> 'done' AND suspended_until IS NULL
+             WHERE in_week = 1 AND status <> 'done' AND suspended = 0
                AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
              ORDER BY sort_order, id",
         )
@@ -92,6 +92,7 @@ pub fn resolve(
     task_id: &str,
     action: PassAction,
     suspend_until: Option<&str>,
+    suspend_reason: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
     match action {
@@ -110,7 +111,7 @@ pub fn resolve(
             tx.commit().map_err(|e| e.to_string())?;
         }
         PassAction::Suspend => {
-            return suspend(conn, task_id, suspend_until, now);
+            return suspend(conn, task_id, suspend_until, suspend_reason, now);
         }
         PassAction::Cancel => {
             conn.execute(
@@ -127,20 +128,27 @@ pub fn suspend(
     conn: &Connection,
     task_id: &str,
     suspend_until: Option<&str>,
+    suspend_reason: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
-    let until = suspend_until.ok_or("suspend_until_required")?;
-    let today = chrono::DateTime::parse_from_rfc3339(now)
-        .map(|d| d.with_timezone(&chrono::Local).date_naive())
-        .map_err(|e| e.to_string())?;
-    let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
-        .map_err(|_| "invalid_suspend_date".to_string())?;
-    if until_date < today {
-        return Err("suspend_until_past".into());
+    // An empty field from the UI means "not set", same as leaving it out.
+    let until = suspend_until.map(str::trim).filter(|value| !value.is_empty());
+    let reason = suspend_reason.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(until) = until {
+        let today = chrono::DateTime::parse_from_rfc3339(now)
+            .map(|d| d.with_timezone(&chrono::Local).date_naive())
+            .map_err(|e| e.to_string())?;
+        let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
+            .map_err(|_| "invalid_suspend_date".to_string())?;
+        if until_date < today {
+            return Err("suspend_until_past".into());
+        }
     }
     conn.execute(
-        "UPDATE tasks SET in_week = 0, suspended_until = ?1, updated_at = ?2 WHERE id = ?3",
-        params![until, now, task_id],
+        "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
+                suspend_reason = ?2, updated_at = ?3
+         WHERE id = ?4",
+        params![until, reason, now, task_id],
     )
     .map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
@@ -176,9 +184,9 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id FROM tasks
-             WHERE suspended_until IS NOT NULL AND status <> 'done'
+             WHERE suspended = 1 AND status <> 'done'
                AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
-             ORDER BY suspended_until",
+             ORDER BY suspended_until IS NULL, suspended_until, updated_at",
         )
         .map_err(|e| e.to_string())?;
     let ids: Vec<String> = stmt
@@ -193,7 +201,8 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
 
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     conn.execute(
-        "UPDATE tasks SET in_week = 1, suspended_until = NULL, updated_at = ?1,
+        "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
+                suspend_reason = NULL, updated_at = ?1,
                 sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
          WHERE id = ?2",
         params![now, task_id],
@@ -203,14 +212,12 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
 }
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
-    let suspended: Option<String> = conn
-        .query_row(
-            "SELECT suspended_until FROM tasks WHERE id = ?1",
-            [task_id],
-            |r| r.get(0),
-        )
+    let suspended: i64 = conn
+        .query_row("SELECT suspended FROM tasks WHERE id = ?1", [task_id], |r| {
+            r.get(0)
+        })
         .map_err(|e| e.to_string())?;
-    if suspended.is_some() {
+    if suspended == 1 {
         resume(conn, task_id, now)?;
     }
     crate::services::tasks::set_status(conn, task_id, "doing", now)
@@ -375,19 +382,56 @@ mod tests {
     fn keep_increments_carry_and_stays() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交付资料目录", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Keep, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Keep, None, None, NOW).unwrap();
         assert_eq!(t.carry_count, 1);
         assert!(t.in_week);
     }
 
     #[test]
-    fn suspend_requires_date() {
+    fn suspend_without_a_date_or_reason_parks_the_task() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        assert_eq!(
-            week::resolve(&c, "t1", PassAction::Suspend, None, NOW).unwrap_err(),
-            "suspend_until_required"
-        );
+
+        let t = week::resolve(&c, "t1", PassAction::Suspend, None, None, NOW).unwrap();
+
+        assert!(!t.in_week);
+        assert!(t.suspended);
+        assert!(t.suspended_until.is_none());
+        assert!(t.suspend_reason.is_none());
+        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert!(!week::list(&c).unwrap().iter().any(|row| row.id == "t1"));
+        assert!(!week::pass_queue(&c).unwrap().iter().any(|row| row.id == "t1"));
+    }
+
+    #[test]
+    fn suspend_keeps_the_reason_and_optional_date() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = week::resolve(
+            &c,
+            "t1",
+            PassAction::Suspend,
+            Some("2026-11-02"),
+            Some("  等甲方回数据  "),
+            NOW,
+        )
+        .unwrap();
+
+        assert!(t.suspended);
+        assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.suspend_reason.as_deref(), Some("等甲方回数据"));
+    }
+
+    #[test]
+    fn suspend_treats_a_blank_reason_as_absent() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = week::suspend(&c, "t1", None, Some("   "), NOW).unwrap();
+
+        assert!(t.suspended);
+        assert!(t.suspend_reason.is_none());
     }
 
     #[test]
@@ -395,7 +439,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         assert_eq!(
-            week::resolve(&c, "t1", PassAction::Suspend, Some("2026-10-19"), NOW).unwrap_err(),
+            week::resolve(&c, "t1", PassAction::Suspend, Some("2026-10-19"), None, NOW).unwrap_err(),
             "suspend_until_past"
         );
         assert!(week::list(&c).unwrap().iter().any(|t| t.id == "t1"));
@@ -406,7 +450,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         assert_eq!(
-            week::resolve(&c, "t1", PassAction::Suspend, Some("周五"), NOW).unwrap_err(),
+            week::resolve(&c, "t1", PassAction::Suspend, Some("周五"), None, NOW).unwrap_err(),
             "invalid_suspend_date"
         );
     }
@@ -415,16 +459,18 @@ mod tests {
     fn suspend_moves_out_of_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), None, NOW).unwrap();
         assert!(!t.in_week);
+        assert!(t.suspended);
         assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
+        assert!(t.suspend_reason.is_none());
     }
 
     #[test]
     fn cancel_sets_canceled_at_and_leaves_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "不再需要", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Cancel, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Cancel, None, None, NOW).unwrap();
         assert!(t.canceled_at.is_some());
         assert!(!t.in_week);
     }
@@ -433,7 +479,7 @@ mod tests {
     fn done_leaves_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "做完了", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Done, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Done, None, None, NOW).unwrap();
         assert_eq!(t.status, "done");
         assert!(!t.in_week);
     }
@@ -445,7 +491,7 @@ mod tests {
         crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
         crate::services::steps::add(&c, "t1", "汇编初稿", NOW).unwrap();
 
-        let t = week::resolve(&c, "t1", PassAction::Done, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Done, None, None, NOW).unwrap();
 
         assert_eq!(t.status, "done");
         assert!(!t.in_week);
@@ -464,7 +510,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
-        week::resolve(&c, "t2", PassAction::Done, None, NOW).unwrap();
+        week::resolve(&c, "t2", PassAction::Done, None, None, NOW).unwrap();
         let q = week::pass_queue(&c).unwrap();
         assert_eq!(q.len(), 1);
         assert_eq!(q[0].id, "t1");
@@ -475,7 +521,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
-        week::resolve(&c, "t1", PassAction::Done, None, NOW).unwrap();
+        week::resolve(&c, "t1", PassAction::Done, None, None, NOW).unwrap();
         c.execute(
             "INSERT INTO delays (id, task_id, kind, old_due, new_due, created_at)
              VALUES ('d1','t2','reschedule','2026-10-01','2026-10-20','2026-10-20T09:00:00Z')",
@@ -493,7 +539,8 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET status = 'done', in_week = 0, suspended_until = '2026-11-02'
+            "UPDATE tasks SET status = 'done', in_week = 0, suspended = 1,
+                    suspended_until = '2026-11-02'
              WHERE id = 't1'",
             [],
         )
@@ -506,11 +553,23 @@ mod tests {
     fn suspended_list_and_resume() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), NOW).unwrap();
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        week::resolve(
+            &c,
+            "t1",
+            PassAction::Suspend,
+            Some("2026-11-02"),
+            Some("等甲方"),
+            NOW,
+        )
+        .unwrap();
+        let suspended = week::list_suspended(&c).unwrap();
+        assert_eq!(suspended.len(), 1);
+        assert_eq!(suspended[0].suspend_reason.as_deref(), Some("等甲方"));
         let t = week::resume(&c, "t1", NOW).unwrap();
         assert!(t.in_week);
+        assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspend_reason.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
     }
 
@@ -520,7 +579,7 @@ mod tests {
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
         week::capture(&c, "三", NOW, "t3").unwrap();
-        week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), NOW).unwrap();
+        week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), None, NOW).unwrap();
 
         week::resume(&c, "t1", NOW).unwrap();
 
@@ -537,6 +596,7 @@ mod tests {
 
         assert_eq!(t.status, "doing");
         assert!(t.in_week);
+        assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
     }
 
@@ -545,13 +605,15 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
-        week::suspend(&c, "t1", Some("2026-11-02"), NOW).unwrap();
+        week::suspend(&c, "t1", Some("2026-11-02"), None, NOW).unwrap();
 
         let t = week::start(&c, "t1", NOW).unwrap();
 
         assert_eq!(t.status, "doing");
         assert!(t.in_week);
+        assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspend_reason.is_none());
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t1"]);
     }

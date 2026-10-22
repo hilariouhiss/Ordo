@@ -79,6 +79,8 @@ pub struct TaskDto {
     pub in_week: bool,
     pub carry_count: i64,
     pub suspended_until: Option<String>,
+    pub suspended: bool,
+    pub suspend_reason: Option<String>,
     pub note: Option<String>,
     pub archived_at: Option<String>,
     pub canceled_at: Option<String>,

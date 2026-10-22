@@ -24,12 +24,16 @@ export function createPassVM() {
     state.open = true;
   }
 
-  async function resolve(action: PassAction, suspendUntil: string | null = null): Promise<void> {
+  async function resolve(
+    action: PassAction,
+    suspendUntil: string | null = null,
+    suspendReason: string | null = null,
+  ): Promise<void> {
     const task = current.value;
     if (!task || state.busy) return;
     state.busy = true;
     try {
-      await passResolve(task.id, action, suspendUntil);
+      await passResolve(task.id, action, suspendUntil, suspendReason);
       state.counts[action] += 1;
       state.index += 1;
     } finally {

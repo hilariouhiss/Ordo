@@ -17,10 +17,10 @@ describe("taskRowVM", () => {
     const vm = createTaskRowVM();
 
     await vm.start(task({ id: "t1" }));
-    await vm.suspend(task({ id: "t1" }), "2026-11-02");
+    await vm.suspend(task({ id: "t1" }), "2026-11-02", "等甲方");
 
     expect(startTask).toHaveBeenCalledWith("t1");
-    expect(suspendTask).toHaveBeenCalledWith("t1", "2026-11-02");
+    expect(suspendTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方");
   });
 
   it("toggles between done and todo", async () => {

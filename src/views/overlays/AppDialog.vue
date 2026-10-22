@@ -9,8 +9,10 @@ import { backdropMotion, modalPanelMotion } from "../../lib/motion";
 import DateField from "../components/DateField.vue";
 
 const draft = ref("");
+const reasonDraft = ref("");
+const untilDraft = ref("");
 const textInput = ref<HTMLInputElement | null>(null);
-const dateInput = ref<InstanceType<typeof DateField> | null>(null);
+const reasonInput = ref<HTMLInputElement | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
 
 watch(dialogRequest, async (request) => {
@@ -20,10 +22,11 @@ watch(dialogRequest, async (request) => {
     draft.value = request.value;
     await nextTick();
     textInput.value?.select();
-  } else if (request.kind === "date") {
-    draft.value = request.value;
+  } else if (request.kind === "suspend") {
+    reasonDraft.value = "";
+    untilDraft.value = "";
     await nextTick();
-    dateInput.value?.focus();
+    reasonInput.value?.focus();
   } else {
     confirmButton.value?.focus();
   }
@@ -34,6 +37,10 @@ function confirm(): void {
   if (!request) return;
   if (request.kind === "confirm") {
     closeDialog("ok");
+    return;
+  }
+  if (request.kind === "suspend") {
+    closeDialog({ reason: reasonDraft.value.trim(), until: untilDraft.value });
     return;
   }
   const value = draft.value.trim();
@@ -64,21 +71,34 @@ function onEnter(event: KeyboardEvent): void {
         class="w-full max-w-[340px] rounded-2xl bg-base-100 p-5 shadow-2xl"
       >
         <h2 class="text-[15px] font-semibold">{{ dialogRequest.title }}</h2>
+        <template v-if="dialogRequest.kind === 'suspend'">
+          <label class="mt-3 block text-[11px] text-base-content/45">
+            {{ t("task.suspendReasonLabel") }}
+            <input
+              ref="reasonInput"
+              v-model="reasonDraft"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              :placeholder="t('task.suspendReasonPlaceholder')"
+              @keydown.enter="onEnter"
+            />
+          </label>
+          <label class="mt-2 block text-[11px] text-base-content/45">
+            {{ t("task.suspendUntilLabel") }}
+            <DateField
+              v-model="untilDraft"
+              :min="todayIso()"
+              :aria-label="t('task.suspendUntilLabel')"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @enter="confirm"
+            />
+          </label>
+        </template>
         <input
-          v-if="dialogRequest.kind === 'text'"
+          v-else-if="dialogRequest.kind === 'text'"
           ref="textInput"
           v-model="draft"
           class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
           @keydown.enter="onEnter"
-        />
-        <DateField
-          v-else-if="dialogRequest.kind === 'date'"
-          ref="dateInput"
-          v-model="draft"
-          :min="todayIso()"
-          :aria-label="dialogRequest.title"
-          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
-          @enter="confirm"
         />
         <p v-else class="mt-2 text-[12.5px] leading-relaxed text-base-content/60">
           {{ dialogRequest.message }}

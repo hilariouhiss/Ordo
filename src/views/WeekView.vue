@@ -240,13 +240,25 @@ function refresh(): void {
       <div
         v-for="task in state.suspended"
         :key="task.id"
-        class="mt-1.5 flex items-center gap-2 text-[12px]"
+        class="mt-1.5 flex items-start gap-2 text-[12px]"
       >
-        <span>{{ task.title }}</span>
-        <span class="text-[10.5px] text-base-content/40">
-          {{ t("week.reviewAt", { date: shortDate(task.suspendedUntil) }) }}
+        <div class="min-w-0">
+          <div>{{ task.title }}</div>
+          <div
+            v-if="task.suspendReason"
+            class="mt-0.5 break-words text-[10.5px] text-base-content/45"
+          >
+            {{ task.suspendReason }}
+          </div>
+        </div>
+        <span class="ml-auto shrink-0 text-[10.5px] text-base-content/40">
+          {{
+            task.suspendedUntil
+              ? t("week.reviewAt", { date: shortDate(task.suspendedUntil) })
+              : t("week.noReviewDate")
+          }}
         </span>
-        <button class="ml-auto text-[10.5px] text-primary" @click="resume(task.id)">
+        <button class="shrink-0 text-[10.5px] text-primary" @click="resume(task.id)">
           {{ t("week.resume") }}
         </button>
       </div>
