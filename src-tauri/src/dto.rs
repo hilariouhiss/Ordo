@@ -36,6 +36,7 @@ pub struct SettingsDto {
     pub shortcut: String,
     pub autostart: bool,
     pub backup_keep_days: i64,
+    pub backup_error: Option<String>,
     pub last_pass_week: String,
     pub shortcut_warning: Option<String>,
     /// "light", "dark" or "system".

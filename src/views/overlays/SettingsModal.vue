@@ -343,6 +343,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               >
                 {{ t("settings.exportPath", { path: vm.state.exportPath }) }}
               </p>
+              <p v-if="settings.backupError" class="mt-2 break-all text-[10.5px] text-error">
+                {{ t("settings.backupError", { error: settings.backupError }) }}
+              </p>
             </div>
           </motion.div>
         </AnimatePresence>

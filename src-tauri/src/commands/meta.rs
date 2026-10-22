@@ -50,8 +50,13 @@ mod tests {
     fn settings_roundtrip() {
         let c = crate::db::open_in_memory().unwrap();
         crate::repo::settings::set(&c, "shortcut", "Ctrl+Alt+P").unwrap();
+        crate::repo::settings::set(&c, "backup_error", "disk full").unwrap();
         let s = crate::repo::settings::dto(&c).unwrap();
         assert_eq!(s.shortcut, "Ctrl+Alt+P");
+        assert_eq!(s.backup_error.as_deref(), Some("disk full"));
+
+        crate::repo::settings::set(&c, "backup_error", "").unwrap();
+        assert!(crate::repo::settings::dto(&c).unwrap().backup_error.is_none());
     }
 
     #[test]
@@ -183,8 +188,9 @@ pub async fn backup_now(
         .map_err(|e| e.to_string())?
         .join("backups");
     with_db(&state, move |conn| {
-        let path = crate::services::export::backup_snapshot(conn, &dir)?;
-        Ok(path.to_string_lossy().to_string())
+        let result = crate::services::export::backup_snapshot(conn, &dir);
+        crate::services::export::record_error(conn, result.as_ref().err().cloned());
+        result.map(|path| path.to_string_lossy().to_string())
     })
     .await
 }

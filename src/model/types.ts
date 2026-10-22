@@ -33,6 +33,7 @@ export interface Settings {
   shortcut: string;
   autostart: boolean;
   backupKeepDays: number;
+  backupError: string | null;
   lastPassWeek?: string;
 }
 

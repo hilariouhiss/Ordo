@@ -111,6 +111,18 @@ pub fn backup_daily(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, St
     Ok(made)
 }
 
+/// Keeps the last backup failure in settings so the user can see it; only writes on change.
+pub fn record_error(conn: &Connection, error: Option<String>) {
+    let current = crate::repo::settings::get(conn, "backup_error")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let next = error.unwrap_or_default();
+    if current != next {
+        let _ = crate::repo::settings::set(conn, "backup_error", &next);
+    }
+}
+
 /// Takes a fresh copy on demand. The "T" between date and time keeps a same-day
 /// snapshot sorting after the daily ordo-YYYY-MM-DD.db in backups_newest_first,
 /// so recovery prefers the newer of the two.
@@ -223,6 +235,26 @@ mod tests {
         let again = export::backup_snapshot(&c, &dir).unwrap();
         assert!(again.exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn records_and_clears_the_backup_error() {
+        let c = db::open_in_memory().unwrap();
+        export::record_error(&c, Some("disk full".into()));
+        assert_eq!(
+            crate::repo::settings::get(&c, "backup_error")
+                .unwrap()
+                .as_deref(),
+            Some("disk full")
+        );
+
+        export::record_error(&c, None);
+        assert_eq!(
+            crate::repo::settings::get(&c, "backup_error")
+                .unwrap()
+                .as_deref(),
+            Some("")
+        );
     }
 
     #[test]

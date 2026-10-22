@@ -74,6 +74,10 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .unwrap_or_else(|| "Ctrl+Alt+O".into()),
         autostart: flag(&map, "autostart", true),
         backup_keep_days: num(&map, "backup_keep_days", 30),
+        backup_error: map
+            .get("backup_error")
+            .cloned()
+            .filter(|v| !v.is_empty()),
         last_pass_week: map.get("last_pass_week").cloned().unwrap_or_default(),
         shortcut_warning: map
             .get("shortcut_warning")

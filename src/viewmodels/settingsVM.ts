@@ -35,7 +35,14 @@ export function createSettingsVM() {
   }
 
   async function backup(): Promise<void> {
-    state.backupPath = await ipc.backupNow();
+    state.error = "";
+    try {
+      state.backupPath = await ipc.backupNow();
+      if (appVM.state.settings) appVM.state.settings.backupError = null;
+    } catch (e) {
+      state.error = String(e);
+      if (appVM.state.settings) appVM.state.settings.backupError = String(e);
+    }
   }
 
   async function exportData(): Promise<void> {

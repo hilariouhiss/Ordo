@@ -303,7 +303,8 @@ pub fn run() {
       } else {
           app.autolaunch().disable()
       };
-      let _ = crate::services::export::backup_daily(&conn, &backups);
+      let backup = crate::services::export::backup_daily(&conn, &backups);
+      crate::services::export::record_error(&conn, backup.err());
       let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
           .ok()
           .flatten()

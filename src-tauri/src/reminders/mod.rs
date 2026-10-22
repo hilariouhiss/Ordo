@@ -111,7 +111,8 @@ fn backup_ledger(app: &AppHandle, conn: &rusqlite::Connection) {
     let Ok(data_dir) = app.path().app_data_dir() else {
         return;
     };
-    let _ = crate::services::export::backup_daily(conn, &data_dir.join("backups"));
+    let result = crate::services::export::backup_daily(conn, &data_dir.join("backups"));
+    crate::services::export::record_error(conn, result.err());
 }
 
 #[cfg(test)]

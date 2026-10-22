@@ -10,6 +10,7 @@ export const defaultSettings: Settings = {
   shortcut: "Ctrl+Alt+O",
   autostart: true,
   backupKeepDays: 30,
+  backupError: null,
 };
 
 export function task(over: Partial<Task> = {}): Task {
