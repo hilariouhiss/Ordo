@@ -40,13 +40,31 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
             [id],
         )?;
     } else {
-        conn.execute(
-            "UPDATE tasks SET in_week = 1,
-                    sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
-             WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
-               AND archived_at IS NULL AND status <> 'done' AND suspended_until IS NULL",
-            [id],
+        // One UPDATE would give every restored task the same sort_order (SQLite evaluates
+        // the MAX subquery once), leaving their order to the UUID tiebreak.
+        let restoring: Vec<String> = {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM tasks
+                 WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
+                   AND archived_at IS NULL AND status <> 'done' AND suspended_until IS NULL
+                 ORDER BY sort_order, id",
+            )?;
+            stmt.query_map([id], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let base: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks",
+            [],
+            |r| r.get(0),
         )?;
+        let tx = conn.unchecked_transaction()?;
+        for (offset, task_id) in restoring.iter().enumerate() {
+            tx.execute(
+                "UPDATE tasks SET in_week = 1, sort_order = ?1 WHERE id = ?2",
+                params![base + offset as i64, task_id],
+            )?;
+        }
+        tx.commit()?;
     }
     Ok(())
 }

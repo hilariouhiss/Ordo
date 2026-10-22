@@ -210,6 +210,44 @@ mod tests {
     }
 
     #[test]
+    fn restoring_a_project_keeps_the_tasks_order() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        for id in ["t1", "t2", "t3"] {
+            week::capture(&c, id, NOW, id).unwrap();
+            c.execute(
+                "UPDATE tasks SET project_id = ?1 WHERE id = ?2",
+                rusqlite::params![&p.id, id],
+            )
+            .unwrap();
+        }
+        crate::services::tasks::move_task(&c, "t3", Some("t1")).unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
+
+        let mut stmt = c
+            .prepare("SELECT id, sort_order FROM tasks WHERE project_id = ?1 ORDER BY sort_order, id")
+            .unwrap();
+        let restored: Vec<(String, i64)> = stmt
+            .query_map([&p.id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            restored.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["t3", "t1", "t2"]
+        );
+        assert!(restored.windows(2).all(|w| w[0].1 < w[1].1));
+
+        let week_ids: Vec<String> = week::list(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(week_ids, vec!["t3", "t1", "t2"]);
+    }
+
+    #[test]
     fn restoring_a_suspended_task_clears_the_suspension() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
