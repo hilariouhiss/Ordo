@@ -138,6 +138,29 @@ pub async fn resume_task(state: State<'_, AppState>, id: String) -> Result<TaskD
     })
     .await
 }
+
+#[tauri::command]
+pub async fn start_task(state: State<'_, AppState>, id: String) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::week::start(conn, &id, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn suspend_task(
+    state: State<'_, AppState>,
+    id: String,
+    until: String,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::week::suspend(conn, &id, Some(&until), &now)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn set_due(
     state: State<'_, AppState>,

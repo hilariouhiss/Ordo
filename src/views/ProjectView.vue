@@ -74,6 +74,10 @@ const tasksByCategory = computed(() => {
 function openTask(task: Task): void {
   void taskSheetVM.open(task.id);
 }
+
+function refresh(): void {
+  void vm.load(props.id);
+}
 </script>
 
 <template>
@@ -157,6 +161,7 @@ function openTask(task: Task): void {
               :key="task.id"
               :task="task"
               @open="openTask"
+              @changed="refresh"
             />
           </AnimatePresence>
         </CategoryProgress>
@@ -174,6 +179,7 @@ function openTask(task: Task): void {
               :key="task.id"
               :task="task"
               @open="openTask"
+              @changed="refresh"
             />
           </AnimatePresence>
         </div>

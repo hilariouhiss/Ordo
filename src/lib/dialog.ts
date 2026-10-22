@@ -2,6 +2,7 @@ import { ref } from "vue";
 
 export type DialogRequest =
   | { kind: "text"; title: string; value: string }
+  | { kind: "date"; title: string; value: string }
   | { kind: "confirm"; title: string; message: string };
 
 export const dialogRequest = ref<DialogRequest | null>(null);
@@ -23,6 +24,10 @@ export function closeDialog(answer: string | null): void {
 
 export function askText(title: string, value: string): Promise<string | null> {
   return ask({ kind: "text", title, value });
+}
+
+export function askDate(title: string, value = ""): Promise<string | null> {
+  return ask({ kind: "date", title, value });
 }
 
 export function askConfirm(title: string, message: string): Promise<boolean> {

@@ -142,6 +142,10 @@ watch(
 function openTask(task: Task): void {
   void taskSheetVM.open(task.id);
 }
+
+function refresh(): void {
+  void load();
+}
 </script>
 
 <template>
@@ -201,6 +205,7 @@ function openTask(task: Task): void {
             :style="{ opacity: draggingId === row.task.id ? 0.4 : undefined }"
             :data-task-id="row.task.id"
             @open="openTask"
+            @changed="refresh"
           >
             <template #leading>
               <button

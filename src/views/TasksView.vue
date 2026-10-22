@@ -20,6 +20,10 @@ watch(
 function openTask(task: Task): void {
   void taskSheetVM.open(task.id);
 }
+
+function refresh(): void {
+  void tasksVM.load();
+}
 </script>
 
 <template>
@@ -39,7 +43,13 @@ function openTask(task: Task): void {
       :initial="false"
       class="space-y-1.5"
     >
-      <TaskRow v-for="task in tasksVM.state.tasks" :key="task.id" :task="task" @open="openTask" />
+      <TaskRow
+        v-for="task in tasksVM.state.tasks"
+        :key="task.id"
+        :task="task"
+        @open="openTask"
+        @changed="refresh"
+      />
     </AnimatePresence>
     <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
       {{ t("tasks.empty") }}

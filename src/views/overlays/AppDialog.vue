@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
 import { nextTick, ref, watch } from "vue";
+import { todayIso } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -17,6 +18,10 @@ watch(dialogRequest, async (request) => {
     draft.value = request.value;
     await nextTick();
     input.value?.select();
+  } else if (request.kind === "date") {
+    draft.value = request.value;
+    await nextTick();
+    input.value?.focus();
   } else {
     confirmButton.value?.focus();
   }
@@ -61,6 +66,16 @@ function onEnter(event: KeyboardEvent): void {
           v-if="dialogRequest.kind === 'text'"
           ref="input"
           v-model="draft"
+          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+          @keydown.enter="onEnter"
+        />
+        <input
+          v-else-if="dialogRequest.kind === 'date'"
+          ref="input"
+          v-model="draft"
+          type="date"
+          :min="todayIso()"
+          :aria-label="dialogRequest.title"
           class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
           @keydown.enter="onEnter"
         />

@@ -85,6 +85,12 @@ export function listSuspended(): Promise<Task[]> {
 export function resumeTask(id: string): Promise<Task> {
   return invoke<Task>("resume_task", { id });
 }
+export function startTask(id: string): Promise<Task> {
+  return invoke<Task>("start_task", { id });
+}
+export function suspendTask(id: string, until: string): Promise<Task> {
+  return invoke<Task>("suspend_task", { id, until });
+}
 export function setDue(id: string, newDue: string | null, reason: string | null): Promise<Task> {
   return invoke<Task>("set_due", { id, newDue, reason });
 }

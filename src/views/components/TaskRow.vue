@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
+import { askDate } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
 import { overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
+import { taskRowVM } from "../../viewmodels/taskRowVM";
 import StatusDot from "./StatusDot.vue";
 
 const props = defineProps<{
@@ -14,7 +17,7 @@ const props = defineProps<{
   plan?: { end: string; spans: boolean; conflict: boolean };
   dropLine?: boolean;
 }>();
-const emit = defineEmits<{ open: [Task] }>();
+const emit = defineEmits<{ open: [Task]; changed: [] }>();
 
 const category = computed(
   () => appVM.state.categories.find((c) => c.id === props.task.categoryId)?.name ?? null,
@@ -31,6 +34,59 @@ const conflictTitle = computed(() =>
     due: shortDate(props.task.dueDate),
   }),
 );
+
+const busy = ref(false);
+const hasSteps = computed(() => props.task.steps.length > 0);
+const isDone = computed(() => props.task.status === "done");
+const canStart = computed(
+  () =>
+    !hasSteps.value &&
+    !isDone.value &&
+    (props.task.status === "todo" || props.task.suspendedUntil !== null),
+);
+const canSuspend = computed(() => !isDone.value && !props.task.suspendedUntil);
+const doneLabel = computed(() =>
+  t(isDone.value ? "task.reopenAria" : "task.doneAria", { title: props.task.title }),
+);
+const startLabel = computed(() => t("task.startAria", { title: props.task.title }));
+const suspendLabel = computed(() => t("task.suspendAria", { title: props.task.title }));
+
+async function run(action: () => Promise<unknown>): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    await action();
+    emit("changed");
+  } catch {
+    // A row has no error slot; leave it as it was and let the next load win.
+  } finally {
+    busy.value = false;
+  }
+}
+
+function toggleDone(): void {
+  if (hasSteps.value) return;
+  void run(() => taskRowVM.toggleDone(props.task));
+}
+
+function start(): void {
+  void run(() => taskRowVM.start(props.task));
+}
+
+async function suspend(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    const until = await askDate(t("task.suspendPrompt"), "");
+    if (!until) return;
+    await taskRowVM.suspend(props.task, until);
+    emit("changed");
+  } catch {
+    // Same as run: the next load shows the real state.
+  } finally {
+    busy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -44,7 +100,19 @@ const conflictTitle = computed(() =>
       class="pointer-events-none absolute -top-1 right-2 left-2 h-0.5 rounded-full bg-primary"
     ></span>
     <slot name="leading" />
-    <StatusDot :status="task.status" />
+    <button
+      v-if="!hasSteps"
+      class="flex shrink-0 rounded-full disabled:opacity-60"
+      :aria-label="doneLabel"
+      :title="doneLabel"
+      :disabled="busy"
+      @click.stop="toggleDone"
+    >
+      <StatusDot :status="task.status" />
+    </button>
+    <span v-else class="shrink-0" :title="t('task.stepsHint')" @click.stop>
+      <StatusDot :status="task.status" />
+    </span>
     <span
       class="text-[13px]"
       :class="{ 'text-base-content/40 line-through': task.status === 'done' }"
@@ -67,6 +135,9 @@ const conflictTitle = computed(() =>
     <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
       {{ t("task.carry", { count: task.carryCount }) }}
     </span>
+    <span v-if="task.suspendedUntil" class="badge badge-ghost badge-xs">
+      {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
+    </span>
     <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
       t("task.overdue", { days: late })
     }}</span>
@@ -85,5 +156,27 @@ const conflictTitle = computed(() =>
     >
       {{ shortDate(task.dueDate) }}
     </span>
+    <div class="flex shrink-0 items-center gap-0.5">
+      <button
+        v-if="canStart"
+        class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary disabled:opacity-50"
+        :aria-label="startLabel"
+        :title="startLabel"
+        :disabled="busy"
+        @click.stop="start"
+      >
+        <Play :size="13" aria-hidden="true" />
+      </button>
+      <button
+        v-if="canSuspend"
+        class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning disabled:opacity-50"
+        :aria-label="suspendLabel"
+        :title="suspendLabel"
+        :disabled="busy"
+        @click.stop="suspend"
+      >
+        <Pause :size="13" aria-hidden="true" />
+      </button>
+    </div>
   </motion.li>
 </template>

@@ -106,20 +106,7 @@ pub fn resolve(
             tasks::set_status(conn, task_id, "done", true, now).map_err(|e| e.to_string())?;
         }
         PassAction::Suspend => {
-            let until = suspend_until.ok_or("suspend_until_required")?;
-            let today = chrono::DateTime::parse_from_rfc3339(now)
-                .map(|d| d.with_timezone(&chrono::Local).date_naive())
-                .map_err(|e| e.to_string())?;
-            let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
-                .map_err(|_| "invalid_suspend_date".to_string())?;
-            if until_date < today {
-                return Err("suspend_until_past".into());
-            }
-            conn.execute(
-                "UPDATE tasks SET in_week = 0, suspended_until = ?1, updated_at = ?2 WHERE id = ?3",
-                params![until, now, task_id],
-            )
-            .map_err(|e| e.to_string())?;
+            return suspend(conn, task_id, suspend_until, now);
         }
         PassAction::Cancel => {
             conn.execute(
@@ -129,6 +116,29 @@ pub fn resolve(
             .map_err(|e| e.to_string())?;
         }
     }
+    tasks::dto(conn, task_id).map_err(|e| e.to_string())
+}
+
+pub fn suspend(
+    conn: &Connection,
+    task_id: &str,
+    suspend_until: Option<&str>,
+    now: &str,
+) -> Result<TaskDto, String> {
+    let until = suspend_until.ok_or("suspend_until_required")?;
+    let today = chrono::DateTime::parse_from_rfc3339(now)
+        .map(|d| d.with_timezone(&chrono::Local).date_naive())
+        .map_err(|e| e.to_string())?;
+    let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
+        .map_err(|_| "invalid_suspend_date".to_string())?;
+    if until_date < today {
+        return Err("suspend_until_past".into());
+    }
+    conn.execute(
+        "UPDATE tasks SET in_week = 0, suspended_until = ?1, updated_at = ?2 WHERE id = ?3",
+        params![until, now, task_id],
+    )
+    .map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
@@ -186,6 +196,20 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
     )
     .map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
+}
+
+pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
+    let suspended: Option<String> = conn
+        .query_row(
+            "SELECT suspended_until FROM tasks WHERE id = ?1",
+            [task_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if suspended.is_some() {
+        resume(conn, task_id, now)?;
+    }
+    crate::services::tasks::set_status(conn, task_id, "doing", now)
 }
 
 #[cfg(test)]
@@ -477,6 +501,34 @@ mod tests {
 
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t3", "t1"]);
+    }
+
+    #[test]
+    fn start_marks_a_plain_task_doing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = week::start(&c, "t1", NOW).unwrap();
+
+        assert_eq!(t.status, "doing");
+        assert!(t.in_week);
+        assert!(t.suspended_until.is_none());
+    }
+
+    #[test]
+    fn start_brings_a_suspended_task_back() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::suspend(&c, "t1", Some("2026-11-02"), NOW).unwrap();
+
+        let t = week::start(&c, "t1", NOW).unwrap();
+
+        assert_eq!(t.status, "doing");
+        assert!(t.in_week);
+        assert!(t.suspended_until.is_none());
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t2", "t1"]);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { askConfirm, askText, closeDialog, dialogRequest } from "../dialog";
+import { askConfirm, askDate, askText, closeDialog, dialogRequest } from "../dialog";
 
 describe("dialog", () => {
   it("prompts with the current value and resolves with the answer", async () => {
@@ -8,6 +8,17 @@ describe("dialog", () => {
     closeDialog("硬件");
     await expect(pending).resolves.toBe("硬件");
     expect(dialogRequest.value).toBeNull();
+  });
+
+  it("asks for a date and resolves with it", async () => {
+    const pending = askDate("什么时候再看它？", "");
+    expect(dialogRequest.value).toEqual({
+      kind: "date",
+      title: "什么时候再看它？",
+      value: "",
+    });
+    closeDialog("2026-11-02");
+    await expect(pending).resolves.toBe("2026-11-02");
   });
 
   it("treats closing a confirm as a cancel", async () => {

@@ -194,6 +194,8 @@ pub fn run() {
       commands::tasks::week_stats,
       commands::tasks::list_suspended,
       commands::tasks::resume_task,
+      commands::tasks::start_task,
+      commands::tasks::suspend_task,
       commands::tasks::set_due,
       commands::tasks::add_delay_note,
       commands::tasks::list_project_tasks,
