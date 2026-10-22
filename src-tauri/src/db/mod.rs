@@ -23,6 +23,18 @@ pub fn open_with_recovery(
     path: &Path,
     backups: &Path,
 ) -> Result<(Connection, Option<Recovery>), String> {
+    // SQLite opens a zero-byte file as a fresh database, so a truncated ledger would be
+    // silently re-created empty. Treat it like a broken file and restore a backup.
+    if is_empty_file(path) {
+        if backups_newest_first(backups).is_empty() {
+            // Nothing was ever written and there is nothing to restore: start fresh.
+            let _ = std::fs::remove_file(path);
+        } else {
+            return recover(path, backups)
+                .map(|(conn, recovery)| (conn, Some(recovery)))
+                .map_err(|e| format!("empty_db; {e}"));
+        }
+    }
     if let Some(version) = read_version(path) {
         if version > 0 && version != migrations::LATEST {
             backup_before_migration(path, backups, version);
@@ -44,6 +56,12 @@ pub fn backup_before_migration(path: &Path, backups: &Path, from_version: i64) {
         return;
     }
     let _ = std::fs::copy(path, dest);
+}
+
+fn is_empty_file(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() == 0)
+        .unwrap_or(false)
 }
 
 fn is_corrupt(error: &rusqlite::Error) -> bool {
@@ -124,7 +142,14 @@ const DB_FILES: [&str; 3] = ["ordo.db", "ordo.db-wal", "ordo.db-shm"];
 /// Copies the ledger out of the pre-rename bundle identifier's directory once.
 /// The old directory is left in place as a safety copy.
 pub fn migrate_legacy_data(old: &Path, new: &Path) -> std::io::Result<bool> {
-    if !old.join("ordo.db").is_file() || new.join("ordo.db").exists() {
+    // A zero-byte destination is a copy cut off before its first byte, not a finished
+    // migration; without this, the next start silently opens an empty ledger.
+    let target_is_filled = new
+        .join("ordo.db")
+        .metadata()
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false);
+    if !old.join("ordo.db").is_file() || target_is_filled {
         return Ok(false);
     }
     std::fs::create_dir_all(new)?;
@@ -333,6 +358,54 @@ mod tests {
         assert!(open_with_recovery(&path, &dir.join("backups")).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), BROKEN);
         assert_eq!(corrupt_copies(&dir), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn recovers_from_backup_when_the_database_file_is_empty() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        seed(&path);
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::copy(&path, backups.join("ordo-2026-10-20.db")).unwrap();
+        std::fs::write(&path, b"").unwrap();
+
+        // SQLite opens a zero-byte file as a valid, empty database; recovery must not.
+        let (c, recovery) = open_with_recovery(&path, &backups).unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        assert!(recovery.is_some());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn starts_fresh_when_an_empty_database_has_no_backups() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        std::fs::write(&path, b"").unwrap();
+
+        let (c, recovery) = open_with_recovery(&path, &dir.join("backups")).unwrap();
+        assert!(recovery.is_none());
+        week::capture(&c, "新账本", NOW, "t1").unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migrates_again_when_the_new_database_is_empty() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("ordo.db"), b"ledger").unwrap();
+        std::fs::write(new.join("ordo.db"), b"").unwrap();
+
+        // A copy cut off before the first byte must not count as a finished migration.
+        assert!(migrate_legacy_data(&old, &new).unwrap());
+        assert_eq!(std::fs::read(new.join("ordo.db")).unwrap(), b"ledger");
         std::fs::remove_dir_all(&dir).ok();
     }
 
