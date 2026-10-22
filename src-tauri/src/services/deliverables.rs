@@ -1,5 +1,6 @@
 use crate::dto::TaskDto;
 use crate::repo::{delays, tasks};
+use crate::services::local_today;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -10,6 +11,7 @@ pub fn set_due(
     reason: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
+    let today = local_today(now)?.format("%Y-%m-%d").to_string();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let old: Option<String> = tx
         .query_row("SELECT due_date FROM tasks WHERE id = ?1", [task_id], |r| {
@@ -24,12 +26,7 @@ pub fn set_due(
     .map_err(|e| e.to_string())?;
 
     if let Some(due) = new_due {
-        let today = chrono::DateTime::parse_from_rfc3339(now)
-            .map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
-            .unwrap_or_default();
-        if !today.is_empty()
-            && crate::services::week::week_start(due) == crate::services::week::week_start(&today)
-        {
+        if crate::services::week::week_start(due) == crate::services::week::week_start(&today) {
             // A task already in the week keeps its slot; a due-date edit must not move it.
             tx.execute(
                 "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
@@ -122,6 +119,19 @@ mod tests {
             .unwrap();
         let t = deliverables::set_due(&c, "t1", Some("2026-10-21"), None, NOW).unwrap();
         assert!(t.in_week);
+    }
+
+    #[test]
+    fn invalid_now_is_rejected_before_writing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        assert!(
+            deliverables::set_due(&c, "t1", Some("2026-10-21"), None, "not-a-date").is_err()
+        );
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert!(t.due_date.is_none());
     }
 
     #[test]

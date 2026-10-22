@@ -167,6 +167,7 @@ mod tests {
 
         let back = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
         assert!(back.in_week);
+        assert!(back.start_date.is_none());
         let done_at: Option<String> = c
             .query_row("SELECT done_at FROM tasks WHERE id='t1'", [], |r| r.get(0))
             .unwrap();

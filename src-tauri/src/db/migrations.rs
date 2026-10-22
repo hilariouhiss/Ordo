@@ -342,6 +342,18 @@ mod tests {
         c
     }
 
+    fn v7_database() -> rusqlite::Connection {
+        let c = v3_database();
+        c.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal';
+             ALTER TABLE tasks ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE tasks ADD COLUMN suspend_reason TEXT;",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 7).unwrap();
+        c
+    }
+
     fn v3_database() -> rusqlite::Connection {
         let c = v2_database();
         c.execute_batch(
@@ -603,7 +615,9 @@ mod tests {
     fn adds_suspended_at_and_backfills_suspended_rows() {
         let c = v3_database();
         c.execute(
-            "UPDATE tasks SET suspended_until = '2026-11-02' WHERE id = 'a'",
+            "UPDATE tasks SET suspended_until = '2026-11-02',
+                    updated_at = '2026-10-19T16:30:00Z'
+             WHERE id = 'a'",
             [],
         )
         .unwrap();
@@ -618,19 +632,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!(suspended, 1);
-        let expected: String = c
-            .query_row(
-                "SELECT date(updated_at, 'localtime') FROM tasks WHERE id = 'a'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(at.as_deref(), Some(expected.as_str()));
+        // 2026-10-20 00:30 local (+08); the UTC date is still 2026-10-19.
+        assert_eq!(at.as_deref(), Some("2026-10-20"));
         let other: Option<String> = c
             .query_row("SELECT suspended_at FROM tasks WHERE id = 'b'", [], |r| {
                 r.get(0)
             })
             .unwrap();
         assert!(other.is_none());
+    }
+
+    #[test]
+    fn backfills_a_suspension_without_a_review_date() {
+        let c = v7_database();
+        c.execute(
+            "UPDATE tasks SET suspended = 1, updated_at = '2026-10-19T16:30:00Z'
+             WHERE id = 'b'",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let at: Option<String> = c
+            .query_row("SELECT suspended_at FROM tasks WHERE id = 'b'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(at.as_deref(), Some("2026-10-20"));
     }
 }

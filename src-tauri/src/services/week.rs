@@ -1,5 +1,6 @@
 use crate::dto::{CaptureFields, TaskDto, WeekStatsDto};
 use crate::repo::{people, projects, settings, tasks};
+use crate::services::local_today;
 use chrono::{Datelike, Duration, NaiveDate};
 use rusqlite::{params, Connection};
 use serde::Deserialize;
@@ -124,12 +125,6 @@ pub fn resolve(
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
-fn local_today(now: &str) -> Result<NaiveDate, String> {
-    chrono::DateTime::parse_from_rfc3339(now)
-        .map(|d| d.with_timezone(&chrono::Local).date_naive())
-        .map_err(|e| e.to_string())
-}
-
 pub fn suspend(
     conn: &Connection,
     task_id: &str,
@@ -223,20 +218,23 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     let today = local_today(now)?.format("%Y-%m-%d").to_string();
-    let suspended: i64 = conn
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let suspended: i64 = tx
         .query_row("SELECT suspended FROM tasks WHERE id = ?1", [task_id], |r| {
             r.get(0)
         })
         .map_err(|e| e.to_string())?;
     if suspended == 1 {
-        resume(conn, task_id, now)?;
+        resume(&tx, task_id, now)?;
     }
-    conn.execute(
+    tx.execute(
         "UPDATE tasks SET start_date = ?1 WHERE id = ?2 AND start_date IS NULL",
         params![today, task_id],
     )
     .map_err(|e| e.to_string())?;
-    crate::services::tasks::set_status(conn, task_id, "doing", now)
+    crate::services::tasks::set_status(&tx, task_id, "doing", now)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -635,6 +633,30 @@ mod tests {
         let t = week::start(&c, "t1", NOW).unwrap();
 
         assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
+    }
+
+    #[test]
+    fn start_uses_the_local_calendar_day_across_utc_midnight() {
+        // 2026-10-20 00:30 local (+08); the UTC date is still 2026-10-19.
+        let now = "2026-10-19T16:30:00Z";
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", now, "t1").unwrap();
+
+        let t = week::start(&c, "t1", now).unwrap();
+
+        assert_eq!(t.start_date.as_deref(), Some("2026-10-20"));
+    }
+
+    #[test]
+    fn suspend_uses_the_local_calendar_day_across_utc_midnight() {
+        // 2026-10-20 00:30 local (+08); the UTC date is still 2026-10-19.
+        let now = "2026-10-19T16:30:00Z";
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", now, "t1").unwrap();
+
+        let t = week::suspend(&c, "t1", None, None, now).unwrap();
+
+        assert_eq!(t.suspended_at.as_deref(), Some("2026-10-20"));
     }
 
     #[test]
