@@ -105,6 +105,12 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
             last = format!("restore_failed: {e}");
             continue;
         }
+        // A backup cut off before its first byte opens as a fresh database, not an error;
+        // treating it as usable would silently replace the ledger with nothing.
+        if is_empty_file(path) {
+            last = "restored_backup_empty".to_string();
+            continue;
+        }
         match open(path) {
             Ok(conn) => {
                 return Ok((
@@ -274,6 +280,31 @@ mod tests {
         std::fs::create_dir_all(&backups).unwrap();
         std::fs::copy(&path, backups.join("ordo-2026-10-19.db")).unwrap();
         std::fs::write(backups.join("ordo-2026-10-20.db"), BROKEN).unwrap();
+        std::fs::write(&path, BROKEN).unwrap();
+
+        let (c, recovery) = open_with_recovery(&path, &backups).unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        assert!(
+            recovery
+                .unwrap()
+                .restored_from
+                .ends_with("ordo-2026-10-19.db")
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn skips_an_empty_backup_and_restores_an_older_one() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        seed(&path);
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::copy(&path, backups.join("ordo-2026-10-19.db")).unwrap();
+        std::fs::write(backups.join("ordo-2026-10-20.db"), b"").unwrap();
         std::fs::write(&path, BROKEN).unwrap();
 
         let (c, recovery) = open_with_recovery(&path, &backups).unwrap();
