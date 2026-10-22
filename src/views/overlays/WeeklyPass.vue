@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { shortDate } from "../../lib/dates";
+import { shortDate, todayIso } from "../../lib/dates";
 import { t } from "../../lib/i18n";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
 import { appVM } from "../../viewmodels/appVM";
@@ -171,6 +171,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <input
                 v-model="suspendDate"
                 type="date"
+                :min="todayIso()"
                 class="input input-sm rounded-lg border-base-300"
               />
               <button

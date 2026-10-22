@@ -107,6 +107,14 @@ pub fn resolve(
         }
         PassAction::Suspend => {
             let until = suspend_until.ok_or("suspend_until_required")?;
+            let today = chrono::DateTime::parse_from_rfc3339(now)
+                .map(|d| d.with_timezone(&chrono::Local).date_naive())
+                .map_err(|e| e.to_string())?;
+            let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
+                .map_err(|_| "invalid_suspend_date".to_string())?;
+            if until_date < today {
+                return Err("suspend_until_past".into());
+            }
             conn.execute(
                 "UPDATE tasks SET in_week = 0, suspended_until = ?1, updated_at = ?2 WHERE id = ?3",
                 params![until, now, task_id],
@@ -351,6 +359,27 @@ mod tests {
         assert_eq!(
             week::resolve(&c, "t1", PassAction::Suspend, None, NOW).unwrap_err(),
             "suspend_until_required"
+        );
+    }
+
+    #[test]
+    fn suspend_rejects_a_past_date() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        assert_eq!(
+            week::resolve(&c, "t1", PassAction::Suspend, Some("2026-10-19"), NOW).unwrap_err(),
+            "suspend_until_past"
+        );
+        assert!(week::list(&c).unwrap().iter().any(|t| t.id == "t1"));
+    }
+
+    #[test]
+    fn suspend_rejects_an_invalid_date() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        assert_eq!(
+            week::resolve(&c, "t1", PassAction::Suspend, Some("周五"), NOW).unwrap_err(),
+            "invalid_suspend_date"
         );
     }
 
