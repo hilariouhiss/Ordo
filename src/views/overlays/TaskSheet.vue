@@ -166,10 +166,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
+  <!-- Close on press outside: a click that ends a title drag-select targets the backdrop. -->
   <motion.div
     v-bind="backdropMotion"
     class="fixed inset-0 z-60 flex justify-end bg-neutral/40"
-    @click.self="taskSheetVM.close()"
+    @mousedown.left.self="taskSheetVM.close()"
   >
     <motion.aside
       v-bind="sheetPanelMotion"

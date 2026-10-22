@@ -74,6 +74,13 @@ function onRowKey(event: KeyboardEvent): void {
   emit("open", props.task);
 }
 
+// Selecting the title to copy it also ends with a click; that must not open the sheet.
+function onRowClick(): void {
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  emit("open", props.task);
+}
+
 function start(): void {
   void run(() => taskRowVM.start(props.task));
 }
@@ -99,7 +106,7 @@ async function suspend(): Promise<void> {
     v-bind="listItemMotion"
     class="relative flex cursor-pointer items-center gap-2.5 rounded-xl bg-base-100 px-3 py-3 transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary/40"
     tabindex="0"
-    @click="emit('open', task)"
+    @click="onRowClick"
     @keydown.enter="onRowKey"
   >
     <span
