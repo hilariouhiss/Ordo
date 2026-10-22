@@ -305,7 +305,8 @@ pub async fn set_shortcut(
     } else {
         let active = outcome.active.clone();
         crate::state::with_db(&state, move |conn| {
-            crate::repo::settings::set(conn, "shortcut", &active).map_err(|e| e.to_string())
+            crate::repo::settings::set(conn, "shortcut", &active).map_err(|e| e.to_string())?;
+            crate::repo::settings::set(conn, "shortcut_warning", "").map_err(|e| e.to_string())
         })
         .await?;
     }

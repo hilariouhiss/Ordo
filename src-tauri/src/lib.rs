@@ -170,6 +170,11 @@ pub fn run() {
           api.prevent_close();
           let _ = window.hide();
           first_close_hint(window.app_handle());
+        } else if window.label() == "capture" {
+          // The mini window is prebuilt; closing it would leave the shortcut with
+          // nothing to show until the next launch.
+          api.prevent_close();
+          let _ = window.hide();
         }
       }
     })

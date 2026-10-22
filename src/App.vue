@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
+import { closeDialog } from "./lib/dialog";
 import { setLanguage, t } from "./lib/i18n";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
@@ -70,6 +71,7 @@ watch(
 
 // The tray always lands somewhere clean; a leftover overlay would hide it.
 function closeOverlays(): void {
+  closeDialog(null);
   taskSheetVM.close();
   passVM.close();
   settingsVM.close();
