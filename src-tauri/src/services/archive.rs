@@ -279,7 +279,7 @@ mod tests {
     fn restore_done_task_returns_it_as_doing() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "做完了", NOW, "t1").unwrap();
-        crate::repo::tasks::set_status(&c, "t1", "done", true, NOW).unwrap();
+        crate::repo::tasks::set_status(&c, "t1", "done", true, NOW, None).unwrap();
         let t = archive::restore_task(&c, "t1", NOW).unwrap();
         assert_eq!(t.status, "doing");
         assert!(t.in_week);

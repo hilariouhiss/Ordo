@@ -58,7 +58,17 @@ pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Resul
         return Err("invalid_status".into());
     }
     let done = status == "done";
-    crate::repo::tasks::set_status(conn, id, status, done, now).map_err(|e| e.to_string())?;
+    let start_date = if status == "doing" {
+        Some(
+            crate::services::local_today(now)?
+                .format("%Y-%m-%d")
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    crate::repo::tasks::set_status(conn, id, status, done, now, start_date.as_deref())
+        .map_err(|e| e.to_string())?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -70,6 +80,14 @@ mod tests {
     use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    fn local_date(now: &str) -> String {
+        chrono::DateTime::parse_from_rfc3339(now)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string()
+    }
 
     fn seed_project(c: &Connection, id: &str) {
         c.execute(
@@ -167,11 +185,20 @@ mod tests {
 
         let back = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
         assert!(back.in_week);
-        assert!(back.start_date.is_none());
         let done_at: Option<String> = c
             .query_row("SELECT done_at FROM tasks WHERE id='t1'", [], |r| r.get(0))
             .unwrap();
         assert!(done_at.is_none());
+    }
+
+    #[test]
+    fn manual_doing_backfills_start_date() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
+
+        assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
     }
 
     #[test]

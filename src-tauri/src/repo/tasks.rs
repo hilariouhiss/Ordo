@@ -161,6 +161,7 @@ pub fn set_status(
     status: &str,
     leave_week: bool,
     now: &str,
+    start_date: Option<&str>,
 ) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET status = ?1,
@@ -169,10 +170,11 @@ pub fn set_status(
             suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
             suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
             suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
+            start_date = CASE WHEN ?1 = 'doing' THEN COALESCE(start_date, ?5) ELSE start_date END,
             done_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
             updated_at = ?3
          WHERE id = ?4",
-        params![status, leave_week as i64, now, id],
+        params![status, leave_week as i64, now, id, start_date],
     )?;
     Ok(())
 }

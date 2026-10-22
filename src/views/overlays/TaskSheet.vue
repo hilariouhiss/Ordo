@@ -96,8 +96,13 @@ async function save(): Promise<void> {
 }
 
 async function setStatus(status: Status): Promise<void> {
+  const before = taskSheetVM.state.task?.startDate;
   await taskSheetVM.setStatus(status);
   form.status = status;
+  const after = taskSheetVM.state.task?.startDate;
+  // The backend fills an empty start date when the task starts; show it without
+  // overwriting a date the user has typed but not saved yet.
+  if (!form.startDate && !before && after) form.startDate = after;
 }
 
 function onPriorityChange(event: Event): void {

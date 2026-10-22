@@ -108,7 +108,7 @@ pub fn resolve(
             // The task's status is derived from its steps, so finish them together with it.
             let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
             crate::repo::steps::complete_all(&tx, task_id, now).map_err(|e| e.to_string())?;
-            tasks::set_status(&tx, task_id, "done", true, now).map_err(|e| e.to_string())?;
+            tasks::set_status(&tx, task_id, "done", true, now, None).map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }
         PassAction::Suspend => {
@@ -217,7 +217,6 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
 }
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
-    let today = local_today(now)?.format("%Y-%m-%d").to_string();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let suspended: i64 = tx
         .query_row("SELECT suspended FROM tasks WHERE id = ?1", [task_id], |r| {
@@ -227,11 +226,6 @@ pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, Str
     if suspended == 1 {
         resume(&tx, task_id, now)?;
     }
-    tx.execute(
-        "UPDATE tasks SET start_date = ?1 WHERE id = ?2 AND start_date IS NULL",
-        params![today, task_id],
-    )
-    .map_err(|e| e.to_string())?;
     crate::services::tasks::set_status(&tx, task_id, "doing", now)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
