@@ -2,7 +2,6 @@ import { shortDate, todayIso } from "../lib/dates";
 import { askNotice, dialogRequest } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { exclusiveConflict, type PlanTask } from "../lib/schedule";
-import { listWeek } from "../model/ipc";
 import type { Task } from "../model/types";
 
 export function toPlanTask(task: Task): PlanTask {
@@ -33,12 +32,4 @@ export function warnExclusiveConflict(task: Task, weekTasks: Task[]): void {
       planned: shortDate(conflict.plannedStart),
     }),
   );
-}
-
-/** Same check when only the id is known (project page and the mini window event). */
-export async function warnExclusiveConflictById(taskId: string): Promise<void> {
-  if (dialogRequest.value) return;
-  const week = await listWeek().catch(() => null);
-  const task = week?.find((one) => one.id === taskId);
-  if (week && task) warnExclusiveConflict(task, week);
 }

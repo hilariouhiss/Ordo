@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../../model/ipc", () => ({ listWeek: vi.fn() }));
-
 import { askConfirm, closeDialog, dialogRequest } from "../../lib/dialog";
-import { listWeek } from "../../model/ipc";
 import type { Task } from "../../model/types";
-import { warnExclusiveConflict, warnExclusiveConflictById } from "../planning";
+import { warnExclusiveConflict } from "../planning";
 import { task } from "./fixtures";
 
 function exclusive(over: Partial<Task> = {}): Task {
@@ -53,22 +50,5 @@ describe("warnExclusiveConflict", () => {
     expect(dialogRequest.value?.kind).toBe("confirm");
     closeDialog(null);
     await pending;
-  });
-
-  it("fetches the week for the id-only path", async () => {
-    const added = task({ id: "n", title: "新任务" });
-    vi.mocked(listWeek).mockResolvedValue([exclusive(), added]);
-
-    await warnExclusiveConflictById("n");
-
-    expect(dialogRequest.value?.kind).toBe("notice");
-  });
-
-  it("stays quiet when the captured task is gone", async () => {
-    vi.mocked(listWeek).mockResolvedValue([exclusive()]);
-
-    await warnExclusiveConflictById("missing");
-
-    expect(dialogRequest.value).toBeNull();
   });
 });

@@ -1,9 +1,9 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
 import { projectSummaryLine } from "../lib/summary";
-import { aiEnrich, capture, getProjectSummary, listProjectTasks } from "../model/ipc";
+import { aiEnrich, capture, getProjectSummary, listProjectTasks, listWeek } from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
-import { warnExclusiveConflictById } from "./planning";
+import { warnExclusiveConflict } from "./planning";
 
 export function createProjectVM() {
   const state = reactive({
@@ -45,7 +45,8 @@ export function createProjectVM() {
       void aiEnrich(task.id);
       state.draft = "";
       await load(projectId);
-      void warnExclusiveConflictById(task.id);
+      const week = await listWeek().catch(() => null);
+      if (week) warnExclusiveConflict(task, week);
     } finally {
       capturing = false;
     }
