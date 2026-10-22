@@ -9,11 +9,7 @@ pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
         people: crate::repo::people::list(conn).map_err(|e| e.to_string())?,
         categories: crate::repo::categories::list(conn).map_err(|e| e.to_string())?,
         tags: crate::repo::tags::list(conn).map_err(|e| e.to_string())?,
-        settings: {
-            let mut s = crate::repo::settings::dto(conn).map_err(|e| e.to_string())?;
-            s.ai_has_key = crate::ai::client::get_key().is_some();
-            s
-        },
+        settings: crate::repo::settings::dto(conn).map_err(|e| e.to_string())?,
         projects: crate::services::stats::list(conn)?,
     })
 }
@@ -75,15 +71,12 @@ mod tests {
         assert_eq!(b.settings.shortcut, "Ctrl+Alt+O");
     }
 }
-fn settings_with_key(conn: &rusqlite::Connection) -> Result<SettingsDto, String> {
-    let mut settings = crate::repo::settings::dto(conn).map_err(|e| e.to_string())?;
-    settings.ai_has_key = crate::ai::client::get_key().is_some();
-    Ok(settings)
-}
-
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
-    with_db(&state, |conn| settings_with_key(conn)).await
+    with_db(&state, |conn| {
+        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -121,7 +114,7 @@ pub async fn set_settings(
                 crate::repo::settings::set(conn, key, &value).map_err(|e| e.to_string())?;
             }
         }
-        settings_with_key(conn)
+        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
     })
     .await?;
     if language_requested {

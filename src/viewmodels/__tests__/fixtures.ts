@@ -6,7 +6,6 @@ export const defaultSettings: Settings = {
   aiEnabled: false,
   aiBaseUrl: "https://api.deepseek.com",
   aiModel: "deepseek-flash",
-  aiHasKey: false,
   shortcut: "Ctrl+Alt+O",
   autostart: true,
   backupKeepDays: 30,

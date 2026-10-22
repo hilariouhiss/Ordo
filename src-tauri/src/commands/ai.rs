@@ -105,6 +105,14 @@ pub async fn clear_ai_key() -> Result<(), String> {
     client::clear_key()
 }
 
+/// Asked when the settings dialog opens; startup never touches the credential store.
+#[tauri::command]
+pub async fn ai_key_status() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| client::get_key().is_some())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn ai_test(state: State<'_, AppState>) -> Result<AiTestResult, String> {
     let (_, base_url, model) = with_db(&state, |conn| Ok(ai_settings(conn))).await?;

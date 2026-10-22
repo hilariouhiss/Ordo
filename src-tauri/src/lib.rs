@@ -20,16 +20,64 @@ pub fn now_iso() -> String {
 }
 
 pub fn toggle_capture(app: &tauri::AppHandle) {
-    use tauri::Manager;
+    let Some(window) = app.get_webview_window("capture") else {
+        // Building a window inside the shortcut callback is not worth the risk; the next
+        // event-loop turn creates it and it reveals itself once its page is loaded.
+        create_capture_soon(app, true);
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
+        let _ = window.hide();
+    } else {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit_to("capture", "capture:focus", ());
+    }
+}
+
+/// Builds the mini window off the startup path. A failure leaves the shortcut inert
+/// instead of taking the whole app down.
+fn ensure_capture(app: &tauri::AppHandle, reveal_when_loaded: bool) -> Option<tauri::WebviewWindow> {
     if let Some(window) = app.get_webview_window("capture") {
-        if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
-        } else {
-            let _ = window.show();
-            let _ = window.set_focus();
-            let _ = app.emit_to("capture", "capture:focus", ());
+        return Some(window);
+    }
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app,
+        "capture",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("ordo")
+    .inner_size(560.0, 96.0)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .visible(false);
+    if reveal_when_loaded {
+        builder = builder.on_page_load(|window, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        });
+    }
+    match builder.build() {
+        Ok(window) => Some(window),
+        Err(e) => {
+            eprintln!("捕获窗口创建失败：{e}");
+            None
         }
     }
+}
+
+fn create_capture_soon(app: &tauri::AppHandle, reveal_when_loaded: bool) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let inner = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            let _ = ensure_capture(&inner, reveal_when_loaded);
+        });
+    });
 }
 
 pub fn register_shortcut(
@@ -231,6 +279,7 @@ pub fn run() {
       commands::meta::set_shortcut,
       commands::ai::set_ai_key,
       commands::ai::clear_ai_key,
+      commands::ai::ai_key_status,
       commands::ai::ai_test,
       commands::ai::ai_enrich,
       commands::tasks::mark_notifications_seen,
@@ -305,13 +354,14 @@ pub fn run() {
           .flatten()
           .unwrap_or_else(|| "true".into())
           == "true";
-      let _ = if autostart {
-          app.autolaunch().enable()
-      } else {
-          app.autolaunch().disable()
-      };
-      let backup = crate::services::export::backup_daily(&conn, &backups);
-      crate::services::export::record_error(&conn, backup.err());
+      // Writing the Run key on every launch is wasted startup work.
+      if app.autolaunch().is_enabled().unwrap_or(false) != autostart {
+          let _ = if autostart {
+              app.autolaunch().enable()
+          } else {
+              app.autolaunch().disable()
+          };
+      }
       let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
           .ok()
           .flatten()
@@ -329,20 +379,6 @@ pub fn run() {
 
       let lang = crate::i18n::from_conn(&conn);
       app.manage(crate::state::AppState::new(conn));
-
-      let _capture = tauri::WebviewWindowBuilder::new(
-          app,
-          "capture",
-          tauri::WebviewUrl::App("index.html".into()),
-        )
-        .title("ordo")
-        .inner_size(560.0, 96.0)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .visible(false)
-        .build()?;
 
       use tauri_plugin_notification::NotificationExt;
       let notification_handle = app.handle().clone();
@@ -364,6 +400,24 @@ pub fn run() {
 
       build_tray(app, lang)?;
       crate::reminders::start(app.handle().clone());
+
+      // The main window is created hidden and shows itself after its first paint; the
+      // capture window is built a moment later so startup never waits for a second
+      // webview. This thread also reveals the main window if the front end never does.
+      let deferred = app.handle().clone();
+      std::thread::spawn(move || {
+          std::thread::sleep(std::time::Duration::from_secs(2));
+          let handle = deferred.clone();
+          let _ = deferred.run_on_main_thread(move || {
+              let _ = ensure_capture(&handle, false);
+              if let Some(window) = handle.get_webview_window("main") {
+                  if !window.is_visible().unwrap_or(true) {
+                      let _ = window.show();
+                      let _ = window.set_focus();
+                  }
+              }
+          });
+      });
 
       if cfg!(debug_assertions) {
         app.handle().plugin(

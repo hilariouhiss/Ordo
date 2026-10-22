@@ -103,8 +103,23 @@ async function syncTheme(): Promise<void> {
   if (isTauri()) void emitTo("capture", "theme:changed", theme);
 }
 
+/** Created hidden so the first frame the user sees is painted, themed and resolved. */
+function revealWindow(): void {
+  if (!isTauri()) return;
+  const win = getCurrentWindow();
+  void win
+    .show()
+    .then(() => win.setFocus())
+    .catch(() => {});
+}
+
 onMounted(async () => {
-  await appVM.load();
+  try {
+    await appVM.load();
+  } catch {
+    // A failed bootstrap still shows the shell; the tray and shortcuts keep working.
+  }
+  revealWindow();
   void syncTheme();
   window
     .matchMedia("(prefers-color-scheme: dark)")

@@ -38,43 +38,50 @@ pub fn start(app: AppHandle) {
 
 fn tick(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
-    let lang = crate::i18n::from_conn(&conn);
-    // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
-    backup_ledger(app, &conn);
-    let now = chrono::Local::now();
-    let candidates = rules::candidates(&conn, now)?;
-    let today = now.format("%Y-%m-%d").to_string();
-    let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    // Everything that touches the ledger happens under this one lock; notifications and
+    // the tray are updated after it is released, so a slow OS call cannot stall the app.
+    let (lang, toasts, unread) = {
+        let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
+        let lang = crate::i18n::from_conn(&conn);
+        // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
+        backup_ledger(app, &conn);
+        let now = chrono::Local::now();
+        let candidates = rules::candidates(&conn, now)?;
+        let today = now.format("%Y-%m-%d").to_string();
+        let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
-    let mut toasts: Vec<(String, String)> = Vec::new();
-    for candidate in candidates {
-        let title: String = conn
-            .query_row("SELECT title FROM tasks WHERE id = ?1", [&candidate.task_id], |r| {
-                r.get(0)
-            })
+        let mut toasts: Vec<(String, String)> = Vec::new();
+        for candidate in candidates {
+            let title: String = conn
+                .query_row("SELECT title FROM tasks WHERE id = ?1", [&candidate.task_id], |r| {
+                    r.get(0)
+                })
+                .map_err(|e| e.to_string())?;
+            let fired = crate::repo::notifications::fire(
+                &conn,
+                &uuid::Uuid::new_v4().to_string(),
+                &candidate.task_id,
+                candidate.kind,
+                &candidate.due_key,
+                &candidate.scheduled_for.to_rfc3339(),
+                &now_utc,
+            )
             .map_err(|e| e.to_string())?;
-        let fired = crate::repo::notifications::fire(
-            &conn,
-            &uuid::Uuid::new_v4().to_string(),
-            &candidate.task_id,
-            candidate.kind,
-            &candidate.due_key,
-            &candidate.scheduled_for.to_rfc3339(),
-            &now_utc,
-        )
-        .map_err(|e| e.to_string())?;
-        if !fired {
-            continue;
+            if !fired {
+                continue;
+            }
+            let headline = crate::i18n::reminder_headline(
+                lang,
+                candidate.kind,
+                candidate.due_key == today,
+                &title,
+            );
+            toasts.push((headline, candidate.task_id));
         }
-        let headline = crate::i18n::reminder_headline(
-            lang,
-            candidate.kind,
-            candidate.due_key == today,
-            &title,
-        );
-        toasts.push((headline, candidate.task_id));
-    }
+        let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
+        (lang, toasts, unread)
+    };
+
     if let [(headline, task_id)] = toasts.as_slice() {
         let id = state.reminder_targets.next_id(task_id);
         let _ = app
@@ -93,7 +100,6 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             .show();
     }
     if let Some(tray) = app.tray_by_id("main-tray") {
-        let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
         let _ = tray.set_tooltip(Some(crate::i18n::tray_tooltip(lang, unread)));
     }
 

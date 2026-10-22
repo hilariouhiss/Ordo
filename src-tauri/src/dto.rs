@@ -32,7 +32,6 @@ pub struct SettingsDto {
     pub ai_enabled: bool,
     pub ai_base_url: String,
     pub ai_model: String,
-    pub ai_has_key: bool,
     pub shortcut: String,
     pub autostart: bool,
     pub backup_keep_days: i64,

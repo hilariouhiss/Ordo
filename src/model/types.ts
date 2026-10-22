@@ -29,7 +29,6 @@ export interface Settings {
   aiEnabled: boolean;
   aiBaseUrl: string;
   aiModel: string;
-  aiHasKey: boolean;
   shortcut: string;
   autostart: boolean;
   backupKeepDays: number;

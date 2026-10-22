@@ -238,6 +238,10 @@ export function setAiKey(key: string): Promise<void> {
 export function clearAiKey(): Promise<void> {
   return invoke<void>("clear_ai_key");
 }
+
+export function aiKeyStatus(): Promise<boolean> {
+  return invoke<boolean>("ai_key_status");
+}
 export function setTaskStatus(id: string, status: Status): Promise<Task> {
   return invoke<Task>("set_status", { id, status });
 }

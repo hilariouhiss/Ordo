@@ -34,6 +34,7 @@ const recording = ref(false);
 const pendingShortcut = ref("");
 const shortcutWarning = ref("");
 const keyDraft = ref("");
+const hasKey = ref(false);
 const aiStatus = ref<AiStatus>(null);
 const aiStatusText = computed(() => {
   const status = aiStatus.value;
@@ -74,13 +75,13 @@ async function saveKey(): Promise<void> {
   await ipc.setAiKey(keyDraft.value.trim());
   keyDraft.value = "";
   aiStatus.value = { kind: "saved" };
-  if (appVM.state.settings) appVM.state.settings.aiHasKey = true;
+  hasKey.value = true;
 }
 
 async function clearKey(): Promise<void> {
   try {
     await ipc.clearAiKey();
-    if (appVM.state.settings) appVM.state.settings.aiHasKey = false;
+    hasKey.value = false;
     keyDraft.value = "";
     aiStatus.value = { kind: "cleared" };
   } catch (e) {
@@ -107,7 +108,16 @@ async function applyShortcut(): Promise<void> {
   pendingShortcut.value = "";
 }
 
-onMounted(() => window.addEventListener("keydown", onKey));
+onMounted(() => {
+  window.addEventListener("keydown", onKey);
+  // The credential store is only read when this dialog opens, never on startup.
+  void ipc
+    .aiKeyStatus()
+    .then((saved) => {
+      hasKey.value = saved;
+    })
+    .catch(() => {});
+});
 onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 
@@ -215,9 +225,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                     type="password"
                     class="input input-sm flex-1 rounded-lg border-base-300"
                     :placeholder="
-                      settings.aiHasKey
-                        ? t('settings.aiKeyPlaceholder')
-                        : t('settings.aiKeyPlaceholderEmpty')
+                      hasKey ? t('settings.aiKeyPlaceholder') : t('settings.aiKeyPlaceholderEmpty')
                     "
                   />
                   <button
@@ -233,7 +241,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                     {{ t("settings.aiTest") }}
                   </button>
                   <button
-                    v-if="settings.aiHasKey"
+                    v-if="hasKey"
                     class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
                     @click="clearKey"
                   >

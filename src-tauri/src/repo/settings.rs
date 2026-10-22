@@ -67,7 +67,6 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get("ai.model")
             .cloned()
             .unwrap_or_else(|| "deepseek-flash".into()),
-        ai_has_key: false,
         shortcut: map
             .get("shortcut")
             .cloned()
