@@ -4,6 +4,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { shortDate, todayIso } from "../lib/dates";
 import { t } from "../lib/i18n";
 import { panelSwapMotion, springSoft } from "../lib/motion";
@@ -20,6 +21,7 @@ import ProjectSettings from "./overlays/ProjectSettings.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 
 const props = defineProps<{ id: string }>();
+const router = useRouter();
 const vm = createProjectVM();
 const settingsOpen = ref(false);
 let unlistenAi: (() => void) | undefined;
@@ -77,6 +79,12 @@ function openTask(task: Task): void {
 
 function refresh(): void {
   void vm.load(props.id);
+}
+
+function closeSettings(gone = false): void {
+  settingsOpen.value = false;
+  if (gone) void router.push("/projects");
+  else void vm.load(props.id);
 }
 </script>
 
@@ -196,14 +204,7 @@ function refresh(): void {
       <TaskSheet v-if="taskSheetVM.state.openId" />
     </AnimatePresence>
     <AnimatePresence>
-      <ProjectSettings
-        v-if="settingsOpen"
-        :id="props.id"
-        @close="
-          settingsOpen = false;
-          vm.load(props.id);
-        "
-      />
+      <ProjectSettings v-if="settingsOpen" :id="props.id" @close="closeSettings" />
     </AnimatePresence>
   </section>
 </template>

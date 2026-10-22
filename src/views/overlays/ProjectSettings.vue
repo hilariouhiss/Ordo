@@ -11,7 +11,7 @@ import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
 
 const props = defineProps<{ id: string }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: [gone?: boolean] }>();
 
 const form = reactive({
   name: "",
@@ -71,7 +71,7 @@ async function removeMember(personId: string): Promise<void> {
 async function archive(): Promise<void> {
   await ipc.archiveProject(props.id);
   await projectsVM.load();
-  emit("close");
+  emit("close", true);
 }
 
 async function remove(): Promise<void> {
@@ -79,7 +79,7 @@ async function remove(): Promise<void> {
     return;
   await ipc.deleteProject(props.id);
   await projectsVM.load();
-  emit("close");
+  emit("close", true);
 }
 </script>
 
