@@ -66,7 +66,7 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let mut task_stmt = conn.prepare_cached(
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,
-                in_week, carry_count, suspended_until, suspended, suspend_reason,
+                in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
                 note, archived_at, canceled_at,
                 created_at, updated_at, sort_order, effort_days, priority
          FROM tasks WHERE id = ?1",
@@ -85,18 +85,19 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
             carry_count: r.get(9)?,
             suspended_until: r.get(10)?,
             suspended: r.get::<_, i64>(11)? == 1,
-            suspend_reason: r.get(12)?,
-            note: r.get(13)?,
-            archived_at: r.get(14)?,
-            canceled_at: r.get(15)?,
+            suspended_at: r.get(12)?,
+            suspend_reason: r.get(13)?,
+            note: r.get(14)?,
+            archived_at: r.get(15)?,
+            canceled_at: r.get(16)?,
             steps: vec![],
             tags: vec![],
             delays: vec![],
-            created_at: r.get(16)?,
-            updated_at: r.get(17)?,
-            sort_order: r.get(18)?,
-            effort_days: r.get(19)?,
-            priority: r.get(20)?,
+            created_at: r.get(17)?,
+            updated_at: r.get(18)?,
+            sort_order: r.get(19)?,
+            effort_days: r.get(20)?,
+            priority: r.get(21)?,
         })
     })?;
 
@@ -166,6 +167,7 @@ pub fn set_status(
             in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
             suspended = CASE WHEN ?2 THEN 0 ELSE suspended END,
             suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
+            suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
             suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
             done_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
             updated_at = ?3
@@ -280,7 +282,7 @@ pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1,
-              suspended = 0, suspended_until = NULL, suspend_reason = NULL,
+              suspended = 0, suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL,
               sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
               status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
               done_at = CASE WHEN status = 'done' THEN NULL ELSE done_at END,

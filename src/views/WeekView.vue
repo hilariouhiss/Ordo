@@ -2,8 +2,9 @@
 import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { shortDate, weekdayLabel } from "../lib/dates";
+import { shortDate, todayIso, weekdayLabel } from "../lib/dates";
 import { t } from "../lib/i18n";
+import { daysSince } from "../model/mappers";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -17,6 +18,17 @@ import WeeklyPass from "./overlays/WeeklyPass.vue";
 const { state, days, planEnd, conflictCount, passNeeded, load, capture, resume, move, moveBy } =
   weekVM;
 const suspendedOpen = computed(() => state.suspended.length > 0);
+
+function suspendedMeta(task: Task): string {
+  const parts: string[] = [];
+  if (task.suspendedUntil) {
+    parts.push(t("week.reviewAt", { date: shortDate(task.suspendedUntil) }));
+  }
+  if (task.suspendedAt) {
+    parts.push(t("task.suspendedFor", { days: daysSince(task.suspendedAt, todayIso()) }));
+  }
+  return parts.length ? parts.join(" · ") : t("week.noReviewDate");
+}
 
 const listEl = ref<HTMLElement | null>(null);
 const draggingId = ref<string | null>(null);
@@ -252,11 +264,7 @@ function refresh(): void {
           </div>
         </div>
         <span class="ml-auto shrink-0 text-[10.5px] text-base-content/40">
-          {{
-            task.suspendedUntil
-              ? t("week.reviewAt", { date: shortDate(task.suspendedUntil) })
-              : t("week.noReviewDate")
-          }}
+          {{ suspendedMeta(task) }}
         </span>
         <button class="shrink-0 text-[10.5px] text-primary" @click="resume(task.id)">
           {{ t("week.resume") }}

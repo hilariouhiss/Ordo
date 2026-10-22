@@ -124,6 +124,12 @@ pub fn resolve(
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
+fn local_today(now: &str) -> Result<NaiveDate, String> {
+    chrono::DateTime::parse_from_rfc3339(now)
+        .map(|d| d.with_timezone(&chrono::Local).date_naive())
+        .map_err(|e| e.to_string())
+}
+
 pub fn suspend(
     conn: &Connection,
     task_id: &str,
@@ -134,10 +140,8 @@ pub fn suspend(
     // An empty field from the UI means "not set", same as leaving it out.
     let until = suspend_until.map(str::trim).filter(|value| !value.is_empty());
     let reason = suspend_reason.map(str::trim).filter(|value| !value.is_empty());
+    let today = local_today(now)?;
     if let Some(until) = until {
-        let today = chrono::DateTime::parse_from_rfc3339(now)
-            .map(|d| d.with_timezone(&chrono::Local).date_naive())
-            .map_err(|e| e.to_string())?;
         let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
             .map_err(|_| "invalid_suspend_date".to_string())?;
         if until_date < today {
@@ -146,9 +150,15 @@ pub fn suspend(
     }
     conn.execute(
         "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
-                suspend_reason = ?2, updated_at = ?3
-         WHERE id = ?4",
-        params![until, reason, now, task_id],
+                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4
+         WHERE id = ?5",
+        params![
+            until,
+            reason,
+            today.format("%Y-%m-%d").to_string(),
+            now,
+            task_id
+        ],
     )
     .map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
@@ -202,7 +212,7 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     conn.execute(
         "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
-                suspend_reason = NULL, updated_at = ?1,
+                suspended_at = NULL, suspend_reason = NULL, updated_at = ?1,
                 sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
          WHERE id = ?2",
         params![now, task_id],
@@ -212,6 +222,7 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
 }
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
+    let today = local_today(now)?.format("%Y-%m-%d").to_string();
     let suspended: i64 = conn
         .query_row("SELECT suspended FROM tasks WHERE id = ?1", [task_id], |r| {
             r.get(0)
@@ -220,6 +231,11 @@ pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, Str
     if suspended == 1 {
         resume(conn, task_id, now)?;
     }
+    conn.execute(
+        "UPDATE tasks SET start_date = ?1 WHERE id = ?2 AND start_date IS NULL",
+        params![today, task_id],
+    )
+    .map_err(|e| e.to_string())?;
     crate::services::tasks::set_status(conn, task_id, "doing", now)
 }
 
@@ -232,6 +248,14 @@ mod tests {
     use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    fn local_date(now: &str) -> String {
+        chrono::DateTime::parse_from_rfc3339(now)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string()
+    }
 
     fn seed_known(c: &Connection) {
         c.execute(
@@ -397,6 +421,7 @@ mod tests {
         assert!(!t.in_week);
         assert!(t.suspended);
         assert!(t.suspended_until.is_none());
+        assert_eq!(t.suspended_at.as_deref(), Some(local_date(NOW).as_str()));
         assert!(t.suspend_reason.is_none());
         assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
         assert!(!week::list(&c).unwrap().iter().any(|row| row.id == "t1"));
@@ -420,6 +445,7 @@ mod tests {
 
         assert!(t.suspended);
         assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.suspended_at.as_deref(), Some(local_date(NOW).as_str()));
         assert_eq!(t.suspend_reason.as_deref(), Some("等甲方回数据"));
     }
 
@@ -569,6 +595,7 @@ mod tests {
         assert!(t.in_week);
         assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspended_at.is_none());
         assert!(t.suspend_reason.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
     }
@@ -601,6 +628,40 @@ mod tests {
     }
 
     #[test]
+    fn start_backfills_a_missing_start_date() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = week::start(&c, "t1", NOW).unwrap();
+
+        assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
+    }
+
+    #[test]
+    fn start_rejects_an_invalid_now_before_writing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        assert!(week::start(&c, "t1", "not-a-date").is_err());
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(t.status, "todo");
+        assert!(t.start_date.is_none());
+    }
+
+    #[test]
+    fn start_keeps_an_existing_start_date() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET start_date = '2026-10-01' WHERE id = 't1'", [])
+            .unwrap();
+
+        let t = week::start(&c, "t1", NOW).unwrap();
+
+        assert_eq!(t.start_date.as_deref(), Some("2026-10-01"));
+    }
+
+    #[test]
     fn start_brings_a_suspended_task_back() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
@@ -613,7 +674,9 @@ mod tests {
         assert!(t.in_week);
         assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspended_at.is_none());
         assert!(t.suspend_reason.is_none());
+        assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t1"]);
     }

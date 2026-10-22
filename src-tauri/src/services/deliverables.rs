@@ -33,7 +33,7 @@ pub fn set_due(
             // A task already in the week keeps its slot; a due-date edit must not move it.
             tx.execute(
                 "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
-                        suspend_reason = NULL,
+                        suspended_at = NULL, suspend_reason = NULL,
                         sort_order = CASE WHEN in_week = 1 THEN sort_order
                                           ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks) END
                  WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
@@ -157,6 +157,7 @@ mod tests {
         assert!(t.in_week);
         assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspended_at.is_none());
         assert!(t.suspend_reason.is_none());
     }
 

@@ -6,7 +6,7 @@ import { shortDate, todayIso } from "../../lib/dates";
 import { askSuspend } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
-import { overdueDays } from "../../model/mappers";
+import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
@@ -47,6 +47,11 @@ const doneLabel = computed(() =>
 );
 const startLabel = computed(() => t("task.startAria", { title: props.task.title }));
 const suspendLabel = computed(() => t("task.suspendAria", { title: props.task.title }));
+const suspendedBadge = computed(() =>
+  props.task.suspendedAt
+    ? t("task.suspendedFor", { days: daysSince(props.task.suspendedAt, todayIso()) })
+    : t("task.suspendedNoDate"),
+);
 
 async function run(action: () => Promise<unknown>): Promise<void> {
   if (busy.value) return;
@@ -151,11 +156,10 @@ async function suspend(): Promise<void> {
       class="badge badge-ghost badge-xs"
       :title="task.suspendReason ?? undefined"
     >
-      {{
-        task.suspendedUntil
-          ? t("task.suspended", { date: shortDate(task.suspendedUntil) })
-          : t("task.suspendedNoDate")
-      }}
+      {{ suspendedBadge }}
+    </span>
+    <span v-if="task.suspended && task.suspendedUntil" class="badge badge-ghost badge-xs">
+      {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
     </span>
     <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
       t("task.overdue", { days: late })

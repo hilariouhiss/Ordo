@@ -76,6 +76,7 @@ export interface Task {
   carryCount: number;
   suspendedUntil: string | null;
   suspended: boolean;
+  suspendedAt: string | null;
   suspendReason: string | null;
   note: string | null;
   archivedAt: string | null;

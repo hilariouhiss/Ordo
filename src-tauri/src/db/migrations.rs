@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 7;
+pub const LATEST: i64 = 8;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -223,6 +223,22 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
         tx.execute_batch("UPDATE tasks SET suspended = 1 WHERE suspended_until IS NOT NULL")?;
         tx.pragma_update(None, "user_version", 7)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 8 {
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "suspended_at")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN suspended_at TEXT")?;
+        }
+        // Best available approximation for rows suspended before this column existed:
+        // a suspended row's last write is usually the suspension itself.
+        tx.execute_batch(
+            "UPDATE tasks SET suspended_at = date(updated_at, 'localtime')
+             WHERE suspended = 1 AND suspended_at IS NULL",
+        )?;
+        tx.pragma_update(None, "user_version", 8)?;
         tx.commit()?;
     }
     Ok(())
@@ -581,5 +597,40 @@ mod tests {
             .query_row("SELECT priority FROM tasks WHERE id = 'a'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(priority, "high");
+    }
+
+    #[test]
+    fn adds_suspended_at_and_backfills_suspended_rows() {
+        let c = v3_database();
+        c.execute(
+            "UPDATE tasks SET suspended_until = '2026-11-02' WHERE id = 'a'",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let (suspended, at): (i64, Option<String>) = c
+            .query_row(
+                "SELECT suspended, suspended_at FROM tasks WHERE id = 'a'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(suspended, 1);
+        let expected: String = c
+            .query_row(
+                "SELECT date(updated_at, 'localtime') FROM tasks WHERE id = 'a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(at.as_deref(), Some(expected.as_str()));
+        let other: Option<String> = c
+            .query_row("SELECT suspended_at FROM tasks WHERE id = 'b'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(other.is_none());
     }
 }

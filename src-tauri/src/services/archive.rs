@@ -270,6 +270,7 @@ mod tests {
         assert!(t.in_week);
         assert!(!t.suspended);
         assert!(t.suspended_until.is_none());
+        assert!(t.suspended_at.is_none());
         assert!(t.suspend_reason.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
     }

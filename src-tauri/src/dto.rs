@@ -80,6 +80,7 @@ pub struct TaskDto {
     pub carry_count: i64,
     pub suspended_until: Option<String>,
     pub suspended: bool,
+    pub suspended_at: Option<String>,
     pub suspend_reason: Option<String>,
     pub note: Option<String>,
     pub archived_at: Option<String>,
