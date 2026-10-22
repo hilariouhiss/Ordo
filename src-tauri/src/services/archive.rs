@@ -159,6 +159,57 @@ mod tests {
     }
 
     #[test]
+    fn restoring_a_project_returns_active_tasks_to_week() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        for id in ["t1", "t2", "t3", "t4"] {
+            week::capture(&c, id, NOW, id).unwrap();
+            c.execute(
+                "UPDATE tasks SET project_id = ?1 WHERE id = ?2",
+                rusqlite::params![&p.id, id],
+            )
+            .unwrap();
+        }
+        crate::services::tasks::set_status(&c, "t2", "done", NOW).unwrap();
+        week::resolve(
+            &c,
+            "t3",
+            crate::services::week::PassAction::Suspend,
+            Some("2026-11-02"),
+            NOW,
+        )
+        .unwrap();
+        week::resolve(
+            &c,
+            "t4",
+            crate::services::week::PassAction::Cancel,
+            None,
+            NOW,
+        )
+        .unwrap();
+
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+        assert!(week::list(&c).unwrap().is_empty());
+
+        crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
+
+        let ids: Vec<String> = week::list(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec!["t1"]);
+        for id in ["t2", "t3", "t4"] {
+            let in_week: i64 = c
+                .query_row("SELECT in_week FROM tasks WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(in_week, 0, "{id}");
+        }
+    }
+
+    #[test]
     fn restoring_a_suspended_task_clears_the_suspension() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();

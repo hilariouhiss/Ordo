@@ -39,6 +39,14 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
             "UPDATE tasks SET in_week = 0 WHERE project_id = ?1 AND deleted_at IS NULL",
             [id],
         )?;
+    } else {
+        conn.execute(
+            "UPDATE tasks SET in_week = 1,
+                    sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
+             WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
+               AND archived_at IS NULL AND status <> 'done' AND suspended_until IS NULL",
+            [id],
+        )?;
     }
     Ok(())
 }
