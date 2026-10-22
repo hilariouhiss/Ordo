@@ -20,6 +20,7 @@ export function createPassVM() {
     if (!queue.length) return;
     state.queue = queue;
     state.index = 0;
+    state.counts = { keep: 0, done: 0, suspend: 0, cancel: 0 };
     state.open = true;
   }
 

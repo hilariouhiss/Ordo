@@ -52,10 +52,25 @@ function onKey(event: KeyboardEvent): void {
   if (!passVM.state.open || finished.value) return;
   // While the task sheet is open it owns the keyboard; its own Escape closes just it.
   if (taskSheetVM.state.openId) return;
+
+  // The date panel owns the keyboard while it is open; only Esc leaves it.
+  if (suspendOpen.value) {
+    if (event.key === "Escape") suspendOpen.value = false;
+    return;
+  }
+
   if (event.key === "Escape") {
     passVM.close();
     return;
   }
+  if (event.repeat) return;
+
+  // Let focused inputs and buttons handle their own Enter/Space.
+  const target = event.target;
+  if (target instanceof HTMLElement && target.closest("input, select, textarea, button, a")) {
+    return;
+  }
+
   if (event.key === "Enter") return void act("keep");
   if (event.key.toLowerCase() === "d") return void act("done");
   if (event.key.toLowerCase() === "x") return void act("cancel");

@@ -33,6 +33,21 @@ describe("passVM", () => {
     expect(vm.state.open).toBe(false);
   });
 
+  it("resets the counts when a pass reopens", async () => {
+    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" }), task({ id: "t2" })]);
+    vi.mocked(passResolve).mockResolvedValue(task({ id: "t1" }));
+
+    const vm = createPassVM();
+    await vm.start();
+    await vm.resolve("keep");
+    expect(vm.state.counts.keep).toBe(1);
+
+    vm.close();
+    await vm.start();
+
+    expect(vm.state.counts.keep).toBe(0);
+  });
+
   it("split returns the current card without advancing", async () => {
     vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" }), task({ id: "t2" })]);
 
