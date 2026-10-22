@@ -49,7 +49,7 @@ function split(): void {
 }
 
 function onKey(event: KeyboardEvent): void {
-  if (!passVM.state.open || finished.value) return;
+  if (!passVM.state.open) return;
   // While the task sheet is open it owns the keyboard; its own Escape closes just it.
   if (taskSheetVM.state.openId) return;
 
@@ -60,9 +60,12 @@ function onKey(event: KeyboardEvent): void {
   }
 
   if (event.key === "Escape") {
-    passVM.close();
+    // On the summary card Escape does what its only button does.
+    if (finished.value) void finish();
+    else passVM.close();
     return;
   }
+  if (finished.value) return;
   if (event.repeat) return;
 
   // Let focused inputs and buttons handle their own Enter/Space.
