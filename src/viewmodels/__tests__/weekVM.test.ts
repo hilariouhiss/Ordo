@@ -46,6 +46,26 @@ describe("weekVM", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it("ignores a repeated submit while one is in flight", async () => {
+    let resolve!: (value: Task) => void;
+    vi.mocked(capture).mockReturnValue(
+      new Promise<Task>((done) => {
+        resolve = done;
+      }),
+    );
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+
+    const vm = createWeekVM();
+    const first = vm.capture({ raw: "交底", title: "交底", fields: CAPTURE_DEFAULTS });
+    const second = vm.capture({ raw: "交底", title: "交底", fields: CAPTURE_DEFAULTS });
+    resolve(task({ id: "t1" }));
+    await Promise.all([first, second]);
+
+    expect(capture).toHaveBeenCalledTimes(1);
+  });
+
   it("move sends the drop anchor and takes the returned order", async () => {
     vi.mocked(moveTask).mockResolvedValue([task({ id: "t2" }), task({ id: "t1" })]);
 

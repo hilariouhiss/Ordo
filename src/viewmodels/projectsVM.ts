@@ -20,11 +20,19 @@ export function createProjectsVM() {
     }
   }
 
+  let creating = false;
+
   async function create(name: string, dueDate: string | null): Promise<Project | null> {
+    if (creating) return null;
     if (!name.trim()) return null;
-    const project = await createProject(name.trim(), dueDate);
-    await load();
-    return project;
+    creating = true;
+    try {
+      const project = await createProject(name.trim(), dueDate);
+      await load();
+      return project;
+    } finally {
+      creating = false;
+    }
   }
 
   function openSettings(id: string): void {

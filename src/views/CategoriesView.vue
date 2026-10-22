@@ -10,10 +10,17 @@ import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
 
 const name = ref("");
+const adding = ref(false);
 
 async function add(): Promise<void> {
-  await metaVM.addCategory(name.value);
-  name.value = "";
+  if (adding.value) return;
+  adding.value = true;
+  try {
+    await metaVM.addCategory(name.value);
+    name.value = "";
+  } finally {
+    adding.value = false;
+  }
 }
 
 function onKey(event: KeyboardEvent): void {

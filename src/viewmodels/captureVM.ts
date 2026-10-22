@@ -6,18 +6,25 @@ export function createCaptureVM() {
   const state = reactive({
     draft: "",
     saved: false,
+    saving: false,
   });
 
   async function save(title: string, fields: CaptureFields, hide: () => void): Promise<void> {
+    if (state.saving) return;
     const text = title.trim();
     if (!text) return;
-    const task = await capture(text, fields);
-    void aiEnrich(task.id);
-    state.saved = true;
-    setTimeout(() => {
-      state.saved = false;
-      hide();
-    }, 800);
+    state.saving = true;
+    try {
+      const task = await capture(text, fields);
+      void aiEnrich(task.id);
+      state.saved = true;
+      setTimeout(() => {
+        state.saved = false;
+        hide();
+      }, 800);
+    } finally {
+      state.saving = false;
+    }
   }
 
   return { state, save };

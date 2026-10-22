@@ -32,13 +32,21 @@ export function createProjectVM() {
     state.expanded[categoryId] = !state.expanded[categoryId];
   }
 
+  let capturing = false;
+
   async function captureInto(projectId: string, submission: CaptureSubmission): Promise<void> {
+    if (capturing) return;
     const title = submission.title.trim();
     if (!title) return;
-    const task = await capture(title, submission.fields);
-    void aiEnrich(task.id);
-    state.draft = "";
-    await load(projectId);
+    capturing = true;
+    try {
+      const task = await capture(title, submission.fields);
+      void aiEnrich(task.id);
+      state.draft = "";
+      await load(projectId);
+    } finally {
+      capturing = false;
+    }
   }
 
   async function copySummary(): Promise<void> {

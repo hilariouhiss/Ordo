@@ -96,13 +96,21 @@ export function createWeekVM() {
     }
   }
 
+  let capturing = false;
+
   async function capture(submission: CaptureSubmission): Promise<void> {
+    if (capturing) return;
     const title = submission.title.trim();
     if (!title) return;
-    const task = await captureApi(title, submission.fields);
-    void aiEnrich(task.id);
-    if (state.draft.trim() === submission.raw.trim()) state.draft = "";
-    await load();
+    capturing = true;
+    try {
+      const task = await captureApi(title, submission.fields);
+      void aiEnrich(task.id);
+      if (state.draft.trim() === submission.raw.trim()) state.draft = "";
+      await load();
+    } finally {
+      capturing = false;
+    }
   }
 
   async function resume(id: string): Promise<void> {

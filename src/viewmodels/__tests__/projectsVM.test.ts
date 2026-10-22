@@ -7,7 +7,7 @@ vi.mock("../../model/ipc", () => ({
 }));
 
 import { createProject, listProjects } from "../../model/ipc";
-import type { ProjectSummary } from "../../model/types";
+import type { Project, ProjectSummary } from "../../model/types";
 import { appVM } from "../appVM";
 import { createProjectsVM } from "../projectsVM";
 
@@ -45,5 +45,23 @@ describe("projectsVM", () => {
     const vm = createProjectsVM();
     await vm.create("项目", null);
     expect(appVM.state.projects).toEqual([project]);
+  });
+
+  it("ignores a second create while the first is pending", async () => {
+    let resolve!: (value: Project) => void;
+    vi.mocked(createProject).mockReturnValue(
+      new Promise<Project>((done) => {
+        resolve = done;
+      }),
+    );
+    vi.mocked(listProjects).mockResolvedValue([project]);
+    const vm = createProjectsVM();
+
+    const first = vm.create("项目", null);
+    const second = vm.create("项目", null);
+    resolve({ id: "p1", name: "项目", dueDate: null, archivedAt: null, memberIds: [] });
+    await Promise.all([first, second]);
+
+    expect(createProject).toHaveBeenCalledTimes(1);
   });
 });
