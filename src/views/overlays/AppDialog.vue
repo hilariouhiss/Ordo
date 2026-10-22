@@ -6,9 +6,11 @@ import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion } from "../../lib/motion";
+import DateField from "../components/DateField.vue";
 
 const draft = ref("");
-const input = ref<HTMLInputElement | null>(null);
+const textInput = ref<HTMLInputElement | null>(null);
+const dateInput = ref<InstanceType<typeof DateField> | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
 
 watch(dialogRequest, async (request) => {
@@ -17,11 +19,11 @@ watch(dialogRequest, async (request) => {
   if (request.kind === "text") {
     draft.value = request.value;
     await nextTick();
-    input.value?.select();
+    textInput.value?.select();
   } else if (request.kind === "date") {
     draft.value = request.value;
     await nextTick();
-    input.value?.focus();
+    dateInput.value?.focus();
   } else {
     confirmButton.value?.focus();
   }
@@ -64,20 +66,19 @@ function onEnter(event: KeyboardEvent): void {
         <h2 class="text-[15px] font-semibold">{{ dialogRequest.title }}</h2>
         <input
           v-if="dialogRequest.kind === 'text'"
-          ref="input"
+          ref="textInput"
           v-model="draft"
           class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
           @keydown.enter="onEnter"
         />
-        <input
+        <DateField
           v-else-if="dialogRequest.kind === 'date'"
-          ref="input"
+          ref="dateInput"
           v-model="draft"
-          type="date"
           :min="todayIso()"
           :aria-label="dialogRequest.title"
           class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
-          @keydown.enter="onEnter"
+          @enter="confirm"
         />
         <p v-else class="mt-2 text-[12.5px] leading-relaxed text-base-content/60">
           {{ dialogRequest.message }}

@@ -8,6 +8,7 @@ import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { todayIso } from "../lib/dates";
 import { setLanguage, t, type Language } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
+import { miniPopupHeight } from "../lib/pickerWindow";
 import { applyTheme, resolveTheme, systemPrefersDark, type AppliedTheme } from "../lib/theme";
 import type { CaptureFields } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
@@ -75,13 +76,19 @@ function onFocus(): void {
 async function fitWindow(): Promise<void> {
   if (!isTauri()) return;
   await nextTick();
-  const height = Math.max(96, Math.ceil((card.value?.getBoundingClientRect().height ?? 0) + 16));
+  const height = Math.max(
+    96,
+    Math.ceil((card.value?.getBoundingClientRect().height ?? 0) + 16),
+    miniPopupHeight.value,
+  );
   if (height === lastHeight) return;
   lastHeight = height;
   await getCurrentWindow()
     .setSize(new LogicalSize(560, height))
     .catch(() => {});
 }
+
+watch(miniPopupHeight, () => void fitWindow());
 
 async function refreshContext(): Promise<void> {
   try {

@@ -12,6 +12,7 @@ import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
+import DateField from "../components/DateField.vue";
 
 const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "todo", key: "task.statusTodo" },
@@ -319,17 +320,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.start") }}
-            <input
+            <DateField
               v-model="form.startDate"
-              type="date"
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
           </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.due") }}
-            <input
+            <DateField
               v-model="form.dueDate"
-              type="date"
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
           </label>

@@ -9,6 +9,7 @@ import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
+import DateField from "../components/DateField.vue";
 
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ close: [gone?: boolean] }>();
@@ -113,11 +114,7 @@ async function remove(): Promise<void> {
         </label>
         <label class="flex items-center gap-3">
           <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.due") }}</span>
-          <input
-            v-model="form.dueDate"
-            type="date"
-            class="input input-sm rounded-lg border-base-300"
-          />
+          <DateField v-model="form.dueDate" class="input input-sm rounded-lg border-base-300" />
         </label>
       </div>
 

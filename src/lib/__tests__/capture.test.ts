@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { CAPTURE_DEFAULTS, parseCapture, type CaptureContext, type CaptureField } from "../capture";
+import {
+  CAPTURE_DEFAULTS,
+  parseCapture,
+  stepEffort,
+  type CaptureContext,
+  type CaptureField,
+} from "../capture";
 import type { CaptureFields } from "../../model/types";
 
 const ctx: CaptureContext = {
@@ -216,6 +222,21 @@ describe("effort tokens", () => {
     expect(effort("~61")).toBe(1);
     expect(effort("~0.25天")).toBe(1);
     expect(effort("~2.25天")).toBe(1);
+  });
+});
+
+describe("stepping effort", () => {
+  it("moves on the half-day grid and clamps at both ends", () => {
+    expect(stepEffort(1, 1)).toBe(1.5);
+    expect(stepEffort(1, -1)).toBe(0.5);
+    expect(stepEffort(0.5, -1)).toBe(0.5);
+    expect(stepEffort(59.5, 1)).toBe(60);
+    expect(stepEffort(60, 1)).toBe(60);
+  });
+
+  it("aligns an off-grid value in the direction of travel", () => {
+    expect(stepEffort(1.3, 1)).toBe(1.5);
+    expect(stepEffort(1.3, -1)).toBe(1);
   });
 });
 

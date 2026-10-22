@@ -8,6 +8,7 @@ import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import { weekVM } from "../../viewmodels/weekVM";
+import DateField from "../components/DateField.vue";
 
 const suspendOpen = ref(false);
 const suspendDate = ref("");
@@ -171,9 +172,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <div v-if="suspendOpen" class="mt-4 rounded-xl bg-base-200 p-3">
             <div class="text-[12px] font-medium">{{ t("pass.suspendPrompt") }}</div>
             <div class="mt-2 flex items-center gap-2">
-              <input
+              <DateField
                 v-model="suspendDate"
-                type="date"
                 :min="todayIso()"
                 class="input input-sm rounded-lg border-base-300"
               />

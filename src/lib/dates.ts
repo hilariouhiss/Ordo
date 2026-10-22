@@ -1,6 +1,6 @@
 import { t } from "./i18n";
 
-function isoOf(date: Date): string {
+export function isoOf(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${m}-${day}`;

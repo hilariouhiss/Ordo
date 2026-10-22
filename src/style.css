@@ -81,6 +81,17 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Native number steppers: too loud for 24px chips, and typing is enough. */
+input[type="number"] {
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   button {
     transition-property: color, background-color, border-color, box-shadow, scale;

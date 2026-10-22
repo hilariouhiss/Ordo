@@ -262,6 +262,11 @@ export const zh = {
   "date.thu": "周四",
   "date.fri": "周五",
   "date.sat": "周六",
+  "date.pick": "选择日期",
+  "date.open": "打开日历",
+  "date.clear": "清除",
+  "date.prevMonth": "上个月",
+  "date.nextMonth": "下个月",
 
   "window.minimize": "最小化",
   "window.maximize": "最大化",
@@ -562,6 +567,11 @@ export const en: Record<MessageKey, string> = {
   "date.thu": "Thu",
   "date.fri": "Fri",
   "date.sat": "Sat",
+  "date.pick": "Pick a date",
+  "date.open": "Open calendar",
+  "date.clear": "Clear",
+  "date.prevMonth": "Previous month",
+  "date.nextMonth": "Next month",
 
   "window.minimize": "Minimize",
   "window.maximize": "Maximize",

@@ -292,8 +292,24 @@ function matchEffort(text: string): PrefixMatch<number> | null {
   return null;
 }
 
+export const EFFORT_MIN = 0.5;
+export const EFFORT_MAX = 60;
+export const EFFORT_STEP = 0.5;
+
+/** Steps on the half-day grid; an off-grid value aligns in the direction of travel. */
+export function stepEffort(value: number, direction: 1 | -1): number {
+  const steps = direction > 0 ? Math.floor(value / EFFORT_STEP) : Math.ceil(value / EFFORT_STEP);
+  const stepped = (steps + direction) * EFFORT_STEP;
+  return Math.min(EFFORT_MAX, Math.max(EFFORT_MIN, stepped));
+}
+
 export function validEffort(value: number): boolean {
-  return Number.isFinite(value) && value >= 0.5 && value <= 60 && Number.isInteger(value * 2);
+  return (
+    Number.isFinite(value) &&
+    value >= EFFORT_MIN &&
+    value <= EFFORT_MAX &&
+    Number.isInteger(value / EFFORT_STEP)
+  );
 }
 
 function parseCount(value: string): number {

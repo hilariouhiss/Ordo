@@ -8,6 +8,7 @@ import { t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { projectsVM } from "../viewmodels/projectsVM";
+import DateField from "./components/DateField.vue";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
 const router = useRouter();
@@ -41,7 +42,7 @@ function onCreateKey(event: KeyboardEvent): void {
         :placeholder="t('projects.placeholder')"
         @keydown.enter="onCreateKey"
       />
-      <input v-model="dueDate" type="date" class="input input-xs rounded-lg border-base-300" />
+      <DateField v-model="dueDate" class="input input-xs rounded-lg border-base-300" />
       <button
         class="btn btn-sm shrink-0 rounded-lg border-0 bg-primary text-primary-content"
         @click="create"
