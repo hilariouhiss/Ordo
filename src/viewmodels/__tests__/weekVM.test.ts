@@ -14,6 +14,7 @@ vi.mock("../../model/ipc", () => ({
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { mondayOf, todayIso } from "../../lib/dates";
+import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { capture, listSuspended, listWeek, moveTask, weekStats } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { appVM } from "../appVM";
@@ -111,6 +112,7 @@ describe("weekVM plan", () => {
   });
 
   afterEach(() => {
+    closeDialog(null);
     vi.useRealTimers();
   });
 
@@ -123,19 +125,19 @@ describe("weekVM plan", () => {
     return vm;
   }
 
-  it("groups tasks under the day they are planned to start", async () => {
+  it("keeps parallel tasks on the day they start", async () => {
     const vm = await loadedWith([
       task({ id: "a", effortDays: 0.5 }),
       task({ id: "b", effortDays: 0.5 }),
       task({ id: "c", effortDays: 1 }),
     ]);
 
-    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
+    expect(vm.days.value).toHaveLength(1);
+    expect(vm.days.value[0].date).toBe("2026-10-20");
     expect(vm.days.value[0].weekday).toBe("周二");
-    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["a", "b"]);
+    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["a", "b", "c"]);
     expect(vm.days.value[0].isToday).toBe(true);
-    expect(vm.days.value[1].isToday).toBe(false);
-    expect(vm.planEnd.value).toBe("2026-10-21");
+    expect(vm.planEnd.value).toBe("2026-10-20");
   });
 
   it("keeps a spanning task under its start day and shows where it ends", async () => {
@@ -154,7 +156,65 @@ describe("weekVM plan", () => {
 
     expect(vm.conflictCount.value).toBe(1);
     expect(vm.days.value[0].rows[0].conflict).toBe(true);
-    expect(vm.days.value[1].rows[0].conflict).toBe(false);
+    expect(vm.days.value[0].rows[1].conflict).toBe(false);
+  });
+
+  it("uses the task's own start date", async () => {
+    const vm = await loadedWith([task({ id: "a", startDate: "2026-10-22" })]);
+
+    expect(vm.days.value[0].date).toBe("2026-10-22");
+    expect(vm.days.value[0].isToday).toBe(false);
+    expect(vm.planEnd.value).toBe("2026-10-22");
+  });
+
+  it("pushes shared work behind an exclusive task", async () => {
+    const vm = await loadedWith([task({ id: "x", exclusive: true }), task({ id: "s" })]);
+
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
+    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["x"]);
+    expect(vm.days.value[1].rows.map((row) => row.task.id)).toEqual(["s"]);
+  });
+
+  it("queues two exclusive tasks on separate days", async () => {
+    const vm = await loadedWith([
+      task({ id: "x1", exclusive: true }),
+      task({ id: "x2", exclusive: true }),
+    ]);
+
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
+  });
+
+  it("takes the latest finish as the plan end", async () => {
+    const vm = await loadedWith([task({ id: "a" }), task({ id: "b", effortDays: 3 })]);
+
+    expect(vm.planEnd.value).toBe("2026-10-22");
+  });
+
+  it("warns when a day stacks more than two person-days", async () => {
+    const vm = await loadedWith([task({ id: "a" }), task({ id: "b" }), task({ id: "c" })]);
+
+    expect(vm.overloadDates.value).toEqual(["2026-10-20"]);
+  });
+
+  it("stays quiet at exactly two person-days", async () => {
+    const vm = await loadedWith([task({ id: "a" }), task({ id: "b" })]);
+
+    expect(vm.overloadDates.value).toEqual([]);
+  });
+
+  it("warns when a capture lands on exclusive time", async () => {
+    const blocker = task({ id: "x", title: "出差", exclusive: true });
+    const added = task({ id: "n", title: "新任务" });
+    vi.mocked(listWeek).mockResolvedValueOnce([blocker]).mockResolvedValueOnce([blocker, added]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(capture).mockResolvedValue(added);
+
+    const vm = createWeekVM();
+    await vm.load();
+    await vm.capture({ raw: "新任务", title: "新任务", fields: CAPTURE_DEFAULTS });
+
+    expect(dialogRequest.value?.kind).toBe("notice");
   });
 
   it("has no plan for an empty week", async () => {

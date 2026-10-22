@@ -93,6 +93,7 @@ pub struct TaskDto {
     pub sort_order: i64,
     pub effort_days: f64,
     pub priority: String,
+    pub exclusive: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -175,6 +176,8 @@ pub struct TaskPatch {
     pub effort_days: Option<f64>,
     #[serde(default)]
     pub priority: Option<String>,
+    #[serde(default)]
+    pub exclusive: Option<bool>,
 }
 
 /// The fields a quick capture can carry. All optional: a missing field keeps the

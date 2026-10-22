@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 8;
+pub const LATEST: i64 = 9;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -239,6 +239,18 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
              WHERE suspended = 1 AND suspended_at IS NULL",
         )?;
         tx.pragma_update(None, "user_version", 8)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 9 {
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "time_exclusive")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN time_exclusive INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 9)?;
         tx.commit()?;
     }
     Ok(())
@@ -640,6 +652,24 @@ mod tests {
             })
             .unwrap();
         assert!(other.is_none());
+    }
+
+    #[test]
+    fn adds_the_exclusive_flag_as_shared() {
+        let c = v3_database();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let flags: Vec<i64> = c
+            .prepare("SELECT time_exclusive FROM tasks ORDER BY sort_order")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(flags, vec![0, 0]);
     }
 
     #[test]

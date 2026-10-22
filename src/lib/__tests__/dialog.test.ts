@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { askConfirm, askSuspend, askText, closeDialog, dialogRequest } from "../dialog";
+import { askConfirm, askNotice, askSuspend, askText, closeDialog, dialogRequest } from "../dialog";
 
 describe("dialog", () => {
   it("prompts with the current value and resolves with the answer", async () => {
@@ -33,6 +33,17 @@ describe("dialog", () => {
     const pending = askConfirm("删除任务", "不能撤销。");
     closeDialog(null);
     await expect(pending).resolves.toBe(false);
+  });
+
+  it("shows a notice until it is dismissed", async () => {
+    const pending = askNotice("独占时间冲突", "已排到 10/21 开始。");
+    expect(dialogRequest.value).toEqual({
+      kind: "notice",
+      title: "独占时间冲突",
+      message: "已排到 10/21 开始。",
+    });
+    closeDialog(null);
+    await expect(pending).resolves.toBeUndefined();
   });
 
   it("resolves true when the confirm is accepted", async () => {

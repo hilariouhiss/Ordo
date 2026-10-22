@@ -15,8 +15,20 @@ import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 import WeeklyPass from "./overlays/WeeklyPass.vue";
 
-const { state, days, planEnd, conflictCount, passNeeded, load, capture, resume, move, moveBy } =
-  weekVM;
+const {
+  state,
+  days,
+  planEnd,
+  overloadDates,
+  conflictCount,
+  passNeeded,
+  load,
+  capture,
+  resume,
+  move,
+  moveBy,
+} = weekVM;
+const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
 const suspendedOpen = computed(() => state.suspended.length > 0);
 
 function suspendedMeta(task: Task): string {
@@ -180,7 +192,7 @@ function refresh(): void {
 
     <div
       v-if="days.length"
-      class="flex items-center gap-2 px-1 text-[10.5px] text-base-content/45"
+      class="flex flex-wrap items-center gap-2 px-1 text-[10.5px] text-base-content/45"
       aria-live="polite"
     >
       <span>
@@ -193,6 +205,9 @@ function refresh(): void {
       </span>
       <span v-if="conflictCount" class="badge badge-soft badge-error badge-xs">
         {{ t("week.conflict", { count: conflictCount }) }}
+      </span>
+      <span v-if="overloadDates.length" class="badge badge-soft badge-warning badge-xs">
+        {{ t("week.overloaded", { dates: overloadText }) }}
       </span>
     </div>
 

@@ -39,6 +39,10 @@ function confirm(): void {
     closeDialog("ok");
     return;
   }
+  if (request.kind === "notice") {
+    closeDialog(null);
+    return;
+  }
   if (request.kind === "suspend") {
     closeDialog({ reason: reasonDraft.value.trim(), until: untilDraft.value });
     return;
@@ -106,6 +110,7 @@ function onEnter(event: KeyboardEvent): void {
 
         <div class="mt-5 flex justify-end gap-2">
           <button
+            v-if="dialogRequest.kind !== 'notice'"
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="closeDialog(null)"
           >
@@ -121,7 +126,7 @@ function onEnter(event: KeyboardEvent): void {
             "
             @click="confirm"
           >
-            {{ t("dialog.ok") }}
+            {{ t(dialogRequest.kind === "notice" ? "dialog.dismiss" : "dialog.ok") }}
           </button>
         </div>
       </motion.div>

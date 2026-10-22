@@ -89,6 +89,7 @@ export interface Task {
   sortOrder: number;
   effortDays: number;
   priority: Priority;
+  exclusive: boolean;
 }
 
 export interface CategoryProgress {
@@ -133,6 +134,7 @@ export interface TaskPatch {
   tags?: string[];
   effortDays?: number;
   priority?: Priority;
+  exclusive?: boolean;
 }
 
 /** The five attributes a capture can carry, already resolved to ids and local dates. */

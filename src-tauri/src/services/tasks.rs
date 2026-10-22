@@ -375,6 +375,30 @@ mod tests {
     }
 
     #[test]
+    fn exclusive_is_saved_and_kept_by_other_patches() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "出差", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            exclusive: Some(true),
+            ..Default::default()
+        };
+        assert!(tasks::update_patch(&c, "t1", &patch, NOW).unwrap().exclusive);
+
+        let later = TaskPatch {
+            title: Some("出差（改）".into()),
+            ..Default::default()
+        };
+        assert!(tasks::update_patch(&c, "t1", &later, NOW).unwrap().exclusive);
+
+        let clear = TaskPatch {
+            exclusive: Some(false),
+            ..Default::default()
+        };
+        assert!(!tasks::update_patch(&c, "t1", &clear, NOW).unwrap().exclusive);
+    }
+
+    #[test]
     fn priority_is_validated_and_saved() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();

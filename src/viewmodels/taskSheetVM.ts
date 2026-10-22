@@ -23,6 +23,7 @@ export interface TaskForm {
   tags: string[];
   effortDays: number;
   priority: Priority;
+  exclusive: boolean;
 }
 
 /** The fields the user actually changed, so a save cannot wipe the ones it did not touch. */
@@ -40,6 +41,7 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   }
   if (form.effortDays !== task.effortDays) patch.effortDays = form.effortDays;
   if (form.priority !== task.priority) patch.priority = form.priority;
+  if (form.exclusive !== task.exclusive) patch.exclusive = form.exclusive;
   return patch;
 }
 

@@ -68,7 +68,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,
                 in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
                 note, archived_at, canceled_at,
-                created_at, updated_at, sort_order, effort_days, priority
+                created_at, updated_at, sort_order, effort_days, priority, time_exclusive
          FROM tasks WHERE id = ?1",
     )?;
     let mut task = task_stmt.query_row([id], |r| {
@@ -98,6 +98,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
             sort_order: r.get(19)?,
             effort_days: r.get(20)?,
             priority: r.get(21)?,
+            exclusive: r.get::<_, i64>(22)? == 1,
         })
     })?;
 
@@ -220,6 +221,10 @@ pub fn apply_patch(
     if let Some(priority) = &patch.priority {
         cols.push("priority");
         vals.push(Value::Text(priority.clone()));
+    }
+    if let Some(exclusive) = patch.exclusive {
+        cols.push("time_exclusive");
+        vals.push(Value::Integer(exclusive as i64));
     }
 
     if let Some(tags) = &patch.tags {

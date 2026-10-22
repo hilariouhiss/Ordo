@@ -20,6 +20,11 @@ const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "done", key: "task.statusDone" },
 ];
 
+const timeOptions: { value: boolean; key: MessageKey }[] = [
+  { value: false, key: "task.shared" },
+  { value: true, key: "task.exclusive" },
+];
+
 const form = reactive({
   title: "",
   projectId: null as string | null,
@@ -32,6 +37,7 @@ const form = reactive({
   effortDays: 1,
   priority: "normal" as Priority,
   status: "todo" as Status,
+  exclusive: false,
 });
 const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
@@ -69,6 +75,7 @@ watch(
     form.effortDays = task.effortDays;
     form.priority = task.priority;
     form.status = task.status;
+    form.exclusive = task.exclusive;
     await refreshCandidates(task.projectId);
   },
   { immediate: true },
@@ -350,6 +357,30 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               @change="onEffortChange"
             />
           </label>
+        </div>
+
+        <div class="mt-3">
+          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+            {{ t("task.timeMode") }}
+          </div>
+          <div class="mt-1.5 flex items-center gap-1.5">
+            <button
+              v-for="option in timeOptions"
+              :key="String(option.value)"
+              class="btn btn-xs rounded-md border-base-300 font-normal"
+              :class="
+                form.exclusive === option.value
+                  ? 'border-0 bg-primary text-primary-content'
+                  : 'bg-base-100'
+              "
+              @click="form.exclusive = option.value"
+            >
+              {{ t(option.key) }}
+            </button>
+            <span class="ml-1 text-[10.5px] text-base-content/40">{{
+              t("task.exclusiveHint")
+            }}</span>
+          </div>
         </div>
 
         <div class="mt-3">

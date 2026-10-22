@@ -48,8 +48,12 @@ export const zh = {
   "week.passNeeded": "这一周的事还没结清",
   "week.pending": "{count} 件待定",
   "week.pass": "过一遍",
-  "week.planEnd": "按这个顺序，最晚 {date}（{weekday}）做完",
+  "week.planEnd": "预计最晚 {date}（{weekday}）做完",
   "week.conflict": "{count} 件赶不上截止日",
+  "week.overloaded": "{dates} 排得太满",
+  "week.exclusiveClashTitle": "独占时间冲突",
+  "week.exclusiveClash":
+    "「{task}」和「{blocker}」的独占时间（{start}–{end}）重叠，已排到 {planned} 开始。",
   "week.today": "今天",
   "week.empty": "这周还是空的。在上面记一句。",
   "week.suspended": "挂起 ({count})",
@@ -178,6 +182,10 @@ export const zh = {
   "task.notFit": "排不进",
   "task.plannedEnd": "{date} 完",
   "task.conflictTitle": "计划 {date} 才做完，晚于截止 {due}",
+  "task.timeMode": "时间占用",
+  "task.shared": "共享",
+  "task.exclusive": "独占",
+  "task.exclusiveHint": "独占期间不排其他任务",
 
   "pass.title": "过一遍",
   "pass.subtitle": "把上周抄下来的逐条结掉",
@@ -251,6 +259,7 @@ export const zh = {
 
   "dialog.cancel": "取消",
   "dialog.ok": "确定",
+  "dialog.dismiss": "知道了",
 
   "summary.headDue": "{name} {date} 截止，{total} 项完成 {done}",
   "summary.head": "{name}，{total} 项完成 {done}",
@@ -352,8 +361,12 @@ export const en: Record<MessageKey, string> = {
   "week.passNeeded": "This week still has loose ends",
   "week.pending": "{count} to decide",
   "week.pass": "Weekly pass",
-  "week.planEnd": "In this order, finish by {date} ({weekday})",
+  "week.planEnd": "Everything done by {date} ({weekday})",
   "week.conflict": "{count} won't meet the due date",
+  "week.overloaded": "Overloaded: {dates}",
+  "week.exclusiveClashTitle": "Exclusive time conflict",
+  "week.exclusiveClash":
+    '"{task}" overlaps exclusive time "{blocker}" ({start}–{end}); it now starts {planned}.',
   "week.today": "Today",
   "week.empty": "This week is empty. Jot one down above.",
   "week.suspended": "Suspended ({count})",
@@ -484,6 +497,10 @@ export const en: Record<MessageKey, string> = {
   "task.notFit": "Won't fit",
   "task.plannedEnd": "Ends {date}",
   "task.conflictTitle": "Planned to finish {date}, after due {due}",
+  "task.timeMode": "Time mode",
+  "task.shared": "Shared",
+  "task.exclusive": "Exclusive",
+  "task.exclusiveHint": "Other work is kept out of its days",
 
   "pass.title": "Weekly pass",
   "pass.subtitle": "Settle last week's carried-over items, one by one",
@@ -560,6 +577,7 @@ export const en: Record<MessageKey, string> = {
 
   "dialog.cancel": "Cancel",
   "dialog.ok": "OK",
+  "dialog.dismiss": "Got it",
 
   "summary.headDue": "{name} due {date}, {done} of {total} done",
   "summary.head": "{name}, {done} of {total} done",

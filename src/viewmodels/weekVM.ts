@@ -1,7 +1,7 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
 import { mondayOf, todayIso, weekdayLabel } from "../lib/dates";
-import { planSchedule } from "../lib/schedule";
+import { LOAD_WARN_HALF_DAYS, planLoads, planSchedule } from "../lib/schedule";
 import {
   aiEnrich,
   capture as captureApi,
@@ -14,6 +14,7 @@ import {
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
+import { toPlanTask, warnExclusiveConflict } from "./planning";
 
 export interface PlannedRow {
   task: Task;
@@ -38,33 +39,32 @@ export function createWeekVM() {
     stats: { added: 0, done: 0, delayed: 0 } as WeekStats,
   });
 
-  const plan = computed(() =>
-    planSchedule(
-      state.tasks.map((task) => ({
-        id: task.id,
-        effortDays: task.effortDays,
-        dueDate: task.dueDate,
-      })),
-      todayIso(),
-    ),
+  const planTasks = computed(() => state.tasks.map(toPlanTask));
+  const plan = computed(() => planSchedule(planTasks.value, todayIso()));
+  const loads = computed(() => planLoads(planTasks.value, plan.value));
+  const overloadDates = computed(() =>
+    [...loads.value.entries()]
+      .filter(([, halfDays]) => halfDays > LOAD_WARN_HALF_DAYS)
+      .map(([date]) => date)
+      .sort(),
   );
 
   const days = computed<PlannedDay[]>(() => {
     const planned = new Map(plan.value.map((row) => [row.id, row]));
     const today = todayIso();
-    const groups: PlannedDay[] = [];
+    const groups = new Map<string, PlannedDay>();
     for (const task of state.tasks) {
       const row = planned.get(task.id);
       if (!row) continue;
-      let group = groups.at(-1);
-      if (!group || group.date !== row.start) {
+      let group = groups.get(row.start);
+      if (!group) {
         group = {
           date: row.start,
           weekday: weekdayLabel(row.start),
           isToday: row.start === today,
           rows: [],
         };
-        groups.push(group);
+        groups.set(row.start, group);
       }
       group.rows.push({
         task,
@@ -73,10 +73,15 @@ export function createWeekVM() {
         conflict: row.conflict,
       });
     }
-    return groups;
+    return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
   });
 
-  const planEnd = computed(() => plan.value.at(-1)?.end ?? null);
+  const planEnd = computed(() =>
+    plan.value.reduce<string | null>(
+      (latest, row) => (latest === null || row.end > latest ? row.end : latest),
+      null,
+    ),
+  );
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {
     const last = appVM.state.settings?.lastPassWeek ?? "";
@@ -113,6 +118,7 @@ export function createWeekVM() {
       void aiEnrich(task.id);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       await load();
+      warnExclusiveConflict(task, state.tasks);
     } finally {
       capturing = false;
     }
@@ -132,7 +138,7 @@ export function createWeekVM() {
     }
   }
 
-  /** Moves one slot in the list, which is also one slot in the day plan. */
+  /** Moves one slot in the list; the order also decides the exclusive queue. */
   async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
     const ids = state.tasks.map((task) => task.id);
     const index = ids.indexOf(taskId);
@@ -146,6 +152,7 @@ export function createWeekVM() {
     plan,
     days,
     planEnd,
+    overloadDates,
     conflictCount,
     passNeeded,
     load,

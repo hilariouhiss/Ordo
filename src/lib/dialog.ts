@@ -8,7 +8,8 @@ export interface SuspendDraft {
 export type DialogRequest =
   | { kind: "text"; title: string; value: string }
   | { kind: "suspend"; title: string }
-  | { kind: "confirm"; title: string; message: string };
+  | { kind: "confirm"; title: string; message: string }
+  | { kind: "notice"; title: string; message: string };
 
 export const dialogRequest = ref<DialogRequest | null>(null);
 
@@ -37,4 +38,9 @@ export function askSuspend(title: string): Promise<SuspendDraft | null> {
 
 export function askConfirm(title: string, message: string): Promise<boolean> {
   return ask({ kind: "confirm", title, message }).then((answer) => answer !== null);
+}
+
+/** A one-button message; the answer carries no meaning. */
+export function askNotice(title: string, message: string): Promise<void> {
+  return ask({ kind: "notice", title, message }).then(() => undefined);
 }

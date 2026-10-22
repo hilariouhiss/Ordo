@@ -6,7 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
-import { closeDialog } from "./lib/dialog";
+import { closeDialog, dialogRequest } from "./lib/dialog";
 import { setLanguage, t } from "./lib/i18n";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
@@ -17,6 +17,7 @@ import {
   type ThemeWindow,
 } from "./lib/theme";
 import { appVM } from "./viewmodels/appVM";
+import { warnExclusiveConflictById } from "./viewmodels/planning";
 import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
@@ -71,7 +72,8 @@ watch(
 
 // The tray always lands somewhere clean; a leftover overlay would hide it.
 function closeOverlays(): void {
-  closeDialog(null);
+  // An exclusive-time notice waits for the user; it is not an overlay they opened.
+  if (dialogRequest.value?.kind !== "notice") closeDialog(null);
   taskSheetVM.close();
   passVM.close();
   settingsVM.close();
@@ -129,9 +131,10 @@ onMounted(async () => {
     () => void syncTheme(),
   );
   if (isTauri()) {
-    await listen("capture:created", () => {
+    await listen<string>("capture:created", (event) => {
       void weekVM.load();
       void tasksVM.load();
+      void warnExclusiveConflictById(event.payload);
     });
     await listen("ai:enriched", () => {
       void weekVM.load();

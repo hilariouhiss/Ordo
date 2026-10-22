@@ -5,10 +5,11 @@ vi.mock("../../model/ipc", () => ({
   capture: vi.fn(),
   getProjectSummary: vi.fn(),
   listProjectTasks: vi.fn(),
+  listWeek: vi.fn(),
 }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
-import { capture, getProjectSummary, listProjectTasks } from "../../model/ipc";
+import { capture, getProjectSummary, listProjectTasks, listWeek } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { createProjectVM } from "../projectVM";
 import { task } from "./fixtures";
@@ -23,7 +24,10 @@ const summary = {
 };
 
 describe("projectVM", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listWeek).mockResolvedValue([]);
+  });
 
   it("ignores a repeated capture while one is in flight", async () => {
     let resolve!: (value: Task) => void;

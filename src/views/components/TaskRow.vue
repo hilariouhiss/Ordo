@@ -145,6 +145,13 @@ async function suspend(): Promise<void> {
     <span v-if="task.effortDays !== 1" class="badge badge-ghost badge-xs">
       {{ t("task.effortDays", { days: task.effortDays }) }}
     </span>
+    <span
+      v-if="task.exclusive"
+      class="badge badge-soft badge-accent badge-xs"
+      :title="t('task.exclusiveHint')"
+    >
+      {{ t("task.exclusive") }}
+    </span>
     <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
       {{ t("task.plannedEnd", { date: shortDate(plan.end) }) }}
     </span>
