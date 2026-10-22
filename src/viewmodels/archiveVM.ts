@@ -8,6 +8,7 @@ import {
   restoreTask as restoreTaskApi,
 } from "../model/ipc";
 import type { ArchiveData } from "../model/types";
+import { projectsVM } from "./projectsVM";
 
 export type ArchiveTab = "projects" | "tasks" | "canceled" | "done";
 
@@ -45,6 +46,7 @@ export function createArchiveVM() {
 
   async function restoreProject(id: string): Promise<void> {
     await restoreProjectApi(id);
+    await projectsVM.load();
     await load();
   }
 

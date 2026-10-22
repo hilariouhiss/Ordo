@@ -107,7 +107,9 @@ function onKey(event: KeyboardEvent): void {
 
 /** The tray window can stay open across midnight, so refresh today and the plan on return. */
 function onWindowFocus(): void {
-  if (!draggingId.value) void load();
+  if (draggingId.value) return;
+  void appVM.load();
+  void load();
 }
 
 onMounted(() => {

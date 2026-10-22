@@ -1,6 +1,7 @@
 import { reactive } from "vue";
 import { createProject, listProjects } from "../model/ipc";
 import type { Project, ProjectSummary } from "../model/types";
+import { appVM } from "./appVM";
 
 export function createProjectsVM() {
   const state = reactive({
@@ -13,6 +14,7 @@ export function createProjectsVM() {
     state.loading = true;
     try {
       state.projects = await listProjects();
+      appVM.state.projects = state.projects;
     } finally {
       state.loading = false;
     }
