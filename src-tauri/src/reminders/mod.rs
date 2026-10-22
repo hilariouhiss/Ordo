@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
 /// Notification id → task id, so a tap can open the task it was about.
@@ -48,7 +48,6 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
     let mut toasts: Vec<(String, String)> = Vec::new();
-    let mut fired_any = false;
     for candidate in candidates {
         let title: String = conn
             .query_row("SELECT title FROM tasks WHERE id = ?1", [&candidate.task_id], |r| {
@@ -75,7 +74,6 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             &title,
         );
         toasts.push((headline, candidate.task_id));
-        fired_any = true;
     }
     if let [(headline, task_id)] = toasts.as_slice() {
         let id = state.reminder_targets.next_id(task_id);
@@ -94,10 +92,6 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             .body(crate::i18n::reminder_body(lang))
             .show();
     }
-    if fired_any {
-        let _ = app.emit("reminder:fired", ());
-    }
-
     if let Some(tray) = app.tray_by_id("main-tray") {
         let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
         let _ = tray.set_tooltip(Some(crate::i18n::tray_tooltip(lang, unread)));

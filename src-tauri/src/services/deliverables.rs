@@ -105,7 +105,7 @@ mod tests {
     fn later_due_writes_reschedule_with_old_and_new() {
         let c = with_due();
         deliverables::set_due(&c, "t1", Some("2026-11-20"), Some("甲方追加数据"), NOW).unwrap();
-        let ds = crate::repo::delays::list(&c, "t1").unwrap();
+        let ds = crate::repo::tasks::dto(&c, "t1").unwrap().delays;
         assert_eq!(ds.len(), 1);
         assert_eq!(ds[0].kind, "reschedule");
         assert_eq!(ds[0].old_due.as_deref(), Some("2026-11-18"));
@@ -154,14 +154,14 @@ mod tests {
     fn earlier_due_writes_nothing() {
         let c = with_due();
         deliverables::set_due(&c, "t1", Some("2026-11-10"), None, NOW).unwrap();
-        assert!(crate::repo::delays::list(&c, "t1").unwrap().is_empty());
+        assert!(crate::repo::tasks::dto(&c, "t1").unwrap().delays.is_empty());
     }
 
     #[test]
     fn overdue_note_is_recorded() {
         let c = with_due();
         deliverables::add_note(&c, "t1", "等甲方回数据", NOW).unwrap();
-        let ds = crate::repo::delays::list(&c, "t1").unwrap();
+        let ds = crate::repo::tasks::dto(&c, "t1").unwrap().delays;
         assert_eq!(ds.len(), 1);
         assert_eq!(ds[0].kind, "overdue_note");
         assert_eq!(ds[0].reason.as_deref(), Some("等甲方回数据"));
