@@ -131,7 +131,6 @@ pub struct BootstrapDto {
     pub tags: Vec<TagDto>,
     pub settings: SettingsDto,
     pub projects: Vec<ProjectSummaryDto>,
-    pub pass_needed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

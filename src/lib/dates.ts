@@ -1,10 +1,13 @@
 import { t } from "./i18n";
 
+function isoOf(date: Date): string {
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${m}-${day}`;
+}
+
 export function todayIso(): string {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return isoOf(new Date());
 }
 
 export function shortDate(iso: string | null): string {
@@ -40,8 +43,10 @@ export function addDays(iso: string, offset: number): string {
   const [year, month, day] = iso.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   date.setDate(date.getDate() + offset);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return isoOf(date);
+}
+
+/** The Monday of the week that contains `iso`. */
+export function mondayOf(iso: string): string {
+  return addDays(iso, -((weekdayOf(iso) + 6) % 7));
 }

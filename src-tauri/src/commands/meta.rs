@@ -5,12 +5,6 @@ use rusqlite::Connection;
 use tauri::{Manager, State};
 
 pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let last = crate::repo::settings::get(conn, "last_pass_week")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
-    let queue = crate::services::week::pass_queue(conn)?;
-    let pass_needed = last != crate::services::week::week_start(&today) && !queue.is_empty();
     Ok(BootstrapDto {
         people: crate::repo::people::list(conn).map_err(|e| e.to_string())?,
         categories: crate::repo::categories::list(conn).map_err(|e| e.to_string())?,
@@ -21,7 +15,6 @@ pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
             s
         },
         projects: crate::services::stats::list(conn)?,
-        pass_needed,
     })
 }
 
@@ -32,20 +25,6 @@ pub async fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapDto, Strin
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn pass_needed_follows_last_pass_week() {
-        let c = crate::db::open_in_memory().unwrap();
-        crate::services::week::capture(&c, "交底", "2026-10-20T08:00:00Z", "t1").unwrap();
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let week = crate::services::week::week_start(&today);
-
-        crate::repo::settings::set(&c, "last_pass_week", &week).unwrap();
-        assert!(!crate::commands::meta::build_bootstrap(&c).unwrap().pass_needed);
-
-        crate::repo::settings::set(&c, "last_pass_week", "2000-01-01").unwrap();
-        assert!(crate::commands::meta::build_bootstrap(&c).unwrap().pass_needed);
-    }
-
     #[test]
     fn settings_roundtrip() {
         let c = crate::db::open_in_memory().unwrap();

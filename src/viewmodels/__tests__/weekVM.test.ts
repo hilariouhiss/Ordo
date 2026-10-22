@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 vi.mock("../../model/ipc", () => ({
   aiEnrich: vi.fn(),
+  bootstrap: vi.fn(),
   capture: vi.fn(),
   listWeek: vi.fn(),
   listSuspended: vi.fn(),
@@ -12,10 +13,12 @@ vi.mock("../../model/ipc", () => ({
 }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
+import { mondayOf, todayIso } from "../../lib/dates";
 import { capture, listSuspended, listWeek, moveTask, weekStats } from "../../model/ipc";
 import type { Task } from "../../model/types";
+import { appVM } from "../appVM";
 import { createWeekVM } from "../weekVM";
-import { task } from "./fixtures";
+import { defaultSettings, task } from "./fixtures";
 
 describe("weekVM", () => {
   it("capture stores the task and clears the draft", async () => {
@@ -160,5 +163,39 @@ describe("weekVM plan", () => {
     expect(vm.days.value).toEqual([]);
     expect(vm.planEnd.value).toBeNull();
     expect(vm.conflictCount.value).toBe(0);
+  });
+});
+
+describe("weekVM pass entry", () => {
+  afterEach(() => {
+    appVM.state.settings = null;
+  });
+
+  it("shows the pass entry after a capture into an empty week", async () => {
+    vi.mocked(listWeek)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([task({ id: "t1" })]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 0, delayed: 0 });
+    vi.mocked(capture).mockResolvedValue(task({ id: "t1" }));
+    appVM.state.settings = { ...defaultSettings, lastPassWeek: "" };
+
+    const vm = createWeekVM();
+    await vm.load();
+    expect(vm.passNeeded.value).toBe(false);
+
+    await vm.capture({ raw: "交底", title: "交底", fields: CAPTURE_DEFAULTS });
+    expect(vm.passNeeded.value).toBe(true);
+  });
+
+  it("hides the pass entry once this week's pass is recorded", async () => {
+    vi.mocked(listWeek).mockResolvedValue([task({ id: "t1" })]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    appVM.state.settings = { ...defaultSettings, lastPassWeek: mondayOf(todayIso()) };
+
+    const vm = createWeekVM();
+    await vm.load();
+    expect(vm.passNeeded.value).toBe(false);
   });
 });

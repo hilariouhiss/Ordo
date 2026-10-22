@@ -14,7 +14,8 @@ import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 import WeeklyPass from "./overlays/WeeklyPass.vue";
 
-const { state, days, planEnd, conflictCount, load, capture, resume, move, moveBy } = weekVM;
+const { state, days, planEnd, conflictCount, passNeeded, load, capture, resume, move, moveBy } =
+  weekVM;
 const suspendedOpen = computed(() => state.suspended.length > 0);
 
 const listEl = ref<HTMLElement | null>(null);
@@ -150,10 +151,7 @@ function refresh(): void {
 
 <template>
   <section class="space-y-2">
-    <div
-      v-if="appVM.state.passNeeded"
-      class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
-    >
+    <div v-if="passNeeded" class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5">
       <span class="text-[12.5px]">{{ t("week.passNeeded") }}</span>
       <span class="text-[11px] text-base-content/45">{{
         t("week.pending", { count: state.tasks.length })

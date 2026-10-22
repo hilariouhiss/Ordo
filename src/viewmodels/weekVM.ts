@@ -1,6 +1,6 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
-import { todayIso, weekdayLabel } from "../lib/dates";
+import { mondayOf, todayIso, weekdayLabel } from "../lib/dates";
 import { planSchedule } from "../lib/schedule";
 import {
   aiEnrich,
@@ -13,6 +13,7 @@ import {
   weekStats,
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
+import { appVM } from "./appVM";
 
 export interface PlannedRow {
   task: Task;
@@ -77,6 +78,10 @@ export function createWeekVM() {
 
   const planEnd = computed(() => plan.value.at(-1)?.end ?? null);
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
+  const passNeeded = computed(() => {
+    const last = appVM.state.settings?.lastPassWeek ?? "";
+    return last !== mondayOf(todayIso()) && state.tasks.length > 0;
+  });
 
   async function load(): Promise<void> {
     state.loading = true;
@@ -142,6 +147,7 @@ export function createWeekVM() {
     days,
     planEnd,
     conflictCount,
+    passNeeded,
     load,
     capture,
     resume,

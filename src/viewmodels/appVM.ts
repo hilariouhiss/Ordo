@@ -10,7 +10,6 @@ export function createAppVM() {
     tags: [] as Tag[],
     settings: null as Settings | null,
     projects: [] as ProjectSummary[],
-    passNeeded: false,
   });
 
   async function load(): Promise<void> {
@@ -20,7 +19,6 @@ export function createAppVM() {
     state.tags = data.tags;
     state.settings = data.settings;
     state.projects = data.projects;
-    state.passNeeded = data.passNeeded;
     state.ready = true;
   }
 

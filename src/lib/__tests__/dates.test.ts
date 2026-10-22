@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { addDays, isWeekend, weekdayLabel, weekdayOf } from "../dates";
+import { addDays, isWeekend, mondayOf, weekdayLabel, weekdayOf } from "../dates";
 import { setLanguage } from "../i18n";
 
 afterEach(() => setLanguage("zh"));
@@ -39,5 +39,13 @@ describe("weekdays", () => {
     expect(isWeekend("2026-10-24")).toBe(true);
     expect(isWeekend("2026-10-25")).toBe(true);
     expect(isWeekend("2026-10-26")).toBe(false);
+  });
+});
+
+describe("mondayOf", () => {
+  it("returns the Monday of the week", () => {
+    expect(mondayOf("2026-10-19")).toBe("2026-10-19");
+    expect(mondayOf("2026-10-25")).toBe("2026-10-19");
+    expect(mondayOf("2026-01-01")).toBe("2025-12-29");
   });
 });

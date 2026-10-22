@@ -117,7 +117,6 @@ export interface Bootstrap {
   tags: Tag[];
   settings: Settings;
   projects: ProjectSummary[];
-  passNeeded: boolean;
 }
 
 export type PassAction = "keep" | "done" | "suspend" | "cancel";

@@ -14,7 +14,6 @@ describe("appVM", () => {
       tags: [],
       settings: defaultSettings,
       projects: [],
-      passNeeded: false,
     });
     const vm = createAppVM();
     await vm.load();
