@@ -241,6 +241,31 @@ mod tests {
     }
 
     #[test]
+    fn search_matches_literal_wildcards() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "完成 50% 的报表", NOW, "t1").unwrap();
+        week::capture(&c, "a_b 的表格", NOW, "t2").unwrap();
+        week::capture(&c, "axb 的表格", NOW, "t3").unwrap();
+        for id in ["t1", "t2", "t3"] {
+            crate::repo::tasks::archive(&c, id, NOW).unwrap();
+        }
+
+        let percent = archive::list(&c, Some("%")).unwrap();
+        assert_eq!(percent.tasks.len(), 1);
+        assert_eq!(percent.tasks[0].id, "t1");
+
+        let underscore = archive::list(&c, Some("_")).unwrap();
+        assert_eq!(underscore.tasks.len(), 1);
+        assert_eq!(underscore.tasks[0].id, "t2");
+
+        let p = crate::services::projects::create(&c, "50% 项目", None, NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+        let projects = archive::list(&c, Some("%")).unwrap();
+        assert_eq!(projects.projects.len(), 1);
+        assert_eq!(projects.projects[0].id, p.id);
+    }
+
+    #[test]
     fn search_matches_title_substring() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "问采购螺丝的事", NOW, "t1").unwrap();

@@ -309,9 +309,9 @@ pub fn write_orders(conn: &Connection, ids: &[String]) -> rusqlite::Result<()> {
 }
 
 fn list_where(conn: &Connection, condition: &str, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
-    let pattern = query.map(|q| format!("%{}%", q));
+    let pattern = query.map(crate::repo::like_pattern);
     let sql = format!(
-        "SELECT id FROM tasks WHERE deleted_at IS NULL AND {} AND (?1 IS NULL OR title LIKE ?1)
+        "SELECT id FROM tasks WHERE deleted_at IS NULL AND {} AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC",
         condition
     );
