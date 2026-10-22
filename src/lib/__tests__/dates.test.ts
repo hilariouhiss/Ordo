@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { addDays, isWeekend, mondayOf, weekdayLabel, weekdayOf } from "../dates";
+import { addDays, isWeekend, localDate, mondayOf, weekdayLabel, weekdayOf } from "../dates";
 import { setLanguage } from "../i18n";
 
 afterEach(() => setLanguage("zh"));
@@ -47,5 +47,11 @@ describe("mondayOf", () => {
     expect(mondayOf("2026-10-19")).toBe("2026-10-19");
     expect(mondayOf("2026-10-25")).toBe("2026-10-19");
     expect(mondayOf("2026-01-01")).toBe("2025-12-29");
+  });
+});
+
+describe("localDate", () => {
+  it("keeps the local calendar day of a timestamp", () => {
+    expect(localDate(new Date(2026, 9, 20, 0, 30).toISOString())).toBe("2026-10-20");
   });
 });

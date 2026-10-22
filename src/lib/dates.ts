@@ -10,6 +10,11 @@ export function todayIso(): string {
   return isoOf(new Date());
 }
 
+/** The local calendar day of an RFC3339 timestamp. */
+export function localDate(timestamp: string): string {
+  return isoOf(new Date(timestamp));
+}
+
 export function shortDate(iso: string | null): string {
   if (!iso) return "";
   const [, m, d] = iso.split("-");

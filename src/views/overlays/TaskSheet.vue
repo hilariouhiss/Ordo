@@ -2,7 +2,7 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { shortDate, todayIso } from "../../lib/dates";
+import { localDate, shortDate, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
@@ -389,7 +389,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             class="mt-1 rounded-lg border border-base-300 px-3 py-1.5 text-[11px] text-base-content/60"
           >
             <span class="tabular-nums text-base-content/40">
-              {{ d.createdAt.slice(5, 10).replace("-", "/") }}
+              {{ shortDate(localDate(d.createdAt)) }}
             </span>
             {{ d.reason || t("task.noReason") }}
             <span v-if="d.kind === 'reschedule'" class="text-base-content/40">
