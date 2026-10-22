@@ -227,8 +227,14 @@ function dateRules(
     const y = Number(match[1]);
     return isoDate(y, Number(match[2]), Number(match[3]));
   };
-  const monthDate = (match: RegExpExecArray, baseYear: number): string | null =>
-    isoDate(baseYear, Number(match[1]), Number(match[2]));
+  const monthDate = (match: RegExpExecArray, baseYear: number): string | null => {
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const thisYear = isoDate(baseYear, month, day);
+    if (!thisYear) return null;
+    if (thisYear >= today) return thisYear;
+    return isoDate(baseYear + 1, month, day);
+  };
   return [
     [/^大后天/, (_m) => addDays(today, 3)],
     [/^后天/, (_m) => addDays(today, 2)],

@@ -177,6 +177,27 @@ describe("date tokens", () => {
   });
 });
 
+describe("year rollover", () => {
+  function parseAt(raw: string, today: string) {
+    return parseCapture(raw, { ...ctx, today });
+  }
+
+  it("rolls a month/day token into next year when it has passed", () => {
+    expect(parseAt("^1/5 发报表", "2026-12-30").fields.dueDate).toBe("2027-01-05");
+    expect(parseAt("^1月5日 发报表", "2026-12-30").fields.dueDate).toBe("2027-01-05");
+  });
+
+  it("keeps a month/day token in this year when it is still ahead", () => {
+    expect(parseAt("^12/31 发报表", "2026-12-30").fields.dueDate).toBe("2026-12-31");
+  });
+
+  it("does not invent an invalid date across a leap year", () => {
+    const parsed = parseAt("^2/29 发报表", "2027-03-01");
+    expect(parsed.fields.dueDate).toBeNull();
+    expect(parsed.title).toBe("^2/29 发报表");
+  });
+});
+
 describe("effort tokens", () => {
   it("reads days and person-days", () => {
     expect(effort("~2天")).toBe(2);

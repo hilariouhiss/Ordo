@@ -36,6 +36,11 @@ describe("timelineLayout", () => {
     expect(row.widthPct).toBeCloseTo(26.83, 1);
   });
 
+  it("keeps a same-day bar visible", () => {
+    const row = timelineLayout(range, [t("t6", "2026-10-20", "2026-10-20")])[0];
+    expect(row.widthPct).toBeGreaterThan(0);
+  });
+
   it("skips tasks without any date", () => {
     expect(timelineLayout(range, [t("t3", null, null)])).toEqual([]);
   });

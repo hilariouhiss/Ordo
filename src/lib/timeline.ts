@@ -21,6 +21,8 @@ export interface TimelineRow {
 }
 
 const DAY = 86_400_000;
+/** A same-day task would otherwise get a zero-width, invisible bar. */
+const MIN_BAR_PCT = 0.6;
 
 function clampPct(value: number): number {
   return Math.min(100, Math.max(0, value));
@@ -42,7 +44,7 @@ export function timelineLayout(range: TimelineRange, tasks: TimelineTask[]): Tim
       return {
         taskId: task.id,
         leftPct: clampPct(((start - rangeStart) / DAY / total) * 100),
-        widthPct: clampPct(Math.max(0, (end - start) / DAY / total) * 100),
+        widthPct: clampPct(Math.max(MIN_BAR_PCT, ((end - start) / DAY / total) * 100)),
         dashedStart: !task.startDate,
         dashedEnd: !task.dueDate,
       };
