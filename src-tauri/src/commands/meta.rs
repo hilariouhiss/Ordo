@@ -183,15 +183,8 @@ pub async fn backup_now(
         .map_err(|e| e.to_string())?
         .join("backups");
     with_db(&state, move |conn| {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let result = match crate::services::export::backup_daily(conn, &dir)? {
-            Some(path) => path.to_string_lossy().to_string(),
-            None => dir
-                .join(format!("ordo-{}.db", today))
-                .to_string_lossy()
-                .to_string(),
-        };
-        Ok(result)
+        let path = crate::services::export::backup_snapshot(conn, &dir)?;
+        Ok(path.to_string_lossy().to_string())
     })
     .await
 }

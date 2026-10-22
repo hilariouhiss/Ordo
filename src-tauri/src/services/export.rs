@@ -67,7 +67,10 @@ pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
         if !name.starts_with("ordo-") || !name.ends_with(".db") || name.len() < 15 {
             continue;
         }
-        let Ok(date) = chrono::NaiveDate::parse_from_str(&name[5..15], "%Y-%m-%d") else {
+        let Some(date_text) = name.get(5..15) else {
+            continue;
+        };
+        let Ok(date) = chrono::NaiveDate::parse_from_str(date_text, "%Y-%m-%d") else {
             continue;
         };
         if (today - date).num_days() > keep_days {
@@ -89,20 +92,42 @@ pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, St
     Ok(Some(path))
 }
 
+fn keep_days(conn: &Connection) -> i64 {
+    crate::repo::settings::get(conn, "backup_keep_days")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30)
+}
+
 /// Backs up once per day: a no-op when today's copy already exists, and old copies
 /// are pruned only after a new one was actually written.
 pub fn backup_daily(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, String> {
     let made = backup_today(conn, dir)?;
     if made.is_some() {
-        let keep_days = crate::repo::settings::get(conn, "backup_keep_days")
-            .ok()
-            .flatten()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(30);
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let _ = prune(dir, keep_days, &today);
+        let _ = prune(dir, keep_days(conn), &today);
     }
     Ok(made)
+}
+
+/// Takes a fresh copy on demand. The "T" between date and time keeps a same-day
+/// snapshot sorting after the daily ordo-YYYY-MM-DD.db in backups_newest_first,
+/// so recovery prefers the newer of the two.
+pub fn backup_snapshot(conn: &Connection, dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let name = format!(
+        "ordo-{}.db",
+        chrono::Local::now().format("%Y-%m-%dT%H%M%S")
+    );
+    let path = dir.join(name);
+    if !path.exists() {
+        conn.execute("VACUUM INTO ?1", [path.to_string_lossy().to_string()])
+            .map_err(|e| e.to_string())?;
+    }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let _ = prune(dir, keep_days(conn), &today);
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -136,13 +161,17 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("ordo-2026-01-01.db"), b"old").unwrap();
         std::fs::write(dir.join("ordo-2026-09-01.db"), b"old").unwrap();
+        std::fs::write(dir.join("ordo-2026-09-02T120000.db"), b"old").unwrap();
         std::fs::write(dir.join("ordo-2026-10-19.db"), b"keep").unwrap();
+        std::fs::write(dir.join("ordo-每天备份.db"), b"keep").unwrap();
         std::fs::write(dir.join("notes.txt"), b"keep").unwrap();
 
         export::prune(&dir, 30, "2026-10-20").unwrap();
         assert!(!dir.join("ordo-2026-01-01.db").exists());
         assert!(!dir.join("ordo-2026-09-01.db").exists());
+        assert!(!dir.join("ordo-2026-09-02T120000.db").exists());
         assert!(dir.join("ordo-2026-10-19.db").exists());
+        assert!(dir.join("ordo-每天备份.db").exists());
         assert!(dir.join("notes.txt").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -177,6 +206,22 @@ mod tests {
 
         assert!(made.is_none());
         assert!(dir.join("ordo-2000-01-01.db").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn manual_snapshot_is_timestamped() {
+        let c = db::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-snapshot-{}", uuid::Uuid::new_v4()));
+        let path = export::backup_snapshot(&c, &dir).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("ordo-"));
+        assert!(name.ends_with(".db"));
+        assert_eq!(name.as_bytes().get(15), Some(&b'T'));
+        assert!(path.exists());
+
+        let again = export::backup_snapshot(&c, &dir).unwrap();
+        assert!(again.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
