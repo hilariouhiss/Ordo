@@ -25,6 +25,7 @@ type AiStatus =
   | { kind: "saved" }
   | { kind: "testing" }
   | { kind: "ok"; ms: number }
+  | { kind: "cleared" }
   | { kind: "failed"; error: string }
   | null;
 
@@ -39,6 +40,7 @@ const aiStatusText = computed(() => {
   if (!status) return "";
   if (status.kind === "saved") return t("settings.aiKeySaved");
   if (status.kind === "testing") return t("settings.aiTesting");
+  if (status.kind === "cleared") return t("settings.aiKeyCleared");
   if (status.kind === "ok") return t("settings.aiOk", { ms: status.ms });
   return t("settings.aiFailed", { error: errorText(status.error) || t("settings.aiUnknown") });
 });
@@ -73,6 +75,17 @@ async function saveKey(): Promise<void> {
   keyDraft.value = "";
   aiStatus.value = { kind: "saved" };
   if (appVM.state.settings) appVM.state.settings.aiHasKey = true;
+}
+
+async function clearKey(): Promise<void> {
+  try {
+    await ipc.clearAiKey();
+    if (appVM.state.settings) appVM.state.settings.aiHasKey = false;
+    keyDraft.value = "";
+    aiStatus.value = { kind: "cleared" };
+  } catch (e) {
+    aiStatus.value = { kind: "failed", error: String(e) };
+  }
 }
 
 async function testAi(): Promise<void> {
@@ -215,6 +228,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                     @click="testAi"
                   >
                     {{ t("settings.aiTest") }}
+                  </button>
+                  <button
+                    v-if="settings.aiHasKey"
+                    class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                    @click="clearKey"
+                  >
+                    {{ t("settings.aiKeyClear") }}
                   </button>
                 </label>
                 <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">{{ aiStatusText }}</p>
