@@ -2,6 +2,7 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { validEffort } from "../../lib/capture";
 import { localDate, shortDate, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -105,9 +106,7 @@ function onPriorityChange(event: Event): void {
 function onEffortChange(event: Event): void {
   const input = event.target as HTMLInputElement;
   const value = Number(input.value);
-  if (Number.isFinite(value) && value >= 0.5 && value <= 60 && Number.isInteger(value * 2)) {
-    form.effortDays = value;
-  }
+  if (validEffort(value)) form.effortDays = value;
   input.value = String(form.effortDays);
 }
 

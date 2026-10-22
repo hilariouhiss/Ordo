@@ -292,7 +292,7 @@ function matchEffort(text: string): PrefixMatch<number> | null {
   return null;
 }
 
-function validEffort(value: number): boolean {
+export function validEffort(value: number): boolean {
   return Number.isFinite(value) && value >= 0.5 && value <= 60 && Number.isInteger(value * 2);
 }
 

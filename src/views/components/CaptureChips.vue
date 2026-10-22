@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { CaptureField } from "../../lib/capture";
+import { validEffort, type CaptureField } from "../../lib/capture";
 import { t } from "../../lib/i18n";
 import type { CaptureFields, Priority } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -43,7 +43,7 @@ function onDue(event: Event): void {
 function onEffort(event: Event): void {
   const input = event.target as HTMLInputElement;
   const value = Number(input.value);
-  if (Number.isFinite(value) && value >= 0.5 && value <= 60 && Number.isInteger(value * 2)) {
+  if (validEffort(value)) {
     emit("edit", { effortDays: value });
   } else {
     input.value = String(props.fields.effortDays);
