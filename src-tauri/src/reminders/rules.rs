@@ -18,7 +18,10 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         .prepare(
             "SELECT id, due_date FROM tasks
              WHERE due_date IS NOT NULL AND deleted_at IS NULL
-               AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
+               AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'
+               AND (project_id IS NULL OR EXISTS (
+                   SELECT 1 FROM projects p
+                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -52,7 +55,10 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         .prepare(
             "SELECT id, suspended_until FROM tasks
              WHERE suspended_until IS NOT NULL AND deleted_at IS NULL
-               AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
+               AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'
+               AND (project_id IS NULL OR EXISTS (
+                   SELECT 1 FROM projects p
+                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -186,6 +192,30 @@ mod tests {
             crate::reminders::rules::candidates(&c, at(2026, 10, 20, 10, 0))
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn archived_project_tasks_do_not_remind() {
+        let c = crate::db::open_in_memory().unwrap();
+        let project = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        task_with_due(&c, "t1", "2026-10-21");
+        c.execute(
+            "UPDATE tasks SET project_id = ?1 WHERE id = 't1'",
+            [&project.id],
+        )
+        .unwrap();
+        crate::repo::projects::set_archived(&c, &project.id, true, NOW).unwrap();
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        assert!(cands.iter().all(|c| c.task_id != "t1"));
+
+        task_with_due(&c, "t2", "2026-10-21");
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        assert!(
+            cands
+                .iter()
+                .any(|c| c.task_id == "t2" && c.kind == "due_tomorrow")
         );
     }
 }
