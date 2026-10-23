@@ -4,6 +4,7 @@ use tauri::Manager;
 pub mod ai;
 pub mod commands;
 pub mod db;
+pub mod desk;
 pub mod dto;
 pub mod i18n;
 pub mod repo;
@@ -134,21 +135,34 @@ fn first_close_hint(app: &tauri::AppHandle) {
 fn tray_menu(
     app: &tauri::AppHandle,
     lang: crate::i18n::Lang,
+    desk_enabled: bool,
 ) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{Menu, MenuItem};
+    use tauri::menu::{CheckMenuItem, Menu, MenuItem};
     let labels = crate::i18n::tray_labels(lang);
     let open = MenuItem::with_id(app, "open", labels[0], true, None::<&str>)?;
     let week = MenuItem::with_id(app, "week", labels[1], true, None::<&str>)?;
     let pass = MenuItem::with_id(app, "pass", labels[2], true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", labels[3], true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", labels[4], true, None::<&str>)?;
-    Menu::with_items(app, &[&open, &week, &pass, &settings, &quit])
+    let desk = CheckMenuItem::with_id(
+        app,
+        "desk",
+        labels[3],
+        true,
+        desk_enabled,
+        None::<&str>,
+    )?;
+    let settings = MenuItem::with_id(app, "settings", labels[4], true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", labels[5], true, None::<&str>)?;
+    Menu::with_items(app, &[&open, &week, &pass, &desk, &settings, &quit])
 }
 
-fn build_tray(app: &tauri::App, lang: crate::i18n::Lang) -> tauri::Result<()> {
+fn build_tray(
+    app: &tauri::App,
+    lang: crate::i18n::Lang,
+    desk_enabled: bool,
+) -> tauri::Result<()> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let menu = tray_menu(app.handle(), lang)?;
+    let menu = tray_menu(app.handle(), lang, desk_enabled)?;
 
     // Same artwork as the taskbar icon, so the two never drift.
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
@@ -167,6 +181,7 @@ fn build_tray(app: &tauri::App, lang: crate::i18n::Lang) -> tauri::Result<()> {
                 show_main(app);
                 let _ = app.emit_to("main", "nav:pass", ());
             }
+            "desk" => crate::desk::toggle(app),
             "settings" => {
                 show_main(app);
                 let _ = app.emit_to("main", "open:settings", ());
@@ -188,12 +203,17 @@ fn build_tray(app: &tauri::App, lang: crate::i18n::Lang) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Rebuilds the tray menu after a language change; a failure keeps the old menu.
-pub(crate) fn refresh_tray(app: &tauri::AppHandle, lang: crate::i18n::Lang) {
+/// Rebuilds the tray menu after a language or widget-state change; a failure
+/// keeps the old menu.
+pub(crate) fn refresh_tray(
+    app: &tauri::AppHandle,
+    lang: crate::i18n::Lang,
+    desk_enabled: bool,
+) {
     let Some(tray) = app.tray_by_id("main-tray") else {
         return;
     };
-    match tray_menu(app, lang) {
+    match tray_menu(app, lang, desk_enabled) {
         Ok(menu) => {
             let _ = tray.set_menu(Some(menu));
         }
@@ -224,6 +244,11 @@ pub fn run() {
           // nothing to show until the next launch.
           api.prevent_close();
           let _ = window.hide();
+        } else if window.label() == "desk" {
+          // Closing the widget only turns it off; the tray and the main header
+          // stay the way to bring it back.
+          api.prevent_close();
+          crate::desk::set_enabled(window.app_handle(), false);
         }
       }
     })
@@ -379,6 +404,7 @@ pub fn run() {
       }
 
       let lang = crate::i18n::from_conn(&conn);
+      let desk_enabled = crate::desk::enabled(&conn);
       app.manage(crate::state::AppState::new(conn));
 
       use tauri_plugin_notification::NotificationExt;
@@ -399,7 +425,7 @@ pub fn run() {
               }
           });
 
-      build_tray(app, lang)?;
+      build_tray(app, lang, desk_enabled)?;
       crate::reminders::start(app.handle().clone());
 
       // The main window is created hidden and shows itself after its first paint; the
@@ -411,6 +437,7 @@ pub fn run() {
           let handle = deferred.clone();
           let _ = deferred.run_on_main_thread(move || {
               let _ = ensure_capture(&handle, false);
+              crate::desk::startup(&handle);
               if let Some(window) = handle.get_webview_window("main") {
                   if !window.is_visible().unwrap_or(true) {
                       let _ = window.show();

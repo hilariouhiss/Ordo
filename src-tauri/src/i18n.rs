@@ -45,10 +45,17 @@ pub fn from_conn(conn: &Connection) -> Lang {
     }
 }
 
-pub fn tray_labels(lang: Lang) -> [&'static str; 5] {
+pub fn tray_labels(lang: Lang) -> [&'static str; 6] {
     match lang {
-        Lang::Zh => ["打开 ordo", "本周", "过一遍", "设置", "退出"],
-        Lang::En => ["Open ordo", "This week", "Weekly pass", "Settings", "Quit"],
+        Lang::Zh => ["打开 ordo", "本周", "过一遍", "桌面小窗", "设置", "退出"],
+        Lang::En => [
+            "Open ordo",
+            "This week",
+            "Weekly pass",
+            "Week widget",
+            "Settings",
+            "Quit",
+        ],
     }
 }
 
@@ -121,9 +128,11 @@ mod tests {
     #[test]
     fn tray_labels_switch_language() {
         assert_eq!(tray_labels(Lang::Zh)[0], "打开 ordo");
-        assert_eq!(tray_labels(Lang::Zh)[3], "设置");
+        assert_eq!(tray_labels(Lang::Zh)[3], "桌面小窗");
+        assert_eq!(tray_labels(Lang::Zh)[5], "退出");
         assert_eq!(tray_labels(Lang::En)[1], "This week");
-        assert_eq!(tray_labels(Lang::En)[4], "Quit");
+        assert_eq!(tray_labels(Lang::En)[3], "Week widget");
+        assert_eq!(tray_labels(Lang::En)[5], "Quit");
     }
 
     #[test]

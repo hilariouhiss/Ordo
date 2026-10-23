@@ -3,6 +3,7 @@ import type { ThemePref } from "../lib/theme";
 
 export type Status = "todo" | "doing" | "done";
 export type Priority = "high" | "normal" | "low";
+export type DeskPin = "top" | "bottom";
 
 export interface Person {
   id: string;
@@ -34,6 +35,11 @@ export interface Settings {
   backupKeepDays: number;
   backupError: string | null;
   lastPassWeek?: string;
+  deskEnabled: boolean;
+  deskControls: boolean;
+  deskPin: DeskPin;
+  deskX: number | null;
+  deskY: number | null;
 }
 
 export interface Project {

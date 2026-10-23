@@ -136,6 +136,18 @@ export const zh = {
   "capture.effort": "工时",
   "capture.effortUnit": "天",
 
+  "desk.title": "本周",
+  "desk.count": "{count} 件",
+  "desk.empty": "这周没有待办。",
+  "desk.pinToTop": "置顶",
+  "desk.pinToBottom": "置底",
+  "desk.close": "关闭小窗",
+  "desk.expand": "展开小窗",
+  "desk.toggle": "显示或隐藏本周小窗",
+  "desk.openTask": "在主窗口打开「{title}」",
+  "desk.loadFailed": "刷新失败，稍后再试。",
+  "desk.actionFailed": "操作失败：{error}",
+
   "task.title": "标题",
   "task.status": "状态",
   "task.statusTodo": "未开始",
@@ -213,6 +225,8 @@ export const zh = {
   "settings.themeLight": "浅色",
   "settings.themeDark": "深色",
   "settings.autostart": "开机自启",
+  "settings.deskControls": "小窗内变更任务状态",
+  "settings.deskControlsHint": "开启后小窗里可直接开始、挂起、完成；小窗挂起不填日期和原因。",
   "settings.shortcut": "全局快捷键",
   "settings.shortcutRecording": "按下组合键…",
   "settings.shortcutChange": "改",
@@ -316,6 +330,7 @@ export const zh = {
   "error.invalid_due_date": "截止日期格式不对。",
   "error.invalid_project": "项目不存在或已删除。",
   "error.invalid_owner": "负责人不存在或已删除。",
+  "error.invalid_desk_pin": "小窗层级只能是置顶或置底。",
 } as const;
 
 export type MessageKey = keyof typeof zh;
@@ -452,6 +467,18 @@ export const en: Record<MessageKey, string> = {
   "capture.effort": "Effort",
   "capture.effortUnit": "d",
 
+  "desk.title": "This week",
+  "desk.count": "{count} left",
+  "desk.empty": "Nothing left this week.",
+  "desk.pinToTop": "Keep on top",
+  "desk.pinToBottom": "Keep at bottom",
+  "desk.close": "Close widget",
+  "desk.expand": "Expand widget",
+  "desk.toggle": "Show or hide the week widget",
+  "desk.openTask": "Open “{title}” in ordo",
+  "desk.loadFailed": "Couldn't refresh. Try again later.",
+  "desk.actionFailed": "That didn't work: {error}",
+
   "task.title": "Title",
   "task.status": "Status",
   "task.statusTodo": "Not started",
@@ -530,6 +557,9 @@ export const en: Record<MessageKey, string> = {
   "settings.themeLight": "Light",
   "settings.themeDark": "Dark",
   "settings.autostart": "Launch at startup",
+  "settings.deskControls": "Change status from the widget",
+  "settings.deskControlsHint":
+    "Start, park and complete tasks right in the widget; parking there skips the date and reason.",
   "settings.shortcut": "Global shortcut",
   "settings.shortcutRecording": "Press a shortcut…",
   "settings.shortcutChange": "Change",
@@ -635,6 +665,7 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_due_date": "The due date is not valid.",
   "error.invalid_project": "That project no longer exists.",
   "error.invalid_owner": "That person no longer exists.",
+  "error.invalid_desk_pin": "The widget can only be on top or at the bottom.",
 };
 
 export const messages = { zh, en } as const;
@@ -678,6 +709,7 @@ const knownErrors = [
   "invalid_due_date",
   "invalid_project",
   "invalid_owner",
+  "invalid_desk_pin",
 ] as const;
 
 /** Maps the backend's short error codes; anything else is shown as-is. */

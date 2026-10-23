@@ -70,6 +70,32 @@ mod tests {
         assert_eq!(b.settings.language, crate::i18n::system_language());
         assert_eq!(b.settings.shortcut, "Ctrl+Alt+O");
     }
+
+    #[test]
+    fn desk_settings_default_and_roundtrip() {
+        let c = crate::db::open_in_memory().unwrap();
+        let s = crate::repo::settings::dto(&c).unwrap();
+        assert!(!s.desk_enabled);
+        assert!(s.desk_controls);
+        assert_eq!(s.desk_pin, "top");
+        assert!(s.desk_x.is_none());
+        assert!(s.desk_y.is_none());
+
+        crate::repo::settings::set(&c, "desk.enabled", "true").unwrap();
+        crate::repo::settings::set(&c, "desk.controls", "false").unwrap();
+        crate::repo::settings::set(&c, "desk.pin", "bottom").unwrap();
+        crate::repo::settings::set(&c, "desk.x", "-1200").unwrap();
+        crate::repo::settings::set(&c, "desk.y", "40").unwrap();
+        let s = crate::repo::settings::dto(&c).unwrap();
+        assert!(s.desk_enabled);
+        assert!(!s.desk_controls);
+        assert_eq!(s.desk_pin, "bottom");
+        assert_eq!(s.desk_x, Some(-1200));
+        assert_eq!(s.desk_y, Some(40));
+
+        crate::repo::settings::set(&c, "desk.pin", "sideways").unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().desk_pin, "top");
+    }
 }
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
@@ -91,6 +117,11 @@ pub async fn set_settings(
             return Err("invalid_language".into());
         }
     }
+    if let Some(pin) = patch.desk_pin.as_deref() {
+        if !crate::repo::settings::valid_desk_pin(pin) {
+            return Err("invalid_desk_pin".into());
+        }
+    }
     if let Some(autostart) = patch.autostart {
         let _ = if autostart {
             app.autolaunch().enable()
@@ -99,6 +130,7 @@ pub async fn set_settings(
         };
     }
     let language_requested = patch.language.is_some();
+    let desk_requested = patch.desk_enabled;
     let settings = with_db(&state, move |conn| {
         let sets: Vec<(&str, Option<String>)> = vec![
             ("language", patch.language),
@@ -108,6 +140,11 @@ pub async fn set_settings(
             ("autostart", patch.autostart.map(|v| v.to_string())),
             ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
             ("theme", patch.theme),
+            ("desk.enabled", patch.desk_enabled.map(|v| v.to_string())),
+            ("desk.controls", patch.desk_controls.map(|v| v.to_string())),
+            ("desk.pin", patch.desk_pin),
+            ("desk.x", patch.desk_x.map(|v| v.to_string())),
+            ("desk.y", patch.desk_y.map(|v| v.to_string())),
         ];
         for (key, value) in sets {
             if let Some(value) = value {
@@ -123,7 +160,10 @@ pub async fn set_settings(
         } else {
             crate::i18n::Lang::Zh
         };
-        crate::refresh_tray(&app, lang);
+        crate::refresh_tray(&app, lang, settings.desk_enabled);
+    }
+    if let Some(want) = desk_requested {
+        crate::desk::apply_enabled(&app, want);
     }
     Ok(settings)
 }

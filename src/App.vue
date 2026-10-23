@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { Settings } from "@lucide/vue";
+import { PanelRight, Settings } from "@lucide/vue";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
-import { closeDialog, dialogRequest } from "./lib/dialog";
-import { setLanguage, t } from "./lib/i18n";
+import { askNotice, closeDialog, dialogRequest } from "./lib/dialog";
+import { errorText, setLanguage, t } from "./lib/i18n";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
   applyTheme,
@@ -18,6 +18,7 @@ import {
 } from "./lib/theme";
 import type { Task } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
+import { deskVM } from "./viewmodels/deskVM";
 import { warnExclusiveConflict } from "./viewmodels/planning";
 import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
@@ -66,10 +67,40 @@ watch(
   (lang) => {
     if (lang !== "zh" && lang !== "en") return;
     setLanguage(lang);
-    if (isTauri()) void emitTo("capture", "language:changed", lang);
+    if (isTauri()) {
+      void emitTo("capture", "language:changed", lang);
+      void emitTo("desk", "language:changed", lang);
+    }
   },
   { immediate: true },
 );
+
+watch(
+  () => appVM.state.settings?.deskControls,
+  (on) => {
+    if (isTauri()) void emitTo("desk", "desk:controls", !!on);
+  },
+);
+
+/** Brings the main window forward and lands on the requested task. */
+async function showTask(id: string): Promise<void> {
+  if (isTauri()) {
+    const win = getCurrentWindow();
+    await win.unminimize().catch(() => {});
+    await win.show().catch(() => {});
+    await win.setFocus().catch(() => {});
+  }
+  await router.push("/week");
+  await taskSheetVM.open(id);
+}
+
+async function toggleDesk(): Promise<void> {
+  try {
+    await deskVM.toggleEnabled();
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
+  }
+}
 
 // The tray always lands somewhere clean; a leftover overlay would hide it.
 function closeOverlays(): void {
@@ -103,7 +134,10 @@ async function syncTheme(): Promise<void> {
   }
   if (run !== themeRun) return;
   applyTheme(theme);
-  if (isTauri()) void emitTo("capture", "theme:changed", theme);
+  if (isTauri()) {
+    void emitTo("capture", "theme:changed", theme);
+    void emitTo("desk", "theme:changed", theme);
+  }
 }
 
 /** Created hidden so the first frame the user sees is painted, themed and resolved. */
@@ -144,9 +178,14 @@ onMounted(async () => {
       void weekVM.load();
       void tasksVM.load();
     });
-    await listen<string>("reminder:open", async (event) => {
-      await router.push("/week");
-      await taskSheetVM.open(event.payload);
+    await listen<string>("reminder:open", (event) => {
+      void showTask(event.payload);
+    });
+    await listen<boolean>("desk:changed", (event) => {
+      if (appVM.state.settings) appVM.state.settings.deskEnabled = event.payload;
+    });
+    await listen<string>("desk:open-task", (event) => {
+      void showTask(event.payload);
     });
     await listen("nav:week", async () => {
       closeOverlays();
@@ -196,6 +235,20 @@ onMounted(async () => {
         </LayoutGroup>
         <div class="ml-auto flex h-full items-center gap-2">
           <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+          <button
+            class="grid size-8 place-items-center rounded-lg"
+            :class="
+              appVM.state.settings?.deskEnabled
+                ? 'bg-primary/10 text-primary'
+                : 'text-base-content/45 hover:bg-base-200 hover:text-base-content'
+            "
+            :aria-label="t('desk.toggle')"
+            :title="t('desk.toggle')"
+            :aria-pressed="!!appVM.state.settings?.deskEnabled"
+            @click="toggleDesk"
+          >
+            <PanelRight :size="16" aria-hidden="true" />
+          </button>
           <button
             class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
             :aria-label="t('app.settings')"

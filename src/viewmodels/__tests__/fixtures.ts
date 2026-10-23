@@ -10,6 +10,11 @@ export const defaultSettings: Settings = {
   autostart: true,
   backupKeepDays: 30,
   backupError: null,
+  deskEnabled: false,
+  deskControls: true,
+  deskPin: "top",
+  deskX: null,
+  deskY: null,
 };
 
 export function task(over: Partial<Task> = {}): Task {

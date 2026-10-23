@@ -40,6 +40,14 @@ pub struct SettingsDto {
     pub shortcut_warning: Option<String>,
     /// "light", "dark" or "system".
     pub theme: String,
+    pub desk_enabled: bool,
+    /// Whether the widget shows start / park / complete actions.
+    pub desk_controls: bool,
+    /// "top" or "bottom".
+    pub desk_pin: String,
+    /// Physical pixels of the expanded window's top-left corner.
+    pub desk_x: Option<i64>,
+    pub desk_y: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,4 +234,9 @@ pub struct SettingsPatch {
     pub autostart: Option<bool>,
     pub backup_keep_days: Option<i64>,
     pub theme: Option<String>,
+    pub desk_enabled: Option<bool>,
+    pub desk_controls: Option<bool>,
+    pub desk_pin: Option<String>,
+    pub desk_x: Option<i64>,
+    pub desk_y: Option<i64>,
 }

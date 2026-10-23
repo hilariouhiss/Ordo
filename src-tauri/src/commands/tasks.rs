@@ -21,9 +21,7 @@ pub async fn capture(
     })
     .await?;
     if window.label() == "capture" {
-        let _ = window
-            .app_handle()
-            .emit_to("main", "capture:created", &task);
+        let _ = window.app_handle().emit("capture:created", &task);
     }
     Ok(task)
 }

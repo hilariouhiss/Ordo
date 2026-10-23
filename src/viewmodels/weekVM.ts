@@ -1,6 +1,7 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
-import { mondayOf, todayIso, weekdayLabel } from "../lib/dates";
+import { mondayOf, todayIso } from "../lib/dates";
+import { groupPlannedDays, toPlanTask } from "../lib/plan";
 import { LOAD_WARN_HALF_DAYS, planLoads, planSchedule } from "../lib/schedule";
 import {
   aiEnrich,
@@ -14,21 +15,7 @@ import {
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
-import { toPlanTask, warnExclusiveConflict } from "./planning";
-
-export interface PlannedRow {
-  task: Task;
-  end: string;
-  spans: boolean;
-  conflict: boolean;
-}
-
-export interface PlannedDay {
-  date: string;
-  weekday: string;
-  isToday: boolean;
-  rows: PlannedRow[];
-}
+import { warnExclusiveConflict } from "./planning";
 
 export function createWeekVM() {
   const state = reactive({
@@ -49,32 +36,7 @@ export function createWeekVM() {
       .sort(),
   );
 
-  const days = computed<PlannedDay[]>(() => {
-    const planned = new Map(plan.value.map((row) => [row.id, row]));
-    const today = todayIso();
-    const groups = new Map<string, PlannedDay>();
-    for (const task of state.tasks) {
-      const row = planned.get(task.id);
-      if (!row) continue;
-      let group = groups.get(row.start);
-      if (!group) {
-        group = {
-          date: row.start,
-          weekday: weekdayLabel(row.start),
-          isToday: row.start === today,
-          rows: [],
-        };
-        groups.set(row.start, group);
-      }
-      group.rows.push({
-        task,
-        end: row.end,
-        spans: row.end !== row.start,
-        conflict: row.conflict,
-      });
-    }
-    return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
-  });
+  const days = computed(() => groupPlannedDays(state.tasks, plan.value, todayIso()));
 
   const planEnd = computed(() =>
     plan.value.reduce<string | null>(

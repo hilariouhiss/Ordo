@@ -54,6 +54,14 @@ fn num(map: &HashMap<String, String>, key: &str, default: i64) -> i64 {
         .unwrap_or(default)
 }
 
+fn opt_num(map: &HashMap<String, String>, key: &str) -> Option<i64> {
+    map.get(key).and_then(|v| v.parse().ok())
+}
+
+pub fn valid_desk_pin(value: &str) -> bool {
+    matches!(value, "top" | "bottom")
+}
+
 pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
     let map = get_all(conn)?;
     Ok(SettingsDto {
@@ -83,5 +91,27 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .cloned()
             .filter(|v| !v.is_empty()),
         theme: map.get("theme").cloned().unwrap_or_else(|| "system".into()),
+        desk_enabled: flag(&map, "desk.enabled", false),
+        desk_controls: flag(&map, "desk.controls", true),
+        desk_pin: map
+            .get("desk.pin")
+            .filter(|value| valid_desk_pin(value))
+            .cloned()
+            .unwrap_or_else(|| "top".into()),
+        desk_x: opt_num(&map, "desk.x"),
+        desk_y: opt_num(&map, "desk.y"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desk_pin_validation() {
+        assert!(valid_desk_pin("top"));
+        assert!(valid_desk_pin("bottom"));
+        assert!(!valid_desk_pin(""));
+        assert!(!valid_desk_pin("normal"));
+    }
 }

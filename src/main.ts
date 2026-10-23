@@ -8,6 +8,7 @@ import { getSettings } from "./model/ipc";
 import App from "./App.vue";
 import { router } from "./router";
 import CaptureView from "./views/CaptureView.vue";
+import DeskView from "./views/DeskView.vue";
 
 // Language and theme are read before the first paint: the Rust side resolves an unset
 // preference to the OS, so English/dark systems no longer flash the defaults.
@@ -25,10 +26,12 @@ if (isTauri()) {
 setLanguage(language);
 applyTheme(resolveTheme(theme, systemPrefersDark()));
 
-const captureWindow = isTauri() && getCurrentWindow().label === "capture";
+const label = isTauri() ? getCurrentWindow().label : "";
 
-if (captureWindow) {
+if (label === "capture") {
   createApp(CaptureView).mount("#app");
+} else if (label === "desk") {
+  createApp(DeskView).mount("#app");
 } else {
   const app = createApp(App).use(router);
   // Wait for the initial route so the first painted frame is the page, not the redirect.

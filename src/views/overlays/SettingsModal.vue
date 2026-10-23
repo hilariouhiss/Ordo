@@ -309,6 +309,18 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 />
               </div>
               <div class="mt-3 flex items-center justify-between text-[12px]">
+                <span>{{ t("settings.deskControls") }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs toggle-success"
+                  :checked="settings.deskControls"
+                  @change="vm.save({ deskControls: !settings.deskControls })"
+                />
+              </div>
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.deskControlsHint") }}
+              </p>
+              <div class="mt-3 flex items-center justify-between text-[12px]">
                 <span>{{ t("settings.shortcut") }}</span>
                 <span class="flex items-center gap-2">
                   <span class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50">
