@@ -12,7 +12,17 @@ pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String
 }
 
 pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
-    tasks::restore(conn, id, now).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let was_done = tasks::stored_status(&tx, id).map_err(|e| e.to_string())? == "done";
+    tasks::restore(&tx, id, now).map_err(|e| e.to_string())?;
+    if was_done {
+        // Reopen the current step, so the stored status agrees with what the user sees.
+        if let Some(step_id) = crate::repo::steps::last_live(&tx, id).map_err(|e| e.to_string())? {
+            crate::repo::steps::set_done(&tx, &step_id, false, now).map_err(|e| e.to_string())?;
+        }
+        crate::services::steps::recompute(&tx, id, now)?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -286,6 +296,73 @@ mod tests {
     }
 
     #[test]
+    fn archiving_a_project_hides_its_tasks_from_the_week_surfaces() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        for (id, title) in [("t1", "挂起的"), ("t2", "进行中")] {
+            week::capture(&c, title, NOW, id).unwrap();
+            c.execute(
+                "UPDATE tasks SET project_id = ?1 WHERE id = ?2",
+                rusqlite::params![&p.id, id],
+            )
+            .unwrap();
+        }
+        week::resolve(
+            &c,
+            "t1",
+            crate::services::week::PassAction::Suspend,
+            Some("2026-11-02"),
+            None,
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+
+        assert_eq!(week::list_suspended(&c).unwrap().len(), 0);
+        assert!(week::list(&c).unwrap().is_empty());
+        assert!(week::pass_queue(&c).unwrap().is_empty());
+
+        week::start(&c, "t2", NOW).unwrap();
+        assert!(week::list(&c).unwrap().is_empty());
+
+        crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
+        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert!(!week::list(&c).unwrap().iter().any(|t| t.id == "t1"));
+        week::resume(&c, "t1", NOW).unwrap();
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert!(ids.contains(&"t1".to_string()));
+        assert!(ids.contains(&"t2".to_string()));
+    }
+
+    #[test]
+    fn restoring_a_done_step_task_reopens_the_last_step() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let t = crate::services::steps::add(&c, "t1", "收集", NOW).unwrap();
+        let first = t.steps[0].id.clone();
+        let t = crate::services::steps::add(&c, "t1", "汇编", NOW).unwrap();
+        let last = t.steps[1].id.clone();
+        crate::services::steps::toggle(&c, &first, NOW).unwrap();
+        let done = crate::services::steps::toggle(&c, &last, NOW).unwrap();
+        assert_eq!(done.status, "done");
+        assert!(!done.in_week);
+
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+        let restored = archive::restore_task(&c, "t1", NOW).unwrap();
+
+        assert_eq!(restored.status, "doing");
+        assert!(restored.in_week);
+        assert!(restored.steps[0].done);
+        assert!(!restored.steps[1].done);
+
+        let finished = crate::services::steps::toggle(&c, &restored.steps[1].id, NOW).unwrap();
+        assert_eq!(finished.status, "done");
+        assert!(!finished.in_week);
+    }
+
+    #[test]
     fn search_matches_literal_wildcards() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "完成 50% 的报表", NOW, "t1").unwrap();
@@ -298,6 +375,9 @@ mod tests {
         let percent = archive::list(&c, Some("%")).unwrap();
         assert_eq!(percent.tasks.len(), 1);
         assert_eq!(percent.tasks[0].id, "t1");
+        assert_eq!(percent.tasks[0].title, "完成 50% 的报表");
+        assert!(percent.tasks[0].archived_at.is_some());
+        assert!(percent.tasks[0].canceled_at.is_none());
 
         let underscore = archive::list(&c, Some("_")).unwrap();
         assert_eq!(underscore.tasks.len(), 1);

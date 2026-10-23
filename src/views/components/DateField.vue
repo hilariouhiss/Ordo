@@ -34,14 +34,15 @@ watch(model, (value) => {
   draft.value = formatDateInput(value);
 });
 
-function commit(): void {
+function commit(): boolean {
   const iso = parseDateInput(draft.value);
-  if (iso === null) {
+  if (iso === null || (iso !== "" && isDisabled(iso))) {
     draft.value = formatDateInput(model.value);
-    return;
+    return false;
   }
   draft.value = formatDateInput(iso);
   if (iso !== model.value) model.value = iso;
+  return true;
 }
 
 const { open, triggerRef, style, panelId, show, close } = useAnchorPopup({
@@ -165,7 +166,7 @@ function onInputPointerDown(): void {
 
 function onInputEnter(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
-  commit();
+  if (!commit()) return;
   emit("enter");
 }
 

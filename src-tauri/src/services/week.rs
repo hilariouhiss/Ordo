@@ -75,6 +75,9 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
             "SELECT id FROM tasks
              WHERE in_week = 1 AND status <> 'done' AND suspended = 0
                AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
+               AND (project_id IS NULL OR EXISTS (
+                   SELECT 1 FROM projects p
+                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))
              ORDER BY sort_order, id",
         )
         .map_err(|e| e.to_string())?;
@@ -191,6 +194,9 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
             "SELECT id FROM tasks
              WHERE suspended = 1 AND status <> 'done'
                AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
+               AND (project_id IS NULL OR EXISTS (
+                   SELECT 1 FROM projects p
+                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))
              ORDER BY suspended_until IS NULL, suspended_until, updated_at",
         )
         .map_err(|e| e.to_string())?;

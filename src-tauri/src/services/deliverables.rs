@@ -11,6 +11,10 @@ pub fn set_due(
     reason: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
+    if let Some(due) = new_due {
+        chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d")
+            .map_err(|_| "invalid_due_date".to_string())?;
+    }
     let today = local_today(now)?.format("%Y-%m-%d").to_string();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let old: Option<String> = tx
@@ -109,6 +113,18 @@ mod tests {
         assert_eq!(ds[0].old_due.as_deref(), Some("2026-11-18"));
         assert_eq!(ds[0].new_due.as_deref(), Some("2026-11-20"));
         assert_eq!(ds[0].reason.as_deref(), Some("甲方追加数据"));
+    }
+
+    #[test]
+    fn invalid_due_date_is_rejected_before_writing() {
+        let c = with_due();
+        assert_eq!(
+            deliverables::set_due(&c, "t1", Some("周五"), None, NOW).unwrap_err(),
+            "invalid_due_date"
+        );
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(t.due_date.as_deref(), Some("2026-11-18"));
+        assert!(t.delays.is_empty());
     }
 
     #[test]

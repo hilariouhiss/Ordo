@@ -32,7 +32,7 @@ fn ai_settings(conn: &Connection) -> (bool, String, String) {
     (enabled, base_url, model)
 }
 
-fn context(conn: &Connection) -> Result<AiContext, String> {
+fn context(conn: &Connection, today: &str) -> Result<AiContext, String> {
     let projects = crate::repo::projects::list(conn)
         .map_err(|e| e.to_string())?
         .into_iter()
@@ -49,6 +49,7 @@ fn context(conn: &Connection) -> Result<AiContext, String> {
         .map(|p| (p.id, p.name))
         .collect();
     Ok(AiContext {
+        today: today.to_string(),
         projects,
         categories,
         people,
@@ -176,12 +177,15 @@ pub async fn ai_enrich(
         return Ok(());
     }
 
+    let today = crate::services::local_today(&now_iso())?
+        .format("%Y-%m-%d")
+        .to_string();
     let id = task_id.clone();
     let (title, ctx) = with_db(&state, move |conn| {
         let title: String = conn
             .query_row("SELECT title FROM tasks WHERE id = ?1", [&id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        Ok((title, context(conn)?))
+        Ok((title, context(conn, &today)?))
     })
     .await?;
 

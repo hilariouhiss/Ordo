@@ -1,4 +1,4 @@
-use crate::dto::{CaptureFields, DelayDto, StepDto, TagDto, TaskDto};
+use crate::dto::{ArchiveTaskDto, CaptureFields, DelayDto, StepDto, TagDto, TaskDto};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
@@ -36,6 +36,9 @@ pub fn list_week_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
         "SELECT id FROM tasks
          WHERE in_week = 1 AND suspended = 0
            AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
+           AND (project_id IS NULL OR EXISTS (
+               SELECT 1 FROM projects p
+               WHERE p.id = tasks.project_id AND p.archived_at IS NULL))
          ORDER BY sort_order, id",
     )?;
     let rows = stmt.query_map([], |r| r.get(0))?;
@@ -323,28 +326,38 @@ pub fn write_orders(conn: &Connection, ids: &[String]) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn list_where(conn: &Connection, condition: &str, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+fn list_where(
+    conn: &Connection,
+    condition: &str,
+    query: Option<&str>,
+) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     let pattern = query.map(crate::repo::like_pattern);
     let sql = format!(
-        "SELECT id FROM tasks WHERE deleted_at IS NULL AND {} AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
+        "SELECT id, title, archived_at, canceled_at FROM tasks
+         WHERE deleted_at IS NULL AND {} AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC",
         condition
     );
     let mut stmt = conn.prepare(&sql)?;
-    let ids: Vec<String> = stmt
-        .query_map([pattern], |r| r.get(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.iter().map(|id| dto(conn, id)).collect()
+    let rows = stmt.query_map([pattern], |r| {
+        Ok(ArchiveTaskDto {
+            id: r.get(0)?,
+            title: r.get(1)?,
+            archived_at: r.get(2)?,
+            canceled_at: r.get(3)?,
+        })
+    })?;
+    rows.collect()
 }
 
-pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     list_where(conn, "archived_at IS NOT NULL AND canceled_at IS NULL", query)
 }
 
-pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     list_where(conn, "canceled_at IS NOT NULL", query)
 }
-pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<TaskDto>> {
+pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     list_where(
         conn,
         "status = 'done' AND canceled_at IS NULL AND archived_at IS NULL",

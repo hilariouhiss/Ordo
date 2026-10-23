@@ -29,7 +29,9 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         .map_err(|e| e.to_string())?;
     for row in rows {
         let (task_id, due) = row.map_err(|e| e.to_string())?;
-        let due_date = NaiveDate::parse_from_str(&due, "%Y-%m-%d").map_err(|e| e.to_string())?;
+        let Ok(due_date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
+            continue;
+        };
         let advance = local_at(due_date - Duration::days(1), 17, 30)?;
         let overdue_at = local_at(due_date, 17, 30)?;
 
@@ -66,7 +68,9 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         .map_err(|e| e.to_string())?;
     for row in rows {
         let (task_id, until) = row.map_err(|e| e.to_string())?;
-        let date = NaiveDate::parse_from_str(&until, "%Y-%m-%d").map_err(|e| e.to_string())?;
+        let Ok(date) = NaiveDate::parse_from_str(&until, "%Y-%m-%d") else {
+            continue;
+        };
         let scheduled = local_at(date, 9, 0)?;
         if scheduled <= now && recent(scheduled, now) {
             out.push(Candidate {
@@ -204,6 +208,44 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn malformed_dates_are_skipped_not_fatal() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "bad-due", "2026-10-21");
+        c.execute("UPDATE tasks SET due_date = '周五' WHERE id = 'bad-due'", [])
+            .unwrap();
+        task_with_due(&c, "good-due", "2026-10-21");
+
+        crate::services::week::capture(&c, "挂起坏的", NOW, "bad-suspend").unwrap();
+        crate::services::week::capture(&c, "挂起好的", NOW, "good-suspend").unwrap();
+        c.execute(
+            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='不是日期'
+             WHERE id='bad-suspend'",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='2026-10-20'
+             WHERE id='good-suspend'",
+            [],
+        )
+        .unwrap();
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        assert!(
+            cands
+                .iter()
+                .any(|c| c.task_id == "good-due" && c.kind == "due_tomorrow")
+        );
+        assert!(
+            cands
+                .iter()
+                .any(|c| c.task_id == "good-suspend" && c.kind == "suspend_start")
+        );
+        assert!(cands.iter().all(|c| c.task_id != "bad-due"));
+        assert!(cands.iter().all(|c| c.task_id != "bad-suspend"));
     }
 
     #[test]

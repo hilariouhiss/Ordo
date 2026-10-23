@@ -136,13 +136,23 @@ pub struct BootstrapDto {
     pub projects: Vec<ProjectSummaryDto>,
 }
 
+/// The fields the archive page shows; the full task loads when a row is opened.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveTaskDto {
+    pub id: String,
+    pub title: String,
+    pub archived_at: Option<String>,
+    pub canceled_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveDto {
     pub projects: Vec<ProjectDto>,
-    pub tasks: Vec<TaskDto>,
-    pub canceled: Vec<TaskDto>,
-    pub done: Vec<TaskDto>,
+    pub tasks: Vec<ArchiveTaskDto>,
+    pub canceled: Vec<ArchiveTaskDto>,
+    pub done: Vec<ArchiveTaskDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]

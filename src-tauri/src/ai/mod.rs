@@ -22,6 +22,7 @@ pub struct Enrichment {
 
 #[derive(Debug, Clone, Default)]
 pub struct AiContext {
+    pub today: String,
     pub projects: Vec<(String, String)>,
     pub categories: Vec<(String, String)>,
     pub people: Vec<(String, String)>,
@@ -100,6 +101,7 @@ mod tests {
 
     fn ctx() -> AiContext {
         AiContext {
+            today: "2026-10-20".into(),
             projects: vec![("p1".into(), "华东客户交付".into())],
             categories: vec![("c1".into(), "软件".into())],
             people: vec![("u1".into(), "老李".into())],

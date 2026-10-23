@@ -57,6 +57,12 @@ const daysLeft = computed(() => {
   return Math.ceil((Date.parse(due) - Date.parse(todayIso())) / 86_400_000);
 });
 
+const daysText = computed(() => {
+  const days = daysLeft.value;
+  if (days === null) return null;
+  return days < 0 ? t("task.overdue", { days: -days }) : t("project.daysLeft", { days });
+});
+
 const progressPct = computed(() => {
   const s = vm.state.summary;
   return s && s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -97,7 +103,7 @@ function closeSettings(gone = false): void {
           <span v-if="vm.state.summary.dueDate" class="badge badge-ghost badge-xs">
             {{ t("project.due", { date: shortDate(vm.state.summary.dueDate) }) }}
           </span>
-          <span v-if="daysLeft !== null">{{ t("project.daysLeft", { days: daysLeft }) }}</span>
+          <span v-if="daysText !== null">{{ daysText }}</span>
         </div>
       </div>
       <div class="ml-auto flex items-center gap-2">

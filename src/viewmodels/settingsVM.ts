@@ -46,7 +46,12 @@ export function createSettingsVM() {
   }
 
   async function exportData(): Promise<void> {
-    state.exportPath = await ipc.exportJson();
+    state.error = "";
+    try {
+      state.exportPath = await ipc.exportJson();
+    } catch (e) {
+      state.error = String(e);
+    }
   }
 
   return { state, open, close, save, backup, exportData };

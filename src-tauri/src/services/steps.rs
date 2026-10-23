@@ -39,7 +39,7 @@ pub fn remove(conn: &Connection, step_id: &str, now: &str) -> Result<TaskDto, St
     recompute(conn, &step.task_id, now)
 }
 
-fn recompute(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
+pub(crate) fn recompute(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     let stored = tasks::stored_status(conn, task_id).map_err(|e| e.to_string())?;
     let done_flags: Vec<bool> = steps::list(conn, task_id)
         .map_err(|e| e.to_string())?

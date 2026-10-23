@@ -91,10 +91,14 @@ async function clearKey(): Promise<void> {
 
 async function testAi(): Promise<void> {
   aiStatus.value = { kind: "testing" };
-  const result = await ipc.aiTest();
-  aiStatus.value = result.ok
-    ? { kind: "ok", ms: result.latencyMs }
-    : { kind: "failed", error: result.error ?? "" };
+  try {
+    const result = await ipc.aiTest();
+    aiStatus.value = result.ok
+      ? { kind: "ok", ms: result.latencyMs }
+      : { kind: "failed", error: result.error ?? "" };
+  } catch (e) {
+    aiStatus.value = { kind: "failed", error: String(e) };
+  }
 }
 
 async function applyShortcut(): Promise<void> {

@@ -2,7 +2,7 @@
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { mondayOf, shortDate, todayIso } from "../../lib/dates";
-import { t } from "../../lib/i18n";
+import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
 import { appVM } from "../../viewmodels/appVM";
@@ -14,6 +14,7 @@ import DateField from "../components/DateField.vue";
 const suspendOpen = ref(false);
 const suspendDate = ref("");
 const suspendReason = ref("");
+const suspendError = ref("");
 
 const finished = computed(() => passVM.state.queue.length > 0 && !passVM.current.value);
 const categoryName = computed(() => {
@@ -35,14 +36,20 @@ async function act(action: "keep" | "done" | "cancel"): Promise<void> {
 }
 
 async function actSuspend(): Promise<void> {
-  await passVM.resolve("suspend", suspendDate.value || null, suspendReason.value.trim() || null);
-  cancelSuspend();
+  suspendError.value = "";
+  try {
+    await passVM.resolve("suspend", suspendDate.value || null, suspendReason.value.trim() || null);
+    cancelSuspend();
+  } catch (e) {
+    suspendError.value = String(e);
+  }
 }
 
 function cancelSuspend(): void {
   suspendOpen.value = false;
   suspendDate.value = "";
   suspendReason.value = "";
+  suspendError.value = "";
 }
 
 function onSuspendEnter(event: KeyboardEvent): void {
@@ -216,6 +223,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 {{ t("pass.back") }}
               </button>
             </div>
+            <p v-if="suspendError" class="mt-2 text-[10.5px] text-error">
+              {{ errorText(suspendError) }}
+            </p>
             <p class="mt-2 text-[10.5px] text-base-content/45">
               {{ t("pass.suspendHint") }}
             </p>

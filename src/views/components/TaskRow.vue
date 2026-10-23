@@ -3,8 +3,8 @@ import { Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
-import { askSuspend } from "../../lib/dialog";
-import { t } from "../../lib/i18n";
+import { askNotice, askSuspend } from "../../lib/dialog";
+import { errorText, t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
@@ -59,8 +59,8 @@ async function run(action: () => Promise<unknown>): Promise<void> {
   try {
     await action();
     emit("changed");
-  } catch {
-    // A row has no error slot; leave it as it was and let the next load win.
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
   } finally {
     busy.value = false;
   }
@@ -95,8 +95,8 @@ async function suspend(): Promise<void> {
     if (!draft) return;
     await taskRowVM.suspend(props.task, draft.until || null, draft.reason || null);
     emit("changed");
-  } catch {
-    // Same as run: the next load shows the real state.
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
   } finally {
     busy.value = false;
   }

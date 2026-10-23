@@ -1,5 +1,7 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
+import { askNotice } from "../lib/dialog";
+import { errorText, t } from "../lib/i18n";
 import { projectSummaryLine } from "../lib/summary";
 import { aiEnrich, capture, getProjectSummary, listProjectTasks, listWeek } from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
@@ -41,7 +43,13 @@ export function createProjectVM() {
     if (!title) return;
     capturing = true;
     try {
-      const task = await capture(title, submission.fields);
+      let task: Task;
+      try {
+        task = await capture(title, submission.fields);
+      } catch (e) {
+        void askNotice(t("common.actionFailed"), errorText(e));
+        return;
+      }
       void aiEnrich(task.id);
       state.draft = "";
       await load(projectId);

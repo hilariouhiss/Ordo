@@ -140,6 +140,7 @@ onMounted(async () => {
       void tasksVM.load();
     });
     await listen("ai:enriched", () => {
+      void appVM.load();
       void weekVM.load();
       void tasksVM.load();
     });

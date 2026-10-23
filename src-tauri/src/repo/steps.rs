@@ -1,5 +1,5 @@
 use crate::dto::StepDto;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 pub fn insert(
     conn: &Connection,
@@ -59,6 +59,19 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<StepDto> {
             })
         },
     )
+}
+
+/// The step a reopened task should continue from.
+pub fn last_live(conn: &Connection, task_id: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT id FROM steps
+         WHERE task_id = ?1 AND deleted_at IS NULL
+         ORDER BY sort_order DESC
+         LIMIT 1",
+        [task_id],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 pub fn set_done(conn: &Connection, id: &str, done: bool, now: &str) -> rusqlite::Result<()> {

@@ -145,11 +145,17 @@ export interface CaptureFields {
   dueDate: string | null;
   effortDays: number;
 }
+export interface ArchiveTask {
+  id: string;
+  title: string;
+  archivedAt: string | null;
+  canceledAt: string | null;
+}
 export interface ArchiveData {
   projects: Project[];
-  tasks: Task[];
-  canceled: Task[];
-  done: Task[];
+  tasks: ArchiveTask[];
+  canceled: ArchiveTask[];
+  done: ArchiveTask[];
 }
 export interface ShortcutOutcome {
   active: string;
