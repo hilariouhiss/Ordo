@@ -34,10 +34,14 @@ pub fn ensure(app: &AppHandle) -> Option<WebviewWindow> {
         .lock()
         .map(|conn| saved_pin(&conn))
         .unwrap_or_else(|_| "top".into());
+    // The page draws the card, its rounded corners and its shadow. The system shadow
+    // adds a 1px white border and an outer frame the front end cannot see.
     let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("ordo")
         .inner_size(320.0, 460.0)
         .decorations(false)
+        .shadow(false)
+        .transparent(true)
         .skip_taskbar(true)
         .resizable(false)
         .visible(false)

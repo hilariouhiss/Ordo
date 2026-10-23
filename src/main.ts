@@ -27,6 +27,8 @@ setLanguage(language);
 applyTheme(resolveTheme(theme, systemPrefersDark()));
 
 const label = isTauri() ? getCurrentWindow().label : "";
+// style.css keys the desk widget's transparent window background off this.
+document.documentElement.dataset.window = label || "main";
 
 if (label === "capture") {
   createApp(CaptureView).mount("#app");

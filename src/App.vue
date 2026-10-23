@@ -96,7 +96,12 @@ async function showTask(id: string): Promise<void> {
 
 async function toggleDesk(): Promise<void> {
   try {
-    await deskVM.toggleEnabled();
+    const enabled = await deskVM.toggleEnabled();
+    // Turning the widget on hands the desktop over to it; the tray brings this window back.
+    if (enabled && isTauri())
+      void getCurrentWindow()
+        .hide()
+        .catch(() => {});
   } catch (e) {
     void askNotice(t("common.actionFailed"), errorText(e));
   }

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   areaOf,
   clampToArea,
-  collapsedRect,
+  collapsedChip,
+  growRect,
+  insetArea,
   nearestEdge,
   pickArea,
   rightCenter,
+  shrinkRect,
   snapToEdge,
 } from "../deskWindow";
 
@@ -50,26 +53,47 @@ describe("snapToEdge", () => {
   });
 });
 
-describe("collapsedRect", () => {
-  it("leaves a 12px vertical strip at a side edge", () => {
-    expect(collapsedRect("right", { x: 1600, y: 290 }, size, 12, primary)).toEqual({
-      position: { x: 1908, y: 290 },
-      size: { width: 12, height: 460 },
-    });
-    expect(collapsedRect("left", { x: 0, y: 900 }, size, 12, primary)).toEqual({
-      position: { x: 0, y: 580 },
-      size: { width: 12, height: 460 },
+describe("insetArea", () => {
+  it("pulls the work area in by the dock gap", () => {
+    expect(insetArea(primary, 12)).toEqual({ x: 12, y: 12, width: 1896, height: 1016 });
+  });
+});
+
+describe("growRect", () => {
+  it("turns a card rect into the window rect with its shadow margin", () => {
+    expect(growRect({ position: { x: 1588, y: 290 }, size }, 16)).toEqual({
+      position: { x: 1572, y: 274 },
+      size: { width: 352, height: 492 },
     });
   });
+});
 
-  it("leaves a 12px horizontal strip at a top/bottom edge", () => {
-    expect(collapsedRect("bottom", { x: 300, y: 580 }, size, 12, primary)).toEqual({
-      position: { x: 300, y: 1028 },
-      size: { width: 320, height: 12 },
+describe("shrinkRect", () => {
+  it("turns a window rect back into the card rect", () => {
+    expect(
+      shrinkRect({ position: { x: 1572, y: 274 }, size: { width: 352, height: 492 } }, 16),
+    ).toEqual({ position: { x: 1588, y: 290 }, size });
+  });
+});
+
+describe("collapsedChip", () => {
+  it("hugs each work-area edge, centered on the docked panel", () => {
+    const chip = { width: 48, height: 48 };
+    expect(collapsedChip("right", { x: 1588, y: 290 }, size, 48, primary)).toEqual({
+      position: { x: 1872, y: 496 },
+      size: chip,
     });
-    expect(collapsedRect("top", { x: 300, y: 0 }, size, 12, primary)).toEqual({
-      position: { x: 300, y: 0 },
-      size: { width: 320, height: 12 },
+    expect(collapsedChip("left", { x: 12, y: 290 }, size, 48, primary)).toEqual({
+      position: { x: 0, y: 496 },
+      size: chip,
+    });
+    expect(collapsedChip("top", { x: 300, y: 12 }, size, 48, primary)).toEqual({
+      position: { x: 436, y: 0 },
+      size: chip,
+    });
+    expect(collapsedChip("bottom", { x: 300, y: 568 }, size, 48, primary)).toEqual({
+      position: { x: 436, y: 992 },
+      size: chip,
     });
   });
 });

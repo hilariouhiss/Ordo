@@ -122,9 +122,19 @@ describe("deskVM", () => {
     vi.mocked(setSettings).mockResolvedValue({ ...defaultSettings, deskEnabled: true });
 
     const vm = createDeskVM();
-    await vm.toggleEnabled();
 
+    await expect(vm.toggleEnabled()).resolves.toBe(true);
     expect(setSettings).toHaveBeenCalledWith({ deskEnabled: true });
     expect(appVM.state.settings?.deskEnabled).toBe(true);
+  });
+
+  it("reports when the toggle turns the widget off", async () => {
+    appVM.state.settings = { ...defaultSettings, deskEnabled: true };
+    vi.mocked(setSettings).mockResolvedValue({ ...defaultSettings, deskEnabled: false });
+
+    const vm = createDeskVM();
+
+    await expect(vm.toggleEnabled()).resolves.toBe(false);
+    expect(appVM.state.settings?.deskEnabled).toBe(false);
   });
 });

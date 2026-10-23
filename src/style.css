@@ -108,3 +108,9 @@ input[type="number"]::-webkit-outer-spin-button {
 .app-nav > .tab::before {
   display: none;
 }
+
+/* The desk widget paints its own card and shadow; the window behind it stays transparent. */
+html[data-window="desk"],
+html[data-window="desk"] body {
+  background: transparent;
+}

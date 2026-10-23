@@ -100,9 +100,10 @@ export function createDeskVM() {
     }
   }
 
-  async function toggleEnabled(): Promise<void> {
+  async function toggleEnabled(): Promise<boolean> {
     const enabled = !(appVM.state.settings?.deskEnabled ?? false);
     appVM.state.settings = await setSettings({ deskEnabled: enabled });
+    return enabled;
   }
 
   return {

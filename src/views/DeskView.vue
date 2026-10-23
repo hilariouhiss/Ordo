@@ -1,14 +1,5 @@
 <script setup lang="ts">
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  Pause,
-  Pin,
-  Play,
-  X,
-} from "@lucide/vue";
+import { Pause, Pin, Play, X } from "@lucide/vue";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import {
@@ -22,10 +13,13 @@ import { shortDate, todayIso } from "../lib/dates";
 import {
   areaOf,
   clampToArea,
-  collapsedRect,
+  collapsedChip,
+  growRect,
+  insetArea,
   nearestEdge,
   pickArea,
   rightCenter,
+  shrinkRect,
   snapToEdge,
   type DeskArea,
   type DeskEdge,
@@ -39,7 +33,11 @@ import type { DeskPin, Task } from "../model/types";
 import { deskVM } from "../viewmodels/deskVM";
 import StatusDot from "./components/StatusDot.vue";
 
-const PEEK_LOGICAL = 12;
+/** Transparent room around the card for its CSS shadow; the shell's p-4 must match. */
+const PAD_LOGICAL = 16;
+/** Gap the card keeps from the work-area edge while docked. */
+const GAP_LOGICAL = 12;
+const CHIP_LOGICAL = 48;
 const SNAP_LOGICAL = 24;
 const SETTLE_MS = 250;
 const COLLAPSE_MS = 400;
@@ -50,23 +48,53 @@ const vm = deskVM;
 const { state, days, count } = vm;
 const win = getCurrentWindow();
 
-const collapsed = ref(false);
+type DeskPhase = "open" | "closing" | "closed" | "opening";
+
+/** The widget alternates between the panel and the edge tile through these phases. */
+const phase = ref<DeskPhase>("open");
 const edge = ref<DeskEdge | null>(null);
 const pin = computed(() => state.pin);
-const grabIcon = computed(() => {
+/** Invalidates async animation continuations that a newer transition overtook. */
+let animRun = 0;
+
+/** Grow and shrink out of the edge the panel is docked to. */
+const originClass = computed(() => {
   switch (edge.value) {
-    case "left":
-      return ChevronRight;
     case "top":
-      return ChevronDown;
+      return "origin-top";
     case "bottom":
-      return ChevronUp;
+      return "origin-bottom";
+    case "left":
+      return "origin-left";
+    case "right":
+      return "origin-right";
     default:
-      return ChevronLeft;
+      return "origin-center";
+  }
+});
+
+/** The tile shadow falls inward from the docked edge, never over it. */
+const tileShadow = computed(() => {
+  switch (edge.value) {
+    case "top":
+      return "shadow-[0_10px_18px_-10px_rgb(0_0_0/0.45)]";
+    case "bottom":
+      return "shadow-[0_-10px_18px_-10px_rgb(0_0_0/0.45)]";
+    case "left":
+      return "shadow-[10px_0_18px_-10px_rgb(0_0_0/0.45)]";
+    case "right":
+      return "shadow-[-10px_0_18px_-10px_rgb(0_0_0/0.45)]";
+    default:
+      return "shadow-lg";
   }
 });
 
 let scale = 1;
+let pad = PAD_LOGICAL;
+let gap = GAP_LOGICAL;
+let chip = CHIP_LOGICAL;
+/** The margin the current window geometry was applied with; measurements use it. */
+let appliedPad = pad;
 let full: DeskSize = { width: 320, height: 460 };
 let expandedPos: DeskPoint = { x: 0, y: 0 };
 let currentArea: DeskArea = { x: 0, y: 0, width: 0, height: 0 };
@@ -93,11 +121,19 @@ async function refreshMetrics(): Promise<void> {
   }
 }
 
+function syncMetrics(): void {
+  pad = Math.round(PAD_LOGICAL * scale);
+  gap = Math.round(GAP_LOGICAL * scale);
+  chip = Math.round(CHIP_LOGICAL * scale);
+}
+
 async function applyGeometry(position: DeskPoint, size: DeskSize): Promise<void> {
+  const rect = growRect({ position, size }, pad);
+  appliedPad = pad;
   geometryUntil = Date.now() + SETTLE_MS + 250;
   try {
-    await win.setPosition(new PhysicalPosition(position.x, position.y));
-    await win.setSize(new PhysicalSize(size.width, size.height));
+    await win.setPosition(new PhysicalPosition(rect.position.x, rect.position.y));
+    await win.setSize(new PhysicalSize(rect.size.width, rect.size.height));
   } catch {
     // The window keeps its previous spot; the next move retries.
   }
@@ -118,22 +154,33 @@ async function applyPin(next: DeskPin): Promise<void> {
 }
 
 async function settle(): Promise<void> {
-  if (collapsed.value) return;
+  if (phase.value !== "open") return;
   const position = await win.outerPosition().catch(() => null);
   const size = await win.outerSize().catch(() => null);
   const monitor =
     (await currentMonitor().catch(() => null)) ?? (await primaryMonitor().catch(() => null));
   if (!position || !size || !monitor) return;
 
+  const card = shrinkRect(
+    {
+      position: { x: position.x, y: position.y },
+      size: { width: size.width, height: size.height },
+    },
+    appliedPad,
+  );
   scale = await win.scaleFactor().catch(() => scale);
-  const point = { x: position.x, y: position.y };
-  const dims = { width: size.width, height: size.height };
+  syncMetrics();
   const area = areaOf(monitor.workArea);
-  const found = nearestEdge(point, dims, area, Math.round(SNAP_LOGICAL * scale));
-  const next = found ? snapToEdge(found, point, dims, area) : clampToArea(point, dims, area);
-  if (next.x !== point.x || next.y !== point.y) await applyGeometry(next, dims);
+  const field = insetArea(area, gap);
+  const found = nearestEdge(card.position, card.size, field, Math.round(SNAP_LOGICAL * scale));
+  const next = found
+    ? snapToEdge(found, card.position, card.size, field)
+    : clampToArea(card.position, card.size, field);
+  if (next.x !== card.position.x || next.y !== card.position.y) {
+    await applyGeometry(next, card.size);
+  }
 
-  full = dims;
+  full = card.size;
   expandedPos = next;
   currentArea = area;
   edge.value = found;
@@ -142,32 +189,44 @@ async function settle(): Promise<void> {
 
 async function expand(): Promise<void> {
   clearTimeout(collapseTimer);
-  if (!collapsed.value) return;
-  collapsed.value = false;
+  if (phase.value === "open" || phase.value === "opening") return;
+  animRun += 1;
+  if (phase.value === "closing") {
+    // The panel is still up: reversing its leave needs no window change.
+    phase.value = "open";
+    return;
+  }
+  phase.value = "opening";
   await nextTick();
-  const point = clampToArea(expandedPos, full, currentArea);
-  expandedPos = point;
-  await applyGeometry(point, full);
+  expandedPos = clampToArea(expandedPos, full, insetArea(currentArea, gap));
+  await applyGeometry(expandedPos, full);
+  if (phase.value === "opening") phase.value = "open";
 }
 
-async function collapse(): Promise<void> {
-  if (collapsed.value || !edge.value) return;
-  const rect = collapsedRect(
-    edge.value,
-    expandedPos,
-    full,
-    Math.max(8, Math.round(PEEK_LOGICAL * scale)),
-    currentArea,
-  );
-  collapsed.value = true;
-  await nextTick();
+function collapse(): void {
+  if (phase.value !== "open" || !edge.value) return;
+  phase.value = "closing";
+}
+
+/** The panel's leave is done: shrink the window, then let the edge tile fade in. */
+async function afterCollapse(): Promise<void> {
+  if (phase.value !== "closing" || !edge.value) return;
+  const run = ++animRun;
+  // The tile hugs the work-area edge, unlike the panel which keeps the gap.
+  const rect = collapsedChip(edge.value, expandedPos, full, chip, currentArea);
   await applyGeometry(rect.position, rect.size);
+  if (run !== animRun) {
+    // A reveal or expand took over while the window was shrinking.
+    await applyGeometry(expandedPos, full);
+    return;
+  }
+  if (phase.value === "closing") phase.value = "closed";
 }
 
 function onMouseEnter(): void {
   hovering = true;
   clearTimeout(collapseTimer);
-  if (collapsed.value) void expand();
+  if (phase.value === "closed" || phase.value === "closing") void expand();
   if (Date.now() - lastLoadedAt > HOVER_REFRESH_MS) refresh();
 }
 
@@ -178,18 +237,23 @@ function maybeCollapse(): void {
     collapseTimer = setTimeout(maybeCollapse, COLLAPSE_MS);
     return;
   }
-  void collapse();
+  collapse();
 }
 
 function onMouseLeave(): void {
   hovering = false;
   clearTimeout(collapseTimer);
-  if (!edge.value) return;
+  if (phase.value !== "open" || !edge.value) return;
   collapseTimer = setTimeout(maybeCollapse, COLLAPSE_MS);
 }
 
 /** A press on the header starts a drag even right after a programmatic move. */
 function beginMove(): void {
+  clearTimeout(collapseTimer);
+  if (phase.value === "closing") {
+    animRun += 1;
+    phase.value = "open";
+  }
   geometryUntil = 0;
 }
 
@@ -197,17 +261,13 @@ async function reveal(): Promise<void> {
   enabled = true;
   const monitor = await currentMonitor().catch(() => null);
   if (monitor) currentArea = areaOf(monitor.workArea);
-  if (collapsed.value) {
-    expandedPos = clampToArea(expandedPos, full, currentArea);
-    await expand();
-  } else {
-    const point = clampToArea(expandedPos, full, currentArea);
-    if (point.x !== expandedPos.x || point.y !== expandedPos.y) {
-      expandedPos = point;
-      await applyGeometry(point, full);
-    }
-  }
-  edge.value = nearestEdge(expandedPos, full, currentArea, Math.round(SNAP_LOGICAL * scale));
+  const field = insetArea(currentArea, gap);
+  expandedPos = clampToArea(expandedPos, full, field);
+  // Whatever animation was paused while hidden, the widget comes back expanded.
+  animRun += 1;
+  await applyGeometry(expandedPos, full);
+  phase.value = "open";
+  edge.value = nearestEdge(expandedPos, full, field, Math.round(SNAP_LOGICAL * scale));
   refresh();
 }
 
@@ -252,6 +312,7 @@ function completeRow(task: Task): void {
 
 onMounted(async () => {
   await refreshMetrics().catch(() => {});
+  syncMetrics();
   // Registered before the settings read so a toggle during startup is never lost.
   unlisteners.push(
     await listen<boolean>("desk:changed", (event) => {
@@ -286,15 +347,16 @@ onMounted(async () => {
   const savedY = settings?.deskY ?? null;
   const saved = savedX !== null && savedY !== null ? { x: savedX, y: savedY } : null;
   currentArea = pickArea(saved, full, areas, fallback);
-  expandedPos = saved ? clampToArea(saved, full, currentArea) : rightCenter(currentArea, full);
+  const field = insetArea(currentArea, gap);
+  expandedPos = saved ? clampToArea(saved, full, field) : rightCenter(field, full);
   await applyGeometry(expandedPos, full);
-  edge.value = nearestEdge(expandedPos, full, currentArea, Math.round(SNAP_LOGICAL * scale));
+  edge.value = nearestEdge(expandedPos, full, field, Math.round(SNAP_LOGICAL * scale));
   await applyPin(settings?.deskPin === "bottom" ? "bottom" : "top");
 
   unlisteners.push(
     await win.onMoved(() => {
       lastMovedAt = Date.now();
-      if (Date.now() < geometryUntil || collapsed.value) return;
+      if (Date.now() < geometryUntil || phase.value !== "open") return;
       clearTimeout(settleTimer);
       settleTimer = setTimeout(() => void settle(), SETTLE_MS);
     }),
@@ -328,6 +390,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  animRun += 1;
   clearTimeout(collapseTimer);
   clearTimeout(settleTimer);
   clearInterval(refreshTimer);
@@ -336,144 +399,173 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="flex h-screen flex-col overflow-hidden bg-base-100 text-base-content select-none"
-    @mouseenter="onMouseEnter"
-    @mouseleave="onMouseLeave"
-  >
-    <button
-      v-if="collapsed"
-      type="button"
-      class="grid h-full w-full place-items-center bg-base-100 text-base-content/40 hover:text-primary"
-      :aria-label="t('desk.expand')"
-      :title="t('desk.expand')"
-      @click="expand"
+  <div class="h-screen p-4 text-base-content select-none">
+    <Transition
+      enter-active-class="transition-[scale,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      enter-from-class="scale-[0.94] opacity-0"
+      enter-to-class="scale-100 opacity-100"
+      leave-active-class="transition-[scale,opacity] duration-150 ease-in motion-reduce:transition-none"
+      leave-from-class="scale-100 opacity-100"
+      leave-to-class="scale-[0.96] opacity-0"
+      @after-leave="afterCollapse"
     >
-      <component :is="grabIcon" :size="12" aria-hidden="true" />
-    </button>
-    <template v-else>
-      <header
-        data-tauri-drag-region
-        class="flex h-9 shrink-0 items-center gap-2 border-b border-base-300 px-3"
-        @mousedown="beginMove"
+      <div
+        v-show="phase === 'open'"
+        :class="originClass"
+        class="flex h-full flex-col overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-lg"
+        @mouseenter="onMouseEnter"
+        @mouseleave="onMouseLeave"
       >
-        <span data-tauri-drag-region class="text-[12.5px] font-semibold">{{
-          t("desk.title")
-        }}</span>
-        <span class="text-[10.5px] text-base-content/40">{{ t("desk.count", { count }) }}</span>
-        <div class="ml-auto flex items-center gap-0.5">
-          <button
-            type="button"
-            class="grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
-            :title="pin === 'top' ? t('desk.pinToBottom') : t('desk.pinToTop')"
-            :aria-label="pin === 'top' ? t('desk.pinToBottom') : t('desk.pinToTop')"
-            @click="togglePin"
-          >
-            <Pin :size="13" :class="{ 'rotate-180': pin === 'bottom' }" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-error focus-visible:ring-2 focus-visible:ring-primary/40"
-            :title="t('desk.close')"
-            :aria-label="t('desk.close')"
-            @click="closeWidget"
-          >
-            <X :size="14" aria-hidden="true" />
-          </button>
-        </div>
-      </header>
+        <header
+          data-tauri-drag-region
+          class="flex h-9 shrink-0 items-center gap-2 border-b border-base-300 px-3"
+          @mousedown="beginMove"
+        >
+          <span data-tauri-drag-region class="text-[12.5px] font-semibold">{{
+            t("desk.title")
+          }}</span>
+          <span class="text-[10.5px] text-base-content/40">{{ t("desk.count", { count }) }}</span>
+          <div class="ml-auto flex items-center gap-0.5">
+            <button
+              type="button"
+              class="grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              :title="pin === 'top' ? t('desk.pinToBottom') : t('desk.pinToTop')"
+              :aria-label="pin === 'top' ? t('desk.pinToBottom') : t('desk.pinToTop')"
+              @click="togglePin"
+            >
+              <Pin :size="13" :class="{ 'rotate-180': pin === 'bottom' }" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              class="grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-error focus-visible:ring-2 focus-visible:ring-primary/40"
+              :title="t('desk.close')"
+              :aria-label="t('desk.close')"
+              @click="closeWidget"
+            >
+              <X :size="14" aria-hidden="true" />
+            </button>
+          </div>
+        </header>
 
-      <main class="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
-        <section v-for="day in days" :key="day.date">
-          <div class="flex items-center gap-1.5 px-1 pt-1 pb-0.5 text-[10px] text-base-content/40">
-            <span class="font-medium">{{ day.weekday }}</span>
-            <span>{{ shortDate(day.date) }}</span>
-            <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
-              t("week.today")
-            }}</span>
-          </div>
-          <div
-            v-for="row in day.rows"
-            :key="row.task.id"
-            class="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 hover:bg-base-200/70"
-          >
-            <button
-              v-if="state.controls && canComplete(row.task)"
-              type="button"
-              class="flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
-              :aria-label="t('task.doneAria', { title: row.task.title })"
-              :title="t('task.doneAria', { title: row.task.title })"
-              :disabled="state.busy"
-              @click="completeRow(row.task)"
+        <main class="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
+          <section v-for="day in days" :key="day.date">
+            <div
+              class="flex items-center gap-1.5 px-1 pt-1 pb-0.5 text-[10px] text-base-content/40"
             >
-              <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
-            </button>
-            <span v-else class="shrink-0">
-              <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
-            </span>
-            <button
-              type="button"
-              class="flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-primary/40"
-              :title="t('desk.openTask', { title: row.task.title })"
-              :aria-label="t('desk.openTask', { title: row.task.title })"
-              @click="openTask(row.task)"
-            >
-              <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ row.task.title }}</span>
-              <span
-                v-if="row.task.priority === 'high'"
-                class="badge badge-soft badge-warning badge-xs"
-                >{{ t("task.priorityHigh") }}</span
-              >
-              <span
-                v-if="overdueDays(row.task.dueDate, todayIso()) > 0"
-                class="badge badge-soft badge-error badge-xs"
-                >{{ t("task.overdue", { days: overdueDays(row.task.dueDate, todayIso()) }) }}</span
-              >
-              <span v-if="row.task.carryCount" class="badge badge-ghost badge-xs">{{
-                t("task.carry", { count: row.task.carryCount })
+              <span class="font-medium">{{ day.weekday }}</span>
+              <span>{{ shortDate(day.date) }}</span>
+              <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
+                t("week.today")
               }}</span>
-              <span v-if="row.task.steps.length" class="shrink-0 text-[10px] text-base-content/40"
-                >{{ stepsDone(row.task) }}/{{ row.task.steps.length }}</span
-              >
-              <span v-if="row.spans" class="shrink-0 text-[10px] text-base-content/35"
-                >→ {{ shortDate(row.end) }}</span
-              >
-            </button>
-            <div v-if="state.controls" class="flex shrink-0 items-center gap-0.5">
-              <button
-                v-if="canStart(row.task)"
-                type="button"
-                class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
-                :aria-label="t('task.startAria', { title: row.task.title })"
-                :title="t('task.startAria', { title: row.task.title })"
-                :disabled="state.busy"
-                @click="startRow(row.task)"
-              >
-                <Play :size="13" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
-                :aria-label="t('task.suspendAria', { title: row.task.title })"
-                :title="t('task.suspendAria', { title: row.task.title })"
-                :disabled="state.busy"
-                @click="suspendRow(row.task)"
-              >
-                <Pause :size="13" aria-hidden="true" />
-              </button>
             </div>
-          </div>
-        </section>
-        <p v-if="!days.length && !state.loading" class="px-1 py-2 text-[12px] text-base-content/40">
-          {{ t("desk.empty") }}
-        </p>
-        <p v-if="state.failed" class="px-1 py-1 text-[10.5px] text-error">
-          {{ t("desk.loadFailed") }}
-        </p>
-        <p v-if="state.actionError" class="px-1 py-1 text-[10.5px] text-error">
-          {{ t("desk.actionFailed", { error: errorText(state.actionError) }) }}
-        </p>
-      </main>
-    </template>
+            <div
+              v-for="row in day.rows"
+              :key="row.task.id"
+              class="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 hover:bg-base-200/70"
+            >
+              <button
+                v-if="state.controls && canComplete(row.task)"
+                type="button"
+                class="flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
+                :aria-label="t('task.doneAria', { title: row.task.title })"
+                :title="t('task.doneAria', { title: row.task.title })"
+                :disabled="state.busy"
+                @click="completeRow(row.task)"
+              >
+                <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
+              </button>
+              <span v-else class="shrink-0">
+                <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
+              </span>
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-primary/40"
+                :title="t('desk.openTask', { title: row.task.title })"
+                :aria-label="t('desk.openTask', { title: row.task.title })"
+                @click="openTask(row.task)"
+              >
+                <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ row.task.title }}</span>
+                <span
+                  v-if="row.task.priority === 'high'"
+                  class="badge badge-soft badge-warning badge-xs"
+                  >{{ t("task.priorityHigh") }}</span
+                >
+                <span
+                  v-if="overdueDays(row.task.dueDate, todayIso()) > 0"
+                  class="badge badge-soft badge-error badge-xs"
+                  >{{
+                    t("task.overdue", { days: overdueDays(row.task.dueDate, todayIso()) })
+                  }}</span
+                >
+                <span v-if="row.task.carryCount" class="badge badge-ghost badge-xs">{{
+                  t("task.carry", { count: row.task.carryCount })
+                }}</span>
+                <span v-if="row.task.steps.length" class="shrink-0 text-[10px] text-base-content/40"
+                  >{{ stepsDone(row.task) }}/{{ row.task.steps.length }}</span
+                >
+                <span v-if="row.spans" class="shrink-0 text-[10px] text-base-content/35"
+                  >→ {{ shortDate(row.end) }}</span
+                >
+              </button>
+              <div v-if="state.controls" class="flex shrink-0 items-center gap-0.5">
+                <button
+                  v-if="canStart(row.task)"
+                  type="button"
+                  class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
+                  :aria-label="t('task.startAria', { title: row.task.title })"
+                  :title="t('task.startAria', { title: row.task.title })"
+                  :disabled="state.busy"
+                  @click="startRow(row.task)"
+                >
+                  <Play :size="13" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
+                  :aria-label="t('task.suspendAria', { title: row.task.title })"
+                  :title="t('task.suspendAria', { title: row.task.title })"
+                  :disabled="state.busy"
+                  @click="suspendRow(row.task)"
+                >
+                  <Pause :size="13" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </section>
+          <p
+            v-if="!days.length && !state.loading"
+            class="px-1 py-2 text-[12px] text-base-content/40"
+          >
+            {{ t("desk.empty") }}
+          </p>
+          <p v-if="state.failed" class="px-1 py-1 text-[10.5px] text-error">
+            {{ t("desk.loadFailed") }}
+          </p>
+          <p v-if="state.actionError" class="px-1 py-1 text-[10.5px] text-error">
+            {{ t("desk.actionFailed", { error: errorText(state.actionError) }) }}
+          </p>
+        </main>
+      </div>
+    </Transition>
+    <Transition
+      enter-active-class="transition duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      enter-from-class="scale-90 opacity-0"
+      enter-to-class="scale-100 opacity-100"
+      leave-active-class="duration-0"
+    >
+      <button
+        v-if="phase === 'closed'"
+        type="button"
+        :class="originClass"
+        class="block size-full rounded-xl focus-visible:ring-2 focus-visible:ring-primary/40"
+        :aria-label="t('desk.expand')"
+        :title="t('desk.expand')"
+        @mouseenter="onMouseEnter"
+        @mouseleave="onMouseLeave"
+        @click="expand"
+      >
+        <img src="/favicon.svg" alt="" draggable="false" :class="tileShadow" class="size-full" />
+      </button>
+    </Transition>
   </div>
 </template>
