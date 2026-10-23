@@ -38,7 +38,7 @@ pub fn ensure(app: &AppHandle) -> Option<WebviewWindow> {
     // adds a 1px white border and an outer frame the front end cannot see.
     let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("ordo")
-        .inner_size(320.0, 460.0)
+        .inner_size(360.0, 500.0)
         .decorations(false)
         .shadow(false)
         .transparent(true)

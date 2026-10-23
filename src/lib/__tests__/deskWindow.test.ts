@@ -2,9 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   areaOf,
   clampToArea,
-  collapsedChip,
+  collapsedTab,
+  dockPoint,
   growRect,
-  insetArea,
   nearestEdge,
   pickArea,
   rightCenter,
@@ -53,12 +53,6 @@ describe("snapToEdge", () => {
   });
 });
 
-describe("insetArea", () => {
-  it("pulls the work area in by the dock gap", () => {
-    expect(insetArea(primary, 12)).toEqual({ x: 12, y: 12, width: 1896, height: 1016 });
-  });
-});
-
 describe("growRect", () => {
   it("turns a card rect into the window rect with its shadow margin", () => {
     expect(growRect({ position: { x: 1588, y: 290 }, size }, 16)).toEqual({
@@ -76,24 +70,56 @@ describe("shrinkRect", () => {
   });
 });
 
-describe("collapsedChip", () => {
-  it("hugs each work-area edge, centered on the docked panel", () => {
-    const chip = { width: 48, height: 48 };
-    expect(collapsedChip("right", { x: 1588, y: 290 }, size, 48, primary)).toEqual({
-      position: { x: 1872, y: 496 },
-      size: chip,
+describe("dockPoint", () => {
+  it("snaps a card near an edge flush and reports that edge", () => {
+    expect(dockPoint({ x: 1588, y: 290 }, size, primary, 24)).toEqual({
+      position: { x: 1600, y: 290 },
+      edge: "right",
     });
-    expect(collapsedChip("left", { x: 12, y: 290 }, size, 48, primary)).toEqual({
-      position: { x: 0, y: 496 },
-      size: chip,
+  });
+
+  it("clamps an out-of-bounds card to the edge it lands on", () => {
+    expect(dockPoint({ x: 700, y: 900 }, size, primary, 24)).toEqual({
+      position: { x: 700, y: 580 },
+      edge: "bottom",
     });
-    expect(collapsedChip("top", { x: 300, y: 12 }, size, 48, primary)).toEqual({
-      position: { x: 436, y: 0 },
-      size: chip,
+  });
+
+  it("leaves a free card in the middle alone", () => {
+    expect(dockPoint({ x: 700, y: 300 }, size, primary, 24)).toEqual({
+      position: { x: 700, y: 300 },
+      edge: null,
     });
-    expect(collapsedChip("bottom", { x: 300, y: 568 }, size, 48, primary)).toEqual({
-      position: { x: 436, y: 992 },
-      size: chip,
+  });
+
+  it("finds the edge after clamping a spot saved for a narrower panel", () => {
+    expect(dockPoint({ x: 1600, y: 290 }, { width: 360, height: 500 }, primary, 24)).toEqual({
+      position: { x: 1560, y: 290 },
+      edge: "right",
+    });
+  });
+});
+
+describe("collapsedTab", () => {
+  it("hugs each work-area edge with its long side pointing inward", () => {
+    const panel = { width: 360, height: 500 };
+    const horizontal = { width: 56, height: 22 };
+    const vertical = { width: 22, height: 56 };
+    expect(collapsedTab("right", { x: 1560, y: 270 }, panel, 56, 22, primary)).toEqual({
+      position: { x: 1864, y: 509 },
+      size: horizontal,
+    });
+    expect(collapsedTab("left", { x: 0, y: 270 }, panel, 56, 22, primary)).toEqual({
+      position: { x: 0, y: 509 },
+      size: horizontal,
+    });
+    expect(collapsedTab("top", { x: 780, y: 0 }, panel, 56, 22, primary)).toEqual({
+      position: { x: 949, y: 0 },
+      size: vertical,
+    });
+    expect(collapsedTab("bottom", { x: 780, y: 540 }, panel, 56, 22, primary)).toEqual({
+      position: { x: 949, y: 984 },
+      size: vertical,
     });
   });
 });

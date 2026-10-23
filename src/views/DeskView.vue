@@ -13,14 +13,12 @@ import { shortDate, todayIso } from "../lib/dates";
 import {
   areaOf,
   clampToArea,
-  collapsedChip,
+  collapsedTab,
+  dockPoint,
   growRect,
-  insetArea,
-  nearestEdge,
   pickArea,
   rightCenter,
   shrinkRect,
-  snapToEdge,
   type DeskArea,
   type DeskEdge,
   type DeskPoint,
@@ -35,9 +33,9 @@ import StatusDot from "./components/StatusDot.vue";
 
 /** Transparent room around the card for its CSS shadow; the shell's p-4 must match. */
 const PAD_LOGICAL = 16;
-/** Gap the card keeps from the work-area edge while docked. */
-const GAP_LOGICAL = 12;
-const CHIP_LOGICAL = 48;
+/** Collapsed hint tab: the long side points into the screen, the short side runs along the edge. */
+const TAB_LONG_LOGICAL = 56;
+const TAB_SHORT_LOGICAL = 22;
 const SNAP_LOGICAL = 24;
 const SETTLE_MS = 250;
 const COLLAPSE_MS = 400;
@@ -50,7 +48,7 @@ const win = getCurrentWindow();
 
 type DeskPhase = "open" | "closing" | "closed" | "opening";
 
-/** The widget alternates between the panel and the edge tile through these phases. */
+/** The widget alternates between the panel and the edge tab through these phases. */
 const phase = ref<DeskPhase>("open");
 const edge = ref<DeskEdge | null>(null);
 const pin = computed(() => state.pin);
@@ -73,8 +71,24 @@ const originClass = computed(() => {
   }
 });
 
-/** The tile shadow falls inward from the docked edge, never over it. */
-const tileShadow = computed(() => {
+/** Round only the end facing away from the screen edge, so the tab reads like a page marker. */
+const tabRadius = computed(() => {
+  switch (edge.value) {
+    case "left":
+      return "rounded-r-xl";
+    case "right":
+      return "rounded-l-xl";
+    case "top":
+      return "rounded-b-xl";
+    case "bottom":
+      return "rounded-t-xl";
+    default:
+      return "rounded-xl";
+  }
+});
+
+/** The tab shadow falls inward from the docked edge, never over it. */
+const tabShadow = computed(() => {
   switch (edge.value) {
     case "top":
       return "shadow-[0_10px_18px_-10px_rgb(0_0_0/0.45)]";
@@ -91,11 +105,11 @@ const tileShadow = computed(() => {
 
 let scale = 1;
 let pad = PAD_LOGICAL;
-let gap = GAP_LOGICAL;
-let chip = CHIP_LOGICAL;
+let tabLong = TAB_LONG_LOGICAL;
+let tabShort = TAB_SHORT_LOGICAL;
 /** The margin the current window geometry was applied with; measurements use it. */
 let appliedPad = pad;
-let full: DeskSize = { width: 320, height: 460 };
+let full: DeskSize = { width: 360, height: 500 };
 let expandedPos: DeskPoint = { x: 0, y: 0 };
 let currentArea: DeskArea = { x: 0, y: 0, width: 0, height: 0 };
 let enabled = false;
@@ -123,8 +137,8 @@ async function refreshMetrics(): Promise<void> {
 
 function syncMetrics(): void {
   pad = Math.round(PAD_LOGICAL * scale);
-  gap = Math.round(GAP_LOGICAL * scale);
-  chip = Math.round(CHIP_LOGICAL * scale);
+  tabLong = Math.round(TAB_LONG_LOGICAL * scale);
+  tabShort = Math.round(TAB_SHORT_LOGICAL * scale);
 }
 
 async function applyGeometry(position: DeskPoint, size: DeskSize): Promise<void> {
@@ -171,20 +185,16 @@ async function settle(): Promise<void> {
   scale = await win.scaleFactor().catch(() => scale);
   syncMetrics();
   const area = areaOf(monitor.workArea);
-  const field = insetArea(area, gap);
-  const found = nearestEdge(card.position, card.size, field, Math.round(SNAP_LOGICAL * scale));
-  const next = found
-    ? snapToEdge(found, card.position, card.size, field)
-    : clampToArea(card.position, card.size, field);
-  if (next.x !== card.position.x || next.y !== card.position.y) {
-    await applyGeometry(next, card.size);
+  const docked = dockPoint(card.position, card.size, area, Math.round(SNAP_LOGICAL * scale));
+  if (docked.position.x !== card.position.x || docked.position.y !== card.position.y) {
+    await applyGeometry(docked.position, card.size);
   }
 
   full = card.size;
-  expandedPos = next;
+  expandedPos = docked.position;
   currentArea = area;
-  edge.value = found;
-  void vm.savePosition(next.x, next.y);
+  edge.value = docked.edge;
+  void vm.savePosition(docked.position.x, docked.position.y);
 }
 
 async function expand(): Promise<void> {
@@ -198,7 +208,7 @@ async function expand(): Promise<void> {
   }
   phase.value = "opening";
   await nextTick();
-  expandedPos = clampToArea(expandedPos, full, insetArea(currentArea, gap));
+  expandedPos = clampToArea(expandedPos, full, currentArea);
   await applyGeometry(expandedPos, full);
   if (phase.value === "opening") phase.value = "open";
 }
@@ -212,8 +222,7 @@ function collapse(): void {
 async function afterCollapse(): Promise<void> {
   if (phase.value !== "closing" || !edge.value) return;
   const run = ++animRun;
-  // The tile hugs the work-area edge, unlike the panel which keeps the gap.
-  const rect = collapsedChip(edge.value, expandedPos, full, chip, currentArea);
+  const rect = collapsedTab(edge.value, expandedPos, full, tabLong, tabShort, currentArea);
   await applyGeometry(rect.position, rect.size);
   if (run !== animRun) {
     // A reveal or expand took over while the window was shrinking.
@@ -261,13 +270,18 @@ async function reveal(): Promise<void> {
   enabled = true;
   const monitor = await currentMonitor().catch(() => null);
   if (monitor) currentArea = areaOf(monitor.workArea);
-  const field = insetArea(currentArea, gap);
-  expandedPos = clampToArea(expandedPos, full, field);
   // Whatever animation was paused while hidden, the widget comes back expanded.
   animRun += 1;
+  if (phase.value !== "open") {
+    // Hide the tab before the window grows, or it paints at the panel's size.
+    phase.value = "opening";
+    await nextTick();
+  }
+  const docked = dockPoint(expandedPos, full, currentArea, Math.round(SNAP_LOGICAL * scale));
+  expandedPos = docked.position;
   await applyGeometry(expandedPos, full);
   phase.value = "open";
-  edge.value = nearestEdge(expandedPos, full, field, Math.round(SNAP_LOGICAL * scale));
+  edge.value = docked.edge;
   refresh();
 }
 
@@ -347,10 +361,15 @@ onMounted(async () => {
   const savedY = settings?.deskY ?? null;
   const saved = savedX !== null && savedY !== null ? { x: savedX, y: savedY } : null;
   currentArea = pickArea(saved, full, areas, fallback);
-  const field = insetArea(currentArea, gap);
-  expandedPos = saved ? clampToArea(saved, full, field) : rightCenter(field, full);
+  const docked = dockPoint(
+    saved ?? rightCenter(currentArea, full),
+    full,
+    currentArea,
+    Math.round(SNAP_LOGICAL * scale),
+  );
+  expandedPos = docked.position;
   await applyGeometry(expandedPos, full);
-  edge.value = nearestEdge(expandedPos, full, field, Math.round(SNAP_LOGICAL * scale));
+  edge.value = docked.edge;
   await applyPin(settings?.deskPin === "bottom" ? "bottom" : "top");
 
   unlisteners.push(
@@ -401,9 +420,9 @@ onUnmounted(() => {
 <template>
   <div class="h-screen p-4 text-base-content select-none">
     <Transition
-      enter-active-class="transition-[scale,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-      enter-from-class="scale-[0.94] opacity-0"
-      enter-to-class="scale-100 opacity-100"
+      enter-active-class="transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
       leave-active-class="transition-[scale,opacity] duration-150 ease-in motion-reduce:transition-none"
       leave-from-class="scale-100 opacity-100"
       leave-to-class="scale-[0.96] opacity-0"
@@ -421,7 +440,7 @@ onUnmounted(() => {
           class="flex h-9 shrink-0 items-center gap-2 border-b border-base-300 px-3"
           @mousedown="beginMove"
         >
-          <span data-tauri-drag-region class="text-[12.5px] font-semibold">{{
+          <span data-tauri-drag-region class="text-[13px] font-semibold">{{
             t("desk.title")
           }}</span>
           <span class="text-[10.5px] text-base-content/40">{{ t("desk.count", { count }) }}</span>
@@ -484,7 +503,7 @@ onUnmounted(() => {
                 :aria-label="t('desk.openTask', { title: row.task.title })"
                 @click="openTask(row.task)"
               >
-                <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ row.task.title }}</span>
+                <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.task.title }}</span>
                 <span
                   v-if="row.task.priority === 'high'"
                   class="badge badge-soft badge-warning badge-xs"
@@ -556,15 +575,20 @@ onUnmounted(() => {
       <button
         v-if="phase === 'closed'"
         type="button"
-        :class="originClass"
-        class="block size-full rounded-xl focus-visible:ring-2 focus-visible:ring-primary/40"
+        :class="[originClass, tabShadow, tabRadius]"
+        class="grid size-full place-items-center border border-base-300 bg-base-100 focus-visible:ring-2 focus-visible:ring-primary/40"
         :aria-label="t('desk.expand')"
         :title="t('desk.expand')"
         @mouseenter="onMouseEnter"
         @mouseleave="onMouseLeave"
         @click="expand"
       >
-        <img src="/favicon.svg" alt="" draggable="false" :class="tileShadow" class="size-full" />
+        <span
+          class="flex items-center justify-center gap-[3px]"
+          :class="edge === 'top' || edge === 'bottom' ? 'flex-col' : ''"
+        >
+          <i v-for="n in 3" :key="n" class="block size-[2.5px] rounded-full bg-base-content/30"></i>
+        </span>
       </button>
     </Transition>
   </div>

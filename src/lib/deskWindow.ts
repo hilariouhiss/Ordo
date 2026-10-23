@@ -31,16 +31,6 @@ export function areaOf(workArea: { position: DeskPoint; size: DeskSize }): DeskA
   };
 }
 
-/** The work area minus the gap the widget keeps from the screen edge. */
-export function insetArea(area: DeskArea, by: number): DeskArea {
-  return {
-    x: area.x + by,
-    y: area.y + by,
-    width: Math.max(0, area.width - 2 * by),
-    height: Math.max(0, area.height - 2 * by),
-  };
-}
-
 /** Card rect to window rect: the window carries the transparent room for the shadow. */
 export function growRect(rect: DeskRect, by: number): DeskRect {
   return {
@@ -137,26 +127,45 @@ export function snapToEdge(
   }
 }
 
-/** The icon tile left behind when the pointer leaves an edge-docked widget; it hugs the given area's edge. */
-export function collapsedChip(
+/** Where an edge-near card settles: clamped inside, then snapped flush if that lands near an edge. */
+export function dockPoint(
+  position: DeskPoint,
+  size: DeskSize,
+  area: DeskArea,
+  tolerance: number,
+): { position: DeskPoint; edge: DeskEdge | null } {
+  const clamped = clampToArea(position, size, area);
+  const edge = nearestEdge(clamped, size, area, tolerance);
+  return {
+    position: edge ? snapToEdge(edge, clamped, size, area) : clamped,
+    edge,
+  };
+}
+
+/** The tab left behind when the pointer leaves an edge-docked widget; its long side points into the screen. */
+export function collapsedTab(
   edge: DeskEdge,
   expanded: DeskPoint,
   size: DeskSize,
-  chip: number,
+  long: number,
+  short: number,
   area: DeskArea,
 ): DeskRect {
   const point = clampToArea(expanded, size, area);
-  const tile = { width: chip, height: chip };
-  const x = point.x + Math.round((size.width - chip) / 2);
-  const y = point.y + Math.round((size.height - chip) / 2);
+  const tile =
+    edge === "left" || edge === "right"
+      ? { width: long, height: short }
+      : { width: short, height: long };
+  const x = point.x + Math.round((size.width - tile.width) / 2);
+  const y = point.y + Math.round((size.height - tile.height) / 2);
   switch (edge) {
     case "left":
       return { position: { x: area.x, y }, size: tile };
     case "right":
-      return { position: { x: area.x + area.width - chip, y }, size: tile };
+      return { position: { x: area.x + area.width - tile.width, y }, size: tile };
     case "top":
       return { position: { x, y: area.y }, size: tile };
     case "bottom":
-      return { position: { x, y: area.y + area.height - chip }, size: tile };
+      return { position: { x, y: area.y + area.height - tile.height }, size: tile };
   }
 }
