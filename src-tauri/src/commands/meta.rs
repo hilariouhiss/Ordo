@@ -324,3 +324,23 @@ pub async fn set_shortcut(
     }
     Ok(outcome)
 }
+
+// The high bit of GetAsyncKeyState reports whether the key is currently down.
+#[cfg(target_os = "windows")]
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn GetAsyncKeyState(v_key: i32) -> i16;
+}
+
+/// True while the left mouse button is held. The desk widget waits for the
+/// native drag to end before snapping; moving the window under the system move
+/// loop gets undone at mouse-up.
+#[tauri::command]
+pub fn desk_left_button_down() -> bool {
+    // VK_LBUTTON = 0x01.
+    #[cfg(target_os = "windows")]
+    let down = (unsafe { GetAsyncKeyState(0x01) } as u16 & 0x8000) != 0;
+    #[cfg(not(target_os = "windows"))]
+    let down = false;
+    down
+}

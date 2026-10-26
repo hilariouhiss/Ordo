@@ -307,6 +307,7 @@ pub fn run() {
       commands::meta::create_tag,
       commands::meta::delete_tag,
       commands::meta::set_shortcut,
+      commands::meta::desk_left_button_down,
       commands::ai::set_ai_key,
       commands::ai::clear_ai_key,
       commands::ai::ai_key_status,

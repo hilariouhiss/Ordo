@@ -27,6 +27,7 @@ import {
 import { applyTheme, type AppliedTheme } from "../lib/theme";
 import { errorText, setLanguage, t, type Language } from "../lib/i18n";
 import { overdueDays } from "../model/mappers";
+import { deskLeftButtonDown } from "../model/ipc";
 import type { DeskPin, Task } from "../model/types";
 import { deskVM } from "../viewmodels/deskVM";
 import StatusDot from "./components/StatusDot.vue";
@@ -38,6 +39,7 @@ const TAB_LONG_LOGICAL = 56;
 const TAB_SHORT_LOGICAL = 22;
 const SNAP_LOGICAL = 24;
 const SETTLE_MS = 250;
+const SETTLE_RETRY_MS = 100;
 const COLLAPSE_MS = 400;
 const REFRESH_MS = 60_000;
 const HOVER_REFRESH_MS = 10_000;
@@ -169,6 +171,12 @@ async function applyPin(next: DeskPin): Promise<void> {
 
 async function settle(): Promise<void> {
   if (phase.value !== "open") return;
+  // The native move loop owns the window while the button is held; moving it then is undone at mouse-up.
+  if (await deskLeftButtonDown().catch(() => false)) {
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => void settle(), SETTLE_RETRY_MS);
+    return;
+  }
   const position = await win.outerPosition().catch(() => null);
   const size = await win.outerSize().catch(() => null);
   const monitor =

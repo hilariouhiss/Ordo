@@ -267,3 +267,8 @@ export function aiKeyStatus(): Promise<boolean> {
 export function setTaskStatus(id: string, status: Status): Promise<Task> {
   return invoke<Task>("set_status", { id, status });
 }
+
+/** True while the left mouse button is held; the desk widget waits for release before snapping. */
+export function deskLeftButtonDown(): Promise<boolean> {
+  return invoke<boolean>("desk_left_button_down");
+}
