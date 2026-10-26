@@ -1,4 +1,4 @@
-use crate::dto::{PersonDto, ProjectDto, ProjectSummaryDto};
+use crate::dto::{PersonDto, ProjectDto, ProjectGroupDto, ProjectSummaryDto};
 use crate::now_iso;
 use crate::state::{with_db, AppState};
 use tauri::State;
@@ -31,11 +31,10 @@ pub async fn get_project(state: State<'_, AppState>, id: String) -> Result<Proje
 pub async fn create_project(
     state: State<'_, AppState>,
     name: String,
-    due_date: Option<String>,
 ) -> Result<ProjectDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::projects::create(conn, &name, due_date.as_deref(), &now)
+        crate::services::projects::create(conn, &name, &now)
     })
     .await
 }
@@ -45,17 +44,54 @@ pub async fn update_project(
     state: State<'_, AppState>,
     id: String,
     name: String,
-    due_date: Option<String>,
+    group_id: Option<String>,
 ) -> Result<ProjectDto, String> {
-    let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err("empty_project_name".into());
-    }
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::repo::projects::update(conn, &id, &name, due_date.as_deref(), &now)
-            .map_err(|e| e.to_string())?;
-        crate::repo::projects::dto(conn, &id).map_err(|e| e.to_string())
+        crate::services::projects::update(conn, &id, &name, group_id.as_deref(), &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_project_groups(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProjectGroupDto>, String> {
+    with_db(&state, |conn| {
+        crate::repo::project_groups::list(conn).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_project_group(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<ProjectGroupDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::projects::create_group(conn, &name, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_project_group(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::projects::rename_group(conn, &id, &name, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_project_group(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    with_db(&state, move |conn| {
+        crate::services::projects::delete_group(conn, &id)
     })
     .await
 }

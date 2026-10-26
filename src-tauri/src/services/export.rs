@@ -3,8 +3,9 @@ use rusqlite::Connection;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 12] = [
     "people",
+    "project_groups",
     "projects",
     "project_members",
     "categories",
@@ -161,6 +162,7 @@ mod tests {
 
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"tasks\""));
+        assert!(text.contains("\"project_groups\""));
         assert!(text.contains("\"settings\""));
         assert!(text.contains("\"priority\""));
         assert!(text.contains("交底"));

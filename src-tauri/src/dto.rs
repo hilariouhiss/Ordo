@@ -118,7 +118,7 @@ pub struct CategoryProgressDto {
 pub struct ProjectSummaryDto {
     pub id: String,
     pub name: String,
-    pub due_date: Option<String>,
+    pub group_id: Option<String>,
     pub total: i64,
     pub done: i64,
     pub by_category: Vec<CategoryProgressDto>,
@@ -129,9 +129,16 @@ pub struct ProjectSummaryDto {
 pub struct ProjectDto {
     pub id: String,
     pub name: String,
-    pub due_date: Option<String>,
+    pub group_id: Option<String>,
     pub archived_at: Option<String>,
     pub member_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroupDto {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

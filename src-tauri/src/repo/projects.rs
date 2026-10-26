@@ -1,16 +1,10 @@
 use crate::dto::{PersonDto, ProjectDto};
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub fn insert(
-    conn: &Connection,
-    id: &str,
-    name: &str,
-    due_date: Option<&str>,
-    now: &str,
-) -> rusqlite::Result<()> {
+pub fn insert(conn: &Connection, id: &str, name: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO projects (id, name, due_date, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![id, name, due_date, now],
+        "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+        params![id, name, now],
     )?;
     Ok(())
 }
@@ -19,12 +13,12 @@ pub fn update(
     conn: &Connection,
     id: &str,
     name: &str,
-    due_date: Option<&str>,
+    group_id: Option<&str>,
     now: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE projects SET name = ?1, due_date = ?2, updated_at = ?3 WHERE id = ?4",
-        params![name, due_date, now, id],
+        "UPDATE projects SET name = ?1, group_id = ?2, updated_at = ?3 WHERE id = ?4",
+        params![name, group_id, now, id],
     )?;
     Ok(())
 }
@@ -85,13 +79,13 @@ pub fn member_ids(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> 
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
     let mut project = conn.query_row(
-        "SELECT id, name, due_date, archived_at FROM projects WHERE id = ?1 AND deleted_at IS NULL",
+        "SELECT id, name, group_id, archived_at FROM projects WHERE id = ?1 AND deleted_at IS NULL",
         [id],
         |r| {
             Ok(ProjectDto {
                 id: r.get(0)?,
                 name: r.get(1)?,
-                due_date: r.get(2)?,
+                group_id: r.get(2)?,
                 archived_at: r.get(3)?,
                 member_ids: vec![],
             })
@@ -171,4 +165,24 @@ pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result
         .query_map([pattern], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     ids.iter().map(|id| dto(conn, id)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn archiving_stamps_the_time_and_restoring_clears_it() {
+        let c = db::open_in_memory().unwrap();
+        insert(&c, "p1", "项目", NOW).unwrap();
+
+        set_archived(&c, "p1", true, NOW).unwrap();
+        assert_eq!(dto(&c, "p1").unwrap().archived_at.as_deref(), Some(NOW));
+
+        set_archived(&c, "p1", false, "2026-10-21T08:00:00Z").unwrap();
+        assert!(dto(&c, "p1").unwrap().archived_at.is_none());
+    }
 }

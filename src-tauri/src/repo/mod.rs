@@ -11,6 +11,7 @@ pub mod categories;
 pub mod delays;
 pub mod notifications;
 pub mod people;
+pub mod project_groups;
 pub mod projects;
 pub mod settings;
 pub mod steps;

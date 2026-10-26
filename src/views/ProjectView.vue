@@ -5,7 +5,6 @@ import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { shortDate, todayIso } from "../lib/dates";
 import { t } from "../lib/i18n";
 import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Task } from "../model/types";
@@ -51,18 +50,6 @@ watch(
   },
 );
 
-const daysLeft = computed(() => {
-  const due = vm.state.summary?.dueDate;
-  if (!due) return null;
-  return Math.ceil((Date.parse(due) - Date.parse(todayIso())) / 86_400_000);
-});
-
-const daysText = computed(() => {
-  const days = daysLeft.value;
-  if (days === null) return null;
-  return days < 0 ? t("task.overdue", { days: -days }) : t("project.daysLeft", { days });
-});
-
 const progressPct = computed(() => {
   const s = vm.state.summary;
   return s && s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -97,15 +84,7 @@ function closeSettings(gone = false): void {
 <template>
   <section v-if="vm.state.summary" class="space-y-2">
     <div class="flex items-start gap-3">
-      <div>
-        <div class="text-[16px] font-semibold tracking-tight">{{ vm.state.summary.name }}</div>
-        <div class="mt-0.5 flex items-center gap-2 text-[11.5px] text-base-content/50">
-          <span v-if="vm.state.summary.dueDate" class="badge badge-ghost badge-xs">
-            {{ t("project.due", { date: shortDate(vm.state.summary.dueDate) }) }}
-          </span>
-          <span v-if="daysText !== null">{{ daysText }}</span>
-        </div>
-      </div>
+      <div class="text-[16px] font-semibold tracking-tight">{{ vm.state.summary.name }}</div>
       <div class="ml-auto flex items-center gap-2">
         <div role="tablist" class="tabs tabs-border tabs-xs">
           <button

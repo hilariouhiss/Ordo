@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn archived_project_tasks_do_not_remind() {
         let c = crate::db::open_in_memory().unwrap();
-        let project = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        let project = crate::services::projects::create(&c, "项目", NOW).unwrap();
         task_with_due(&c, "t1", "2026-10-21");
         c.execute(
             "UPDATE tasks SET project_id = ?1 WHERE id = 't1'",

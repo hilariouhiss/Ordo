@@ -8,6 +8,7 @@ import type {
   PassAction,
   Person,
   Project,
+  ProjectGroup,
   ProjectSummary,
   Settings,
   Status,
@@ -111,12 +112,28 @@ export function getProject(id: string): Promise<Project> {
   return invoke<Project>("get_project", { id });
 }
 
-export function createProject(name: string, dueDate: string | null): Promise<Project> {
-  return invoke<Project>("create_project", { name, dueDate });
+export function createProject(name: string): Promise<Project> {
+  return invoke<Project>("create_project", { name });
 }
 
-export function updateProject(id: string, name: string, dueDate: string | null): Promise<Project> {
-  return invoke<Project>("update_project", { id, name, dueDate });
+export function updateProject(id: string, name: string, groupId: string | null): Promise<Project> {
+  return invoke<Project>("update_project", { id, name, groupId });
+}
+
+export function listProjectGroups(): Promise<ProjectGroup[]> {
+  return invoke<ProjectGroup[]>("list_project_groups");
+}
+
+export function createProjectGroup(name: string): Promise<ProjectGroup> {
+  return invoke<ProjectGroup>("create_project_group", { name });
+}
+
+export function renameProjectGroup(id: string, name: string): Promise<void> {
+  return invoke<void>("rename_project_group", { id, name });
+}
+
+export function deleteProjectGroup(id: string): Promise<void> {
+  return invoke<void>("delete_project_group", { id });
 }
 
 export function archiveProject(id: string): Promise<void> {

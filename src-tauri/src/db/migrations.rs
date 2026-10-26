@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 9;
+pub const LATEST: i64 = 10;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -253,12 +253,45 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 9)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 10 {
+        // Groups are new, and the nullable column can be added to an existing projects table.
+        // IF NOT EXISTS plus the column guard make a crash mid-step safe to retry.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS project_groups (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );",
+        )?;
+        if !has_project_column(&tx, "group_id")? {
+            tx.execute_batch(
+                "ALTER TABLE projects ADD COLUMN group_id TEXT
+                 REFERENCES project_groups(id) ON DELETE SET NULL",
+            )?;
+        }
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_projects_group ON projects(group_id)")?;
+        tx.pragma_update(None, "user_version", 10)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
 fn has_task_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?1",
+        [column],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
+}
+
+fn has_project_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name = ?1",
         [column],
         |r| r.get::<_, i64>(0),
     )
@@ -690,5 +723,59 @@ mod tests {
             })
             .unwrap();
         assert_eq!(at.as_deref(), Some("2026-10-20"));
+    }
+
+    #[test]
+    fn adds_project_groups_without_touching_projects() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        c.execute_batch(V1).unwrap();
+        seed(&c).unwrap();
+        c.execute(
+            "INSERT INTO projects (id, name, due_date, created_at, updated_at) VALUES
+             ('p1', '项目', '2026-11-20', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 9).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let groups: i64 = c
+            .query_row("SELECT COUNT(*) FROM project_groups", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(groups, 0);
+        let (name, group_id): (String, Option<String>) = c
+            .query_row(
+                "SELECT name, group_id FROM projects WHERE id = 'p1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "项目");
+        assert!(group_id.is_none());
+
+        // Simulate a crash after the table, column and index were written but before
+        // the version bump: the guards must finish the step instead of failing.
+        c.pragma_update(None, "user_version", 9).unwrap();
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let groups: i64 = c
+            .query_row("SELECT COUNT(*) FROM project_groups", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(groups, 0);
+        let (name, group_id): (String, Option<String>) = c
+            .query_row(
+                "SELECT name, group_id FROM projects WHERE id = 'p1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "项目");
+        assert!(group_id.is_none());
     }
 }

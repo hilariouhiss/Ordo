@@ -45,9 +45,14 @@ export interface Settings {
 export interface Project {
   id: string;
   name: string;
-  dueDate: string | null;
+  groupId: string | null;
   archivedAt: string | null;
   memberIds: string[];
+}
+
+export interface ProjectGroup {
+  id: string;
+  name: string;
 }
 
 export interface Step {
@@ -108,7 +113,7 @@ export interface CategoryProgress {
 export interface ProjectSummary {
   id: string;
   name: string;
-  dueDate: string | null;
+  groupId: string | null;
   total: number;
   done: number;
   byCategory: CategoryProgress[];

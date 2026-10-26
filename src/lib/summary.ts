@@ -1,9 +1,7 @@
-import { shortDate } from "./dates";
 import { t } from "./i18n";
 
 export interface SummaryInput {
   name: string;
-  dueDate: string | null;
   total: number;
   done: number;
   byCategory: { name: string; total: number; done: number }[];
@@ -11,14 +9,11 @@ export interface SummaryInput {
 
 /** The copyable project line; kept on this side so it follows the UI language. */
 export function projectSummaryLine(project: SummaryInput): string {
-  const head = project.dueDate
-    ? t("summary.headDue", {
-        name: project.name,
-        date: shortDate(project.dueDate),
-        total: project.total,
-        done: project.done,
-      })
-    : t("summary.head", { name: project.name, total: project.total, done: project.done });
+  const head = t("summary.head", {
+    name: project.name,
+    total: project.total,
+    done: project.done,
+  });
   const parts = project.byCategory
     .filter((category) => category.total > 0)
     .map((category) =>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, watch } from "vue";
-import { shortDate } from "../lib/dates";
+import { localDate, shortDate } from "../lib/dates";
 import { askConfirm } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
@@ -113,8 +113,8 @@ function openTask(id: string): void {
           class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
         >
           <span class="text-[13px] font-medium">{{ project.name }}</span>
-          <span v-if="project.dueDate" class="text-[10.5px] text-base-content/40">
-            {{ t("projects.due", { date: shortDate(project.dueDate) }) }}
+          <span v-if="project.archivedAt" class="text-[10.5px] text-base-content/40">
+            {{ t("archive.archivedAt", { date: shortDate(localDate(project.archivedAt)) }) }}
           </span>
           <button
             class="btn btn-xs ml-auto rounded-md border-base-300 bg-base-200 font-normal"

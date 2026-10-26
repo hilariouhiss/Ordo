@@ -40,7 +40,7 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
     Ok(ProjectSummaryDto {
         id: project.id,
         name: project.name,
-        due_date: project.due_date,
+        group_id: project.group_id,
         total,
         done,
         by_category,
@@ -66,7 +66,7 @@ mod tests {
 
     fn setup() -> (Connection, String) {
         let c = db::open_in_memory().unwrap();
-        let p = projects::create(&c, "华东客户交付", Some("2026-11-20"), NOW).unwrap();
+        let p = projects::create(&c, "华东客户交付", NOW).unwrap();
         let cats = categories::list(&c).unwrap();
         let software = cats.iter().find(|x| x.name == "软件").unwrap().id.clone();
         let docs = cats.iter().find(|x| x.name == "资料").unwrap().id.clone();

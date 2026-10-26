@@ -18,7 +18,7 @@ import { task } from "./fixtures";
 const summary = {
   id: "p1",
   name: "项目",
-  dueDate: null,
+  groupId: null,
   total: 0,
   done: 0,
   byCategory: [],

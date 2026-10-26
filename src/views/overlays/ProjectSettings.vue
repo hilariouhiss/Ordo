@@ -2,31 +2,33 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { onMounted, reactive, ref } from "vue";
-import { askConfirm } from "../../lib/dialog";
+import { askConfirm, askText } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
+import type { ProjectGroup } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
-import DateField from "../components/DateField.vue";
 
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ close: [gone?: boolean] }>();
 
 const form = reactive({
   name: "",
-  dueDate: "",
+  groupId: "",
   memberIds: [] as string[],
 });
+const groups = ref<ProjectGroup[]>([]);
 const memberName = ref("");
 const error = ref("");
 
 async function reload(): Promise<void> {
-  const project = await ipc.getProject(props.id);
+  const [project, list] = await Promise.all([ipc.getProject(props.id), ipc.listProjectGroups()]);
   form.name = project.name;
-  form.dueDate = project.dueDate ?? "";
+  form.groupId = project.groupId ?? "";
   form.memberIds = project.memberIds;
+  groups.value = list;
 }
 
 onMounted(() => {
@@ -40,9 +42,23 @@ function memberNameOf(id: string): string {
 async function save(): Promise<void> {
   error.value = "";
   try {
-    await ipc.updateProject(props.id, form.name.trim(), form.dueDate || null);
+    await ipc.updateProject(props.id, form.name.trim(), form.groupId || null);
     await projectsVM.load();
     emit("close");
+  } catch (e) {
+    error.value = String(e);
+  }
+}
+
+async function newGroup(): Promise<void> {
+  const name = await askText(t("projects.newGroup"), "");
+  if (!name?.trim()) return;
+  error.value = "";
+  try {
+    const group = await projectsVM.createGroup(name);
+    if (!group) return;
+    groups.value = [...groups.value, group];
+    form.groupId = group.id;
   } catch (e) {
     error.value = String(e);
   }
@@ -112,10 +128,25 @@ async function remove(): Promise<void> {
           <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.name") }}</span>
           <input v-model="form.name" class="input input-sm flex-1 rounded-lg border-base-300" />
         </label>
-        <label class="flex items-center gap-3">
-          <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.due") }}</span>
-          <DateField v-model="form.dueDate" class="input input-sm rounded-lg border-base-300" />
-        </label>
+        <div class="flex items-center gap-3">
+          <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.group") }}</span>
+          <select
+            v-model="form.groupId"
+            class="select select-sm flex-1 rounded-lg border-base-300"
+            :aria-label="t('projectSettings.group')"
+          >
+            <option value="">{{ t("projectSettings.noGroup") }}</option>
+            <option v-for="group in groups" :key="group.id" :value="group.id">
+              {{ group.name }}
+            </option>
+          </select>
+          <button
+            class="shrink-0 text-[11px] text-base-content/45 hover:text-base-content"
+            @click="newGroup"
+          >
+            + {{ t("projects.newGroup") }}
+          </button>
+        </div>
       </div>
 
       <div class="mt-4">

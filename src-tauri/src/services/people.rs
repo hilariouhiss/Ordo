@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn deleting_an_unused_person_removes_project_membership() {
         let c = db::open_in_memory().unwrap();
-        let project = projects::create(&c, "项目", None, NOW).unwrap();
+        let project = projects::create(&c, "项目", NOW).unwrap();
         let li = people::create(&c, "老李", NOW).unwrap();
         projects_repo::add_member(&c, &project.id, &li.id, NOW).unwrap();
 

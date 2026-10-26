@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn archived_task_hides_from_project_list_and_stats() {
         let c = db::open_in_memory().unwrap();
-        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
             .unwrap();
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn archiving_project_removes_its_tasks_from_week() {
         let c = db::open_in_memory().unwrap();
-        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
             .unwrap();
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn restoring_a_project_returns_active_tasks_to_week() {
         let c = db::open_in_memory().unwrap();
-        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
         for id in ["t1", "t2", "t3", "t4"] {
             week::capture(&c, id, NOW, id).unwrap();
             c.execute(
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn restoring_a_project_keeps_the_tasks_order() {
         let c = db::open_in_memory().unwrap();
-        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
         for id in ["t1", "t2", "t3"] {
             week::capture(&c, id, NOW, id).unwrap();
             c.execute(
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn archiving_a_project_hides_its_tasks_from_the_week_surfaces() {
         let c = db::open_in_memory().unwrap();
-        let p = crate::services::projects::create(&c, "项目", None, NOW).unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
         for (id, title) in [("t1", "挂起的"), ("t2", "进行中")] {
             week::capture(&c, title, NOW, id).unwrap();
             c.execute(
@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(underscore.tasks.len(), 1);
         assert_eq!(underscore.tasks[0].id, "t2");
 
-        let p = crate::services::projects::create(&c, "50% 项目", None, NOW).unwrap();
+        let p = crate::services::projects::create(&c, "50% 项目", NOW).unwrap();
         crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
         let projects = archive::list(&c, Some("%")).unwrap();
         assert_eq!(projects.projects.len(), 1);
