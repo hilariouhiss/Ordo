@@ -6,6 +6,7 @@ import {
   listProjectGroups,
   listProjects,
   renameProjectGroup,
+  setProjectGroup,
 } from "../model/ipc";
 import type { Project, ProjectGroup, ProjectSummary } from "../model/types";
 import { appVM } from "./appVM";
@@ -65,6 +66,11 @@ export function createProjectsVM() {
     await load();
   }
 
+  async function assignGroup(id: string, groupId: string): Promise<void> {
+    await setProjectGroup(id, groupId);
+    await load();
+  }
+
   function openSettings(id: string): void {
     state.settingsFor = id;
   }
@@ -80,6 +86,7 @@ export function createProjectsVM() {
     createGroup,
     renameGroup,
     removeGroup,
+    assignGroup,
     openSettings,
     closeSettings,
   };

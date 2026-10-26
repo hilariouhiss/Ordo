@@ -211,7 +211,11 @@ onMounted(async () => {
 
 <template>
   <MotionConfig reducedMotion="user">
-    <div class="flex h-screen flex-col bg-base-200 text-base-content">
+    <div
+      class="flex h-screen flex-col bg-base-200 text-base-content"
+      @dragover.prevent
+      @drop.prevent
+    >
       <header
         data-tauri-drag-region="deep"
         class="flex h-12 shrink-0 items-center gap-4 border-b border-base-300 bg-base-100 pl-6 select-none"

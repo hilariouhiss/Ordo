@@ -278,6 +278,7 @@ pub fn run() {
       commands::projects::get_project,
       commands::projects::create_project,
       commands::projects::update_project,
+      commands::projects::set_project_group,
       commands::projects::archive_project,
       commands::projects::restore_project,
       commands::projects::delete_project,

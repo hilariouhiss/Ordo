@@ -79,6 +79,9 @@ export const zh = {
   "projects.deleteGroupTitle": "删除分组",
   "projects.deleteGroupMessage": "删除「{name}」？组里的项目会变成未分组，项目本身不会删。",
   "projects.deleteGroupAria": "删除分组",
+  "projects.dragHint": "拖到分组可快速归组",
+  "projects.dragAria": "拖动「{name}」到分组",
+  "projects.dropHint": "松开加入",
   "projects.settingsAria": "项目设置",
   "projects.empty": "还没有项目。在上面建一个。",
 
@@ -267,6 +270,7 @@ export const zh = {
   "projectSettings.name": "名称",
   "projectSettings.group": "分组",
   "projectSettings.noGroup": "无分组",
+  "projectSettings.importance": "重要性",
   "projectSettings.members": "成员",
   "projectSettings.membersHint": "任务负责人从这里选",
   "projectSettings.removeMemberAria": "移出项目",
@@ -418,6 +422,9 @@ export const en: Record<MessageKey, string> = {
   "projects.deleteGroupMessage":
     'Delete "{name}"? Its projects become ungrouped; the projects themselves stay.',
   "projects.deleteGroupAria": "Delete group",
+  "projects.dragHint": "Drag onto a group",
+  "projects.dragAria": 'Drag "{name}" onto a group',
+  "projects.dropHint": "Drop to add",
   "projects.settingsAria": "Project settings",
   "projects.empty": "No projects yet. Create one above.",
 
@@ -611,6 +618,7 @@ export const en: Record<MessageKey, string> = {
   "projectSettings.name": "Name",
   "projectSettings.group": "Group",
   "projectSettings.noGroup": "No group",
+  "projectSettings.importance": "Importance",
   "projectSettings.members": "Members",
   "projectSettings.membersHint": "Task owners come from here",
   "projectSettings.removeMemberAria": "Remove from project",

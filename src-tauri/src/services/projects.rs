@@ -24,19 +24,35 @@ pub fn update(
     id: &str,
     name: &str,
     group_id: Option<&str>,
+    priority: &str,
     now: &str,
 ) -> Result<ProjectDto, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("empty_project_name".into());
     }
+    if !crate::services::tasks::valid_priority(priority) {
+        return Err("invalid_priority".into());
+    }
     if let Some(group_id) = group_id {
         if !project_groups::exists(conn, group_id).map_err(|e| e.to_string())? {
             return Err("invalid_group".into());
         }
     }
-    projects::update(conn, id, name, group_id, now).map_err(|e| e.to_string())?;
+    projects::update(conn, id, name, group_id, priority, now).map_err(|e| e.to_string())?;
     projects::dto(conn, id).map_err(|e| e.to_string())
+}
+
+pub fn set_group(
+    conn: &Connection,
+    id: &str,
+    group_id: &str,
+    now: &str,
+) -> Result<(), String> {
+    if !project_groups::exists(conn, group_id).map_err(|e| e.to_string())? {
+        return Err("invalid_group".into());
+    }
+    projects::set_group(conn, id, group_id, now).map_err(|e| e.to_string())
 }
 
 pub fn create_group(
@@ -127,6 +143,7 @@ mod tests {
         let p = projects::create(&c, "华东客户交付", NOW).unwrap();
         assert_eq!(p.member_ids.len(), 1);
         assert!(p.group_id.is_none());
+        assert_eq!(p.priority, "normal");
         let cands = projects::owner_candidates(&c, Some(&p.id)).unwrap();
         assert_eq!(cands.len(), 1);
         assert!(cands[0].is_me);
@@ -179,8 +196,15 @@ mod tests {
         let group = projects::create_group(&c, "  甲方 A  ", NOW).unwrap();
         assert_eq!(group.name, "甲方 A");
 
-        let assigned = projects::update(&c, &project.id, "华东客户交付", Some(&group.id), NOW)
-            .unwrap();
+        let assigned = projects::update(
+            &c,
+            &project.id,
+            "华东客户交付",
+            Some(&group.id),
+            "normal",
+            NOW,
+        )
+        .unwrap();
         assert_eq!(assigned.group_id.as_deref(), Some(group.id.as_str()));
 
         assert_eq!(
@@ -192,12 +216,13 @@ mod tests {
             "empty_group_name"
         );
         assert_eq!(
-            projects::update(&c, &project.id, "项目", Some("missing"), NOW).unwrap_err(),
+            projects::update(&c, &project.id, "项目", Some("missing"), "normal", NOW)
+                .unwrap_err(),
             "invalid_group"
         );
 
         let active = projects::create(&c, "另一个项目", NOW).unwrap();
-        projects::update(&c, &active.id, "另一个项目", Some(&group.id), NOW).unwrap();
+        projects::update(&c, &active.id, "另一个项目", Some(&group.id), "normal", NOW).unwrap();
 
         let other = projects::create_group(&c, "甲方 B", NOW).unwrap();
         projects::rename_group(&c, &group.id, "甲方 C", NOW).unwrap();
@@ -219,5 +244,36 @@ mod tests {
         assert!(active.archived_at.is_none());
         assert!(active.group_id.is_none());
         assert!(project_groups::get(&c, &group.id).is_err());
+    }
+
+    #[test]
+    fn importance_is_validated_and_saved() {
+        let c = db::open_in_memory().unwrap();
+        let project = projects::create(&c, "项目", NOW).unwrap();
+        assert_eq!(project.priority, "normal");
+
+        let updated = projects::update(&c, &project.id, "项目", None, "high", NOW).unwrap();
+        assert_eq!(updated.priority, "high");
+        assert_eq!(
+            projects::update(&c, &project.id, "项目", None, "urgent", NOW).unwrap_err(),
+            "invalid_priority"
+        );
+    }
+
+    #[test]
+    fn set_group_moves_a_project_and_rejects_a_deleted_group() {
+        let c = db::open_in_memory().unwrap();
+        let project = projects::create(&c, "项目", NOW).unwrap();
+        let group = projects::create_group(&c, "甲方 A", NOW).unwrap();
+        projects::update(&c, &project.id, "项目", None, "high", NOW).unwrap();
+
+        projects::set_group(&c, &project.id, &group.id, NOW).unwrap();
+        let moved = crate::repo::projects::dto(&c, &project.id).unwrap();
+        assert_eq!(moved.group_id.as_deref(), Some(group.id.as_str()));
+        assert_eq!(moved.priority, "high");
+        assert_eq!(
+            projects::set_group(&c, &project.id, "missing", NOW).unwrap_err(),
+            "invalid_group"
+        );
     }
 }

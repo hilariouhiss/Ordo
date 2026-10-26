@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { Ellipsis, Trash } from "@lucide/vue";
+import { Ellipsis, GripVertical, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { askConfirm, askText } from "../lib/dialog";
-import { errorText, t } from "../lib/i18n";
+import { errorText, language, t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
-import { projectSections } from "../lib/projectGroups";
-import type { ProjectGroup } from "../model/types";
+import { projectSections, type ProjectSection } from "../lib/projectGroups";
+import type { ProjectGroup, ProjectSummary } from "../model/types";
 import { projectsVM } from "../viewmodels/projectsVM";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
 const router = useRouter();
 const name = ref("");
 const error = ref("");
+const draggingId = ref<string | null>(null);
+const dragOverGroupId = ref<string | null>(null);
 
 onMounted(() => {
   void projectsVM.load();
@@ -31,8 +33,62 @@ function onCreateKey(event: KeyboardEvent): void {
 }
 
 const sections = computed(() =>
-  projectSections(projectsVM.state.projects, projectsVM.state.groups, t("projects.ungrouped")),
+  projectSections(
+    projectsVM.state.projects,
+    projectsVM.state.groups,
+    t("projects.ungrouped"),
+    language.value,
+  ),
 );
+
+function canDrag(section: ProjectSection): boolean {
+  return section.group === null && projectsVM.state.groups.length > 0;
+}
+
+function onDragStart(project: ProjectSummary, section: ProjectSection, event: DragEvent): void {
+  if (!canDrag(section)) {
+    event.preventDefault();
+    return;
+  }
+  draggingId.value = project.id;
+  dragOverGroupId.value = null;
+  event.dataTransfer?.setData("text/plain", project.id);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+}
+
+function onDragEnd(): void {
+  draggingId.value = null;
+  dragOverGroupId.value = null;
+}
+
+function onGroupDragOver(groupId: string | null, event: DragEvent): void {
+  if (!groupId || !draggingId.value) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dragOverGroupId.value = groupId;
+}
+
+function onGroupDragLeave(groupId: string | null, event: DragEvent): void {
+  if (!groupId || dragOverGroupId.value !== groupId) return;
+  const section = event.currentTarget as HTMLElement | null;
+  const under = document.elementFromPoint(event.clientX, event.clientY);
+  if (section && under && section.contains(under)) return;
+  dragOverGroupId.value = null;
+}
+
+async function onGroupDrop(groupId: string | null, event: DragEvent): Promise<void> {
+  if (!groupId) return;
+  event.preventDefault();
+  const id = draggingId.value ?? event.dataTransfer?.getData("text/plain") ?? null;
+  onDragEnd();
+  if (!id) return;
+  error.value = "";
+  try {
+    await projectsVM.assignGroup(id, groupId);
+  } catch (e) {
+    error.value = String(e);
+  }
+}
 
 async function newGroup(): Promise<void> {
   const next = await askText(t("projects.newGroup"), "");
@@ -103,7 +159,19 @@ async function removeGroup(group: ProjectGroup): Promise<void> {
     <p v-if="error" class="px-1 text-[12px] text-error">{{ errorText(error) }}</p>
 
     <div class="space-y-2">
-      <div v-for="section in sections" :key="section.id || 'ungrouped'" class="space-y-1.5">
+      <div
+        v-for="section in sections"
+        :key="section.id || 'ungrouped'"
+        class="space-y-1.5 rounded-2xl transition-colors"
+        :class="{
+          'bg-primary/5 ring-1 ring-primary/25':
+            section.group && dragOverGroupId === section.group.id,
+        }"
+        @dragenter.prevent="onGroupDragOver(section.group?.id ?? null, $event)"
+        @dragover="onGroupDragOver(section.group?.id ?? null, $event)"
+        @dragleave="onGroupDragLeave(section.group?.id ?? null, $event)"
+        @drop="onGroupDrop(section.group?.id ?? null, $event)"
+      >
         <div
           v-if="section.group || projectsVM.state.groups.length"
           class="flex items-center gap-2 px-1"
@@ -113,6 +181,18 @@ async function removeGroup(group: ProjectGroup): Promise<void> {
           </span>
           <span class="text-[10.5px] text-base-content/30">
             {{ t("projects.groupCount", { count: section.projects.length }) }}
+          </span>
+          <span
+            v-if="section.group && dragOverGroupId === section.group.id"
+            class="text-[10.5px] text-primary"
+          >
+            {{ t("projects.dropHint") }}
+          </span>
+          <span
+            v-else-if="!section.group && projectsVM.state.groups.length"
+            class="text-[10.5px] text-base-content/30"
+          >
+            {{ t("projects.dragHint") }}
           </span>
           <template v-if="section.group">
             <button
@@ -131,15 +211,40 @@ async function removeGroup(group: ProjectGroup): Promise<void> {
           </template>
         </div>
 
+        <div
+          v-if="section.group && draggingId && !section.projects.length"
+          class="rounded-xl border border-dashed border-primary/25 px-4 py-3 text-center text-[11px] text-primary/60"
+        >
+          {{ t("projects.dropHint") }}
+        </div>
+
         <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
           <motion.li
             v-for="project in section.projects"
             :key="project.id"
             v-bind="listItemMotion"
             class="flex cursor-pointer items-center gap-3 rounded-xl bg-base-100 px-4 py-3 hover:opacity-90"
+            :class="{ 'opacity-50': draggingId === project.id }"
+            :draggable="canDrag(section)"
+            :title="canDrag(section) ? t('projects.dragAria', { name: project.name }) : undefined"
+            @dragstart="onDragStart(project, section, $event)"
+            @dragend="onDragEnd"
             @click="router.push(`/projects/${project.id}`)"
           >
+            <span
+              v-if="canDrag(section)"
+              class="cursor-grab text-base-content/25 active:cursor-grabbing"
+              aria-hidden="true"
+            >
+              <GripVertical :size="13" />
+            </span>
             <span class="text-[13.5px] font-medium">{{ project.name }}</span>
+            <span
+              v-if="project.priority === 'high'"
+              class="badge badge-soft badge-warning badge-xs"
+            >
+              {{ t("task.priorityHigh") }}
+            </span>
             <span class="ml-auto text-[11px] tabular-nums text-base-content/45">
               {{ project.done }}/{{ project.total }}
             </span>

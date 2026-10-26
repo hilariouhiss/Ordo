@@ -119,6 +119,7 @@ pub struct ProjectSummaryDto {
     pub id: String,
     pub name: String,
     pub group_id: Option<String>,
+    pub priority: String,
     pub total: i64,
     pub done: i64,
     pub by_category: Vec<CategoryProgressDto>,
@@ -130,6 +131,7 @@ pub struct ProjectDto {
     pub id: String,
     pub name: String,
     pub group_id: Option<String>,
+    pub priority: String,
     pub archived_at: Option<String>,
     pub member_ids: Vec<String>,
 }

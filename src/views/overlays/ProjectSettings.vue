@@ -7,7 +7,7 @@ import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
-import type { ProjectGroup } from "../../model/types";
+import type { Priority, ProjectGroup } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
 
@@ -17,6 +17,7 @@ const emit = defineEmits<{ close: [gone?: boolean] }>();
 const form = reactive({
   name: "",
   groupId: "",
+  priority: "normal" as Priority,
   memberIds: [] as string[],
 });
 const groups = ref<ProjectGroup[]>([]);
@@ -27,6 +28,7 @@ async function reload(): Promise<void> {
   const [project, list] = await Promise.all([ipc.getProject(props.id), ipc.listProjectGroups()]);
   form.name = project.name;
   form.groupId = project.groupId ?? "";
+  form.priority = project.priority;
   form.memberIds = project.memberIds;
   groups.value = list;
 }
@@ -42,12 +44,16 @@ function memberNameOf(id: string): string {
 async function save(): Promise<void> {
   error.value = "";
   try {
-    await ipc.updateProject(props.id, form.name.trim(), form.groupId || null);
+    await ipc.updateProject(props.id, form.name.trim(), form.groupId || null, form.priority);
     await projectsVM.load();
     emit("close");
   } catch (e) {
     error.value = String(e);
   }
+}
+
+function onPriorityChange(event: Event): void {
+  form.priority = (event.target as HTMLSelectElement).value as Priority;
 }
 
 async function newGroup(): Promise<void> {
@@ -147,6 +153,21 @@ async function remove(): Promise<void> {
             + {{ t("projects.newGroup") }}
           </button>
         </div>
+        <label class="flex items-center gap-3">
+          <span class="w-16 shrink-0 text-base-content/50">{{
+            t("projectSettings.importance")
+          }}</span>
+          <select
+            :value="form.priority"
+            class="select select-sm flex-1 rounded-lg border-base-300"
+            :aria-label="t('projectSettings.importance')"
+            @change="onPriorityChange"
+          >
+            <option value="high">{{ t("task.priorityHigh") }}</option>
+            <option value="normal">{{ t("task.priorityNormal") }}</option>
+            <option value="low">{{ t("task.priorityLow") }}</option>
+          </select>
+        </label>
       </div>
 
       <div class="mt-4">

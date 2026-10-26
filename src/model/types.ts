@@ -46,6 +46,7 @@ export interface Project {
   id: string;
   name: string;
   groupId: string | null;
+  priority: Priority;
   archivedAt: string | null;
   memberIds: string[];
 }
@@ -114,6 +115,7 @@ export interface ProjectSummary {
   id: string;
   name: string;
   groupId: string | null;
+  priority: Priority;
   total: number;
   done: number;
   byCategory: CategoryProgress[];

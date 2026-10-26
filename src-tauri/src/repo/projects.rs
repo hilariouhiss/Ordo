@@ -14,11 +14,26 @@ pub fn update(
     id: &str,
     name: &str,
     group_id: Option<&str>,
+    priority: &str,
     now: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE projects SET name = ?1, group_id = ?2, updated_at = ?3 WHERE id = ?4",
-        params![name, group_id, now, id],
+        "UPDATE projects SET name = ?1, group_id = ?2, priority = ?3, updated_at = ?4
+         WHERE id = ?5",
+        params![name, group_id, priority, now, id],
+    )?;
+    Ok(())
+}
+
+pub fn set_group(
+    conn: &Connection,
+    id: &str,
+    group_id: &str,
+    now: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE projects SET group_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![group_id, now, id],
     )?;
     Ok(())
 }
@@ -79,14 +94,16 @@ pub fn member_ids(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> 
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
     let mut project = conn.query_row(
-        "SELECT id, name, group_id, archived_at FROM projects WHERE id = ?1 AND deleted_at IS NULL",
+        "SELECT id, name, group_id, priority, archived_at
+         FROM projects WHERE id = ?1 AND deleted_at IS NULL",
         [id],
         |r| {
             Ok(ProjectDto {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 group_id: r.get(2)?,
-                archived_at: r.get(3)?,
+                priority: r.get(3)?,
+                archived_at: r.get(4)?,
                 member_ids: vec![],
             })
         },

@@ -41,6 +41,7 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
         id: project.id,
         name: project.name,
         group_id: project.group_id,
+        priority: project.priority,
         total,
         done,
         by_category,
@@ -108,6 +109,7 @@ mod tests {
         let s = stats::summary(&c, &id).unwrap();
         assert_eq!(s.total, 3);
         assert_eq!(s.done, 1);
+        assert_eq!(s.priority, "normal");
         assert_eq!(s.by_category.len(), 2);
         assert_eq!(s.by_category[0].name, "软件");
         assert_eq!(s.by_category[0].total, 2);

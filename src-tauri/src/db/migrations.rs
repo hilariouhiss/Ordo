@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 10;
+pub const LATEST: i64 = 11;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -275,6 +275,21 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
         tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_projects_group ON projects(group_id)")?;
         tx.pragma_update(None, "user_version", 10)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 11 {
+        // Old projects become normal, which leaves the list in plain A-Z order until
+        // someone sets an importance. The guard makes a half-applied step retry-safe.
+        let tx = conn.unchecked_transaction()?;
+        if !has_project_column(&tx, "priority")? {
+            tx.execute_batch(
+                "ALTER TABLE projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'
+                 CHECK (priority IN ('high','normal','low'))",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 11)?;
         tx.commit()?;
     }
     Ok(())
@@ -747,18 +762,19 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM project_groups", [], |r| r.get(0))
             .unwrap();
         assert_eq!(groups, 0);
-        let (name, group_id): (String, Option<String>) = c
+        let (name, group_id, priority): (String, Option<String>, String) = c
             .query_row(
-                "SELECT name, group_id FROM projects WHERE id = 'p1'",
+                "SELECT name, group_id, priority FROM projects WHERE id = 'p1'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
         assert_eq!(name, "项目");
         assert!(group_id.is_none());
+        assert_eq!(priority, "normal");
 
-        // Simulate a crash after the table, column and index were written but before
-        // the version bump: the guards must finish the step instead of failing.
+        // Simulate a crash after the table, columns and index were written but before
+        // the version bump: both the group and priority guards must finish the steps.
         c.pragma_update(None, "user_version", 9).unwrap();
         migrate(&c).unwrap();
 
@@ -768,14 +784,25 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM project_groups", [], |r| r.get(0))
             .unwrap();
         assert_eq!(groups, 0);
-        let (name, group_id): (String, Option<String>) = c
+        let (name, group_id, priority): (String, Option<String>, String) = c
             .query_row(
-                "SELECT name, group_id FROM projects WHERE id = 'p1'",
+                "SELECT name, group_id, priority FROM projects WHERE id = 'p1'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
         assert_eq!(name, "项目");
         assert!(group_id.is_none());
+        assert_eq!(priority, "normal");
+
+        // A crash after the priority column was written but before the v11 bump.
+        c.pragma_update(None, "user_version", 10).unwrap();
+        migrate(&c).unwrap();
+        let priority: String = c
+            .query_row("SELECT priority FROM projects WHERE id = 'p1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(priority, "normal");
     }
 }

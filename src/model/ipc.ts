@@ -7,6 +7,7 @@ import type {
   Category,
   PassAction,
   Person,
+  Priority,
   Project,
   ProjectGroup,
   ProjectSummary,
@@ -116,8 +117,17 @@ export function createProject(name: string): Promise<Project> {
   return invoke<Project>("create_project", { name });
 }
 
-export function updateProject(id: string, name: string, groupId: string | null): Promise<Project> {
-  return invoke<Project>("update_project", { id, name, groupId });
+export function updateProject(
+  id: string,
+  name: string,
+  groupId: string | null,
+  priority: Priority,
+): Promise<Project> {
+  return invoke<Project>("update_project", { id, name, groupId, priority });
+}
+
+export function setProjectGroup(id: string, groupId: string): Promise<void> {
+  return invoke<void>("set_project_group", { id, groupId });
 }
 
 export function listProjectGroups(): Promise<ProjectGroup[]> {

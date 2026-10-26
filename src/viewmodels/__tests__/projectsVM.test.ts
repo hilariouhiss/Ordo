@@ -7,6 +7,7 @@ vi.mock("../../model/ipc", () => ({
   createProjectGroup: vi.fn(),
   renameProjectGroup: vi.fn(),
   deleteProjectGroup: vi.fn(),
+  setProjectGroup: vi.fn(),
   bootstrap: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ import {
   listProjectGroups,
   listProjects,
   renameProjectGroup,
+  setProjectGroup,
 } from "../../model/ipc";
 import type { Project, ProjectGroup, ProjectSummary } from "../../model/types";
 import { appVM } from "../appVM";
@@ -26,6 +28,7 @@ const project: ProjectSummary = {
   id: "p1",
   name: "项目",
   groupId: null,
+  priority: "normal",
   total: 0,
   done: 0,
   byCategory: [],
@@ -37,6 +40,7 @@ const created: Project = {
   id: "p1",
   name: "项目",
   groupId: null,
+  priority: "normal",
   archivedAt: null,
   memberIds: [],
 };
@@ -108,6 +112,17 @@ describe("projectsVM", () => {
     await vm.renameGroup("g1", "甲方 B");
 
     expect(renameProjectGroup).toHaveBeenCalledWith("g1", "甲方 B");
+    expect(listProjectGroups).toHaveBeenCalledTimes(1);
+  });
+
+  it("assigns a group and reloads the list", async () => {
+    vi.mocked(setProjectGroup).mockResolvedValue();
+    vi.mocked(listProjects).mockResolvedValue([project]);
+    const vm = createProjectsVM();
+
+    await vm.assignGroup("p1", "g1");
+
+    expect(setProjectGroup).toHaveBeenCalledWith("p1", "g1");
     expect(listProjectGroups).toHaveBeenCalledTimes(1);
   });
 

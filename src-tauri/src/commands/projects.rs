@@ -45,10 +45,31 @@ pub async fn update_project(
     id: String,
     name: String,
     group_id: Option<String>,
+    priority: String,
 ) -> Result<ProjectDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::projects::update(conn, &id, &name, group_id.as_deref(), &now)
+        crate::services::projects::update(
+            conn,
+            &id,
+            &name,
+            group_id.as_deref(),
+            &priority,
+            &now,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_project_group(
+    state: State<'_, AppState>,
+    id: String,
+    group_id: String,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::projects::set_group(conn, &id, &group_id, &now)
     })
     .await
 }

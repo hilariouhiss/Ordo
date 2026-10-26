@@ -11,14 +11,15 @@ vi.mock("../../model/ipc", () => ({
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { capture, getProjectSummary, listProjectTasks, listWeek } from "../../model/ipc";
-import type { Task } from "../../model/types";
+import type { ProjectSummary, Task } from "../../model/types";
 import { createProjectVM } from "../projectVM";
 import { task } from "./fixtures";
 
-const summary = {
+const summary: ProjectSummary = {
   id: "p1",
   name: "项目",
   groupId: null,
+  priority: "normal",
   total: 0,
   done: 0,
   byCategory: [],
