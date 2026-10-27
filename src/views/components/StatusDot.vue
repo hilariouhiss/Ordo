@@ -34,8 +34,8 @@ const dotClass = computed(() => {
       :class="dotClass"
     >
       <span v-if="display === 'suspended'" class="flex gap-[2px]" aria-hidden="true">
-        <span class="h-[5px] w-[1.5px] rounded-full bg-warning"></span>
-        <span class="h-[5px] w-[1.5px] rounded-full bg-warning"></span>
+        <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
+        <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
       </span>
     </span>
   </motion.span>
