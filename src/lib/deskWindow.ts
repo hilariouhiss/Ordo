@@ -169,3 +169,80 @@ export function collapsedTab(
       return { position: { x, y: area.y + area.height - tile.height }, size: tile };
   }
 }
+
+export const DESK_PANEL: DeskSize = { width: 360, height: 500 };
+export const DESK_PAD = 16;
+export const DESK_SNAP = 24;
+export const DESK_TAB_LONG = 56;
+export const DESK_TAB_SHORT = 22;
+
+export interface DeskMonitor extends DeskArea {
+  scale: number;
+}
+
+export interface WidgetPlacement {
+  card: DeskRect;
+  window: DeskRect;
+  edge: DeskEdge | null;
+  area: DeskMonitor;
+  scale: number;
+  pad: number;
+  snap: number;
+}
+
+/** The default card corner: the work area's top-right. */
+export function topRight(area: DeskArea, size: DeskSize): DeskPoint {
+  return { x: area.x + area.width - size.width, y: area.y };
+}
+
+/** The monitor a saved card belongs to now; a removed monitor falls back to the nearest. */
+export function pickAreaForPoint(
+  point: DeskPoint,
+  monitors: DeskMonitor[],
+  fallback: DeskMonitor,
+): DeskMonitor {
+  const inside = monitors.find(
+    (area) =>
+      point.x >= area.x &&
+      point.x <= area.x + area.width &&
+      point.y >= area.y &&
+      point.y <= area.y + area.height,
+  );
+  if (inside) return inside;
+  if (monitors.length === 0) return fallback;
+  return monitors.reduce(
+    (best, area) => (distanceTo(area, point) < distanceTo(best, point) ? area : best),
+    monitors[0],
+  );
+}
+
+/**
+ * Where the widget card sits in physical pixels. The scale comes from the
+ * monitor the card is going to, not the monitor the main window is on.
+ */
+export function widgetPlacement(input: {
+  saved: DeskPoint | null;
+  monitors: DeskMonitor[];
+  primary: DeskMonitor;
+}): WidgetPlacement {
+  const area = input.saved
+    ? pickAreaForPoint(input.saved, input.monitors, input.primary)
+    : input.primary;
+  const size = {
+    width: Math.round(DESK_PANEL.width * area.scale),
+    height: Math.round(DESK_PANEL.height * area.scale),
+  };
+  const pad = Math.round(DESK_PAD * area.scale);
+  const snap = Math.round(DESK_SNAP * area.scale);
+  const docked = dockPoint(input.saved ?? topRight(area, size), size, area, snap);
+  const card = { position: docked.position, size };
+  return {
+    card,
+    window: growRect(card, pad),
+    edge: docked.edge,
+    area,
+    scale: area.scale,
+    pad,
+    snap,
+  };
+}

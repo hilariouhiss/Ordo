@@ -290,3 +290,8 @@ export function setTaskStatus(id: string, status: Status): Promise<Task> {
 export function deskLeftButtonDown(): Promise<boolean> {
   return invoke<boolean>("desk_left_button_down");
 }
+
+/** One atomic native window rect change for the widget morph. */
+export function setWindowRect(x: number, y: number, width: number, height: number): Promise<void> {
+  return invoke<void>("set_window_rect", { x, y, width, height });
+}

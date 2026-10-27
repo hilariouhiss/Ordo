@@ -97,6 +97,23 @@ mod tests {
         assert_eq!(crate::repo::settings::dto(&c).unwrap().desk_pin, "top");
     }
 }
+/// One window move for the whole morph frame: position and size land together.
+#[tauri::command]
+pub fn set_window_rect(
+    window: tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::PhysicalSize::new(width, height))
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
     with_db(&state, |conn| {
@@ -130,7 +147,7 @@ pub async fn set_settings(
         };
     }
     let language_requested = patch.language.is_some();
-    let desk_requested = patch.desk_enabled;
+    let desk_requested = patch.desk_enabled.is_some();
     let settings = with_db(&state, move |conn| {
         let sets: Vec<(&str, Option<String>)> = vec![
             ("language", patch.language),
@@ -154,16 +171,13 @@ pub async fn set_settings(
         crate::repo::settings::dto(conn).map_err(|e| e.to_string())
     })
     .await?;
-    if language_requested {
+    if language_requested || desk_requested {
         let lang = if settings.language == "en" {
             crate::i18n::Lang::En
         } else {
             crate::i18n::Lang::Zh
         };
         crate::refresh_tray(&app, lang, settings.desk_enabled);
-    }
-    if let Some(want) = desk_requested {
-        crate::desk::apply_enabled(&app, want);
     }
     Ok(settings)
 }

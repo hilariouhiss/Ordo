@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { isTauri } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
@@ -49,6 +49,8 @@ function hide(): void {
 async function openMain(): Promise<void> {
   const main = await WebviewWindow.getByLabel("main");
   await main?.show();
+  // The main window may be the widget; ask it to morph before it takes focus.
+  await emitTo("main", "window:open").catch(() => {});
   hide();
 }
 

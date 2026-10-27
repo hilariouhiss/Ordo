@@ -62,6 +62,15 @@ pub fn valid_desk_pin(value: &str) -> bool {
     matches!(value, "top" | "bottom")
 }
 
+/// The main window starts as the week widget when this is on.
+pub fn desk_enabled(conn: &Connection) -> bool {
+    get(conn, "desk.enabled")
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("true")
+}
+
 pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
     let map = get_all(conn)?;
     Ok(SettingsDto {

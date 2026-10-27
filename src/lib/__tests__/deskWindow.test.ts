@@ -7,9 +7,13 @@ import {
   growRect,
   nearestEdge,
   pickArea,
+  pickAreaForPoint,
   rightCenter,
   shrinkRect,
   snapToEdge,
+  topRight,
+  widgetPlacement,
+  type DeskMonitor,
 } from "../deskWindow";
 
 const primary = { x: 0, y: 0, width: 1920, height: 1040 };
@@ -146,5 +150,82 @@ describe("areaOf", () => {
       width: 300,
       height: 400,
     });
+  });
+});
+
+const primaryMonitor: DeskMonitor = { ...primary, scale: 1 };
+const secondMonitor: DeskMonitor = { ...second, scale: 1.25 };
+const panel = { width: 360, height: 500 };
+
+describe("topRight", () => {
+  it("hugs the work area's top-right corner", () => {
+    expect(topRight(primary, size)).toEqual({ x: 1600, y: 0 });
+  });
+});
+
+describe("pickAreaForPoint", () => {
+  it("uses the monitor that contains the point", () => {
+    expect(
+      pickAreaForPoint({ x: -900, y: 200 }, [primaryMonitor, secondMonitor], primaryMonitor),
+    ).toBe(secondMonitor);
+  });
+
+  it("uses the nearest monitor for a point that is gone", () => {
+    expect(
+      pickAreaForPoint({ x: 5000, y: 5000 }, [primaryMonitor, secondMonitor], secondMonitor),
+    ).toBe(primaryMonitor);
+  });
+});
+
+describe("widgetPlacement", () => {
+  it("defaults to the primary monitor's top-right corner", () => {
+    const placed = widgetPlacement({
+      saved: null,
+      monitors: [primaryMonitor, secondMonitor],
+      primary: primaryMonitor,
+    });
+    expect(placed.card).toEqual({ position: { x: 1560, y: 0 }, size: panel });
+    expect(placed.edge).toBe("right");
+    expect(placed.window).toEqual({
+      position: { x: 1544, y: -16 },
+      size: { width: 392, height: 532 },
+    });
+    expect(placed.pad).toBe(16);
+    expect(placed.snap).toBe(24);
+  });
+
+  it("scales card, pad and snap on the target monitor", () => {
+    const placed = widgetPlacement({
+      saved: null,
+      monitors: [primaryMonitor, secondMonitor],
+      primary: secondMonitor,
+    });
+    expect(placed.card.size).toEqual({ width: 450, height: 625 });
+    expect(placed.window).toEqual({
+      position: { x: -470, y: -20 },
+      size: { width: 490, height: 665 },
+    });
+    expect(placed.pad).toBe(20);
+    expect(placed.snap).toBe(30);
+  });
+
+  it("docks a saved position on its own monitor", () => {
+    const placed = widgetPlacement({
+      saved: { x: 1580, y: 300 },
+      monitors: [primaryMonitor],
+      primary: primaryMonitor,
+    });
+    expect(placed.card.position).toEqual({ x: 1560, y: 300 });
+    expect(placed.edge).toBe("right");
+  });
+
+  it("clamps a saved position whose monitor is gone", () => {
+    const placed = widgetPlacement({
+      saved: { x: 5000, y: 5000 },
+      monitors: [primaryMonitor],
+      primary: primaryMonitor,
+    });
+    expect(placed.card.position).toEqual({ x: 1560, y: 540 });
+    expect(placed.edge).toBe("right");
   });
 });

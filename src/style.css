@@ -109,8 +109,8 @@ input[type="number"]::-webkit-outer-spin-button {
   display: none;
 }
 
-/* The desk widget paints its own card and shadow; the window behind it stays transparent. */
-html[data-window="desk"],
-html[data-window="desk"] body {
+/* The main window paints its own surface; the page behind it stays transparent for the widget morph. */
+html[data-window="main"],
+html[data-window="main"] body {
   background: transparent;
 }

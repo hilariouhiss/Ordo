@@ -92,18 +92,13 @@ export function createDeskVM() {
     }
   }
 
-  async function disable(): Promise<void> {
+  /** The mode viewmodel persists the shape; failures only cost the next launch and the tray. */
+  async function setEnabled(enabled: boolean): Promise<void> {
     try {
-      await setSettings({ deskEnabled: false });
+      appVM.state.settings = await setSettings({ deskEnabled: enabled });
     } catch {
-      // Leaving the window up is less surprising than an unhandled rejection.
+      // The window still changes shape; the choice just will not survive a restart.
     }
-  }
-
-  async function toggleEnabled(): Promise<boolean> {
-    const enabled = !(appVM.state.settings?.deskEnabled ?? false);
-    appVM.state.settings = await setSettings({ deskEnabled: enabled });
-    return enabled;
   }
 
   return {
@@ -114,8 +109,7 @@ export function createDeskVM() {
     loadConfig,
     setPin,
     savePosition,
-    disable,
-    toggleEnabled,
+    setEnabled,
     start,
     suspend,
     complete,

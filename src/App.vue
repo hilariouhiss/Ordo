@@ -4,9 +4,9 @@ import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
-import { askNotice, closeDialog, dialogRequest } from "./lib/dialog";
+import { askNotice } from "./lib/dialog";
 import { errorText, setLanguage, t } from "./lib/i18n";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
@@ -18,14 +18,15 @@ import {
 } from "./lib/theme";
 import type { Task } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
-import { deskVM } from "./viewmodels/deskVM";
 import { warnExclusiveConflict } from "./viewmodels/planning";
 import { passVM } from "./viewmodels/passVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
 import { weekVM } from "./viewmodels/weekVM";
+import { closeOverlays, windowModeVM } from "./viewmodels/windowModeVM";
 import WindowControls from "./views/components/WindowControls.vue";
+import DeskView from "./views/DeskView.vue";
 import AppDialog from "./views/overlays/AppDialog.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
@@ -69,21 +70,14 @@ watch(
     setLanguage(lang);
     if (isTauri()) {
       void emitTo("capture", "language:changed", lang);
-      void emitTo("desk", "language:changed", lang);
     }
   },
   { immediate: true },
 );
 
-watch(
-  () => appVM.state.settings?.deskControls,
-  (on) => {
-    if (isTauri()) void emitTo("desk", "desk:controls", !!on);
-  },
-);
-
 /** Brings the main window forward and lands on the requested task. */
 async function showTask(id: string): Promise<void> {
+  await windowModeVM.ensureFull();
   if (isTauri()) {
     const win = getCurrentWindow();
     await win.unminimize().catch(() => {});
@@ -94,27 +88,41 @@ async function showTask(id: string): Promise<void> {
   await taskSheetVM.open(id);
 }
 
-async function toggleDesk(): Promise<void> {
+async function enterWidget(): Promise<void> {
   try {
-    const enabled = await deskVM.toggleEnabled();
-    // Turning the widget on hands the desktop over to it; the tray brings this window back.
-    if (enabled && isTauri())
-      void getCurrentWindow()
-        .hide()
-        .catch(() => {});
+    await windowModeVM.enterWidget();
   } catch (e) {
     void askNotice(t("common.actionFailed"), errorText(e));
   }
 }
 
-// The tray always lands somewhere clean; a leftover overlay would hide it.
-function closeOverlays(): void {
-  // An exclusive-time notice waits for the user; it is not an overlay they opened.
-  if (dialogRequest.value?.kind !== "notice") closeDialog(null);
-  taskSheetVM.close();
-  passVM.close();
-  settingsVM.close();
+async function backToMain(): Promise<void> {
+  try {
+    await windowModeVM.enterFull();
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
+  }
 }
+
+async function openFromWidget(id: string): Promise<void> {
+  await backToMain();
+  await router.push("/week");
+  await taskSheetVM.open(id);
+}
+
+function onCollapseChange(collapsed: boolean): void {
+  windowModeVM.setCollapsed(collapsed);
+}
+
+// The widget's quick actions do not update the hidden main views; refresh on the way back.
+watch(
+  () => windowModeVM.state.mode,
+  (mode) => {
+    if (mode !== "full") return;
+    void weekVM.load();
+    void tasksVM.load();
+  },
+);
 
 function themeWindow(): ThemeWindow | null {
   if (!isTauri()) return null;
@@ -141,7 +149,6 @@ async function syncTheme(): Promise<void> {
   applyTheme(theme);
   if (isTauri()) {
     void emitTo("capture", "theme:changed", theme);
-    void emitTo("desk", "theme:changed", theme);
   }
 }
 
@@ -161,6 +168,12 @@ onMounted(async () => {
   } catch {
     // A failed bootstrap still shows the shell; the tray and shortcuts keep working.
   }
+  try {
+    await windowModeVM.init();
+  } catch {
+    // Starting in the full window still leaves the tray and shortcuts working.
+  }
+  await nextTick();
   revealWindow();
   void syncTheme();
   window
@@ -186,22 +199,25 @@ onMounted(async () => {
     await listen<string>("reminder:open", (event) => {
       void showTask(event.payload);
     });
-    await listen<boolean>("desk:changed", (event) => {
-      if (appVM.state.settings) appVM.state.settings.deskEnabled = event.payload;
+    await listen("window:open", () => {
+      void windowModeVM.ensureFull();
     });
-    await listen<string>("desk:open-task", (event) => {
-      void showTask(event.payload);
+    await listen<boolean>("widget:set", (event) => {
+      void windowModeVM.setWidget(event.payload);
     });
     await listen("nav:week", async () => {
+      await windowModeVM.ensureFull();
       closeOverlays();
       await router.push("/week");
     });
     await listen("nav:pass", async () => {
+      await windowModeVM.ensureFull();
       closeOverlays();
       await router.push("/week");
       await passVM.start();
     });
-    await listen("open:settings", () => {
+    await listen("open:settings", async () => {
+      await windowModeVM.ensureFull();
       closeOverlays();
       settingsVM.open();
     });
@@ -211,78 +227,104 @@ onMounted(async () => {
 
 <template>
   <MotionConfig reducedMotion="user">
-    <div
-      class="flex h-screen flex-col bg-base-200 text-base-content"
-      @dragover.prevent
-      @drop.prevent
-    >
-      <header
-        data-tauri-drag-region="deep"
-        class="flex h-12 shrink-0 items-center gap-4 border-b border-base-300 bg-base-100 pl-6 select-none"
+    <div class="h-screen">
+      <div
+        v-show="windowModeVM.state.appMounted"
+        class="h-full transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        :class="
+          windowModeVM.state.appOpacity === 0 ? 'pointer-events-none opacity-0' : 'opacity-100'
+        "
       >
-        <span class="text-[15px] font-semibold tracking-tight">ordo</span>
-        <LayoutGroup>
-          <nav role="tablist" class="app-nav tabs tabs-border tabs-sm">
-            <RouterLink
-              v-for="item in navItems"
-              :key="item.name"
-              :to="item.to"
-              class="tab"
-              active-class="tab-active"
-            >
-              {{ item.label }}
-              <motion.span
-                v-if="isActive(item.name)"
-                layout-id="nav-underline"
-                aria-hidden="true"
-                class="absolute inset-x-3 bottom-0 h-[3px] rounded-full bg-primary"
-                :initial="false"
-                :transition="springSnappy"
-              />
-            </RouterLink>
-          </nav>
-        </LayoutGroup>
-        <div class="ml-auto flex h-full items-center gap-2">
-          <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
-          <button
-            class="grid size-8 place-items-center rounded-lg"
-            :class="
-              appVM.state.settings?.deskEnabled
-                ? 'bg-primary/10 text-primary'
-                : 'text-base-content/45 hover:bg-base-200 hover:text-base-content'
-            "
-            :aria-label="t('desk.toggle')"
-            :title="t('desk.toggle')"
-            :aria-pressed="!!appVM.state.settings?.deskEnabled"
-            @click="toggleDesk"
+        <div
+          class="flex h-full flex-col bg-base-200 text-base-content"
+          @dragover.prevent
+          @drop.prevent
+        >
+          <header
+            data-tauri-drag-region="deep"
+            class="flex h-12 shrink-0 items-center gap-4 border-b border-base-300 bg-base-100 pl-6 select-none"
           >
-            <PanelRight :size="16" aria-hidden="true" />
-          </button>
-          <button
-            class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
-            :aria-label="t('app.settings')"
-            @click="settingsVM.open()"
-          >
-            <Settings :size="16" aria-hidden="true" />
-          </button>
-          <WindowControls />
+            <span class="text-[15px] font-semibold tracking-tight">ordo</span>
+            <LayoutGroup>
+              <nav role="tablist" class="app-nav tabs tabs-border tabs-sm">
+                <RouterLink
+                  v-for="item in navItems"
+                  :key="item.name"
+                  :to="item.to"
+                  class="tab"
+                  active-class="tab-active"
+                >
+                  {{ item.label }}
+                  <motion.span
+                    v-if="isActive(item.name)"
+                    layout-id="nav-underline"
+                    aria-hidden="true"
+                    class="absolute inset-x-3 bottom-0 h-[3px] rounded-full bg-primary"
+                    :initial="false"
+                    :transition="springSnappy"
+                  />
+                </RouterLink>
+              </nav>
+            </LayoutGroup>
+            <div class="ml-auto flex h-full items-center gap-2">
+              <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+              <button
+                class="grid size-8 place-items-center rounded-lg disabled:opacity-50"
+                :class="
+                  appVM.state.settings?.deskEnabled
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-base-content/45 hover:bg-base-200 hover:text-base-content'
+                "
+                :aria-label="t('desk.toggle')"
+                :title="t('desk.toggle')"
+                :aria-pressed="!!appVM.state.settings?.deskEnabled"
+                :disabled="windowModeVM.state.phase !== 'idle'"
+                @click="enterWidget"
+              >
+                <PanelRight :size="16" aria-hidden="true" />
+              </button>
+              <button
+                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
+                :aria-label="t('app.settings')"
+                @click="settingsVM.open()"
+              >
+                <Settings :size="16" aria-hidden="true" />
+              </button>
+              <WindowControls />
+            </div>
+          </header>
+          <main class="min-h-0 flex-1 overflow-y-auto">
+            <div class="mx-auto max-w-[980px] px-6 py-5">
+              <RouterView v-slot="{ Component }">
+                <AnimatePresence mode="wait" :initial="false">
+                  <motion.div :key="route.fullPath" v-bind="pageMotions">
+                    <component :is="Component" />
+                  </motion.div>
+                </AnimatePresence>
+              </RouterView>
+            </div>
+          </main>
+          <AnimatePresence>
+            <SettingsModal v-if="settingsVM.state.open" />
+          </AnimatePresence>
+          <AppDialog />
         </div>
-      </header>
-      <main class="min-h-0 flex-1 overflow-y-auto">
-        <div class="mx-auto max-w-[980px] px-6 py-5">
-          <RouterView v-slot="{ Component }">
-            <AnimatePresence mode="wait" :initial="false">
-              <motion.div :key="route.fullPath" v-bind="pageMotions">
-                <component :is="Component" />
-              </motion.div>
-            </AnimatePresence>
-          </RouterView>
-        </div>
-      </main>
-      <AnimatePresence>
-        <SettingsModal v-if="settingsVM.state.open" />
-      </AnimatePresence>
-      <AppDialog />
+      </div>
+      <div
+        v-if="windowModeVM.state.widgetMounted"
+        class="fixed inset-0 z-40 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        :class="
+          windowModeVM.state.widgetOpacity === 0 ? 'pointer-events-none opacity-0' : 'opacity-100'
+        "
+      >
+        <DeskView
+          :active="windowModeVM.state.widgetActive"
+          @open-task="openFromWidget"
+          @back="backToMain"
+          @collapse-change="onCollapseChange"
+        />
+      </div>
+      <div v-if="windowModeVM.state.phase !== 'idle'" class="fixed inset-0 z-50"></div>
     </div>
   </MotionConfig>
 </template>

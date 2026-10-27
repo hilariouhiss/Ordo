@@ -117,24 +117,21 @@ describe("deskVM", () => {
     expect(vm.state.pin).toBe("bottom");
   });
 
-  it("toggles the widget setting from the main window", async () => {
+  it("persists a widget mode change", async () => {
     appVM.state.settings = { ...defaultSettings, deskEnabled: false };
     vi.mocked(setSettings).mockResolvedValue({ ...defaultSettings, deskEnabled: true });
 
     const vm = createDeskVM();
+    await vm.setEnabled(true);
 
-    await expect(vm.toggleEnabled()).resolves.toBe(true);
     expect(setSettings).toHaveBeenCalledWith({ deskEnabled: true });
     expect(appVM.state.settings?.deskEnabled).toBe(true);
   });
 
-  it("reports when the toggle turns the widget off", async () => {
-    appVM.state.settings = { ...defaultSettings, deskEnabled: true };
-    vi.mocked(setSettings).mockResolvedValue({ ...defaultSettings, deskEnabled: false });
+  it("keeps the window change when persisting the mode fails", async () => {
+    vi.mocked(setSettings).mockRejectedValue(new Error("db"));
 
     const vm = createDeskVM();
-
-    await expect(vm.toggleEnabled()).resolves.toBe(false);
-    expect(appVM.state.settings?.deskEnabled).toBe(false);
+    await expect(vm.setEnabled(false)).resolves.toBeUndefined();
   });
 });

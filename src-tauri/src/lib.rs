@@ -4,7 +4,6 @@ use tauri::Manager;
 pub mod ai;
 pub mod commands;
 pub mod db;
-pub mod desk;
 pub mod dto;
 pub mod i18n;
 pub mod repo;
@@ -95,12 +94,24 @@ pub fn register_shortcut(
         .map_err(|e| e.to_string())
 }
 
+/// Whether the main window currently runs as the week widget. The tray and
+/// startup read it from the ledger; the front end owns changing it.
+fn widget_mode(app: &tauri::AppHandle) -> bool {
+    app.state::<crate::state::AppState>()
+        .db
+        .lock()
+        .map(|conn| crate::repo::settings::desk_enabled(&conn))
+        .unwrap_or(false)
+}
+
 fn show_main(app: &tauri::AppHandle) {
     use tauri::Manager;
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        // The page may be the widget; ask it to morph back before navigating.
+        let _ = app.emit_to("main", "window:open", ());
     }
 }
 
@@ -181,7 +192,9 @@ fn build_tray(
                 show_main(app);
                 let _ = app.emit_to("main", "nav:pass", ());
             }
-            "desk" => crate::desk::toggle(app),
+            "desk" => {
+                let _ = app.emit_to("main", "widget:set", !widget_mode(app));
+            }
             "settings" => {
                 show_main(app);
                 let _ = app.emit_to("main", "open:settings", ());
@@ -244,11 +257,6 @@ pub fn run() {
           // nothing to show until the next launch.
           api.prevent_close();
           let _ = window.hide();
-        } else if window.label() == "desk" {
-          // Closing the widget only turns it off; the tray and the main header
-          // stay the way to bring it back.
-          api.prevent_close();
-          crate::desk::set_enabled(window.app_handle(), false);
         }
       }
     })
@@ -299,6 +307,7 @@ pub fn run() {
       commands::archive::restore_task,
       commands::archive::delete_task,
       commands::meta::get_settings,
+      commands::meta::set_window_rect,
       commands::meta::set_settings,
       commands::meta::export_json,
       commands::meta::backup_now,
@@ -411,7 +420,7 @@ pub fn run() {
       }
 
       let lang = crate::i18n::from_conn(&conn);
-      let desk_enabled = crate::desk::enabled(&conn);
+      let desk_enabled = crate::repo::settings::desk_enabled(&conn);
       app.manage(crate::state::AppState::new(conn));
 
       use tauri_plugin_notification::NotificationExt;
@@ -444,7 +453,6 @@ pub fn run() {
           let handle = deferred.clone();
           let _ = deferred.run_on_main_thread(move || {
               let _ = ensure_capture(&handle, false);
-              crate::desk::startup(&handle);
               if let Some(window) = handle.get_webview_window("main") {
                   if !window.is_visible().unwrap_or(true) {
                       let _ = window.show();
