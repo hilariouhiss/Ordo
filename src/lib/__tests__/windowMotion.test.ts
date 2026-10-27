@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { easeOutCubic, lerpRect } from "../windowMotion";
+import { centerOffset, easeOutCubic, lerpRect, rectScale } from "../windowMotion";
 
 const from = { x: 0, y: 10, width: 200, height: 100 };
 const to = { x: 100, y: -10, width: 400, height: 300 };
@@ -12,6 +12,24 @@ describe("lerpRect", () => {
 
   it("rounds to whole physical pixels at the midpoint", () => {
     expect(lerpRect(from, to, 0.5)).toEqual({ x: 50, y: 0, width: 300, height: 200 });
+  });
+});
+
+describe("rectScale", () => {
+  it("maps a window rect onto another window rect", () => {
+    expect(rectScale(from, to)).toEqual({ x: 2, y: 3 });
+  });
+
+  it("falls back to 1 when the source has no size", () => {
+    expect(rectScale({ width: 0, height: 0 }, to)).toEqual({ x: 1, y: 1 });
+  });
+});
+
+describe("centerOffset", () => {
+  it("keeps the inner rect at its screen position", () => {
+    const inner = { x: 900, y: 0, width: 200, height: 150 };
+    const container = { x: 100, y: 50, width: 1200, height: 800 };
+    expect(centerOffset(inner, container, 1)).toEqual({ x: 300, y: -375 });
   });
 });
 

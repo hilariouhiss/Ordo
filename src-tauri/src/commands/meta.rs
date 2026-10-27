@@ -106,12 +106,35 @@ pub fn set_window_rect(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    window
-        .set_position(tauri::PhysicalPosition::new(x, y))
-        .map_err(|e| e.to_string())?;
-    window
-        .set_size(tauri::PhysicalSize::new(width, height))
-        .map_err(|e| e.to_string())
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
+        };
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        // One update lands position and size together; two calls can tear the rect.
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                None,
+                x,
+                y,
+                width as i32,
+                height as i32,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+            .map_err(|e| e.to_string())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        window
+            .set_position(tauri::PhysicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_size(tauri::PhysicalSize::new(width, height))
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]

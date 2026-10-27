@@ -43,6 +43,11 @@ reqwest = { version = "0.13.5", default-features = false, features = [
   "system-proxy",
 ] }
 
+# One SetWindowPos per morph frame: tao's set_position/set_size are two window
+# updates, and the intermediate rect makes the trailing edge jitter.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

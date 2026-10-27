@@ -4,7 +4,7 @@ import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { askNotice } from "./lib/dialog";
 import { errorText, setLanguage, t } from "./lib/i18n";
@@ -47,6 +47,11 @@ const router = useRouter();
 const route = useRoute();
 const direction = ref<1 | -1>(1);
 const pageMotions = computed(() => pageMotion(direction.value));
+/** The surface the window morph scales; windowModeVM writes its morph styles directly. */
+const appSurface = ref<HTMLElement | null>(null);
+/** The widget layer holds the card; the exit keeps it on screen while the window jumps. */
+const widgetLayer = ref<HTMLElement | null>(null);
+watch(widgetLayer, (el) => windowModeVM.attachWidgetLayer(el));
 
 function routeName(name: unknown): string | null {
   return typeof name === "string" ? name : null;
@@ -163,6 +168,7 @@ function revealWindow(): void {
 }
 
 onMounted(async () => {
+  windowModeVM.attachSurface(appSurface.value);
   try {
     await appVM.load();
   } catch {
@@ -223,12 +229,18 @@ onMounted(async () => {
     });
   }
 });
+
+onUnmounted(() => {
+  windowModeVM.attachSurface(null);
+  windowModeVM.attachWidgetLayer(null);
+});
 </script>
 
 <template>
   <MotionConfig reducedMotion="user">
-    <div class="h-screen">
+    <div class="relative h-screen overflow-hidden">
       <div
+        ref="appSurface"
         v-show="windowModeVM.state.appMounted"
         class="h-full transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         :class="
@@ -311,6 +323,7 @@ onMounted(async () => {
         </div>
       </div>
       <div
+        ref="widgetLayer"
         v-if="windowModeVM.state.widgetMounted"
         class="fixed inset-0 z-40 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         :class="
