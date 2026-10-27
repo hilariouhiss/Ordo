@@ -30,6 +30,7 @@ import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown } from "../model/ipc";
 import type { DeskPin, Task } from "../model/types";
 import { deskVM } from "../viewmodels/deskVM";
+import PriorityBadge from "./components/PriorityBadge.vue";
 import StatusDot from "./components/StatusDot.vue";
 
 /** Transparent room around the card for its CSS shadow; the shell's p-4 must match. */
@@ -512,11 +513,7 @@ onUnmounted(() => {
                 @click="openTask(row.task)"
               >
                 <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.task.title }}</span>
-                <span
-                  v-if="row.task.priority === 'high'"
-                  class="badge badge-soft badge-warning badge-xs"
-                  >{{ t("task.priorityHigh") }}</span
-                >
+                <PriorityBadge :priority="row.task.priority" />
                 <span
                   v-if="overdueDays(row.task.dueDate, todayIso()) > 0"
                   class="badge badge-soft badge-error badge-xs"

@@ -10,6 +10,7 @@ import { listItemMotion } from "../lib/motion";
 import { projectSections, type ProjectSection } from "../lib/projectGroups";
 import type { ProjectGroup, ProjectSummary } from "../model/types";
 import { projectsVM } from "../viewmodels/projectsVM";
+import PriorityBadge from "./components/PriorityBadge.vue";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
 const router = useRouter();
@@ -239,12 +240,7 @@ async function removeGroup(group: ProjectGroup): Promise<void> {
               <GripVertical :size="13" />
             </span>
             <span class="text-[13.5px] font-medium">{{ project.name }}</span>
-            <span
-              v-if="project.priority === 'high'"
-              class="badge badge-soft badge-warning badge-xs"
-            >
-              {{ t("task.priorityHigh") }}
-            </span>
+            <PriorityBadge :priority="project.priority" />
             <span class="ml-auto text-[11px] tabular-nums text-base-content/45">
               {{ project.done }}/{{ project.total }}
             </span>

@@ -10,6 +10,7 @@ import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
+import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
 const props = defineProps<{
@@ -136,9 +137,7 @@ async function suspend(): Promise<void> {
       {{ task.title }}
     </span>
     <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
-    <span v-if="task.priority === 'high'" class="badge badge-soft badge-warning badge-xs">
-      {{ t("task.priorityHigh") }}
-    </span>
+    <PriorityBadge :priority="task.priority" />
     <span v-if="task.steps.length" class="text-[10px] text-base-content/40">
       {{ stepsDone }}/{{ task.steps.length }}
     </span>
