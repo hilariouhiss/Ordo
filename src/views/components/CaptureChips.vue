@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { stepEffort, validEffort, type CaptureField } from "../../lib/capture";
-import { t } from "../../lib/i18n";
+import { errorText, t } from "../../lib/i18n";
 import type { CaptureFields, Priority } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
+import { projectsVM } from "../../viewmodels/projectsVM";
 import ChipSelect from "./ChipSelect.vue";
 import DateField from "./DateField.vue";
 
@@ -12,6 +13,18 @@ const props = defineProps<{
   matched: CaptureField[];
 }>();
 const emit = defineEmits<{ edit: [patch: Partial<CaptureFields>] }>();
+const error = ref("");
+
+/** A name typed at the end of the project list creates that project and picks it. */
+async function onCreateProject(name: string): Promise<void> {
+  error.value = "";
+  try {
+    const project = await projectsVM.create(name);
+    if (project) emit("edit", { projectId: project.id });
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
 
 const projectOptions = computed(() => {
   const list = appVM.state.projects.map((project) => ({
@@ -99,9 +112,11 @@ function commitEffort(event: Event): void {
         :model-value="fields.projectId ?? ''"
         :options="projectOptions"
         :label="t('task.project')"
+        :create-placeholder="t('projects.placeholder')"
         :class="controlClass('projectId')"
         class="select select-xs max-w-[120px] rounded-md border-base-300 bg-base-100 pl-1! text-[10.5px]"
         @update:model-value="onProject"
+        @create="onCreateProject"
       />
     </label>
 
@@ -152,5 +167,7 @@ function commitEffort(event: Event): void {
       />
       <span class="text-base-content/40">{{ t("capture.effortUnit") }}</span>
     </label>
+
+    <p v-if="error" class="basis-full text-[10.5px] text-error">{{ error }}</p>
   </div>
 </template>

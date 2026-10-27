@@ -22,6 +22,8 @@ import { createWeekVM } from "../weekVM";
 import { defaultSettings, task } from "./fixtures";
 
 describe("weekVM", () => {
+  afterEach(() => closeDialog(null));
+
   it("capture stores the task and clears the draft", async () => {
     vi.mocked(listWeek)
       .mockResolvedValueOnce([])
@@ -48,6 +50,17 @@ describe("weekVM", () => {
     const vm = createWeekVM();
     await vm.capture({ raw: "   ", title: "   ", fields: CAPTURE_DEFAULTS });
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("shows a notice when the backend rejects the capture", async () => {
+    vi.mocked(capture).mockRejectedValueOnce("invalid_project");
+    const vm = createWeekVM();
+    vm.state.draft = "交底";
+
+    await vm.capture({ raw: vm.state.draft, title: "交底", fields: CAPTURE_DEFAULTS });
+
+    expect(dialogRequest.value?.kind).toBe("notice");
+    expect(vm.state.draft).toBe("交底");
   });
 
   it("ignores a repeated submit while one is in flight", async () => {

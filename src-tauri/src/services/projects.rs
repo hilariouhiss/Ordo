@@ -119,6 +119,43 @@ pub fn add_member(
     Ok(person)
 }
 
+/// The member the project put in charge of this specialty.
+pub fn assigned_owner(
+    conn: &Connection,
+    project_id: Option<&str>,
+    category_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    match (project_id, category_id) {
+        (Some(project_id), Some(category_id)) => {
+            projects::category_owner(conn, project_id, category_id).map_err(|e| e.to_string())
+        }
+        _ => Ok(None),
+    }
+}
+
+pub fn set_member_category(
+    conn: &Connection,
+    project_id: &str,
+    person_id: &str,
+    category_id: Option<&str>,
+    now: &str,
+) -> Result<ProjectDto, String> {
+    if !projects::exists(conn, project_id).map_err(|e| e.to_string())? {
+        return Err("invalid_project".into());
+    }
+    if !projects::is_member(conn, project_id, person_id).map_err(|e| e.to_string())? {
+        return Err("not_a_member".into());
+    }
+    if let Some(category_id) = category_id {
+        if !crate::repo::categories::exists(conn, category_id).map_err(|e| e.to_string())? {
+            return Err("invalid_category".into());
+        }
+    }
+    projects::set_member_category(conn, project_id, person_id, category_id, now)
+        .map_err(|e| e.to_string())?;
+    projects::dto(conn, project_id).map_err(|e| e.to_string())
+}
+
 pub fn owner_candidates(
     conn: &Connection,
     project_id: Option<&str>,
@@ -134,14 +171,24 @@ mod tests {
     use crate::db;
     use crate::repo::{people, project_groups};
     use crate::services::projects;
+    use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    fn category(c: &Connection, name: &str) -> String {
+        crate::repo::categories::list(c)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.name == name)
+            .unwrap()
+            .id
+    }
 
     #[test]
     fn new_project_has_me_as_member() {
         let c = db::open_in_memory().unwrap();
         let p = projects::create(&c, "华东客户交付", NOW).unwrap();
-        assert_eq!(p.member_ids.len(), 1);
+        assert_eq!(p.members.len(), 1);
         assert!(p.group_id.is_none());
         assert_eq!(p.priority, "normal");
         let cands = projects::owner_candidates(&c, Some(&p.id)).unwrap();
@@ -159,6 +206,145 @@ mod tests {
         assert_eq!(
             projects::owner_candidates(&c, Some(&p.id)).unwrap().len(),
             2
+        );
+    }
+
+    #[test]
+    fn a_member_category_maps_the_specialty_owner() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+
+        let updated =
+            projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW).unwrap();
+
+        let member = updated.members.iter().find(|m| m.person_id == li.id).unwrap();
+        assert_eq!(member.category_id.as_deref(), Some(hardware.as_str()));
+        assert_eq!(
+            projects::assigned_owner(&c, Some(&p.id), Some(&hardware))
+                .unwrap()
+                .as_deref(),
+            Some(li.id.as_str())
+        );
+        assert_eq!(
+            projects::assigned_owner(&c, Some(&p.id), None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn one_category_has_one_owner() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let wang = projects::add_member(&c, &p.id, None, Some("小王"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW).unwrap();
+
+        let updated =
+            projects::set_member_category(&c, &p.id, &wang.id, Some(&hardware), NOW).unwrap();
+
+        let owners: Vec<&str> = updated
+            .members
+            .iter()
+            .filter(|m| m.category_id.as_deref() == Some(hardware.as_str()))
+            .map(|m| m.person_id.as_str())
+            .collect();
+        assert_eq!(owners, vec![wang.id.as_str()]);
+    }
+
+    #[test]
+    fn mapping_a_category_backfills_the_open_tasks() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let wang = projects::add_member(&c, &p.id, None, Some("小王"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        let me = people::list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.is_me)
+            .unwrap();
+
+        for id in ["t1", "t2", "t3"] {
+            crate::services::week::capture(&c, "交底", NOW, id).unwrap();
+            c.execute(
+                "UPDATE tasks SET project_id = ?1, category_id = ?2 WHERE id = ?3",
+                rusqlite::params![p.id, hardware, id],
+            )
+            .unwrap();
+        }
+        c.execute("UPDATE tasks SET owner_id = ?1 WHERE id = 't2'", [&wang.id])
+            .unwrap();
+        c.execute("UPDATE tasks SET status = 'done' WHERE id = 't3'", [])
+            .unwrap();
+        let owner = |id: &str| -> Option<String> {
+            c.query_row("SELECT owner_id FROM tasks WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+
+        projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW).unwrap();
+
+        assert_eq!(owner("t1").as_deref(), Some(li.id.as_str()));
+        assert_eq!(owner("t2").as_deref(), Some(wang.id.as_str()));
+        assert_eq!(owner("t3").as_deref(), Some(me.id.as_str()));
+
+        // Reassigning the specialty also picks up the previous owner's tasks.
+        projects::set_member_category(&c, &p.id, &wang.id, Some(&hardware), NOW).unwrap();
+        assert_eq!(owner("t1").as_deref(), Some(wang.id.as_str()));
+        assert_eq!(owner("t2").as_deref(), Some(wang.id.as_str()));
+    }
+
+    #[test]
+    fn clearing_a_mapping_keeps_existing_owners() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET project_id = ?1, category_id = ?2 WHERE id = 't1'",
+            rusqlite::params![p.id, hardware],
+        )
+        .unwrap();
+        projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW).unwrap();
+
+        projects::set_member_category(&c, &p.id, &li.id, None, NOW).unwrap();
+
+        let owner: Option<String> = c
+            .query_row("SELECT owner_id FROM tasks WHERE id = 't1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(owner.as_deref(), Some(li.id.as_str()));
+        assert_eq!(
+            projects::assigned_owner(&c, Some(&p.id), Some(&hardware)).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn member_category_validation() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let outsider = people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        let hardware = category(&c, "硬件");
+
+        assert_eq!(
+            projects::set_member_category(&c, &p.id, &outsider.id, Some(&hardware), NOW).unwrap_err(),
+            "not_a_member"
+        );
+        assert_eq!(
+            projects::set_member_category(&c, &p.id, &li.id, Some("nope"), NOW).unwrap_err(),
+            "invalid_category"
+        );
+        assert_eq!(
+            projects::set_member_category(&c, "nope", &li.id, Some(&hardware), NOW).unwrap_err(),
+            "invalid_project"
         );
     }
 

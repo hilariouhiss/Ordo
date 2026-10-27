@@ -30,6 +30,16 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<PersonDto> {
     )
 }
 
+/// The single "me" person, the default owner of a new task.
+pub fn me_id(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT id FROM people WHERE is_me = 1 AND deleted_at IS NULL LIMIT 1",
+        [],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
 pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT 1 FROM people WHERE id = ?1 AND deleted_at IS NULL",

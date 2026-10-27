@@ -170,6 +170,14 @@ export function removeMember(projectId: string, personId: string): Promise<void>
   return invoke<void>("remove_member", { projectId, personId });
 }
 
+export function setMemberCategory(
+  projectId: string,
+  personId: string,
+  categoryId: string | null,
+): Promise<Project> {
+  return invoke<Project>("set_member_category", { projectId, personId, categoryId });
+}
+
 export function ownerCandidates(projectId: string | null): Promise<Person[]> {
   return invoke<Person[]>("owner_candidates", { projectId });
 }

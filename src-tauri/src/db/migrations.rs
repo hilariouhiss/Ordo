@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 11;
+pub const LATEST: i64 = 12;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -292,12 +292,40 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 11)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 12 {
+        // One specialty per member and one owner per specialty. The guard makes a
+        // half-applied step retry-safe.
+        let tx = conn.unchecked_transaction()?;
+        if !has_project_member_column(&tx, "category_id")? {
+            tx.execute_batch(
+                "ALTER TABLE project_members ADD COLUMN category_id TEXT
+                 REFERENCES categories(id) ON DELETE SET NULL",
+            )?;
+        }
+        tx.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_members_category
+             ON project_members(project_id, category_id) WHERE category_id IS NOT NULL",
+        )?;
+        tx.pragma_update(None, "user_version", 12)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
 fn has_task_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?1",
+        [column],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
+}
+
+fn has_project_member_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('project_members') WHERE name = ?1",
         [column],
         |r| r.get::<_, i64>(0),
     )
@@ -804,5 +832,46 @@ mod tests {
             })
             .unwrap();
         assert_eq!(priority, "normal");
+    }
+
+    #[test]
+    fn adds_member_specialties_without_touching_members() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        c.execute_batch(V1).unwrap();
+        seed(&c).unwrap();
+        c.execute(
+            "INSERT INTO projects (id, name, created_at, updated_at) VALUES
+             ('p1', '项目', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO project_members (project_id, person_id, created_at)
+             SELECT 'p1', id, '2026-10-20T08:00:00Z' FROM people WHERE is_me = 1",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 11).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let (person, category): (String, Option<String>) = c
+            .query_row(
+                "SELECT person_id, category_id FROM project_members WHERE project_id = 'p1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(!person.is_empty());
+        assert!(category.is_none());
+
+        // A crash after the column was written but before the v12 bump.
+        c.pragma_update(None, "user_version", 11).unwrap();
+        migrate(&c).unwrap();
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
     }
 }

@@ -42,13 +42,18 @@ export interface Settings {
   deskY: number | null;
 }
 
+export interface ProjectMember {
+  personId: string;
+  categoryId: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
   groupId: string | null;
   priority: Priority;
   archivedAt: string | null;
-  memberIds: string[];
+  members: ProjectMember[];
 }
 
 export interface ProjectGroup {

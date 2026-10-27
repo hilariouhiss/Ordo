@@ -1,6 +1,8 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
 import { mondayOf, todayIso } from "../lib/dates";
+import { askNotice } from "../lib/dialog";
+import { errorText, t } from "../lib/i18n";
 import { groupPlannedDays, toPlanTask } from "../lib/plan";
 import { LOAD_WARN_HALF_DAYS, planLoads, planSchedule } from "../lib/schedule";
 import {
@@ -81,6 +83,8 @@ export function createWeekVM() {
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       await load();
       warnExclusiveConflict(task, state.tasks);
+    } catch (e) {
+      void askNotice(t("common.actionFailed"), errorText(e));
     } finally {
       capturing = false;
     }

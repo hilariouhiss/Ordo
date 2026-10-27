@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, ChevronDown } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
+import { isImeEnter } from "../../lib/keys";
 import { useAnchorPopup } from "../../lib/useAnchorPopup";
 
 defineOptions({ inheritAttrs: false });
@@ -9,9 +10,14 @@ const props = defineProps<{
   modelValue: string;
   options: { value: string; label: string }[];
   label?: string;
+  /** When set, the panel ends with a create input; Enter emits the typed name. */
+  createPlaceholder?: string;
 }>();
 
-const emit = defineEmits<{ "update:modelValue": [value: string] }>();
+const emit = defineEmits<{
+  "update:modelValue": [value: string];
+  create: [name: string];
+}>();
 
 const selectedIndex = computed(() =>
   Math.max(
@@ -23,8 +29,12 @@ const selectedLabel = computed(
   () => props.options.find((option) => option.value === props.modelValue)?.label ?? "",
 );
 const active = ref(0);
+const createDraft = ref("");
 const list = ref<HTMLElement | null>(null);
-const panelHeight = computed(() => Math.min(props.options.length * 28 + 8, 240));
+const createInput = ref<HTMLInputElement | null>(null);
+const panelHeight = computed(() =>
+  Math.min(props.options.length * 28 + 8 + (props.createPlaceholder ? 34 : 0), 240),
+);
 
 const { open, triggerRef, style, panelId, show, close } = useAnchorPopup({
   onClosed: (restoreFocus) => {
@@ -54,6 +64,7 @@ function onTrigger(): void {
     return;
   }
   active.value = selectedIndex.value;
+  createDraft.value = "";
   show({ width: 140, height: panelHeight.value });
   focusList();
   scrollActive();
@@ -64,6 +75,23 @@ function choose(index: number): void {
   if (!option) return;
   emit("update:modelValue", option.value);
   close(true);
+}
+
+/** Keeps the create input's keys off the option list and turns Enter into a create. */
+function onCreateKey(event: KeyboardEvent): void {
+  event.stopPropagation();
+  if (event.key === "Tab") {
+    event.preventDefault();
+    close(true);
+    return;
+  }
+  if (event.key !== "Enter" || isImeEnter(event)) return;
+  event.preventDefault();
+  const name = createDraft.value.trim();
+  if (!name) return;
+  createDraft.value = "";
+  close(true);
+  emit("create", name);
 }
 
 function onListKey(event: KeyboardEvent): void {
@@ -83,7 +111,9 @@ function onListKey(event: KeyboardEvent): void {
     choose(active.value);
   } else if (event.key === "Tab") {
     event.preventDefault();
-    close(true);
+    // Forward Tab reaches the create box; anything else still leaves the popup.
+    if (!event.shiftKey && props.createPlaceholder) createInput.value?.focus();
+    else close(true);
   }
 }
 </script>
@@ -106,38 +136,52 @@ function onListKey(event: KeyboardEvent): void {
     <div
       v-if="open"
       :id="panelId"
-      role="listbox"
-      :aria-label="label"
-      :aria-activedescendant="activeId"
-      tabindex="-1"
       :style="style"
-      class="fixed z-[90] max-h-60 overflow-y-auto rounded-xl border border-base-300 bg-base-100 p-1 text-base-content shadow-2xl outline-none"
-      @keydown="onListKey"
+      class="fixed z-[90] max-h-60 overflow-y-auto rounded-xl border border-base-300 bg-base-100 p-1 text-base-content shadow-2xl"
     >
       <div
-        v-for="(option, index) in options"
-        :id="optionId(index)"
-        :key="option.value"
-        role="option"
-        :aria-selected="option.value === modelValue"
-        class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[11px]"
-        :class="index === active ? 'bg-base-200' : ''"
-        @click="choose(index)"
-        @mouseenter="active = index"
+        ref="list"
+        role="listbox"
+        :aria-label="label"
+        :aria-activedescendant="activeId"
+        tabindex="-1"
+        class="outline-none"
+        @keydown="onListKey"
       >
-        <span
-          class="min-w-0 flex-1 truncate"
-          :class="option.value === modelValue ? 'text-primary' : ''"
+        <div
+          v-for="(option, index) in options"
+          :id="optionId(index)"
+          :key="option.value"
+          role="option"
+          :aria-selected="option.value === modelValue"
+          class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[11px]"
+          :class="index === active ? 'bg-base-200' : ''"
+          @click="choose(index)"
+          @mouseenter="active = index"
         >
-          {{ option.label }}
-        </span>
-        <Check
-          v-if="option.value === modelValue"
-          :size="12"
-          class="shrink-0 text-primary"
-          aria-hidden="true"
-        />
+          <span
+            class="min-w-0 flex-1 truncate"
+            :class="option.value === modelValue ? 'text-primary' : ''"
+          >
+            {{ option.label }}
+          </span>
+          <Check
+            v-if="option.value === modelValue"
+            :size="12"
+            class="shrink-0 text-primary"
+            aria-hidden="true"
+          />
+        </div>
       </div>
+      <input
+        v-if="createPlaceholder"
+        ref="createInput"
+        v-model="createDraft"
+        class="mt-1 w-full rounded-md border border-base-300 bg-base-100 px-1.5 py-1 text-[11px] outline-none placeholder:text-base-content/40"
+        :placeholder="createPlaceholder"
+        :aria-label="createPlaceholder"
+        @keydown="onCreateKey"
+      />
     </div>
   </Teleport>
 </template>

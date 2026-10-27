@@ -176,6 +176,26 @@ pub async fn remove_member(
 }
 
 #[tauri::command]
+pub async fn set_member_category(
+    state: State<'_, AppState>,
+    project_id: String,
+    person_id: String,
+    category_id: Option<String>,
+) -> Result<ProjectDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::projects::set_member_category(
+            conn,
+            &project_id,
+            &person_id,
+            category_id.as_deref(),
+            &now,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn owner_candidates(
     state: State<'_, AppState>,
     project_id: Option<String>,

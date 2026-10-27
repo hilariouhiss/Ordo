@@ -237,7 +237,7 @@ export const zh = {
   "settings.deskControls": "小窗内变更任务状态",
   "settings.deskControlsHint": "开启后小窗里可直接开始、挂起、完成；小窗挂起不填日期和原因。",
   "settings.shortcut": "全局快捷键",
-  "settings.shortcutRecording": "按下组合键…",
+  "settings.shortcutRecording": "按下带 Ctrl 或 Win 的组合键…",
   "settings.shortcutChange": "改",
   "settings.shortcutWarning": "没换成：{error}",
   "settings.weekStart": "周起点",
@@ -273,15 +273,15 @@ export const zh = {
   "projectSettings.importance": "重要性",
   "projectSettings.members": "成员",
   "projectSettings.membersHint": "任务负责人从这里选",
+  "projectSettings.memberCategory": "负责分类",
+  "projectSettings.noCategory": "不限",
+  "projectSettings.memberCategoryHint": "给成员选一个分类：这个项目里该分类的任务会自动归他负责。",
   "projectSettings.removeMemberAria": "移出项目",
   "projectSettings.memberPlaceholder": "从已有人员里选，或输入一个新名字",
   "projectSettings.addMember": "添加",
   "projectSettings.membersNote":
     "只属于这个项目。别的项目要用同一个人，再选一次就行（不会重复建人）。",
   "projectSettings.archive": "归档项目",
-  "projectSettings.delete": "删除项目",
-  "projectSettings.dialogTitle": "删除项目",
-  "projectSettings.dialogMessage": "永久删除这个项目？任务会一起消失，不能撤销。",
 
   "dialog.cancel": "取消",
   "dialog.ok": "确定",
@@ -584,7 +584,7 @@ export const en: Record<MessageKey, string> = {
   "settings.deskControlsHint":
     "Start, park and complete tasks right in the widget; parking there skips the date and reason.",
   "settings.shortcut": "Global shortcut",
-  "settings.shortcutRecording": "Press a shortcut…",
+  "settings.shortcutRecording": "Press a shortcut with Ctrl or Win…",
   "settings.shortcutChange": "Change",
   "settings.shortcutWarning": "Not applied: {error}",
   "settings.weekStart": "Week starts",
@@ -621,16 +621,16 @@ export const en: Record<MessageKey, string> = {
   "projectSettings.importance": "Importance",
   "projectSettings.members": "Members",
   "projectSettings.membersHint": "Task owners come from here",
+  "projectSettings.memberCategory": "Category",
+  "projectSettings.noCategory": "Any",
+  "projectSettings.memberCategoryHint":
+    "Pick a category per member: tasks of that category in this project go to them automatically.",
   "projectSettings.removeMemberAria": "Remove from project",
   "projectSettings.memberPlaceholder": "Pick an existing person or type a new name",
   "projectSettings.addMember": "Add",
   "projectSettings.membersNote":
     "Members belong to this project. Pick the same person in another project to reuse them (no duplicate).",
   "projectSettings.archive": "Archive project",
-  "projectSettings.delete": "Delete project",
-  "projectSettings.dialogTitle": "Delete project",
-  "projectSettings.dialogMessage":
-    "Permanently delete this project? Its tasks go with it. This cannot be undone.",
 
   "dialog.cancel": "Cancel",
   "dialog.ok": "OK",

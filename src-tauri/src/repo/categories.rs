@@ -1,5 +1,5 @@
 use crate::dto::CategoryDto;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<CategoryDto>> {
     let mut stmt = conn.prepare(
@@ -40,6 +40,16 @@ pub fn rename(conn: &Connection, id: &str, name: &str, now: &str) -> rusqlite::R
     Ok(())
 }
 
+pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM categories WHERE id = ?1 AND deleted_at IS NULL",
+        [id],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
+}
+
 pub fn soft_delete(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE categories SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2",
@@ -73,6 +83,10 @@ pub fn soft_delete_and_detach(conn: &Connection, id: &str, now: &str) -> rusqlit
         "UPDATE tasks SET category_id = NULL, updated_at = ?1
          WHERE category_id = ?2 AND deleted_at IS NULL",
         rusqlite::params![now, id],
+    )?;
+    tx.execute(
+        "UPDATE project_members SET category_id = NULL WHERE category_id = ?1",
+        [id],
     )?;
     soft_delete(&tx, id, now)?;
     tx.commit()

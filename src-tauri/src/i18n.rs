@@ -92,10 +92,10 @@ pub fn reminder_body(lang: Lang) -> &'static str {
     }
 }
 
-pub fn missed_reminders(lang: Lang, count: usize) -> String {
+pub fn more_reminders(lang: Lang, count: usize) -> String {
     match lang {
-        Lang::Zh => format!("你错过了 {count} 条提醒"),
-        Lang::En => format!("Missed reminders: {count}"),
+        Lang::Zh => format!("还有 {count} 条提醒"),
+        Lang::En => format!("{count} more reminders"),
     }
 }
 
@@ -169,7 +169,8 @@ mod tests {
             reminder_headline(Lang::En, "suspend_start", false, "Kickoff"),
             "Time to start: Kickoff"
         );
-        assert_eq!(missed_reminders(Lang::En, 2), "Missed reminders: 2");
+        assert_eq!(more_reminders(Lang::Zh, 2), "还有 2 条提醒");
+        assert_eq!(more_reminders(Lang::En, 2), "2 more reminders");
         assert_eq!(tray_tooltip(Lang::En, 2), "ordo · 2 unread");
     }
 

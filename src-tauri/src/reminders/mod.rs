@@ -29,6 +29,19 @@ impl ReminderTargets {
     }
 }
 
+/// Per-task toasts in one tick before the rest collapse into a single summary.
+const MAX_TOASTS: usize = 3;
+
+/// Splits the fired reminders into the named toasts to show and the count to
+/// summarize, so a catch-up after a break cannot flood the screen.
+pub fn split_toasts<T>(fired: Vec<T>) -> (Vec<T>, usize) {
+    let total = fired.len();
+    let mut shown = fired;
+    shown.truncate(MAX_TOASTS);
+    let folded = total - shown.len();
+    (shown, folded)
+}
+
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || loop {
         let _ = tick(&app);
@@ -82,8 +95,9 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         (lang, toasts, unread)
     };
 
-    if let [(headline, task_id)] = toasts.as_slice() {
-        let id = state.reminder_targets.next_id(task_id);
+    let (shown, folded) = split_toasts(toasts);
+    for (headline, task_id) in shown {
+        let id = state.reminder_targets.next_id(&task_id);
         let _ = app
             .notification()
             .builder()
@@ -91,11 +105,12 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             .title(headline)
             .body(crate::i18n::reminder_body(lang))
             .show();
-    } else if toasts.len() > 1 {
+    }
+    if folded > 0 {
         let _ = app
             .notification()
             .builder()
-            .title(crate::i18n::missed_reminders(lang, toasts.len()))
+            .title(crate::i18n::more_reminders(lang, folded))
             .body(crate::i18n::reminder_body(lang))
             .show();
     }
@@ -128,5 +143,22 @@ mod tests {
         assert_eq!(map.task_for(a).as_deref(), Some("t1"));
         assert_eq!(map.task_for(b).as_deref(), Some("t2"));
         assert_eq!(map.task_for(-1), None);
+    }
+
+    #[test]
+    fn split_toasts_keeps_every_name_up_to_the_cap() {
+        for count in 1..=MAX_TOASTS {
+            let (shown, folded) = split_toasts(vec![1u8; count]);
+            assert_eq!(shown.len(), count);
+            assert_eq!(folded, 0);
+        }
+        assert_eq!(split_toasts(Vec::<u8>::new()), (vec![], 0));
+    }
+
+    #[test]
+    fn split_toasts_folds_the_rest_into_one_summary() {
+        let (shown, folded) = split_toasts(vec![1u8, 2, 3, 4, 5]);
+        assert_eq!(shown, vec![1, 2, 3]);
+        assert_eq!(folded, 2);
     }
 }

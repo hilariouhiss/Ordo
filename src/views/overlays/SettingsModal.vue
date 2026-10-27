@@ -3,6 +3,7 @@ import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
+import { recordShortcut } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion, panelSwapMotion } from "../../lib/motion";
 import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
@@ -58,15 +59,9 @@ function onKey(event: KeyboardEvent): void {
     recording.value = false;
     return;
   }
-  if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
-  const parts: string[] = [];
-  if (event.ctrlKey) parts.push("Ctrl");
-  if (event.altKey) parts.push("Alt");
-  if (event.shiftKey) parts.push("Shift");
-  if (event.metaKey) parts.push("Super");
-  parts.push(event.key.length === 1 ? event.key.toUpperCase() : event.key);
-  if (parts.length < 2) return;
-  pendingShortcut.value = parts.join("+");
+  const combo = recordShortcut(event);
+  if (!combo) return;
+  pendingShortcut.value = combo;
   recording.value = false;
 }
 

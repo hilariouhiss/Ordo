@@ -42,7 +42,7 @@ const created: Project = {
   groupId: null,
   priority: "normal",
   archivedAt: null,
-  memberIds: [],
+  members: [],
 };
 
 describe("projectsVM", () => {

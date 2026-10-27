@@ -26,7 +26,28 @@ pub fn update_patch(
         }
     }
     crate::repo::tasks::apply_patch(conn, id, patch, now).map_err(|e| e.to_string())?;
+    route_owner(conn, id, patch, now)?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
+}
+
+/// A category or project change hands the task to that specialty's owner unless the
+/// same edit picked an owner explicitly.
+fn route_owner(conn: &Connection, id: &str, patch: &TaskPatch, now: &str) -> Result<(), String> {
+    if patch.owner_id.is_some() || (patch.project_id.is_none() && patch.category_id.is_none()) {
+        return Ok(());
+    }
+    let task = crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())?;
+    let owner = crate::services::projects::assigned_owner(
+        conn,
+        task.project_id.as_deref(),
+        task.category_id.as_deref(),
+    )?;
+    match owner {
+        Some(owner) if task.owner_id.as_deref() != Some(owner.as_str()) => {
+            crate::repo::tasks::set_owner(conn, id, &owner, now).map_err(|e| e.to_string())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Puts a task just before `before_id`, or last when there is no anchor.
@@ -75,8 +96,8 @@ pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use crate::db;
-    use crate::dto::TaskPatch;
-    use crate::services::{tasks, week};
+    use crate::dto::{CaptureFields, TaskPatch};
+    use crate::services::{projects, tasks, week};
     use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
@@ -87,6 +108,15 @@ mod tests {
             .with_timezone(&chrono::Local)
             .format("%Y-%m-%d")
             .to_string()
+    }
+
+    fn category(c: &Connection, name: &str) -> String {
+        crate::repo::categories::list(c)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.name == name)
+            .unwrap()
+            .id
     }
 
     fn seed_project(c: &Connection, id: &str) {
@@ -130,6 +160,81 @@ mod tests {
         };
         let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
         assert!(t.project_id.is_none());
+    }
+
+    #[test]
+    fn a_category_change_routes_the_task_to_the_specialty_owner() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW).unwrap();
+        let fields = CaptureFields {
+            project_id: Some(p.id.clone()),
+            ..Default::default()
+        };
+        week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            category_id: Some(Some(hardware)),
+            ..Default::default()
+        };
+        let task = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(task.owner_id.as_deref(), Some(li.id.as_str()));
+    }
+
+    #[test]
+    fn an_explicit_owner_wins_over_the_specialty_route() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let li = projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW).unwrap();
+        let wang = crate::repo::people::create(&c, "u-wang", "小王", NOW).unwrap();
+        let fields = CaptureFields {
+            project_id: Some(p.id.clone()),
+            ..Default::default()
+        };
+        week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            category_id: Some(Some(hardware)),
+            owner_id: Some(Some(wang.id.clone())),
+            ..Default::default()
+        };
+        let task = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(task.owner_id.as_deref(), Some(wang.id.as_str()));
+    }
+
+    #[test]
+    fn moving_a_task_to_another_project_picks_up_its_specialty_owner() {
+        let c = db::open_in_memory().unwrap();
+        let source = projects::create(&c, "旧项目", NOW).unwrap();
+        let target = projects::create(&c, "新项目", NOW).unwrap();
+        let li = projects::add_member(&c, &target.id, None, Some("老李"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        projects::set_member_category(&c, &target.id, &li.id, Some(&hardware), NOW).unwrap();
+        let fields = CaptureFields {
+            project_id: Some(source.id.clone()),
+            ..Default::default()
+        };
+        week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+        let patch = TaskPatch {
+            category_id: Some(Some(hardware)),
+            ..Default::default()
+        };
+        let task = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+        assert_ne!(task.owner_id.as_deref(), Some(li.id.as_str()));
+
+        let patch = TaskPatch {
+            project_id: Some(Some(target.id.clone())),
+            ..Default::default()
+        };
+        let task = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(task.owner_id.as_deref(), Some(li.id.as_str()));
     }
 
     #[test]

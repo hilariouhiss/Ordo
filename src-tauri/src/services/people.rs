@@ -123,8 +123,9 @@ mod tests {
         people::delete(&c, &li.id).unwrap();
 
         assert!(people_repo::get(&c, &li.id).is_err());
-        assert!(!projects_repo::member_ids(&c, &project.id)
+        assert!(!projects_repo::members(&c, &project.id)
             .unwrap()
-            .contains(&li.id));
+            .iter()
+            .any(|m| m.person_id == li.id));
     }
 }

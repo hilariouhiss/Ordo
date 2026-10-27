@@ -127,13 +127,20 @@ pub struct ProjectSummaryDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectMemberDto {
+    pub person_id: String,
+    pub category_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectDto {
     pub id: String,
     pub name: String,
     pub group_id: Option<String>,
     pub priority: String,
     pub archived_at: Option<String>,
-    pub member_ids: Vec<String>,
+    pub members: Vec<ProjectMemberDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]

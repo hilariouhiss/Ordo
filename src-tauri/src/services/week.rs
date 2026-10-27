@@ -70,17 +70,14 @@ pub fn week_start(today: &str) -> String {
 }
 
 pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id FROM tasks
-             WHERE in_week = 1 AND status <> 'done' AND suspended = 0
-               AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
-               AND (project_id IS NULL OR EXISTS (
-                   SELECT 1 FROM projects p
-                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))
-             ORDER BY sort_order, id",
-        )
-        .map_err(|e| e.to_string())?;
+    let sql = format!(
+        "SELECT id FROM tasks
+         WHERE in_week = 1 AND status <> 'done' AND suspended = 0
+           AND {}
+         ORDER BY sort_order, id",
+        tasks::VISIBLE_TASK_FILTER
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))
         .map_err(|e| e.to_string())?
@@ -189,17 +186,14 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
 
 
 pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id FROM tasks
-             WHERE suspended = 1 AND status <> 'done'
-               AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
-               AND (project_id IS NULL OR EXISTS (
-                   SELECT 1 FROM projects p
-                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))
-             ORDER BY suspended_until IS NULL, suspended_until, updated_at",
-        )
-        .map_err(|e| e.to_string())?;
+    let sql = format!(
+        "SELECT id FROM tasks
+         WHERE suspended = 1 AND status <> 'done'
+           AND {}
+         ORDER BY suspended_until IS NULL, suspended_until, updated_at",
+        tasks::VISIBLE_TASK_FILTER
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))
         .map_err(|e| e.to_string())?

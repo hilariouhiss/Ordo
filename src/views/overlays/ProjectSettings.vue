@@ -2,12 +2,12 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { onMounted, reactive, ref } from "vue";
-import { askConfirm, askText } from "../../lib/dialog";
+import { askText } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
 import * as ipc from "../../model/ipc";
-import type { Priority, ProjectGroup } from "../../model/types";
+import type { Priority, ProjectGroup, ProjectMember } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
 
@@ -18,7 +18,7 @@ const form = reactive({
   name: "",
   groupId: "",
   priority: "normal" as Priority,
-  memberIds: [] as string[],
+  members: [] as ProjectMember[],
 });
 const groups = ref<ProjectGroup[]>([]);
 const memberName = ref("");
@@ -29,7 +29,7 @@ async function reload(): Promise<void> {
   form.name = project.name;
   form.groupId = project.groupId ?? "";
   form.priority = project.priority;
-  form.memberIds = project.memberIds;
+  form.members = project.members;
   groups.value = list;
 }
 
@@ -91,16 +91,20 @@ async function removeMember(personId: string): Promise<void> {
   await reload();
 }
 
-async function archive(): Promise<void> {
-  await ipc.archiveProject(props.id);
-  await projectsVM.load();
-  emit("close", true);
+/** The specialty owner takes over the tasks of that category in this project. */
+async function onMemberCategory(personId: string, event: Event): Promise<void> {
+  const categoryId = (event.target as HTMLSelectElement).value || null;
+  error.value = "";
+  try {
+    await ipc.setMemberCategory(props.id, personId, categoryId);
+    await reload();
+  } catch (e) {
+    error.value = String(e);
+  }
 }
 
-async function remove(): Promise<void> {
-  if (!(await askConfirm(t("projectSettings.dialogTitle"), t("projectSettings.dialogMessage"))))
-    return;
-  await ipc.deleteProject(props.id);
+async function archive(): Promise<void> {
+  await ipc.archiveProject(props.id);
   await projectsVM.load();
   emit("close", true);
 }
@@ -184,17 +188,32 @@ async function remove(): Promise<void> {
           class="mt-2 flex flex-wrap items-center gap-1.5"
         >
           <motion.span
-            v-for="personId in form.memberIds"
-            :key="personId"
+            v-for="member in form.members"
+            :key="member.personId"
             v-bind="listItemMotion"
-            class="badge badge-ghost badge-md gap-1.5"
+            class="flex items-center gap-1.5 rounded-lg bg-base-200 px-2 py-1"
           >
-            {{ memberNameOf(personId) }}
+            <span class="text-[12px]">{{ memberNameOf(member.personId) }}</span>
+            <select
+              class="select select-xs rounded-md border-base-300 bg-base-100 text-[11px]"
+              :value="member.categoryId ?? ''"
+              :aria-label="t('projectSettings.memberCategory')"
+              @change="onMemberCategory(member.personId, $event)"
+            >
+              <option value="">{{ t("projectSettings.noCategory") }}</option>
+              <option
+                v-for="category in appVM.state.categories"
+                :key="category.id"
+                :value="category.id"
+              >
+                {{ category.name }}
+              </option>
+            </select>
             <button
-              v-if="!appVM.state.people.find((p) => p.id === personId)?.isMe"
+              v-if="!appVM.state.people.find((p) => p.id === member.personId)?.isMe"
               class="text-base-content/30"
               :aria-label="t('projectSettings.removeMemberAria')"
-              @click="removeMember(personId)"
+              @click="removeMember(member.personId)"
             >
               <X :size="12" aria-hidden="true" />
             </button>
@@ -217,6 +236,9 @@ async function remove(): Promise<void> {
         <p class="mt-1.5 text-[10.5px] text-base-content/35">
           {{ t("projectSettings.membersNote") }}
         </p>
+        <p class="mt-1 text-[10.5px] text-base-content/35">
+          {{ t("projectSettings.memberCategoryHint") }}
+        </p>
       </div>
 
       <div class="mt-5 flex items-center gap-2 border-t border-base-200 pt-3">
@@ -225,12 +247,6 @@ async function remove(): Promise<void> {
           @click="archive"
         >
           {{ t("projectSettings.archive") }}
-        </button>
-        <button
-          class="btn btn-sm rounded-lg border-error/25 bg-base-100 font-normal text-error"
-          @click="remove"
-        >
-          {{ t("projectSettings.delete") }}
         </button>
         <button
           class="btn btn-sm ml-auto rounded-lg border-base-300 bg-base-100 font-normal"

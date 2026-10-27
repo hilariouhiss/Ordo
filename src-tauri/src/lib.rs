@@ -288,6 +288,7 @@ pub fn run() {
       commands::projects::delete_project_group,
       commands::projects::add_member,
       commands::projects::remove_member,
+      commands::projects::set_member_category,
       commands::projects::owner_candidates,
       commands::projects::list_people,
       commands::projects::create_person,

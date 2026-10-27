@@ -57,6 +57,11 @@ fn context(conn: &Connection, today: &str) -> Result<AiContext, String> {
 }
 
 fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -> Result<TaskDto, String> {
+    let before_category: Option<String> = conn
+        .query_row("SELECT category_id FROM tasks WHERE id = ?1", [task_id], |r| {
+            r.get(0)
+        })
+        .map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE tasks SET
             project_id = COALESCE(project_id, ?1),
@@ -77,6 +82,27 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
         ],
     )
     .map_err(|e| e.to_string())?;
+
+    // A background fill hands a default-owned task to its specialty owner, but never
+    // steals one the user already assigned.
+    if enrichment.category_id.is_some() && before_category.is_none() {
+        let task = crate::repo::tasks::dto(conn, task_id).map_err(|e| e.to_string())?;
+        let me = crate::repo::people::me_id(conn).map_err(|e| e.to_string())?;
+        let default_owned = match me {
+            Some(me) => task.owner_id.as_deref() == Some(me.as_str()),
+            None => task.owner_id.is_none(),
+        };
+        if default_owned {
+            if let Some(owner) = crate::services::projects::assigned_owner(
+                conn,
+                task.project_id.as_deref(),
+                task.category_id.as_deref(),
+            )? {
+                crate::repo::tasks::set_owner(conn, task_id, &owner, now)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
 
     for tag in &enrichment.tags {
         let created = crate::repo::tags::find_or_create(
@@ -220,6 +246,63 @@ mod tests {
 
     const NOW: &str = "2026-10-20T08:00:00Z";
     const LATER: &str = "2026-10-21T00:00:00Z";
+
+    fn category(c: &Connection, name: &str) -> String {
+        crate::repo::categories::list(c)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.name == name)
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn a_filled_category_routes_the_task_to_the_specialty_owner() {
+        let c = crate::db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let li = crate::services::projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        crate::services::projects::set_member_category(&c, &p.id, &li.id, Some(&hardware), NOW)
+            .unwrap();
+        let fields = crate::dto::CaptureFields {
+            project_id: Some(p.id.clone()),
+            ..Default::default()
+        };
+        crate::services::week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+        let enrichment = Enrichment {
+            category_id: Some(hardware),
+            ..Default::default()
+        };
+
+        let task = apply(&c, "t1", &enrichment, LATER).unwrap();
+
+        assert_eq!(task.owner_id.as_deref(), Some(li.id.as_str()));
+    }
+
+    #[test]
+    fn a_filled_category_keeps_a_person_the_user_picked() {
+        let c = crate::db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let li = crate::services::projects::add_member(&c, &p.id, None, Some("老李"), NOW).unwrap();
+        let wang = crate::services::projects::add_member(&c, &p.id, None, Some("小王"), NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        crate::services::projects::set_member_category(&c, &p.id, &wang.id, Some(&hardware), NOW)
+            .unwrap();
+        let fields = crate::dto::CaptureFields {
+            project_id: Some(p.id.clone()),
+            owner_id: Some(li.id.clone()),
+            ..Default::default()
+        };
+        crate::services::week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+        let enrichment = Enrichment {
+            category_id: Some(hardware),
+            ..Default::default()
+        };
+
+        let task = apply(&c, "t1", &enrichment, LATER).unwrap();
+
+        assert_eq!(task.owner_id.as_deref(), Some(li.id.as_str()));
+    }
 
     #[test]
     fn enrichment_fills_empty_fields_and_keeps_the_users() {

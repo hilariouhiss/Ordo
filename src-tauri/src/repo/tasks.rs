@@ -2,6 +2,13 @@ use crate::dto::{ArchiveTaskDto, CaptureFields, DelayDto, StepDto, TagDto, TaskD
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
+/// The week, the pass and reminders only see live tasks outside archived projects.
+pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
+    "canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL ",
+    "AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p ",
+    "WHERE p.id = tasks.project_id AND p.archived_at IS NULL))"
+);
+
 pub fn insert(
     conn: &Connection,
     id: &str,
@@ -32,15 +39,12 @@ pub fn insert(
 }
 
 pub fn list_week_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
-    let mut stmt = conn.prepare(
+    let sql = format!(
         "SELECT id FROM tasks
-         WHERE in_week = 1 AND suspended = 0
-           AND canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL
-           AND (project_id IS NULL OR EXISTS (
-               SELECT 1 FROM projects p
-               WHERE p.id = tasks.project_id AND p.archived_at IS NULL))
-         ORDER BY sort_order, id",
-    )?;
+         WHERE in_week = 1 AND suspended = 0 AND {VISIBLE_TASK_FILTER}
+         ORDER BY sort_order, id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     rows.collect()
 }
@@ -270,6 +274,15 @@ pub fn apply_patch(
     tx.prepare_cached(&sql)?.execute(args.as_slice())?;
     tx.commit()
 }
+
+pub fn set_owner(conn: &Connection, id: &str, owner_id: &str, now: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET owner_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![owner_id, now, id],
+    )?;
+    Ok(())
+}
+
 pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks

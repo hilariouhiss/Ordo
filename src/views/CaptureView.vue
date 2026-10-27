@@ -6,7 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { todayIso } from "../lib/dates";
-import { setLanguage, t, type Language } from "../lib/i18n";
+import { errorText, setLanguage, t, type Language } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { miniPopupHeight } from "../lib/pickerWindow";
 import { applyTheme, resolveTheme, systemPrefersDark, type AppliedTheme } from "../lib/theme";
@@ -23,9 +23,13 @@ const draft = createCaptureDraftVM(() => ({
   people: appVM.state.people,
 }));
 const { title, fields, matched } = draft;
+const error = ref("");
 watch(
   () => vm.state.draft,
-  (raw) => draft.setRaw(raw),
+  (raw) => {
+    draft.setRaw(raw);
+    error.value = "";
+  },
   { immediate: true },
 );
 
@@ -49,8 +53,12 @@ async function openMain(): Promise<void> {
 }
 
 async function submit(): Promise<void> {
-  await vm.save(title.value, fields.value, hide);
-  vm.state.draft = "";
+  try {
+    await vm.save(title.value, fields.value, hide);
+    vm.state.draft = "";
+  } catch (e) {
+    error.value = errorText(e);
+  }
 }
 
 function onEnter(event: KeyboardEvent): void {
@@ -159,6 +167,7 @@ onUnmounted(() => {
           {{ t("capture.mainWindow") }}
         </button>
       </div>
+      <p v-if="error" class="mt-1 text-[10.5px] text-error">{{ error }}</p>
       <CaptureChips
         v-if="vm.state.draft.trim()"
         :fields="fields"

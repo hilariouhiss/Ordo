@@ -1,3 +1,4 @@
+use crate::repo::tasks::VISIBLE_TASK_FILTER;
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
 use rusqlite::Connection;
 
@@ -14,16 +15,13 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     let mut out = Vec::new();
     let today = now.date_naive();
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, due_date FROM tasks
-             WHERE due_date IS NOT NULL AND deleted_at IS NULL
-               AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'
-               AND (project_id IS NULL OR EXISTS (
-                   SELECT 1 FROM projects p
-                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))",
-        )
-        .map_err(|e| e.to_string())?;
+    let sql = format!(
+        "SELECT id, due_date FROM tasks
+         WHERE due_date IS NOT NULL AND status <> 'done'
+           AND {}",
+        VISIBLE_TASK_FILTER
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
@@ -53,16 +51,13 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         }
     }
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, suspended_until FROM tasks
-             WHERE suspended_until IS NOT NULL AND deleted_at IS NULL
-               AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'
-               AND (project_id IS NULL OR EXISTS (
-                   SELECT 1 FROM projects p
-                   WHERE p.id = tasks.project_id AND p.archived_at IS NULL))",
-        )
-        .map_err(|e| e.to_string())?;
+    let sql = format!(
+        "SELECT id, suspended_until FROM tasks
+         WHERE suspended_until IS NOT NULL AND status <> 'done'
+           AND {}",
+        VISIBLE_TASK_FILTER
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
