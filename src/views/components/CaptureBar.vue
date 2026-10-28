@@ -37,11 +37,17 @@ function onEdit(patch: Partial<CaptureFields>): void {
   void nextTick(() => input.value?.focus());
 }
 
-function onSubmit(event: KeyboardEvent): void {
-  if (isImeEnter(event)) return;
+function submit(): void {
   if (!model.value.trim()) return;
   emit("submit", { raw: model.value, title: title.value, fields: { ...fields.value } });
 }
+
+function onSubmit(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  submit();
+}
+
+defineExpose({ submit, focus: () => input.value?.focus() });
 </script>
 
 <template>

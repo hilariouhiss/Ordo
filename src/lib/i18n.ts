@@ -146,6 +146,10 @@ export const zh = {
   "capture.effort": "工时",
   "capture.effortUnit": "天",
 
+  "quickCreate.taskTitle": "新建任务",
+  "quickCreate.projectTitle": "新建项目",
+  "quickCreate.create": "创建",
+
   "desk.title": "本周",
   "desk.count": "{count} 件",
   "desk.empty": "这周没有待办。",
@@ -499,6 +503,10 @@ export const en: Record<MessageKey, string> = {
   "capture.ownerDefault": "Default (me)",
   "capture.effort": "Effort",
   "capture.effortUnit": "d",
+
+  "quickCreate.taskTitle": "New task",
+  "quickCreate.projectTitle": "New project",
+  "quickCreate.create": "Create",
 
   "desk.title": "This week",
   "desk.count": "{count} left",

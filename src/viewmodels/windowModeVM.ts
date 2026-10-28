@@ -31,6 +31,7 @@ import { setWindowRect } from "../model/ipc";
 import { appVM } from "./appVM";
 import { deskVM } from "./deskVM";
 import { passVM } from "./passVM";
+import { quickCreateVM } from "./quickCreateVM";
 import { settingsVM } from "./settingsVM";
 import { taskSheetVM } from "./taskSheetVM";
 
@@ -96,6 +97,7 @@ export function closeOverlays(): void {
   taskSheetVM.close();
   passVM.close();
   settingsVM.close();
+  quickCreateVM.close();
 }
 
 function serialized(task: () => Promise<void>): Promise<void> {

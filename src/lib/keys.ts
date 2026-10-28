@@ -2,6 +2,18 @@ export function isImeEnter(event: KeyboardEvent): boolean {
   return event.isComposing || event.keyCode === 229;
 }
 
+/**
+ * The in-app create shortcut: Ctrl+N for a task and Ctrl+Shift+N for a project.
+ * Alt-only combinations are system keys (AltGr arrives as Ctrl+Alt) and holding
+ * the key down must not stack modals.
+ */
+export function createShortcut(event: KeyboardEvent): "task" | "project" | null {
+  if (event.repeat || event.isComposing) return null;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return null;
+  if (event.key.toLowerCase() !== "n") return null;
+  return event.shiftKey ? "project" : "task";
+}
+
 const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta"]);
 
 /**

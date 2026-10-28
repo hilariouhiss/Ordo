@@ -6,8 +6,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
-import { askNotice } from "./lib/dialog";
+import { askNotice, dialogRequest } from "./lib/dialog";
 import { errorText, setLanguage, t } from "./lib/i18n";
+import { createShortcut } from "./lib/keys";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
   applyTheme,
@@ -20,6 +21,8 @@ import type { Task } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
 import { warnExclusiveConflict } from "./viewmodels/planning";
 import { passVM } from "./viewmodels/passVM";
+import { projectsVM } from "./viewmodels/projectsVM";
+import { quickCreateVM } from "./viewmodels/quickCreateVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
@@ -28,6 +31,7 @@ import { closeOverlays, windowModeVM } from "./viewmodels/windowModeVM";
 import WindowControls from "./views/components/WindowControls.vue";
 import DeskView from "./views/DeskView.vue";
 import AppDialog from "./views/overlays/AppDialog.vue";
+import QuickCreate from "./views/overlays/QuickCreate.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
 const navItems = computed(
@@ -119,6 +123,26 @@ function onCollapseChange(collapsed: boolean): void {
   windowModeVM.setCollapsed(collapsed);
 }
 
+function overlayOpen(): boolean {
+  return (
+    !!dialogRequest.value ||
+    !!quickCreateVM.state.mode ||
+    !!taskSheetVM.state.openId ||
+    settingsVM.state.open ||
+    passVM.state.open ||
+    projectsVM.state.settingsFor !== null
+  );
+}
+
+function onQuickCreateKey(event: KeyboardEvent): void {
+  const target = createShortcut(event);
+  if (!target) return;
+  event.preventDefault();
+  if (!appVM.state.ready || windowModeVM.state.phase !== "idle" || overlayOpen()) return;
+  if (target === "task") quickCreateVM.openTask();
+  else quickCreateVM.openProject();
+}
+
 // The widget's quick actions do not update the hidden main views; refresh on the way back.
 watch(
   () => windowModeVM.state.mode,
@@ -168,6 +192,7 @@ function revealWindow(): void {
 }
 
 onMounted(async () => {
+  window.addEventListener("keydown", onQuickCreateKey);
   windowModeVM.attachSurface(appSurface.value);
   try {
     await appVM.load();
@@ -231,6 +256,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("keydown", onQuickCreateKey);
   windowModeVM.attachSurface(null);
   windowModeVM.attachWidgetLayer(null);
 });
@@ -338,6 +364,7 @@ onUnmounted(() => {
         />
       </div>
       <div v-if="windowModeVM.state.phase !== 'idle'" class="fixed inset-0 z-50"></div>
+      <QuickCreate />
     </div>
   </MotionConfig>
 </template>
