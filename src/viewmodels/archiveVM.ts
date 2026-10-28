@@ -7,7 +7,8 @@ import {
   restoreProject as restoreProjectApi,
   restoreTask as restoreTaskApi,
 } from "../model/ipc";
-import { runWithNotice } from "../lib/dialog";
+import { askNotice, runWithNotice } from "../lib/dialog";
+import { errorText, t } from "../lib/i18n";
 import type { ArchiveData } from "../model/types";
 import { projectsVM } from "./projectsVM";
 
@@ -30,40 +31,43 @@ export function createArchiveVM() {
     }
   }
 
-  async function restore(id: string): Promise<void> {
-    await runWithNotice(async () => {
-      await restoreTaskApi(id);
+  /** A successful action must not be reported as failed just because the list is stale. */
+  async function refresh(): Promise<void> {
+    try {
       await load();
-    });
+    } catch (e) {
+      void askNotice(t("common.refreshFailed"), errorText(e));
+    }
+  }
+
+  async function restore(id: string): Promise<void> {
+    if (!(await runWithNotice(() => restoreTaskApi(id)))) return;
+    await refresh();
   }
 
   async function archive(id: string): Promise<void> {
-    await runWithNotice(async () => {
-      await archiveTaskApi(id);
-      await load();
-    });
+    if (!(await runWithNotice(() => archiveTaskApi(id)))) return;
+    await refresh();
   }
 
   async function remove(id: string): Promise<void> {
-    await runWithNotice(async () => {
-      await deleteTaskApi(id);
-      await load();
-    });
+    if (!(await runWithNotice(() => deleteTaskApi(id)))) return;
+    await refresh();
   }
 
   async function restoreProject(id: string): Promise<void> {
-    await runWithNotice(async () => {
-      await restoreProjectApi(id);
+    if (!(await runWithNotice(() => restoreProjectApi(id)))) return;
+    try {
       await projectsVM.load();
-      await load();
-    });
+    } catch (e) {
+      void askNotice(t("common.refreshFailed"), errorText(e));
+    }
+    await refresh();
   }
 
   async function removeProject(id: string): Promise<void> {
-    await runWithNotice(async () => {
-      await deleteProjectApi(id);
-      await load();
-    });
+    if (!(await runWithNotice(() => deleteProjectApi(id)))) return;
+    await refresh();
   }
 
   return { state, load, restore, archive, remove, restoreProject, removeProject };

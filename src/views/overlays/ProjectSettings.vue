@@ -2,7 +2,7 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { onMounted, reactive, ref } from "vue";
-import { askText } from "../../lib/dialog";
+import { askNotice, askText } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
@@ -46,15 +46,25 @@ function memberNameOf(id: string): string {
   return appVM.state.people.find((p) => p.id === id)?.name ?? t("common.unknown");
 }
 
+/** Saving the project succeeded; a stale list is a different, non-fatal problem. */
+async function refreshProjects(): Promise<void> {
+  try {
+    await projectsVM.load();
+  } catch (e) {
+    void askNotice(t("common.refreshFailed"), errorText(e));
+  }
+}
+
 async function save(): Promise<void> {
   error.value = "";
   try {
     await ipc.updateProject(props.id, form.name.trim(), form.groupId || null, form.priority);
-    await projectsVM.load();
-    emit("close");
   } catch (e) {
     error.value = String(e);
+    return;
   }
+  await refreshProjects();
+  emit("close");
 }
 
 function onPriorityChange(event: Event): void {
@@ -82,10 +92,15 @@ async function addMember(): Promise<void> {
   try {
     await ipc.addMember(props.id, null, name);
     memberName.value = "";
+  } catch (e) {
+    error.value = String(e);
+    return;
+  }
+  try {
     appVM.state.people = await ipc.listPeople();
     await reloadMembers();
   } catch (e) {
-    error.value = String(e);
+    void askNotice(t("common.refreshFailed"), errorText(e));
   }
 }
 
@@ -100,9 +115,14 @@ async function removeMember(personId: string): Promise<void> {
   error.value = "";
   try {
     await ipc.removeMember(props.id, personId);
-    await reloadMembers();
   } catch (e) {
     error.value = String(e);
+    return;
+  }
+  try {
+    await reloadMembers();
+  } catch (e) {
+    void askNotice(t("common.refreshFailed"), errorText(e));
   }
 }
 
@@ -122,11 +142,12 @@ async function archive(): Promise<void> {
   error.value = "";
   try {
     await ipc.archiveProject(props.id);
-    await projectsVM.load();
-    emit("close", true);
   } catch (e) {
     error.value = String(e);
+    return;
   }
+  await refreshProjects();
+  emit("close", true);
 }
 </script>
 

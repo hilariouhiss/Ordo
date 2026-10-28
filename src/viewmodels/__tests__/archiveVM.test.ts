@@ -18,6 +18,7 @@ vi.mock("../../model/ipc", () => ({
 }));
 
 import { closeDialog, dialogRequest } from "../../lib/dialog";
+import { t } from "../../lib/i18n";
 import { listArchive, restoreTask } from "../../model/ipc";
 import { createArchiveVM } from "../archiveVM";
 
@@ -48,5 +49,16 @@ describe("archiveVM", () => {
 
     expect(listArchive).toHaveBeenCalledTimes(1);
     expect(dialogRequest.value).toBeNull();
+  });
+
+  it("reports a refresh failure without calling the action failed", async () => {
+    vi.mocked(restoreTask).mockResolvedValue({ id: "t1" } as never);
+    vi.mocked(listArchive).mockRejectedValue("db");
+
+    const vm = createArchiveVM();
+    await vm.restore("t1");
+
+    expect(dialogRequest.value?.kind).toBe("notice");
+    expect(dialogRequest.value?.title).toBe(t("common.refreshFailed"));
   });
 });
