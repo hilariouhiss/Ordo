@@ -68,8 +68,10 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .map_err(|e| e.to_string())?;
-    let effective_project = enrichment.project_id.as_deref().or(current_project.as_deref());
-    let effective_owner = enrichment.owner_id.as_deref().or(current_owner.as_deref());
+    // The UPDATE only fills empty columns, so these are the values it will actually
+    // store; the enrichment must not add a member for a value it is not using.
+    let effective_project = current_project.as_deref().or(enrichment.project_id.as_deref());
+    let effective_owner = current_owner.as_deref().or(enrichment.owner_id.as_deref());
     crate::services::projects::ensure_member(conn, effective_project, effective_owner, now)?;
     conn.execute(
         "UPDATE tasks SET
@@ -339,6 +341,33 @@ mod tests {
         let task = apply(&c, "t1", &enrichment, LATER).unwrap();
 
         assert_eq!(task.owner_id.as_deref(), Some(li.id.as_str()));
+    }
+
+    #[test]
+    fn ai_does_not_add_an_owner_it_will_not_use() {
+        let c = crate::db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let other = crate::services::projects::create(&c, "另一个项目", NOW).unwrap();
+        let outsider = crate::repo::people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        let fields = crate::dto::CaptureFields {
+            project_id: Some(p.id.clone()),
+            ..Default::default()
+        };
+        crate::services::week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+        let enrichment = Enrichment {
+            project_id: Some(other.id.clone()),
+            owner_id: Some(outsider.id.clone()),
+            ..Default::default()
+        };
+
+        let task = apply(&c, "t1", &enrichment, LATER).unwrap();
+
+        assert_eq!(task.project_id.as_deref(), Some(p.id.as_str()));
+        assert_ne!(task.owner_id.as_deref(), Some(outsider.id.as_str()));
+        assert!(
+            !crate::repo::projects::is_member(&c, &other.id, &outsider.id).unwrap(),
+            "the AI owner is ignored because the task already has one"
+        );
     }
 
     #[test]
