@@ -9,10 +9,10 @@ export function createCaptureVM() {
     saving: false,
   });
 
-  async function save(title: string, fields: CaptureFields, hide: () => void): Promise<void> {
-    if (state.saving) return;
+  async function save(title: string, fields: CaptureFields, hide: () => void): Promise<boolean> {
+    if (state.saving) return false;
     const text = title.trim();
-    if (!text) return;
+    if (!text) return false;
     state.saving = true;
     try {
       const task = await capture(text, fields);
@@ -22,6 +22,7 @@ export function createCaptureVM() {
         state.saved = false;
         hide();
       }, 800);
+      return true;
     } finally {
       state.saving = false;
     }

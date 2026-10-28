@@ -51,8 +51,8 @@ export function createProjectVM() {
         return;
       }
       void aiEnrich(task.id);
-      state.draft = "";
       await load(projectId);
+      if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       const week = await listWeek().catch(() => null);
       if (week) warnExclusiveConflict(task, week);
     } finally {

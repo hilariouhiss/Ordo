@@ -15,7 +15,7 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    await vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
+    await expect(vm.save("买螺丝", CAPTURE_DEFAULTS, hide)).resolves.toBe(true);
     expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS);
     expect(vm.state.saved).toBe(true);
     expect(hide).not.toHaveBeenCalled();
@@ -39,8 +39,9 @@ describe("captureVM", () => {
     const first = vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
     const second = vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
     resolve(task({ id: "t1" }));
-    await Promise.all([first, second]);
+    const results = await Promise.all([first, second]);
 
+    expect(results).toEqual([true, false]);
     expect(capture).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(800);
     vi.useRealTimers();

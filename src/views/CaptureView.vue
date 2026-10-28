@@ -55,9 +55,11 @@ async function openMain(): Promise<void> {
 }
 
 async function submit(): Promise<void> {
+  const raw = vm.state.draft;
   try {
-    await vm.save(title.value, fields.value, hide);
-    vm.state.draft = "";
+    const saved = await vm.save(title.value, fields.value, hide);
+    // A second Enter while the first save runs must not erase what was typed after it.
+    if (saved && vm.state.draft === raw) vm.state.draft = "";
   } catch (e) {
     error.value = errorText(e);
   }

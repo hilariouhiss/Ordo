@@ -63,6 +63,29 @@ describe("projectVM", () => {
     expect(capture).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a draft typed while the previous capture is still saving", async () => {
+    let resolve!: (value: Task) => void;
+    vi.mocked(capture).mockReturnValue(
+      new Promise<Task>((done) => {
+        resolve = done;
+      }),
+    );
+    vi.mocked(getProjectSummary).mockResolvedValue(summary);
+    vi.mocked(listProjectTasks).mockResolvedValue([]);
+
+    const vm = createProjectVM();
+    const saving = vm.captureInto("p1", {
+      raw: "交底",
+      title: "交底",
+      fields: CAPTURE_DEFAULTS,
+    });
+    vm.state.draft = "下一条";
+    resolve(task({ id: "t1" }));
+    await saving;
+
+    expect(vm.state.draft).toBe("下一条");
+  });
+
   it("warns from the captured snapshot, not the enriched copy", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 9, 20, 9, 0, 0));
