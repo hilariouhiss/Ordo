@@ -178,7 +178,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         // "非项目" was only ever a seeded bucket for tasks outside projects. It is
         // gone now; detach first so the tasks stay, then soft-delete the category.
         let tx = conn.unchecked_transaction()?;
-        let stamp = now();
+        let stamp = crate::now_iso();
         tx.execute(
             "UPDATE tasks SET category_id = NULL, updated_at = ?1
              WHERE category_id IN (
@@ -341,12 +341,8 @@ fn has_project_column(conn: &Connection, column: &str) -> rusqlite::Result<bool>
     .map(|count| count > 0)
 }
 
-fn now() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
 fn seed(conn: &Connection) -> rusqlite::Result<()> {
-    let ts = now();
+    let ts = crate::now_iso();
 
     conn.execute(
         "INSERT INTO people (id, name, is_me, color, created_at, updated_at) VALUES (?1, '我', 1, NULL, ?2, ?2)",

@@ -1,4 +1,5 @@
 import type { CaptureFields, Priority } from "../model/types";
+import { dateFromParts } from "./calendar";
 import { addDays, weekdayOf } from "./dates";
 
 export interface CaptureContext {
@@ -223,17 +224,15 @@ function dateRules(
   today: string,
 ): [RegExp, (match: RegExpExecArray, today: string) => string | null][] {
   const year = Number(today.slice(0, 4));
-  const fullDate = (match: RegExpExecArray): string | null => {
-    const y = Number(match[1]);
-    return isoDate(y, Number(match[2]), Number(match[3]));
-  };
+  const fullDate = (match: RegExpExecArray): string | null =>
+    dateFromParts(Number(match[1]), Number(match[2]), Number(match[3]));
   const monthDate = (match: RegExpExecArray, baseYear: number): string | null => {
     const month = Number(match[1]);
     const day = Number(match[2]);
-    const thisYear = isoDate(baseYear, month, day);
+    const thisYear = dateFromParts(baseYear, month, day);
     if (!thisYear) return null;
     if (thisYear >= today) return thisYear;
-    return isoDate(baseYear + 1, month, day);
+    return dateFromParts(baseYear + 1, month, day);
   };
   return [
     [/^大后天/, (_m) => addDays(today, 3)],
@@ -327,14 +326,4 @@ function parseCount(value: string): number {
     十: 10,
   };
   return chinese[value] ?? Number(value);
-}
-
-function isoDate(year: number, month: number, day: number): string | null {
-  if (!Number.isInteger(year) || month < 1 || month > 12 || day < 1 || day > 31) return null;
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return null;
-  }
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${year}-${pad(month)}-${pad(day)}`;
 }

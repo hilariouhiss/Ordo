@@ -30,20 +30,23 @@ export function monthMatrix(year: number, month: number): (string | null)[] {
   });
 }
 
+/** The parts of a real calendar date, or null for 2/30 and leap-day misses. */
+export function dateFromParts(year: number, month: number, day: number): string | null {
+  if (!Number.isInteger(year) || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return isoOf(date);
+}
+
 /** Accepts YYYY-MM-DD or YYYY/M/D; empty means "no date", invalid means null. */
 export function parseDateInput(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return "";
   const match = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(trimmed);
   if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return null;
-  }
-  return isoOf(date);
+  return dateFromParts(Number(match[1]), Number(match[2]), Number(match[3]));
 }
 
 export function formatDateInput(iso: string): string {
