@@ -13,13 +13,18 @@ import {
   type DeskRect,
   type DeskSize,
 } from "../lib/deskWindow";
-import { centeredFullRect, readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
+import {
+  applyDeskPin,
+  centeredFullRect,
+  readDeskMonitors,
+  readWindowRect,
+} from "../lib/deskMonitors";
 import {
   centerOffset,
-  easeOutCubic,
-  lerpRect,
+  flatRect,
   prefersReducedMotion,
   rectScale,
+  tweenRect,
   type Rect,
 } from "../lib/windowMotion";
 import { setWindowRect } from "../model/ipc";
@@ -131,15 +136,6 @@ async function readPlacement() {
   return widgetPlacement({ saved: savedPoint(), monitors: list, primary });
 }
 
-function flat(rect: DeskRect) {
-  return {
-    x: rect.position.x,
-    y: rect.position.y,
-    width: rect.size.width,
-    height: rect.size.height,
-  };
-}
-
 async function moveTo(rect: DeskRect): Promise<void> {
   await setWindowRect(rect.position.x, rect.position.y, rect.size.width, rect.size.height).catch(
     () => {},
@@ -148,43 +144,16 @@ async function moveTo(rect: DeskRect): Promise<void> {
 
 /** One command per frame lands position and size together; no half-moved frames. */
 async function tweenTo(target: DeskRect): Promise<void> {
-  const from = flat(await readWindowRect().catch(() => target));
-  const to = flat(target);
+  const from = flatRect(await readWindowRect().catch(() => target));
   if (prefersReducedMotion()) {
     await moveTo(target);
     return;
   }
   const token = ++animToken;
-  const started = performance.now();
-  await new Promise<void>((resolve) => {
-    let done = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve();
-    };
-    // A hidden or throttled webview can stop requestAnimationFrame mid-glide.
-    timer = setTimeout(() => {
-      if (token === animToken) {
-        animToken += 1;
-        void moveTo(target);
-      }
-      finish();
-    }, GLIDE_MS + 500);
-    const step = (now: number): void => {
-      if (token !== animToken) {
-        finish();
-        return;
-      }
-      const progress = Math.min(1, (now - started) / GLIDE_MS);
-      const rect = lerpRect(from, to, easeOutCubic(progress));
-      void setWindowRect(rect.x, rect.y, rect.width, rect.height).catch(() => {});
-      if (progress < 1) requestAnimationFrame(step);
-      else finish();
-    };
-    requestAnimationFrame(step);
+  await tweenRect(from, flatRect(target), GLIDE_MS, (rect) => {
+    if (token !== animToken) return false;
+    void setWindowRect(rect.x, rect.y, rect.width, rect.height).catch(() => {});
+    return true;
   });
   if (token === animToken) await moveTo(target);
 }
@@ -277,8 +246,8 @@ function waitViewport(size: DeskSize, timeoutMs = 500): Promise<void> {
  * on the full rect, making the final step a no-op.
  */
 async function followMorphExit(w0: DeskRect, dpi: number, target: FullTarget): Promise<void> {
-  const from = flat(w0);
-  const to = flat(target.rect);
+  const from = flatRect(w0);
+  const to = flatRect(target.rect);
   const size = target.rect.size;
   const scaleTo = (rect: Rect): void => {
     const scale = rectScale(size, rect);
@@ -302,38 +271,14 @@ async function followMorphExit(w0: DeskRect, dpi: number, target: FullTarget): P
   pinCard(w0.position);
   state.widgetOpacity = 0;
   state.appOpacity = 1;
-  await new Promise<void>((resolve) => {
-    const started = performance.now();
-    let done = false;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(finish, GLIDE_MS + 500);
-    const step = (now: number): void => {
-      const progress = Math.min(1, (now - started) / GLIDE_MS);
-      const rect = lerpRect(from, to, easeOutCubic(progress));
-      void setWindowRect(rect.x, rect.y, size.width, size.height).catch(() => {});
-      scaleTo(rect);
-      pinCard({ x: rect.x, y: rect.y });
-      if (progress < 1) requestAnimationFrame(step);
-      else finish();
-    };
-    requestAnimationFrame(step);
+  await tweenRect(from, to, GLIDE_MS, (rect) => {
+    void setWindowRect(rect.x, rect.y, size.width, size.height).catch(() => {});
+    scaleTo(rect);
+    pinCard(rect);
+    return true;
   });
   await moveTo(target.rect);
   stopMorph();
-}
-
-async function applyPin(): Promise<void> {
-  const win = currentWindow();
-  const top = pin() === "top";
-  await win.setAlwaysOnTop(false).catch(() => {});
-  await win.setAlwaysOnBottom(false).catch(() => {});
-  if (top) await win.setAlwaysOnTop(true).catch(() => {});
-  else await win.setAlwaysOnBottom(true).catch(() => {});
 }
 
 async function applyWidgetChrome(): Promise<void> {
@@ -341,7 +286,7 @@ async function applyWidgetChrome(): Promise<void> {
   // Clearing the minimum first lets the window shrink below 900x620.
   await win.setMinSize(null).catch(() => {});
   await win.setResizable(false).catch(() => {});
-  await applyPin();
+  await applyDeskPin(win, pin());
 }
 
 async function applyFullChrome(): Promise<void> {

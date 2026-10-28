@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  areaOf,
   clampToArea,
   collapsedTab,
   dockPoint,
   growRect,
   nearestEdge,
-  pickArea,
   pickAreaForPoint,
-  rightCenter,
   shrinkRect,
   snapToEdge,
   topRight,
@@ -28,12 +25,6 @@ describe("clampToArea", () => {
 
   it("keeps a window that already fits", () => {
     expect(clampToArea({ x: 100, y: 100 }, size, primary)).toEqual({ x: 100, y: 100 });
-  });
-});
-
-describe("rightCenter", () => {
-  it("centers the widget on the right edge", () => {
-    expect(rightCenter(primary, size)).toEqual({ x: 1600, y: 290 });
   });
 });
 
@@ -124,31 +115,6 @@ describe("collapsedTab", () => {
     expect(collapsedTab("bottom", { x: 780, y: 540 }, panel, 56, 22, primary)).toEqual({
       position: { x: 949, y: 984 },
       size: vertical,
-    });
-  });
-});
-
-describe("pickArea", () => {
-  it("uses the monitor that contains the saved window", () => {
-    expect(pickArea({ x: -900, y: 200 }, size, [primary, second], primary)).toBe(second);
-  });
-
-  it("falls back to the primary monitor for a missing saved point", () => {
-    expect(pickArea(null, size, [primary, second], primary)).toBe(primary);
-  });
-
-  it("uses the nearest monitor when the saved point is gone", () => {
-    expect(pickArea({ x: 5000, y: 5000 }, size, [primary, second], primary)).toBe(primary);
-  });
-});
-
-describe("areaOf", () => {
-  it("maps a monitor work area", () => {
-    expect(areaOf({ position: { x: 10, y: 20 }, size: { width: 300, height: 400 } })).toEqual({
-      x: 10,
-      y: 20,
-      width: 300,
-      height: 400,
     });
   });
 });

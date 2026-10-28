@@ -46,16 +46,6 @@ describe("taskSheetVM", () => {
     expect(toggleStep).toHaveBeenCalledWith("s1");
   });
 
-  it("saves only the fields the user changed", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", title: "旧", note: "旧备注" }));
-    vi.mocked(updateTaskPatch).mockResolvedValue(task({ id: "t1", title: "新" }));
-
-    const vm = createTaskSheetVM();
-    await vm.open("t1");
-    await vm.patch({ title: "新" });
-    expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
-  });
-
   it("keeps an edit made in the same save as a due-date change", async () => {
     vi.mocked(getTask).mockResolvedValue(task({ id: "t1", title: "旧", dueDate: "2026-10-25" }));
     // setDue refreshes the task; that refresh must not swallow what else was typed.

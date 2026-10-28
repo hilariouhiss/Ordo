@@ -1,3 +1,5 @@
+import type { DeskRect } from "./deskWindow";
+
 export interface Rect {
   x: number;
   y: number;
@@ -44,4 +46,49 @@ export function centerOffset(inner: Rect, container: Rect, dpi: number): { x: nu
 
 export function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** A widget rect (position + size) as the flat rect the motion helpers take. */
+export function flatRect(rect: DeskRect): Rect {
+  return {
+    x: rect.position.x,
+    y: rect.position.y,
+    width: rect.size.width,
+    height: rect.size.height,
+  };
+}
+
+/**
+ * One frame per animation frame until the target is reached; `onFrame` returns false
+ * when a newer tween took over. The timer covers a hidden webview that stops frames.
+ */
+export function tweenRect(
+  from: Rect,
+  to: Rect,
+  ms: number,
+  onFrame: (rect: Rect) => boolean,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const started = performance.now();
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    timer = setTimeout(finish, ms + 500);
+    const step = (now: number): void => {
+      if (done) return;
+      const progress = Math.min(1, (now - started) / ms);
+      if (!onFrame(lerpRect(from, to, easeOutCubic(progress)))) {
+        finish();
+        return;
+      }
+      if (progress < 1) requestAnimationFrame(step);
+      else finish();
+    };
+    requestAnimationFrame(step);
+  });
 }

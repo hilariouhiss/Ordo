@@ -20,13 +20,13 @@ import {
   type DeskRect,
   type DeskSize,
 } from "../lib/deskWindow";
-import { readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
+import { applyDeskPin, readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
 import { errorText, t } from "../lib/i18n";
 import { canSuspendTask } from "../lib/status";
-import { easeOutCubic, lerpRect, prefersReducedMotion, type Rect } from "../lib/windowMotion";
+import { flatRect, prefersReducedMotion, tweenRect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
-import type { DeskPin, Task } from "../model/types";
+import type { Task } from "../model/types";
 import { deskVM } from "../viewmodels/deskVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
 import StatusDot from "./components/StatusDot.vue";
@@ -146,16 +146,6 @@ async function applyGeometry(position: DeskPoint, size: DeskSize): Promise<void>
   );
 }
 
-/** Flatten a window rect for the motion lerp. */
-function flatRect(rect: DeskRect): Rect {
-  return {
-    x: rect.position.x,
-    y: rect.position.y,
-    width: rect.size.width,
-    height: rect.size.height,
-  };
-}
-
 /** One native move per frame; the card fills the window, so the two shrink and grow as one. */
 async function tweenGeometry(to: DeskRect, ms: number, run: number): Promise<void> {
   const target = flatRect(growRect(to, pad));
@@ -165,33 +155,11 @@ async function tweenGeometry(to: DeskRect, ms: number, run: number): Promise<voi
     await applyGeometry(to.position, to.size);
     return;
   }
-  const start = flatRect(from);
   geometryUntil = Date.now() + ms + SETTLE_MS + 250;
-  const started = performance.now();
-  await new Promise<void>((resolve) => {
-    let done = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve();
-    };
-    // A hidden or throttled webview can stop requestAnimationFrame mid-tween.
-    timer = setTimeout(finish, ms + 500);
-    const step = (now: number): void => {
-      if (done) return;
-      if (run !== animRun || !running) {
-        finish();
-        return;
-      }
-      const progress = Math.min(1, (now - started) / ms);
-      const rect = lerpRect(start, target, easeOutCubic(progress));
-      void setWindowRect(rect.x, rect.y, rect.width, rect.height).catch(() => {});
-      if (progress < 1) requestAnimationFrame(step);
-      else finish();
-    };
-    requestAnimationFrame(step);
+  await tweenRect(flatRect(from), target, ms, (rect) => {
+    if (run !== animRun || !running) return false;
+    void setWindowRect(rect.x, rect.y, rect.width, rect.height).catch(() => {});
+    return true;
   });
   if (run !== animRun || !running) return;
   await applyGeometry(to.position, to.size);
@@ -251,7 +219,7 @@ async function activate(): Promise<void> {
     applyPlacement(placed);
     await applyGeometry(expandedPos, full);
     if (!running) return;
-    await applyPin(pin.value);
+    await applyDeskPin(win(), pin.value);
     await subscribeMove();
     if (!running) return;
     refreshTimer = setInterval(refresh, REFRESH_MS);
@@ -285,20 +253,6 @@ async function subscribeMove(): Promise<void> {
   });
   if (running) moveUnlisten = unlisten;
   else unlisten();
-}
-
-async function applyPin(next: DeskPin): Promise<void> {
-  try {
-    if (next === "top") {
-      await win().setAlwaysOnBottom(false);
-      await win().setAlwaysOnTop(true);
-    } else {
-      await win().setAlwaysOnTop(false);
-      await win().setAlwaysOnBottom(true);
-    }
-  } catch {
-    // Keep the OS default z-order; the button label still reflects the choice.
-  }
 }
 
 async function settle(): Promise<void> {
@@ -364,7 +318,7 @@ function beginMove(): void {
 
 async function togglePin(): Promise<void> {
   const next = state.pin === "top" ? "bottom" : "top";
-  await applyPin(next);
+  await applyDeskPin(win(), next);
   await vm.setPin(next);
 }
 

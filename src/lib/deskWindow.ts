@@ -22,15 +22,6 @@ export interface DeskRect {
   size: DeskSize;
 }
 
-export function areaOf(workArea: { position: DeskPoint; size: DeskSize }): DeskArea {
-  return {
-    x: workArea.position.x,
-    y: workArea.position.y,
-    width: workArea.size.width,
-    height: workArea.size.height,
-  };
-}
-
 /** Card rect to window rect: the window carries the transparent room for the shadow. */
 export function growRect(rect: DeskRect, by: number): DeskRect {
   return {
@@ -50,45 +41,10 @@ export function clampToArea(position: DeskPoint, size: DeskSize, area: DeskArea)
   };
 }
 
-/** The default dock: right edge, vertically centered in the work area. */
-export function rightCenter(area: DeskArea, size: DeskSize): DeskPoint {
-  return {
-    x: area.x + Math.max(0, area.width - size.width),
-    y: area.y + Math.max(0, Math.round((area.height - size.height) / 2)),
-  };
-}
-
-function centerOf(position: DeskPoint, size: DeskSize): DeskPoint {
-  return { x: position.x + size.width / 2, y: position.y + size.height / 2 };
-}
-
 function distanceTo(area: DeskArea, point: DeskPoint): number {
   const x = Math.max(area.x, Math.min(point.x, area.x + area.width));
   const y = Math.max(area.y, Math.min(point.y, area.y + area.height));
   return Math.hypot(x - point.x, y - point.y);
-}
-
-/** The monitor a saved window belongs to now; a removed monitor falls back. */
-export function pickArea(
-  saved: DeskPoint | null,
-  size: DeskSize,
-  monitors: DeskArea[],
-  fallback: DeskArea,
-): DeskArea {
-  if (!saved || monitors.length === 0) return fallback;
-  const center = centerOf(saved, size);
-  const inside = monitors.find(
-    (area) =>
-      center.x >= area.x &&
-      center.x <= area.x + area.width &&
-      center.y >= area.y &&
-      center.y <= area.y + area.height,
-  );
-  if (inside) return inside;
-  return monitors.reduce(
-    (best, area) => (distanceTo(area, center) < distanceTo(best, center) ? area : best),
-    monitors[0],
-  );
 }
 
 /** The edge the window was dropped near, or null when it sits free. */

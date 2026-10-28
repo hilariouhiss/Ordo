@@ -3,6 +3,7 @@ import {
   getCurrentWindow,
   primaryMonitor,
   type Monitor,
+  type Window,
 } from "@tauri-apps/api/window";
 import type { DeskArea, DeskMonitor, DeskRect } from "./deskWindow";
 
@@ -42,6 +43,14 @@ export async function readWindowRect(): Promise<DeskRect> {
     position: { x: position.x, y: position.y },
     size: { width: size.width, height: size.height },
   };
+}
+
+/** Puts the widget window above (top) or below (bottom) other windows. */
+export async function applyDeskPin(win: Window, pin: "top" | "bottom"): Promise<void> {
+  await win.setAlwaysOnTop(false).catch(() => {});
+  await win.setAlwaysOnBottom(false).catch(() => {});
+  if (pin === "top") await win.setAlwaysOnTop(true).catch(() => {});
+  else await win.setAlwaysOnBottom(true).catch(() => {});
 }
 
 /** Centered default main window for a widget start that has no remembered full rect. */

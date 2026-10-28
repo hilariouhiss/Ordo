@@ -114,12 +114,7 @@ export function createTaskSheetVM() {
     state.task = await setTaskStatus(state.openId, status);
   }
 
-  async function patch(patch: TaskPatch): Promise<void> {
-    if (!state.openId) return;
-    state.task = await updateTaskPatch(state.openId, patch);
-  }
-
-  return { state, open, close, toggle, add, remove, patch, saveForm, addNote, setStatus };
+  return { state, open, close, toggle, add, remove, saveForm, addNote, setStatus };
 }
 
 export const taskSheetVM = createTaskSheetVM();

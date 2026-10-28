@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vite-plus/test";
-import { centerOffset, easeOutCubic, lerpRect, rectScale } from "../windowMotion";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { centerOffset, easeOutCubic, lerpRect, rectScale, tweenRect } from "../windowMotion";
 
 const from = { x: 0, y: 10, width: 200, height: 100 };
 const to = { x: 100, y: -10, width: 400, height: 300 };
@@ -30,6 +30,51 @@ describe("centerOffset", () => {
     const inner = { x: 900, y: 0, width: 200, height: 150 };
     const container = { x: 100, y: 50, width: 1200, height: 800 };
     expect(centerOffset(inner, container, 1)).toEqual({ x: 300, y: -375 });
+  });
+});
+
+describe("tweenRect", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Collects the frame callbacks so the test can drive them by hand. */
+  function stubFrames(): FrameRequestCallback[] {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    return frames;
+  }
+
+  it("paints from the start rect to the target and then stops", async () => {
+    const frames = stubFrames();
+    const painted: { x: number; y: number }[] = [];
+    const done = tweenRect(from, to, 100, (rect) => {
+      painted.push({ x: rect.x, y: rect.y });
+      return true;
+    });
+
+    frames.shift()!(performance.now() - 1_000);
+    frames.shift()!(performance.now() + 1_000);
+    await done;
+
+    expect(painted[0]).toEqual({ x: from.x, y: from.y });
+    expect(painted[painted.length - 1]).toEqual({ x: to.x, y: to.y });
+    expect(frames).toHaveLength(0);
+  });
+
+  it("stops on the frame that says a newer tween took over", async () => {
+    const frames = stubFrames();
+    let calls = 0;
+    const done = tweenRect(from, to, 100, () => ++calls < 2);
+
+    frames.shift()!(performance.now() - 1_000);
+    expect(frames).toHaveLength(1);
+    frames.shift()!(performance.now() - 1_000);
+    await done;
+
+    expect(calls).toBe(2);
+    expect(frames).toHaveLength(0);
   });
 });
 
