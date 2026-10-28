@@ -340,6 +340,29 @@ mod tests {
     }
 
     #[test]
+    fn capture_rolls_back_membership_when_inserting_the_task_fails() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let outsider = crate::repo::people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_capture BEFORE INSERT ON tasks
+             WHEN NEW.id = 't1' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let fields = CaptureFields {
+            project_id: Some(p.id.clone()),
+            owner_id: Some(outsider.id.clone()),
+            ..Default::default()
+        };
+
+        assert!(week::capture_with_fields(&c, "交底", &fields, NOW, "t1").is_err());
+        assert!(
+            !crate::repo::projects::is_member(&c, &p.id, &outsider.id).unwrap(),
+            "the auto-added member must roll back with the failed insert"
+        );
+    }
+
+    #[test]
     fn capture_with_fields_rejects_bad_values_before_inserting() {
         let c = db::open_in_memory().unwrap();
         seed_known(&c);
