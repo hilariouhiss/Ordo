@@ -2,7 +2,7 @@
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { mondayOf, shortDate, todayIso } from "../../lib/dates";
-import { runWithNotice } from "../../lib/dialog";
+import { dialogRequest, runWithNotice } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
@@ -71,6 +71,8 @@ function split(): void {
 
 function onKey(event: KeyboardEvent): void {
   if (!passVM.state.open) return;
+  // A notice opened by a failed action owns the keyboard until it is dismissed.
+  if (dialogRequest.value) return;
   // While the task sheet is open it owns the keyboard; its own Escape closes just it.
   if (taskSheetVM.state.openId) return;
 
