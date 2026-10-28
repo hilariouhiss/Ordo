@@ -39,12 +39,13 @@ pub fn set_group(
 }
 
 pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> rusqlite::Result<()> {
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "UPDATE projects SET archived_at = ?1, updated_at = ?2 WHERE id = ?3",
         params![if archived { Some(now) } else { None }, now, id],
     )?;
     if archived {
-        conn.execute(
+        tx.execute(
             "UPDATE tasks SET in_week = 0 WHERE project_id = ?1 AND deleted_at IS NULL",
             [id],
         )?;
@@ -52,7 +53,7 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
         // One UPDATE would give every restored task the same sort_order (SQLite evaluates
         // the MAX subquery once), leaving their order to the UUID tiebreak.
         let restoring: Vec<String> = {
-            let mut stmt = conn.prepare(
+            let mut stmt = tx.prepare(
                 "SELECT id FROM tasks
                  WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
                    AND archived_at IS NULL AND status <> 'done' AND suspended = 0
@@ -61,27 +62,26 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
             stmt.query_map([id], |r| r.get(0))?
                 .collect::<rusqlite::Result<_>>()?
         };
-        let base: i64 = conn.query_row(
+        let base: i64 = tx.query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks",
             [],
             |r| r.get(0),
         )?;
-        let tx = conn.unchecked_transaction()?;
         for (offset, task_id) in restoring.iter().enumerate() {
             tx.execute(
                 "UPDATE tasks SET in_week = 1, sort_order = ?1 WHERE id = ?2",
                 params![base + offset as i64, task_id],
             )?;
         }
-        tx.commit()?;
     }
-    Ok(())
+    tx.commit()
 }
 
 pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM tasks WHERE project_id = ?1", [id])?;
-    conn.execute("DELETE FROM projects WHERE id = ?1", [id])?;
-    Ok(())
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM tasks WHERE project_id = ?1", [id])?;
+    tx.execute("DELETE FROM projects WHERE id = ?1", [id])?;
+    tx.commit()
 }
 
 pub fn members(conn: &Connection, id: &str) -> rusqlite::Result<Vec<ProjectMemberDto>> {
@@ -267,6 +267,7 @@ pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result
 mod tests {
     use super::*;
     use crate::db;
+    use crate::services::week;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
 
@@ -280,5 +281,62 @@ mod tests {
 
         set_archived(&c, "p1", false, "2026-10-21T08:00:00Z").unwrap();
         assert!(dto(&c, "p1").unwrap().archived_at.is_none());
+    }
+
+    fn project_with_two_tasks() -> Connection {
+        let c = db::open_in_memory().unwrap();
+        insert(&c, "p1", "项目", NOW).unwrap();
+        for id in ["t1", "t2"] {
+            week::capture(&c, id, NOW, id).unwrap();
+            c.execute(
+                "UPDATE tasks SET project_id = 'p1' WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
+        }
+        c
+    }
+
+    #[test]
+    fn restoring_a_project_rolls_back_when_a_task_update_fails() {
+        let c = project_with_two_tasks();
+        set_archived(&c, "p1", true, NOW).unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_restore BEFORE UPDATE ON tasks
+             WHEN OLD.id = 't2' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        assert!(set_archived(&c, "p1", false, NOW).is_err());
+
+        assert!(
+            dto(&c, "p1").unwrap().archived_at.is_some(),
+            "the project row must roll back with the task rows"
+        );
+        let in_week: i64 = c
+            .query_row("SELECT in_week FROM tasks WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(in_week, 0, "the first task update must roll back too");
+    }
+
+    #[test]
+    fn deleting_a_project_rolls_back_when_the_project_delete_fails() {
+        let c = project_with_two_tasks();
+        c.execute_batch(
+            "CREATE TRIGGER fail_delete BEFORE DELETE ON projects
+             WHEN OLD.name = '项目' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        assert!(delete(&c, "p1").is_err());
+
+        let tasks: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        let projects: i64 = c
+            .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tasks, 2, "task deletes must roll back with the project delete");
+        assert_eq!(projects, 1);
     }
 }
