@@ -20,7 +20,8 @@ export function createCaptureVM() {
       state.saved = true;
       setTimeout(() => {
         state.saved = false;
-        hide();
+        // A new draft means the user is typing the next task; hiding would interrupt it.
+        if (!state.draft.trim()) hide();
       }, 800);
       return true;
     } finally {

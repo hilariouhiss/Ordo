@@ -91,9 +91,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())?;
-    ids.iter()
-        .map(|id| tasks::dto(conn, id).map_err(|e| e.to_string()))
-        .collect()
+    tasks::dtos(conn, &ids).map_err(|e| e.to_string())
 }
 
 pub fn resolve(
@@ -207,9 +205,7 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())?;
-    ids.iter()
-        .map(|id| tasks::dto(conn, id).map_err(|e| e.to_string()))
-        .collect()
+    tasks::dtos(conn, &ids).map_err(|e| e.to_string())
 }
 
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {

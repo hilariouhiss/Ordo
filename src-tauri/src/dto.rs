@@ -6,7 +6,6 @@ pub struct PersonDto {
     pub id: String,
     pub name: String,
     pub is_me: bool,
-    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,7 +61,6 @@ pub struct StepDto {
     pub title: String,
     pub sort_order: i64,
     pub done: bool,
-    pub due_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -33,6 +33,14 @@ describe("computePopupLayout", () => {
     expect(layout).toMatchObject({ top: 68, above: false, growHeight: 40 + 24 + 4 + 300 + 12 });
   });
 
+  it("clamps a panel that fits on neither side", () => {
+    // Widget-sized window, field near the middle: 312px cannot go below or above.
+    const layout = computePopupLayout(trigger(300, 50), viewport(560, 532), panel(254, 312));
+    expect(layout.above).toBe(false);
+    expect(layout.top).toBe(532 - 312 - 8);
+    expect(layout.top + 312).toBeLessThanOrEqual(532 - 8);
+  });
+
   it("clamps the panel to the viewport and follows the trigger width", () => {
     const clamped = computePopupLayout(trigger(100, 500), viewport(560, 800), panel());
     expect(clamped.left).toBe(560 - 252 - 8);

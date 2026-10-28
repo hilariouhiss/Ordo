@@ -13,6 +13,18 @@ pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String
 
 pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    // The week hides archived projects, so a task restored into one would be lost from every list.
+    let project_archived: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM tasks t JOIN projects p ON p.id = t.project_id
+             WHERE t.id = ?1 AND p.archived_at IS NOT NULL",
+            [id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if project_archived > 0 {
+        return Err("project_archived".into());
+    }
     let was_done = tasks::stored_status(&tx, id).map_err(|e| e.to_string())? == "done";
     tasks::restore(&tx, id, now).map_err(|e| e.to_string())?;
     if was_done {
@@ -293,6 +305,42 @@ mod tests {
         let t = archive::restore_task(&c, "t1", NOW).unwrap();
         assert_eq!(t.status, "doing");
         assert!(t.in_week);
+    }
+
+    #[test]
+    fn restoring_a_done_task_in_an_archived_project_is_refused() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        week::capture(&c, "做完了", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id = 't1'", [&p.id])
+            .unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+
+        assert_eq!(
+            archive::restore_task(&c, "t1", NOW).unwrap_err(),
+            "project_archived"
+        );
+        let task = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(task.status, "done");
+        assert!(!task.in_week);
+    }
+
+    #[test]
+    fn archive_lists_wait_for_an_archived_project_to_be_restored() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        week::capture(&c, "做完了", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id = 't1'", [&p.id])
+            .unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+
+        assert!(archive::list(&c, None).unwrap().done.is_empty());
+        assert!(archive::list(&c, None).unwrap().tasks.is_empty());
+
+        crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
+        assert_eq!(archive::list(&c, None).unwrap().done.len(), 1);
     }
 
     #[test]

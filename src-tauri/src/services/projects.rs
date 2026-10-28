@@ -9,13 +9,16 @@ pub fn create(conn: &Connection, name: &str, now: &str) -> Result<ProjectDto, St
         return Err("empty_project_name".into());
     }
     let id = Uuid::new_v4().to_string();
-    projects::insert(conn, &id, name, now).map_err(|e| e.to_string())?;
     let me = people::list(conn)
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|p| p.is_me)
         .ok_or("no_me")?;
-    projects::add_member(conn, &id, &me.id, now).map_err(|e| e.to_string())?;
+    // One transaction, so a failed member insert cannot leave a project with nobody in it.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    projects::insert(&tx, &id, name, now).map_err(|e| e.to_string())?;
+    projects::add_member(&tx, &id, &me.id, now).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     projects::dto(conn, &id).map_err(|e| e.to_string())
 }
 
@@ -211,6 +214,23 @@ mod tests {
         let cands = projects::owner_candidates(&c, Some(&p.id)).unwrap();
         assert_eq!(cands.len(), 1);
         assert!(cands[0].is_me);
+    }
+
+    #[test]
+    fn creating_a_project_rolls_back_when_the_member_insert_fails() {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_member BEFORE INSERT ON project_members
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        assert!(projects::create(&c, "项目", NOW).is_err());
+
+        let left: i64 = c
+            .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0, "a half-created project must roll back");
     }
 
     #[test]

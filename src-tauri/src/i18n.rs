@@ -106,6 +106,45 @@ pub fn tray_tooltip(lang: Lang, unread: i64) -> String {
     }
 }
 
+/// The language to use before the ledger is open (the startup failure paths).
+pub fn system_lang() -> Lang {
+    if system_language() == "en" {
+        Lang::En
+    } else {
+        Lang::Zh
+    }
+}
+
+pub fn legacy_migration_failed(lang: Lang, error: &str, old_dir: &str) -> (String, String) {
+    match lang {
+        Lang::Zh => (
+            "ordo 迁移不了旧数据".into(),
+            format!("旧数据迁移失败（{error}）。旧数据还在 {old_dir}，没有删。"),
+        ),
+        Lang::En => (
+            "ordo could not move your old data".into(),
+            format!(
+                "Moving the old data failed ({error}). The old data is still at {old_dir}; nothing was deleted."
+            ),
+        ),
+    }
+}
+
+pub fn database_open_failed(lang: Lang, error: &str, data_dir: &str) -> (String, String) {
+    match lang {
+        Lang::Zh => (
+            "ordo 打不开数据库".into(),
+            format!("数据库打不开（{error}）。坏文件和备份都留在 {data_dir}，什么都没删。"),
+        ),
+        Lang::En => (
+            "ordo could not open its database".into(),
+            format!(
+                "The database did not open ({error}). The broken file and backups are still at {data_dir}; nothing was deleted."
+            ),
+        ),
+    }
+}
+
 pub fn recovery_notice(lang: Lang, restored: &str, kept: &str) -> (String, String) {
     match lang {
         Lang::Zh => (
@@ -206,5 +245,18 @@ mod tests {
         assert_eq!(from_conn(&c), Lang::Zh);
         crate::repo::settings::set(&c, "language", "fr").unwrap();
         assert_eq!(from_conn(&c), system);
+    }
+
+    #[test]
+    fn startup_failures_speak_both_languages() {
+        let (title, body) = legacy_migration_failed(Lang::En, "boom", "C:\\old");
+        assert_eq!(title, "ordo could not move your old data");
+        assert!(body.contains("boom") && body.contains("C:\\old"));
+        assert!(body.contains("nothing was deleted"));
+
+        let (title, body) = database_open_failed(Lang::Zh, "boom", "C:\\data");
+        assert_eq!(title, "ordo 打不开数据库");
+        assert!(body.contains("boom") && body.contains("C:\\data"));
+        assert!(body.contains("什么都没删"));
     }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Ellipsis, GripVertical, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { askConfirm, askText } from "../lib/dialog";
 import { errorText, language, t } from "../lib/i18n";
@@ -22,6 +22,9 @@ const dragOverGroupId = ref<string | null>(null);
 onMounted(() => {
   void projectsVM.load();
 });
+
+// The settings modal belongs to this page; leaving it open would block the shortcut elsewhere.
+onUnmounted(() => projectsVM.closeSettings());
 
 async function create(): Promise<void> {
   error.value = "";

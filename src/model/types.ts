@@ -9,7 +9,6 @@ export interface Person {
   id: string;
   name: string;
   isMe: boolean;
-  color: string | null;
 }
 
 export interface Category {
@@ -71,7 +70,6 @@ export interface Step {
   title: string;
   sortOrder: number;
   done: boolean;
-  dueDate: string | null;
 }
 
 export interface Delay {

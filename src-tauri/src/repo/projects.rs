@@ -136,6 +136,11 @@ pub fn list(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    dtos(conn, &ids)
+}
+
+/// Loads each project and its members, keeping the given order.
+fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<ProjectDto>> {
     ids.iter().map(|id| dto(conn, id)).collect()
 }
 
@@ -235,7 +240,7 @@ pub fn set_member_category(
 
 pub fn member_people(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<PersonDto>> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, p.name, p.is_me, p.color
+        "SELECT p.id, p.name, p.is_me
          FROM people p JOIN project_members m ON m.person_id = p.id
          WHERE m.project_id = ?1 AND p.deleted_at IS NULL
          ORDER BY p.is_me DESC, p.name",
@@ -245,7 +250,6 @@ pub fn member_people(conn: &Connection, project_id: &str) -> rusqlite::Result<Ve
             id: r.get(0)?,
             name: r.get(1)?,
             is_me: r.get::<_, i64>(2)? == 1,
-            color: r.get(3)?,
         })
     })?;
     rows.collect()
@@ -260,7 +264,7 @@ pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result
     let ids: Vec<String> = stmt
         .query_map([pattern], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.iter().map(|id| dto(conn, id)).collect()
+    dtos(conn, &ids)
 }
 
 #[cfg(test)]

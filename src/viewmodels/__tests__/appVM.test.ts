@@ -9,7 +9,7 @@ import { defaultSettings } from "./fixtures";
 describe("appVM", () => {
   it("loads people and categories into state", async () => {
     vi.mocked(bootstrap).mockResolvedValue({
-      people: [{ id: "p1", name: "我", isMe: true, color: null }],
+      people: [{ id: "p1", name: "我", isMe: true }],
       categories: [{ id: "c1", name: "软件", sortOrder: 0 }],
       tags: [],
       settings: defaultSettings,

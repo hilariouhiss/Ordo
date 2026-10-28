@@ -370,21 +370,17 @@ pub fn run() {
           ),
           Ok(false) => {}
           Err(e) => {
-              let message = format!(
-                  "旧数据迁移失败（{e}）。旧数据还在 {}，没有删。",
-                  legacy_dir.display()
+              let (title, message) = crate::i18n::legacy_migration_failed(
+                  crate::i18n::system_lang(),
+                  &e.to_string(),
+                  &legacy_dir.display().to_string(),
               );
               // stderr is invisible in a windows_subsystem release build, so leave a file.
               eprintln!("{message}");
               let _ = std::fs::create_dir_all(&data_dir);
               let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
               use tauri_plugin_notification::NotificationExt;
-              let _ = app
-                  .notification()
-                  .builder()
-                  .title("ordo 迁移不了旧数据")
-                  .body(&message)
-                  .show();
+              let _ = app.notification().builder().title(title).body(&message).show();
               return Err(message.into());
           }
       }
@@ -394,20 +390,16 @@ pub fn run() {
           match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
               Ok(found) => found,
               Err(e) => {
-                  let message = format!(
-                      "数据库打不开（{e}）。坏文件和备份都留在 {}，什么都没删。",
-                      data_dir.display()
+                  let (title, message) = crate::i18n::database_open_failed(
+                      crate::i18n::system_lang(),
+                      &e,
+                      &data_dir.display().to_string(),
                   );
                   // stderr is invisible in a windows_subsystem release build, so leave a file.
                   eprintln!("{message}");
                   let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
                   use tauri_plugin_notification::NotificationExt;
-                  let _ = app
-                      .notification()
-                      .builder()
-                      .title("ordo 打不开数据库")
-                      .body(&message)
-                      .show();
+                  let _ = app.notification().builder().title(title).body(&message).show();
                   return Err(message.into());
               }
           };

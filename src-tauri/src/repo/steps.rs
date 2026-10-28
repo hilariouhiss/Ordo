@@ -27,7 +27,7 @@ pub fn next_sort(conn: &Connection, task_id: &str) -> rusqlite::Result<i64> {
 
 pub fn list(conn: &Connection, task_id: &str) -> rusqlite::Result<Vec<StepDto>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, title, sort_order, done, due_date FROM steps
+        "SELECT id, task_id, title, sort_order, done FROM steps
          WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY sort_order",
     )?;
     let rows = stmt.query_map([task_id], |r| {
@@ -37,7 +37,6 @@ pub fn list(conn: &Connection, task_id: &str) -> rusqlite::Result<Vec<StepDto>> 
             title: r.get(2)?,
             sort_order: r.get(3)?,
             done: r.get::<_, i64>(4)? == 1,
-            due_date: r.get(5)?,
         })
     })?;
     rows.collect()
@@ -45,7 +44,7 @@ pub fn list(conn: &Connection, task_id: &str) -> rusqlite::Result<Vec<StepDto>> 
 
 pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<StepDto> {
     conn.query_row(
-        "SELECT id, task_id, title, sort_order, done, due_date FROM steps
+        "SELECT id, task_id, title, sort_order, done FROM steps
          WHERE id = ?1 AND deleted_at IS NULL",
         [id],
         |r| {
@@ -55,7 +54,6 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<StepDto> {
                 title: r.get(2)?,
                 sort_order: r.get(3)?,
                 done: r.get::<_, i64>(4)? == 1,
-                due_date: r.get(5)?,
             })
         },
     )

@@ -46,4 +46,18 @@ describe("captureVM", () => {
     vi.advanceTimersByTime(800);
     vi.useRealTimers();
   });
+
+  it("keeps the window open while the next task is typed", async () => {
+    vi.useFakeTimers();
+    vi.mocked(capture).mockResolvedValue(task({ id: "t1" }));
+    const hide = vi.fn();
+    const vm = createCaptureVM();
+
+    await vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
+    vm.state.draft = "下一个";
+    vi.advanceTimersByTime(800);
+
+    expect(hide).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });

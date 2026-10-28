@@ -345,7 +345,6 @@ onUnmounted(() => {
           <AnimatePresence>
             <SettingsModal v-if="settingsVM.state.open" />
           </AnimatePresence>
-          <AppDialog />
         </div>
       </div>
       <div
@@ -365,6 +364,7 @@ onUnmounted(() => {
       </div>
       <div v-if="windowModeVM.state.phase !== 'idle'" class="fixed inset-0 z-50"></div>
       <QuickCreate />
+      <AppDialog />
     </div>
   </MotionConfig>
 </template>

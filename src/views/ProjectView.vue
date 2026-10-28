@@ -3,13 +3,14 @@ import { Ellipsis } from "@lucide/vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { t } from "../lib/i18n";
 import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { createProjectVM } from "../viewmodels/projectVM";
+import { projectsVM } from "../viewmodels/projectsVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import CaptureBar from "./components/CaptureBar.vue";
 import CategoryProgress from "./components/CategoryProgress.vue";
@@ -22,7 +23,8 @@ import TaskSheet from "./overlays/TaskSheet.vue";
 const props = defineProps<{ id: string }>();
 const router = useRouter();
 const vm = createProjectVM();
-const settingsOpen = ref(false);
+// The shared settings state keeps the global shortcut guard and closeOverlays working here too.
+const settingsOpen = computed(() => projectsVM.state.settingsFor === props.id);
 let unlistenAi: (() => void) | undefined;
 let unlistenCapture: (() => void) | undefined;
 
@@ -41,6 +43,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unlistenAi?.();
   unlistenCapture?.();
+  if (projectsVM.state.settingsFor === props.id) projectsVM.closeSettings();
 });
 
 watch(
@@ -75,7 +78,7 @@ function refresh(): void {
 }
 
 function closeSettings(gone = false): void {
-  settingsOpen.value = false;
+  projectsVM.closeSettings();
   if (gone) void router.push("/projects");
   else void vm.load(props.id);
 }
@@ -107,7 +110,7 @@ function closeSettings(gone = false): void {
         <button
           class="text-base-content/35"
           :aria-label="t('project.settingsAria')"
-          @click="settingsOpen = true"
+          @click="projectsVM.openSettings(props.id)"
         >
           <Ellipsis :size="15" aria-hidden="true" />
         </button>

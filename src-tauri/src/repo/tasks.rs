@@ -9,6 +9,12 @@ pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
     "WHERE p.id = tasks.project_id AND p.archived_at IS NULL))"
 );
 
+/// Archive lists keep a task inside its archived project; restoring the project comes first.
+const LIVE_PROJECT: &str = concat!(
+    "(project_id IS NULL OR NOT EXISTS (SELECT 1 FROM projects p ",
+    "WHERE p.id = tasks.project_id AND p.archived_at IS NOT NULL))"
+);
+
 pub fn insert(
     conn: &Connection,
     id: &str,
@@ -50,10 +56,12 @@ pub fn list_week_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 }
 
 pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
-    list_week_ids(conn)?
-        .iter()
-        .map(|id| dto(conn, id))
-        .collect()
+    dtos(conn, &list_week_ids(conn)?)
+}
+
+/// Loads the full row and its children for each id, keeping the given order.
+pub fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>> {
+    ids.iter().map(|id| dto(conn, id)).collect()
 }
 
 pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
@@ -67,7 +75,7 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.iter().map(|id| dto(conn, id)).collect()
+    dtos(conn, &ids)
 }
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
@@ -110,7 +118,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     })?;
 
     let mut steps = conn.prepare_cached(
-        "SELECT id, task_id, title, sort_order, done, due_date FROM steps
+        "SELECT id, task_id, title, sort_order, done FROM steps
          WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY sort_order",
     )?;
     task.steps = steps
@@ -121,7 +129,6 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
                 title: r.get(2)?,
                 sort_order: r.get(3)?,
                 done: r.get::<_, i64>(4)? == 1,
-                due_date: r.get(5)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -292,7 +299,7 @@ pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec
     let ids: Vec<String> = stmt
         .query_map([project_id], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.iter().map(|id| dto(conn, id)).collect()
+    dtos(conn, &ids)
 }
 pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
@@ -347,7 +354,8 @@ fn list_where(
     let pattern = query.map(crate::repo::like_pattern);
     let sql = format!(
         "SELECT id, title, archived_at, canceled_at FROM tasks
-         WHERE deleted_at IS NULL AND {} AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
+         WHERE deleted_at IS NULL AND {} AND {LIVE_PROJECT}
+           AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC",
         condition
     );

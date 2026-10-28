@@ -49,7 +49,12 @@ export function computePopupLayout(
   const roomBelow = trigger.bottom + gap + panel.height <= viewport.height - margin;
   const roomAbove = trigger.top - gap - panel.height >= margin;
   const above = options.mini !== true && !roomBelow && roomAbove;
-  const top = above ? trigger.top - gap - panel.height : trigger.bottom + gap;
+  const rawTop = above ? trigger.top - gap - panel.height : trigger.bottom + gap;
+  // The mini window grows to fit its panel; a normal popup must stay inside the viewport.
+  const top =
+    options.mini === true
+      ? rawTop
+      : Math.max(margin, Math.min(rawTop, viewport.height - panel.height - margin));
   const growHeight = above ? 0 : Math.ceil(trigger.bottom + gap + panel.height + GROW_SLACK);
   return { left, top, width, above, growHeight };
 }
