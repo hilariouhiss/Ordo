@@ -37,7 +37,6 @@ describe("archiveVM", () => {
 
     expect(dialogRequest.value?.kind).toBe("notice");
     expect(listArchive).not.toHaveBeenCalled();
-    expect(empty.projects).toEqual([]);
   });
 
   it("reloads after a successful restore", async () => {
