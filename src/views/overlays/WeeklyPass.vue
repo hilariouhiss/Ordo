@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { mondayOf, shortDate, todayIso } from "../../lib/dates";
+import { runWithNotice } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
@@ -31,8 +32,8 @@ const ownerName = computed(() => {
 });
 
 async function act(action: "keep" | "done" | "cancel"): Promise<void> {
-  await passVM.resolve(action);
-  if (suspendOpen.value) cancelSuspend();
+  const resolved = await runWithNotice(() => passVM.resolve(action));
+  if (resolved && suspendOpen.value) cancelSuspend();
 }
 
 async function actSuspend(): Promise<void> {
@@ -58,7 +59,7 @@ function onSuspendEnter(event: KeyboardEvent): void {
 }
 
 async function finish(): Promise<void> {
-  await passVM.finish();
+  if (!(await runWithNotice(() => passVM.finish()))) return;
   if (appVM.state.settings) appVM.state.settings.lastPassWeek = mondayOf(todayIso());
   await weekVM.load();
 }

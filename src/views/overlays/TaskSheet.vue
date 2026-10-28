@@ -144,8 +144,13 @@ function removeTag(name: string): void {
 async function archive(): Promise<void> {
   const task = taskSheetVM.state.task;
   if (!task) return;
-  await archiveTask(task.id);
-  taskSheetVM.close();
+  taskSheetVM.state.error = null;
+  try {
+    await archiveTask(task.id);
+    taskSheetVM.close();
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+  }
 }
 
 async function submitStep(): Promise<void> {

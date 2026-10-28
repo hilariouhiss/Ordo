@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
-import { askConfirm, askNotice, askSuspend, askText, closeDialog, dialogRequest } from "../dialog";
+import {
+  askConfirm,
+  askNotice,
+  askSuspend,
+  askText,
+  closeDialog,
+  dialogRequest,
+  runWithNotice,
+} from "../dialog";
 
 describe("dialog", () => {
   it("prompts with the current value and resolves with the answer", async () => {
@@ -50,5 +58,20 @@ describe("dialog", () => {
     const pending = askConfirm("删除任务", "不能撤销。");
     closeDialog("ok");
     await expect(pending).resolves.toBe(true);
+  });
+
+  it("turns a rejected action into a notice and returns false", async () => {
+    const result = await runWithNotice(async () => {
+      throw new Error("boom");
+    });
+
+    expect(result).toBe(false);
+    expect(dialogRequest.value?.kind).toBe("notice");
+    closeDialog(null);
+  });
+
+  it("returns true when the action succeeds", async () => {
+    await expect(runWithNotice(async () => undefined)).resolves.toBe(true);
+    expect(dialogRequest.value).toBeNull();
   });
 });

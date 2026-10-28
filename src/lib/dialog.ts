@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { errorText, t } from "./i18n";
 
 export interface SuspendDraft {
   reason: string;
@@ -43,4 +44,15 @@ export function askConfirm(title: string, message: string): Promise<boolean> {
 /** A one-button message; the answer carries no meaning. */
 export function askNotice(title: string, message: string): Promise<void> {
   return ask({ kind: "notice", title, message }).then(() => undefined);
+}
+
+/** Runs a user action and reports a rejection instead of leaving it unhandled. */
+export async function runWithNotice(action: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await action();
+    return true;
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
+    return false;
+  }
 }

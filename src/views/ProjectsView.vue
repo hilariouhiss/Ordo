@@ -24,8 +24,13 @@ onMounted(() => {
 });
 
 async function create(): Promise<void> {
-  const project = await projectsVM.create(name.value);
-  if (project) name.value = "";
+  error.value = "";
+  try {
+    const project = await projectsVM.create(name.value);
+    if (project) name.value = "";
+  } catch (e) {
+    error.value = String(e);
+  }
 }
 
 function onCreateKey(event: KeyboardEvent): void {

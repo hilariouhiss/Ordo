@@ -7,6 +7,7 @@ import {
   restoreProject as restoreProjectApi,
   restoreTask as restoreTaskApi,
 } from "../model/ipc";
+import { runWithNotice } from "../lib/dialog";
 import type { ArchiveData } from "../model/types";
 import { projectsVM } from "./projectsVM";
 
@@ -30,29 +31,39 @@ export function createArchiveVM() {
   }
 
   async function restore(id: string): Promise<void> {
-    await restoreTaskApi(id);
-    await load();
+    await runWithNotice(async () => {
+      await restoreTaskApi(id);
+      await load();
+    });
   }
 
   async function archive(id: string): Promise<void> {
-    await archiveTaskApi(id);
-    await load();
+    await runWithNotice(async () => {
+      await archiveTaskApi(id);
+      await load();
+    });
   }
 
   async function remove(id: string): Promise<void> {
-    await deleteTaskApi(id);
-    await load();
+    await runWithNotice(async () => {
+      await deleteTaskApi(id);
+      await load();
+    });
   }
 
   async function restoreProject(id: string): Promise<void> {
-    await restoreProjectApi(id);
-    await projectsVM.load();
-    await load();
+    await runWithNotice(async () => {
+      await restoreProjectApi(id);
+      await projectsVM.load();
+      await load();
+    });
   }
 
   async function removeProject(id: string): Promise<void> {
-    await deleteProjectApi(id);
-    await load();
+    await runWithNotice(async () => {
+      await deleteProjectApi(id);
+      await load();
+    });
   }
 
   return { state, load, restore, archive, remove, restoreProject, removeProject };

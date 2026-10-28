@@ -2,7 +2,7 @@
 import { ArrowDown, ArrowUp, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
-import { askConfirm, askText } from "../lib/dialog";
+import { askConfirm, askText, runWithNotice } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
@@ -16,8 +16,7 @@ async function add(): Promise<void> {
   if (adding.value) return;
   adding.value = true;
   try {
-    await metaVM.addCategory(name.value);
-    name.value = "";
+    if (await runWithNotice(() => metaVM.addCategory(name.value))) name.value = "";
   } finally {
     adding.value = false;
   }
@@ -30,7 +29,7 @@ function onKey(event: KeyboardEvent): void {
 
 async function rename(id: string, current: string): Promise<void> {
   const next = await askText(t("categories.renameTitle"), current);
-  if (next) await metaVM.renameCategory(id, next);
+  if (next) await runWithNotice(() => metaVM.renameCategory(id, next));
 }
 
 async function remove(id: string, categoryName: string): Promise<void> {
@@ -41,7 +40,11 @@ async function remove(id: string, categoryName: string): Promise<void> {
     ))
   )
     return;
-  await metaVM.removeCategory(id);
+  await runWithNotice(() => metaVM.removeCategory(id));
+}
+
+function move(id: string, direction: -1 | 1): void {
+  void runWithNotice(() => metaVM.moveCategory(id, direction));
 }
 </script>
 
@@ -69,14 +72,14 @@ async function remove(id: string, categoryName: string): Promise<void> {
         <button
           class="text-base-content/35 hover:text-base-content"
           :aria-label="t('categories.upAria')"
-          @click="metaVM.moveCategory(category.id, -1)"
+          @click="move(category.id, -1)"
         >
           <ArrowUp :size="14" aria-hidden="true" />
         </button>
         <button
           class="text-base-content/35 hover:text-base-content"
           :aria-label="t('categories.downAria')"
-          @click="metaVM.moveCategory(category.id, 1)"
+          @click="move(category.id, 1)"
         >
           <ArrowDown :size="14" aria-hidden="true" />
         </button>

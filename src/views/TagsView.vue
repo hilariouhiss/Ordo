@@ -2,6 +2,7 @@
 import { Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
+import { runWithNotice } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
@@ -11,8 +12,11 @@ import { metaVM } from "../viewmodels/metaVM";
 const name = ref("");
 
 async function add(): Promise<void> {
-  await metaVM.addTag(name.value);
-  name.value = "";
+  if (await runWithNotice(() => metaVM.addTag(name.value))) name.value = "";
+}
+
+function remove(id: string): void {
+  void runWithNotice(() => metaVM.removeTag(id));
 }
 
 function onKey(event: KeyboardEvent): void {
@@ -49,7 +53,7 @@ function onKey(event: KeyboardEvent): void {
           <button
             class="text-base-content/30 hover:text-error"
             :aria-label="t('tags.deleteAria')"
-            @click="metaVM.removeTag(tag.id)"
+            @click="remove(tag.id)"
           >
             <Trash :size="12" aria-hidden="true" />
           </button>
