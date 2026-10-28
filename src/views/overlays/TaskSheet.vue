@@ -43,9 +43,14 @@ const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
 const noteDraft = ref("");
 const tagDraft = ref("");
+const rescheduleReason = ref("");
 
 const late = computed(() => overdueDays(taskSheetVM.state.task?.dueDate ?? null, todayIso()));
 const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0);
+const dueMovedLater = computed(() => {
+  const current = taskSheetVM.state.task?.dueDate;
+  return Boolean(current && form.dueDate && form.dueDate > current);
+});
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
@@ -76,6 +81,7 @@ watch(
     form.priority = task.priority;
     form.status = task.status;
     form.exclusive = task.exclusive;
+    rescheduleReason.value = "";
     await refreshCandidates(task.projectId);
   },
   { immediate: true },
@@ -96,7 +102,8 @@ async function save(): Promise<void> {
     if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
       await addMember(form.projectId, form.ownerId, null);
     }
-    if (await taskSheetVM.saveForm(form)) taskSheetVM.close();
+    const reason = dueMovedLater.value ? rescheduleReason.value.trim() || null : null;
+    if (await taskSheetVM.saveForm(form, reason)) taskSheetVM.close();
   } catch (e) {
     taskSheetVM.state.error = String(e);
   }
@@ -358,6 +365,14 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             />
           </label>
         </div>
+
+        <label v-if="dueMovedLater" class="mt-2 block text-[11px] text-base-content/45">
+          {{ t("task.rescheduleReason") }}
+          <input
+            v-model="rescheduleReason"
+            class="input input-sm mt-1 w-full rounded-lg border-base-300"
+          />
+        </label>
 
         <div class="mt-3">
           <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">

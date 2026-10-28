@@ -74,6 +74,19 @@ describe("taskSheetVM", () => {
     expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
   });
 
+  it("passes a reschedule reason when the due date moves later", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", dueDate: "2026-10-25" }));
+    vi.mocked(setDue).mockResolvedValue(task({ id: "t1", dueDate: "2026-11-01" }));
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    const form = formOf(task({ id: "t1", dueDate: "2026-10-25" }));
+    const saved = await vm.saveForm({ ...form, dueDate: "2026-11-01" }, "客户改期");
+
+    expect(saved).toBe(true);
+    expect(setDue).toHaveBeenCalledWith("t1", "2026-11-01", "客户改期");
+  });
+
   it("returns false and reports a failed save", async () => {
     vi.mocked(getTask).mockResolvedValue(task({ id: "t1", dueDate: "2026-10-25" }));
     vi.mocked(setDue).mockRejectedValue("boom");
