@@ -22,6 +22,7 @@ import {
 } from "../lib/deskWindow";
 import { readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
 import { errorText, t } from "../lib/i18n";
+import { canSuspendTask } from "../lib/status";
 import { easeOutCubic, lerpRect, prefersReducedMotion, type Rect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
@@ -550,7 +551,7 @@ onUnmounted(() => {
                   <Play :size="13" aria-hidden="true" />
                 </button>
                 <button
-                  v-if="canStart(row.task)"
+                  v-if="canSuspendTask(row.task)"
                   type="button"
                   class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
                   :aria-label="t('task.suspendAria', { title: row.task.title })"

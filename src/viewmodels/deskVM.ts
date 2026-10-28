@@ -77,6 +77,7 @@ export function createDeskVM() {
 
   async function setPin(pin: DeskPin): Promise<void> {
     state.pin = pin;
+    if (appVM.state.settings) appVM.state.settings.deskPin = pin;
     try {
       await setSettings({ deskPin: pin });
     } catch {
@@ -85,6 +86,12 @@ export function createDeskVM() {
   }
 
   async function savePosition(x: number, y: number): Promise<void> {
+    // windowModeVM reads the in-memory copy to choose the next glide target, so update it
+    // before the database round-trip; a failed write only costs the next launch's spot.
+    if (appVM.state.settings) {
+      appVM.state.settings.deskX = x;
+      appVM.state.settings.deskY = y;
+    }
     try {
       await setSettings({ deskX: x, deskY: y });
     } catch {

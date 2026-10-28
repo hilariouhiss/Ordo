@@ -6,6 +6,7 @@ import { shortDate, todayIso } from "../../lib/dates";
 import { askNotice, askSuspend } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
+import { canSuspendTask } from "../../lib/status";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -42,7 +43,7 @@ const isDone = computed(() => props.task.status === "done");
 const canStart = computed(
   () => !hasSteps.value && !isDone.value && (props.task.status === "todo" || props.task.suspended),
 );
-const canSuspend = computed(() => !isDone.value && !props.task.suspended);
+const canSuspend = computed(() => canSuspendTask(props.task));
 const doneLabel = computed(() =>
   t(isDone.value ? "task.reopenAria" : "task.doneAria", { title: props.task.title }),
 );

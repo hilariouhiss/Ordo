@@ -107,7 +107,8 @@ describe("deskVM", () => {
     expect(vm.state.busy).toBe(false);
   });
 
-  it("persists a pin change", async () => {
+  it("persists a pin change and keeps the in-memory setting current", async () => {
+    appVM.state.settings = { ...defaultSettings, deskPin: "top" };
     vi.mocked(setSettings).mockResolvedValue({ ...defaultSettings, deskPin: "bottom" });
 
     const vm = createDeskVM();
@@ -115,6 +116,30 @@ describe("deskVM", () => {
 
     expect(setSettings).toHaveBeenCalledWith({ deskPin: "bottom" });
     expect(vm.state.pin).toBe("bottom");
+    expect(appVM.state.settings?.deskPin).toBe("bottom");
+  });
+
+  it("updates the in-memory widget position before the database write", async () => {
+    appVM.state.settings = { ...defaultSettings, deskX: 10, deskY: 20 };
+    vi.mocked(setSettings).mockResolvedValue({ ...defaultSettings, deskX: 30, deskY: 40 });
+
+    const vm = createDeskVM();
+    await vm.savePosition(30, 40);
+
+    expect(setSettings).toHaveBeenCalledWith({ deskX: 30, deskY: 40 });
+    expect(appVM.state.settings?.deskX).toBe(30);
+    expect(appVM.state.settings?.deskY).toBe(40);
+  });
+
+  it("keeps the in-memory widget position when persisting it fails", async () => {
+    appVM.state.settings = { ...defaultSettings, deskX: 10, deskY: 20 };
+    vi.mocked(setSettings).mockRejectedValue(new Error("db"));
+
+    const vm = createDeskVM();
+    await expect(vm.savePosition(30, 40)).resolves.toBeUndefined();
+
+    expect(appVM.state.settings?.deskX).toBe(30);
+    expect(appVM.state.settings?.deskY).toBe(40);
   });
 
   it("persists a widget mode change", async () => {
