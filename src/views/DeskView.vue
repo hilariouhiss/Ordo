@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { Maximize2, Pause, Pin, Play } from "@lucide/vue";
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, todayIso } from "../lib/dates";
 import {
   DESK_PAD,
@@ -18,12 +17,14 @@ import {
   type DeskArea,
   type DeskEdge,
   type DeskPoint,
+  type DeskRect,
   type DeskSize,
 } from "../lib/deskWindow";
 import { readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
 import { errorText, t } from "../lib/i18n";
+import { easeOutCubic, lerpRect, prefersReducedMotion, type Rect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
-import { deskLeftButtonDown } from "../model/ipc";
+import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
 import type { DeskPin, Task } from "../model/types";
 import { deskVM } from "../viewmodels/deskVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
@@ -38,20 +39,22 @@ const emit = defineEmits<{
 
 const SETTLE_MS = 250;
 const SETTLE_RETRY_MS = 100;
-const COLLAPSE_MS = 400;
+const COLLAPSE_DELAY_MS = 400;
+/** The card and the window shrink into the edge tab together, one frame at a time. */
+const DOCK_MS = 200;
 const REFRESH_MS = 60_000;
 const HOVER_REFRESH_MS = 10_000;
 
 const vm = deskVM;
 const { state, days, count } = vm;
 
-type DeskPhase = "open" | "closing" | "closed" | "opening";
-
-/** The widget alternates between the panel and the edge tab through these phases. */
-const phase = ref<DeskPhase>("open");
+/** The tab is the card at its collapsed size; this is the shape the widget heads for. */
+const collapsed = ref(false);
+/** A shape tween owns the native window right now. */
+const moving = ref(false);
 const edge = ref<DeskEdge | null>(null);
 const pin = computed(() => state.pin);
-/** A newer transition overtook an async animation continuation. */
+/** A newer tween overtook an async animation continuation. */
 let animRun = 0;
 
 let scale = 1;
@@ -79,21 +82,11 @@ function win(): Window {
   return cachedWin;
 }
 
-/** Grow and shrink out of the edge the panel is docked to. */
-const originClass = computed(() => {
-  switch (edge.value) {
-    case "top":
-      return "origin-top";
-    case "bottom":
-      return "origin-bottom";
-    case "left":
-      return "origin-left";
-    case "right":
-      return "origin-right";
-    default:
-      return "origin-center";
-  }
-});
+/** Fills the window while docked, but stays a 360x500 panel inside the larger mode-morph window. */
+const cardStyle = {
+  width: `min(${DESK_PANEL.width}px, calc(100% - ${DESK_PAD * 2}px))`,
+  height: `min(${DESK_PANEL.height}px, calc(100% - ${DESK_PAD * 2}px))`,
+};
 
 /** Round only the end facing away from the screen edge, so the tab reads like a page marker. */
 const tabRadius = computed(() => {
@@ -127,7 +120,7 @@ const tabShadow = computed(() => {
   }
 });
 
-watch(phase, (next) => emit("collapse-change", next === "closed"));
+watch(collapsed, (next) => emit("collapse-change", next));
 
 watch(
   () => props.active,
@@ -147,26 +140,88 @@ async function applyGeometry(position: DeskPoint, size: DeskSize): Promise<void>
   if (!running) return;
   const rect = growRect({ position, size }, pad);
   geometryUntil = Date.now() + SETTLE_MS + 250;
-  try {
-    await win().setPosition(new PhysicalPosition(rect.position.x, rect.position.y));
-    await win().setSize(new PhysicalSize(rect.size.width, rect.size.height));
-  } catch {
-    // The window keeps its previous spot; the next move retries.
-  }
+  await setWindowRect(rect.position.x, rect.position.y, rect.size.width, rect.size.height).catch(
+    () => {},
+  );
 }
 
-async function applyPin(next: DeskPin): Promise<void> {
-  try {
-    if (next === "top") {
-      await win().setAlwaysOnBottom(false);
-      await win().setAlwaysOnTop(true);
-    } else {
-      await win().setAlwaysOnTop(false);
-      await win().setAlwaysOnBottom(true);
-    }
-  } catch {
-    // Keep the OS default z-order; the button label still reflects the choice.
+/** Flatten a window rect for the motion lerp. */
+function flatRect(rect: DeskRect): Rect {
+  return {
+    x: rect.position.x,
+    y: rect.position.y,
+    width: rect.size.width,
+    height: rect.size.height,
+  };
+}
+
+/** One native move per frame; the card fills the window, so the two shrink and grow as one. */
+async function tweenGeometry(to: DeskRect, ms: number, run: number): Promise<void> {
+  const target = flatRect(growRect(to, pad));
+  const from = await readWindowRect().catch(() => null);
+  if (run !== animRun || !running) return;
+  if (!from || prefersReducedMotion()) {
+    await applyGeometry(to.position, to.size);
+    return;
   }
+  const start = flatRect(from);
+  geometryUntil = Date.now() + ms + SETTLE_MS + 250;
+  const started = performance.now();
+  await new Promise<void>((resolve) => {
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    // A hidden or throttled webview can stop requestAnimationFrame mid-tween.
+    timer = setTimeout(finish, ms + 500);
+    const step = (now: number): void => {
+      if (done) return;
+      if (run !== animRun || !running) {
+        finish();
+        return;
+      }
+      const progress = Math.min(1, (now - started) / ms);
+      const rect = lerpRect(start, target, easeOutCubic(progress));
+      void setWindowRect(rect.x, rect.y, rect.width, rect.height).catch(() => {});
+      if (progress < 1) requestAnimationFrame(step);
+      else finish();
+    };
+    requestAnimationFrame(step);
+  });
+  if (run !== animRun || !running) return;
+  await applyGeometry(to.position, to.size);
+}
+
+/**
+ * Grows or shrinks the card and the window in one motion. A request for the
+ * other shape cancels the tween and reverses from wherever the window is.
+ */
+async function shape(next: boolean): Promise<void> {
+  const docked = edge.value;
+  if (!running || collapsed.value === next) return;
+  if (next && !docked) return;
+  collapsed.value = next;
+  if (!next) expandedPos = clampToArea(expandedPos, full, currentArea);
+  const target =
+    next && docked
+      ? collapsedTab(docked, expandedPos, full, tabLong, tabShort, currentArea)
+      : { position: expandedPos, size: full };
+  const run = ++animRun;
+  moving.value = true;
+  await tweenGeometry(target, DOCK_MS, run);
+  if (run !== animRun || !running) return;
+  moving.value = false;
+  // The pointer left while the panel was still growing: settle back down.
+  if (!next && !hovering) scheduleCollapse();
+}
+
+async function expand(): Promise<void> {
+  clearTimeout(collapseTimer);
+  await shape(false);
 }
 
 function applyPlacement(placed: ReturnType<typeof widgetPlacement>): void {
@@ -183,6 +238,11 @@ function applyPlacement(placed: ReturnType<typeof widgetPlacement>): void {
 async function activate(): Promise<void> {
   if (running) return;
   running = true;
+  animRun += 1;
+  collapsed.value = false;
+  moving.value = false;
+  clearTimeout(collapseTimer);
+  hovering = false;
   try {
     const { list, primary } = await readDeskMonitors();
     if (!running) return;
@@ -204,6 +264,7 @@ async function deactivate(): Promise<void> {
   if (!running) return;
   running = false;
   animRun += 1;
+  moving.value = false;
   clearTimeout(collapseTimer);
   clearTimeout(settleTimer);
   clearInterval(refreshTimer);
@@ -216,8 +277,8 @@ async function deactivate(): Promise<void> {
 async function subscribeMove(): Promise<void> {
   moveUnlisten?.();
   const unlisten = await win().onMoved(() => {
+    if (Date.now() < geometryUntil || collapsed.value || moving.value) return;
     lastMovedAt = Date.now();
-    if (Date.now() < geometryUntil || phase.value !== "open") return;
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => void settle(), SETTLE_MS);
   });
@@ -225,8 +286,22 @@ async function subscribeMove(): Promise<void> {
   else unlisten();
 }
 
+async function applyPin(next: DeskPin): Promise<void> {
+  try {
+    if (next === "top") {
+      await win().setAlwaysOnBottom(false);
+      await win().setAlwaysOnTop(true);
+    } else {
+      await win().setAlwaysOnTop(false);
+      await win().setAlwaysOnBottom(true);
+    }
+  } catch {
+    // Keep the OS default z-order; the button label still reflects the choice.
+  }
+}
+
 async function settle(): Promise<void> {
-  if (phase.value !== "open" || !running) return;
+  if (!running || collapsed.value || moving.value) return;
   // The native move loop owns the window while the button is held; moving it then is undone at mouse-up.
   if (await deskLeftButtonDown().catch(() => false)) {
     clearTimeout(settleTimer);
@@ -241,6 +316,7 @@ async function settle(): Promise<void> {
   const current = shrinkRect(rect, Math.round(DESK_PAD * currentScale));
   const { list, primary } = await readDeskMonitors();
   const placed = widgetPlacement({ saved: current.position, monitors: list, primary });
+  if (!running || collapsed.value || moving.value) return;
   const moved =
     placed.card.position.x !== expandedPos.x ||
     placed.card.position.y !== expandedPos.y ||
@@ -251,74 +327,37 @@ async function settle(): Promise<void> {
   void vm.savePosition(expandedPos.x, expandedPos.y);
 }
 
-async function expand(): Promise<void> {
+function scheduleCollapse(): void {
   clearTimeout(collapseTimer);
-  if (phase.value === "open" || phase.value === "opening") return;
-  animRun += 1;
-  if (phase.value === "closing") {
-    // The panel is still up: reversing its leave needs no window change.
-    phase.value = "open";
-    return;
-  }
-  phase.value = "opening";
-  await nextTick();
-  expandedPos = clampToArea(expandedPos, full, currentArea);
-  await applyGeometry(expandedPos, full);
-  if (!running) return;
-  if (phase.value === "opening") phase.value = "open";
+  collapseTimer = setTimeout(maybeCollapse, COLLAPSE_DELAY_MS);
 }
 
-function collapse(): void {
-  if (phase.value !== "open" || !edge.value) return;
-  phase.value = "closing";
-}
-
-/** The panel's leave is done: shrink the window, then let the edge tile fade in. */
-async function afterCollapse(): Promise<void> {
-  if (phase.value !== "closing" || !edge.value) return;
-  const run = ++animRun;
-  const rect = collapsedTab(edge.value, expandedPos, full, tabLong, tabShort, currentArea);
-  await applyGeometry(rect.position, rect.size);
-  if (!running) return;
-  if (run !== animRun) {
-    // A reveal or expand took over while the window was shrinking.
-    await applyGeometry(expandedPos, full);
+/** A native drag fires a stream of moves; do not shrink the window under it. */
+function maybeCollapse(): void {
+  if (hovering || collapsed.value || !edge.value) return;
+  if (Date.now() - lastMovedAt < SETTLE_MS + 100) {
+    collapseTimer = setTimeout(maybeCollapse, COLLAPSE_DELAY_MS);
     return;
   }
-  if (phase.value === "closing") phase.value = "closed";
+  void shape(true);
 }
 
 function onMouseEnter(): void {
   hovering = true;
   clearTimeout(collapseTimer);
-  if (phase.value === "closed" || phase.value === "closing") void expand();
+  if (collapsed.value || moving.value) void expand();
   if (Date.now() - lastLoadedAt > HOVER_REFRESH_MS) refresh();
-}
-
-/** A native drag fires a stream of moves; do not shrink the window under it. */
-function maybeCollapse(): void {
-  if (hovering) return;
-  if (Date.now() - lastMovedAt < SETTLE_MS + 100) {
-    collapseTimer = setTimeout(maybeCollapse, COLLAPSE_MS);
-    return;
-  }
-  collapse();
 }
 
 function onMouseLeave(): void {
   hovering = false;
   clearTimeout(collapseTimer);
-  if (phase.value !== "open" || !edge.value) return;
-  collapseTimer = setTimeout(maybeCollapse, COLLAPSE_MS);
+  if (!collapsed.value) scheduleCollapse();
 }
 
 /** A press on the header starts a drag even right after a programmatic move. */
 function beginMove(): void {
   clearTimeout(collapseTimer);
-  if (phase.value === "closing") {
-    animRun += 1;
-    phase.value = "open";
-  }
   geometryUntil = 0;
 }
 
@@ -395,22 +434,21 @@ onUnmounted(() => {
 
 <template>
   <div class="relative h-full text-base-content select-none">
-    <Transition
-      enter-active-class="transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-      enter-from-class="opacity-0"
-      enter-to-class="opacity-100"
-      leave-active-class="transition-[scale,opacity] duration-150 ease-in motion-reduce:transition-none"
-      leave-from-class="scale-100 opacity-100"
-      leave-to-class="scale-[0.96] opacity-0"
-      @after-leave="afterCollapse"
+    <div
+      :class="[
+        collapsed ? tabRadius : 'rounded-2xl',
+        collapsed && !moving ? tabShadow : 'shadow-lg',
+      ]"
+      :style="cardStyle"
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden border border-base-300 bg-base-100 transition-[border-radius] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      @mouseenter="onMouseEnter"
+      @mouseleave="onMouseLeave"
     >
       <div
-        v-show="phase === 'open'"
-        :class="originClass"
+        :inert="!props.active || collapsed || moving"
+        class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col transition-opacity ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        :class="collapsed ? 'opacity-0 duration-100' : 'delay-100 opacity-100 duration-150'"
         :style="{ width: `${DESK_PANEL.width}px`, height: `${DESK_PANEL.height}px` }"
-        class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-lg"
-        @mouseenter="onMouseEnter"
-        @mouseleave="onMouseLeave"
       >
         <header
           data-tauri-drag-region
@@ -539,22 +577,18 @@ onUnmounted(() => {
           </p>
         </main>
       </div>
-    </Transition>
-    <Transition
-      enter-active-class="transition duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-      enter-from-class="scale-90 opacity-0"
-      enter-to-class="scale-100 opacity-100"
-      leave-active-class="duration-0"
-    >
       <button
-        v-if="phase === 'closed'"
         type="button"
-        :class="[originClass, tabShadow, tabRadius]"
-        class="absolute inset-4 grid place-items-center border border-base-300 bg-base-100 focus-visible:ring-2 focus-visible:ring-primary/40"
+        class="absolute inset-[2px] grid place-items-center rounded-[inherit] transition-opacity duration-150 motion-reduce:transition-none"
+        :class="
+          collapsed
+            ? 'delay-100 opacity-100 focus-visible:ring-2 focus-visible:ring-primary/40'
+            : 'pointer-events-none opacity-0'
+        "
+        :tabindex="collapsed && props.active ? 0 : -1"
+        :aria-hidden="!collapsed"
         :aria-label="t('desk.expand')"
         :title="t('desk.expand')"
-        @mouseenter="onMouseEnter"
-        @mouseleave="onMouseLeave"
         @click="expand"
       >
         <span
@@ -564,6 +598,6 @@ onUnmounted(() => {
           <i v-for="n in 3" :key="n" class="block size-[2.5px] rounded-full bg-base-content/30"></i>
         </span>
       </button>
-    </Transition>
+    </div>
   </div>
 </template>
