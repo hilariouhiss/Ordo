@@ -33,6 +33,11 @@ async function reload(): Promise<void> {
   groups.value = list;
 }
 
+/** Member edits are immediate, so refresh only the member list and keep unsaved fields. */
+async function reloadMembers(): Promise<void> {
+  form.members = (await ipc.getProject(props.id)).members;
+}
+
 onMounted(() => {
   void reload();
 });
@@ -73,10 +78,15 @@ async function newGroup(): Promise<void> {
 async function addMember(): Promise<void> {
   const name = memberName.value.trim();
   if (!name) return;
-  await ipc.addMember(props.id, null, name);
-  memberName.value = "";
-  appVM.state.people = await ipc.listPeople();
-  await reload();
+  error.value = "";
+  try {
+    await ipc.addMember(props.id, null, name);
+    memberName.value = "";
+    appVM.state.people = await ipc.listPeople();
+    await reloadMembers();
+  } catch (e) {
+    error.value = String(e);
+  }
 }
 
 function onMemberKey(event: KeyboardEvent): void {
@@ -87,8 +97,13 @@ function onMemberKey(event: KeyboardEvent): void {
 async function removeMember(personId: string): Promise<void> {
   const person = appVM.state.people.find((p) => p.id === personId);
   if (person?.isMe) return;
-  await ipc.removeMember(props.id, personId);
-  await reload();
+  error.value = "";
+  try {
+    await ipc.removeMember(props.id, personId);
+    await reloadMembers();
+  } catch (e) {
+    error.value = String(e);
+  }
 }
 
 /** The specialty owner takes over the tasks of that category in this project. */
@@ -96,17 +111,22 @@ async function onMemberCategory(personId: string, event: Event): Promise<void> {
   const categoryId = (event.target as HTMLSelectElement).value || null;
   error.value = "";
   try {
-    await ipc.setMemberCategory(props.id, personId, categoryId);
-    await reload();
+    const project = await ipc.setMemberCategory(props.id, personId, categoryId);
+    form.members = project.members;
   } catch (e) {
     error.value = String(e);
   }
 }
 
 async function archive(): Promise<void> {
-  await ipc.archiveProject(props.id);
-  await projectsVM.load();
-  emit("close", true);
+  error.value = "";
+  try {
+    await ipc.archiveProject(props.id);
+    await projectsVM.load();
+    emit("close", true);
+  } catch (e) {
+    error.value = String(e);
+  }
 }
 </script>
 
@@ -252,7 +272,7 @@ async function archive(): Promise<void> {
           class="btn btn-sm ml-auto rounded-lg border-base-300 bg-base-100 font-normal"
           @click="emit('close')"
         >
-          {{ t("common.cancel") }}
+          {{ t("common.close") }}
         </button>
         <button
           class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
