@@ -58,6 +58,22 @@ pub fn soft_delete(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<(
     Ok(())
 }
 
+/// A live category with this name, optionally excluding the row being renamed.
+pub fn name_exists(
+    conn: &Connection,
+    name: &str,
+    except_id: Option<&str>,
+) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM categories
+         WHERE name = ?1 AND deleted_at IS NULL AND (?2 IS NULL OR id <> ?2)",
+        rusqlite::params![name, except_id],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
+}
+
 pub fn next_sort(conn: &Connection) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM categories WHERE deleted_at IS NULL",

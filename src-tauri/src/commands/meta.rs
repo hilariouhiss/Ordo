@@ -21,6 +21,32 @@ pub async fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapDto, Strin
 
 #[cfg(test)]
 mod tests {
+    const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn category_names_are_unique() {
+        let c = crate::db::open_in_memory().unwrap();
+        let created = super::create_category_in(&c, "客户", NOW).unwrap();
+
+        assert_eq!(
+            super::create_category_in(&c, "客户", NOW).unwrap_err(),
+            "category_exists"
+        );
+
+        let software = crate::repo::categories::list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|category| category.name == "软件")
+            .unwrap();
+        assert_eq!(
+            super::rename_category_in(&c, &software.id, "客户", NOW).unwrap_err(),
+            "category_exists"
+        );
+
+        // Renaming a category to its own name is still allowed (the id is excluded).
+        super::rename_category_in(&c, &created.id, "客户", NOW).unwrap();
+    }
+
     #[test]
     fn settings_roundtrip() {
         let c = crate::db::open_in_memory().unwrap();
@@ -244,24 +270,46 @@ pub async fn backup_now(
     .await
 }
 
+fn create_category_in(
+    conn: &Connection,
+    name: &str,
+    now: &str,
+) -> Result<CategoryDto, String> {
+    let name = name.trim();
+    if crate::repo::categories::name_exists(conn, name, None).map_err(|e| e.to_string())? {
+        return Err("category_exists".into());
+    }
+    let sort = crate::repo::categories::next_sort(conn).map_err(|e| e.to_string())?;
+    crate::repo::categories::create(
+        conn,
+        &uuid::Uuid::new_v4().to_string(),
+        name,
+        sort,
+        now,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn rename_category_in(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    now: &str,
+) -> Result<(), String> {
+    let name = name.trim();
+    if crate::repo::categories::name_exists(conn, name, Some(id)).map_err(|e| e.to_string())? {
+        return Err("category_exists".into());
+    }
+    crate::repo::categories::rename(conn, id, name, now).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn create_category(
     state: State<'_, AppState>,
     name: String,
 ) -> Result<CategoryDto, String> {
     let now = now_iso();
-    with_db(&state, move |conn| {
-        let sort = crate::repo::categories::next_sort(conn).map_err(|e| e.to_string())?;
-        crate::repo::categories::create(
-            conn,
-            &uuid::Uuid::new_v4().to_string(),
-            name.trim(),
-            sort,
-            &now,
-        )
-        .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |conn| create_category_in(conn, &name, &now)).await
 }
 
 #[tauri::command]
@@ -272,7 +320,7 @@ pub async fn rename_category(
 ) -> Result<(), String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::repo::categories::rename(conn, &id, name.trim(), &now).map_err(|e| e.to_string())
+        rename_category_in(conn, &id, &name, &now)
     })
     .await
 }

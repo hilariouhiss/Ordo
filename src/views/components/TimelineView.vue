@@ -47,6 +47,7 @@ const groups = computed(() => {
     map.set(key, list);
   }
   return [...map.entries()].map(([categoryId, tasks]) => ({
+    id: categoryId || "uncategorized",
     name:
       appVM.state.categories.find((c) => c.id === categoryId)?.name ?? t("common.uncategorized"),
     tasks,
@@ -78,7 +79,7 @@ const groups = computed(() => {
         </div>
       </div>
 
-      <div v-for="group in groups" :key="group.name" class="mt-2">
+      <div v-for="group in groups" :key="group.id" class="mt-2">
         <div class="text-[10px] font-medium text-base-content/40">{{ group.name }}</div>
         <div
           v-for="task in group.tasks"
