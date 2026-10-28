@@ -54,7 +54,15 @@ pub fn capture_with_fields(
             return Err("invalid_owner".into());
         }
     }
-    tasks::insert(conn, id, title, fields, now).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    crate::services::projects::ensure_member(
+        &tx,
+        fields.project_id.as_deref(),
+        fields.owner_id.as_deref(),
+        now,
+    )?;
+    tasks::insert(&tx, id, title, fields, now).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -309,6 +317,26 @@ mod tests {
         assert_eq!(t.priority, "high");
         assert_eq!(t.due_date.as_deref(), Some("2026-11-20"));
         assert_eq!(t.effort_days, 2.5);
+    }
+
+    #[test]
+    fn capture_adds_a_non_member_owner_to_the_project() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let outsider = crate::repo::people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        let fields = CaptureFields {
+            project_id: Some(p.id.clone()),
+            owner_id: Some(outsider.id.clone()),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+
+        assert_eq!(t.owner_id.as_deref(), Some(outsider.id.as_str()));
+        assert!(
+            crate::repo::projects::is_member(&c, &p.id, &outsider.id).unwrap(),
+            "capturing with an outsider should add them to the project"
+        );
     }
 
     #[test]

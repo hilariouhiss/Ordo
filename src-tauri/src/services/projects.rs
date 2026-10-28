@@ -166,6 +166,23 @@ pub fn owner_candidates(
     }
 }
 
+/// A task owned inside a project implies the owner is one of its members. Capture
+/// and AI fill can name anyone, so add them here instead of rejecting the input.
+pub fn ensure_member(
+    conn: &Connection,
+    project_id: Option<&str>,
+    owner_id: Option<&str>,
+    now: &str,
+) -> Result<(), String> {
+    let (Some(project_id), Some(owner_id)) = (project_id, owner_id) else {
+        return Ok(());
+    };
+    if !projects::is_member(conn, project_id, owner_id).map_err(|e| e.to_string())? {
+        projects::add_member(conn, project_id, owner_id, now).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::db;
@@ -361,6 +378,26 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn ensure_member_adds_an_outsider_once() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let outsider = people::create(&c, "u-outsider", "外人", NOW).unwrap();
+
+        projects::ensure_member(&c, Some(&p.id), Some(&outsider.id), NOW).unwrap();
+        projects::ensure_member(&c, Some(&p.id), Some(&outsider.id), NOW).unwrap();
+
+        assert!(
+            crate::repo::projects::is_member(&c, &p.id, &outsider.id).unwrap(),
+            "the owner should be a project member"
+        );
+        assert_eq!(
+            crate::repo::projects::members(&c, &p.id).unwrap().len(),
+            2,
+            "calling it twice must not duplicate the member"
+        );
     }
 
     #[test]

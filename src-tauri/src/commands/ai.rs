@@ -57,11 +57,20 @@ fn context(conn: &Connection, today: &str) -> Result<AiContext, String> {
 }
 
 fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -> Result<TaskDto, String> {
-    let before_category: Option<String> = conn
-        .query_row("SELECT category_id FROM tasks WHERE id = ?1", [task_id], |r| {
-            r.get(0)
-        })
+    let (before_category, current_project, current_owner): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT category_id, project_id, owner_id FROM tasks WHERE id = ?1",
+            [task_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .map_err(|e| e.to_string())?;
+    let effective_project = enrichment.project_id.as_deref().or(current_project.as_deref());
+    let effective_owner = enrichment.owner_id.as_deref().or(current_owner.as_deref());
+    crate::services::projects::ensure_member(conn, effective_project, effective_owner, now)?;
     conn.execute(
         "UPDATE tasks SET
             project_id = COALESCE(project_id, ?1),
@@ -277,6 +286,34 @@ mod tests {
         let task = apply(&c, "t1", &enrichment, LATER).unwrap();
 
         assert_eq!(task.owner_id.as_deref(), Some(li.id.as_str()));
+    }
+
+    #[test]
+    fn an_ai_owner_outside_the_project_joins_it() {
+        let c = crate::db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let outsider = crate::repo::people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        let fields = crate::dto::CaptureFields {
+            project_id: Some(p.id.clone()),
+            ..Default::default()
+        };
+        crate::services::week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+        // Capture normally defaults the owner to "me"; an ownerless task is the
+        // case where the AI can fill a person.
+        c.execute("UPDATE tasks SET owner_id = NULL WHERE id = 't1'", [])
+            .unwrap();
+        let enrichment = Enrichment {
+            owner_id: Some(outsider.id.clone()),
+            ..Default::default()
+        };
+
+        let task = apply(&c, "t1", &enrichment, LATER).unwrap();
+
+        assert_eq!(task.owner_id.as_deref(), Some(outsider.id.as_str()));
+        assert!(
+            crate::repo::projects::is_member(&c, &p.id, &outsider.id).unwrap(),
+            "an AI-filled owner should be a project member"
+        );
     }
 
     #[test]
