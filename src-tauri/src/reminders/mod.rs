@@ -32,6 +32,9 @@ impl ReminderTargets {
 /// Per-task toasts in one tick before the rest collapse into a single summary.
 const MAX_TOASTS: usize = 3;
 
+/// Fired reminders older than this are dropped after a successful daily backup.
+const NOTIFICATION_KEEP_DAYS: i64 = 90;
+
 /// Splits the fired reminders into the named toasts to show and the count to
 /// summarize, so a catch-up after a break cannot flood the screen.
 pub fn split_toasts<T>(fired: Vec<T>) -> (Vec<T>, usize) {
@@ -56,9 +59,14 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     let (lang, toasts, unread) = {
         let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
         let lang = crate::i18n::from_conn(&conn);
-        // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
-        backup_ledger(app, &conn);
         let now = chrono::Local::now();
+        // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
+        if backup_ledger(app, &conn) {
+            let cutoff = (now - chrono::Duration::days(NOTIFICATION_KEEP_DAYS))
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let _ = crate::repo::notifications::prune_before(&conn, &cutoff);
+        }
         let candidates = rules::candidates(&conn, now)?;
         let today = now.format("%Y-%m-%d").to_string();
         let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -121,13 +129,16 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Backs up the ledger once a day; every other tick only checks a file exists.
-fn backup_ledger(app: &AppHandle, conn: &rusqlite::Connection) {
+/// Backs up the ledger once a day; every other tick only checks a file exists. The
+/// return value says whether this tick wrote a copy, which is also when cleanup runs.
+fn backup_ledger(app: &AppHandle, conn: &rusqlite::Connection) -> bool {
     let Ok(data_dir) = app.path().app_data_dir() else {
-        return;
+        return false;
     };
     let result = crate::services::export::backup_daily(conn, &data_dir.join("backups"));
+    let made = result.as_ref().map(|path| path.is_some()).unwrap_or(false);
     crate::services::export::record_error(conn, result.err());
+    made
 }
 
 #[cfg(test)]
