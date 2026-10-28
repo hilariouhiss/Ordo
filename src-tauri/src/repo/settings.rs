@@ -103,6 +103,14 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get("shortcut")
             .cloned()
             .unwrap_or_else(|| "Ctrl+Alt+O".into()),
+        desk_shortcut: map
+            .get("desk.shortcut")
+            .cloned()
+            .unwrap_or_else(|| "Ctrl+Alt+W".into()),
+        main_shortcut: map
+            .get("main.shortcut")
+            .cloned()
+            .unwrap_or_else(|| "Ctrl+Alt+M".into()),
         autostart: flag(&map, "autostart", true),
         backup_keep_days: num(&map, "backup_keep_days", 30),
         backup_error: map
@@ -112,6 +120,14 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
         last_pass_week: map.get("last_pass_week").cloned().unwrap_or_default(),
         shortcut_warning: map
             .get("shortcut_warning")
+            .cloned()
+            .filter(|v| !v.is_empty()),
+        desk_shortcut_warning: map
+            .get("desk.shortcut_warning")
+            .cloned()
+            .filter(|v| !v.is_empty()),
+        main_shortcut_warning: map
+            .get("main.shortcut_warning")
             .cloned()
             .filter(|v| !v.is_empty()),
         theme: map.get("theme").cloned().unwrap_or_else(|| "system".into()),
@@ -145,6 +161,25 @@ mod tests {
         assert!(!valid_ai_base_url("api.deepseek.com"));
         assert!(!valid_ai_base_url("ftp://api.deepseek.com"));
         assert!(!valid_ai_base_url(""));
+    }
+
+    #[test]
+    fn shortcut_settings_default_and_roundtrip() {
+        let c = crate::db::open_in_memory().unwrap();
+        let s = dto(&c).unwrap();
+        assert_eq!(s.shortcut, "Ctrl+Alt+O");
+        assert_eq!(s.desk_shortcut, "Ctrl+Alt+W");
+        assert_eq!(s.main_shortcut, "Ctrl+Alt+M");
+        assert!(s.desk_shortcut_warning.is_none());
+        assert!(s.main_shortcut_warning.is_none());
+
+        set(&c, "desk.shortcut", "Ctrl+Alt+D").unwrap();
+        set(&c, "main.shortcut", "Ctrl+Alt+N").unwrap();
+        set(&c, "main.shortcut_warning", "taken").unwrap();
+        let s = dto(&c).unwrap();
+        assert_eq!(s.desk_shortcut, "Ctrl+Alt+D");
+        assert_eq!(s.main_shortcut, "Ctrl+Alt+N");
+        assert_eq!(s.main_shortcut_warning.as_deref(), Some("taken"));
     }
 
     #[test]

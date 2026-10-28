@@ -64,7 +64,7 @@ ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍
 
 Rust 拥有数据和调度，WebView 只是界面。
 
-- `src-tauri/src/lib.rs`：组合根。插件、两个窗口（`main`/`capture`）、托盘、关窗隐藏、快捷键、启动自检/备份，以及 `invoke_handler!` 命令注册都在这里。桌面小窗是 `main` 窗口的一个形态，由前端 `windowModeVM` 驱动；Rust 只负责托盘事件、`window:open` 通知与 `set_window_rect`。
+- `src-tauri/src/lib.rs`：组合根。插件、两个窗口（`main`/`capture`）、托盘、关窗隐藏、快捷键、启动自检/备份，以及 `invoke_handler!` 命令注册都在这里。桌面小窗是 `main` 窗口的一个形态，由前端 `windowModeVM` 驱动；Rust 只负责托盘事件、`window:open` / `widget:summon` 通知与 `set_window_rect`。
 - `src-tauri/src/commands/`：Tauri 命令，做参数校验和串接；新增命令必须同时加进 `lib.rs` 的 `generate_handler!`。命令名保持 snake_case，前端传参用 camelCase（`taskId` 对应 `task_id`）。
 - `src-tauri/src/services/`：业务规则（本周集合、过一遍、状态推导、统计、延期、归档、导出）。函数同步接收 `&Connection`，需要时间的传入 `now`/`today` 字符串以便测试。
 - `src-tauri/src/repo/`：可复用的 SQL 与事务；服务层也会写少量针对性查询。只有 Rust 侧碰数据库。
@@ -75,7 +75,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 前端：`src/model/ipc.ts` 是唯一调用 `invoke` 的地方；状态用 VM 的 `reactive`，不引入 Pinia；`types.ts` 镜像 Rust DTO；`viewmodels/` 是 Vue `reactive` + 动作的工厂，页面级单例在文件底部导出；`views/` 只做绑定；`lib/` 放日期、IME、主题、时间轴等工具。
 - `src/main.ts` 按窗口 label 只分 `capture` 与 main（挂 `App.vue`）；桌面小窗由 App 内嵌 `DeskView`，只有一个 `index.html`，不要新增构建入口。
 - `tauri.conf.json` 管窗口、CSP、构建钩子；`capabilities/default.json` 只给 `main`/`capture` 开通知、自启、快捷键、窗口几何等权限。
-- 桌面小窗是 `main` 的 widget 形态，没有独立的 `desk` 窗口：窗口从创建起透明、无边框、无系统阴影；`windowModeVM` 管形态切换、最小尺寸/任务栏/置顶、`set_window_rect` 滑行动画（主界面层见 `attachSurface`：进小窗按 WebView 实际视口逐帧缩放，`ResizeObserver` 预绘制同步；回主窗先把窗口一次性改到主窗尺寸、之后只平移，内容用 `scale` 跟随，卡片按 `centerOffset` 钉在屏幕原位，收尾不要再缩放窗口，否则会闪一帧；原生窗口用一次 `SetWindowPos`）、启动落位与隐藏时的直接落位；`DeskView` 画卡片、吸附几何和贴边收放：收起/展开时用 `set_window_rect` 逐帧把窗口和卡片一起缩放，内容先淡出、三点抓手后现，反向从当前矩形继续。开关、层级、位置仍存 `settings` 的 `desk.*` 键，`desk.enabled` 表示当前/启动时是否为小窗形态；默认落点是主显示器工作区右上角，小窗右上角按钮是「回到主窗口」。`desk.controls`（默认开）决定小窗内是否显示开始/挂起/完成按钮；小窗挂起不带日期和原因，主窗口仍保留完整对话框。面板 360×500 在窗口中居中，圆角、边框和阴影由 `DeskView` 自绘，收起提示条贴边；原生拖动期间（左键按住）不要移动窗口，吸附等松手后再做。不要改回系统阴影或非透明窗口，否则会出现 1px 白边或无法做小窗。
+- 桌面小窗是 `main` 的 widget 形态，没有独立的 `desk` 窗口：窗口从创建起透明、无边框、无系统阴影；`windowModeVM` 管形态切换、最小尺寸/任务栏/置顶、`set_window_rect` 滑行动画（主界面层见 `attachSurface`：进小窗按 WebView 实际视口逐帧缩放，`ResizeObserver` 预绘制同步；回主窗先把窗口一次性改到主窗尺寸、之后只平移，内容用 `scale` 跟随，卡片按 `centerOffset` 钉在屏幕原位，收尾不要再缩放窗口，否则会闪一帧；原生窗口用一次 `SetWindowPos`）、启动落位与隐藏时的直接落位；`DeskView` 画卡片、吸附几何和贴边收放：收起/展开时用 `set_window_rect` 逐帧把窗口和卡片一起缩放，内容先淡出、三点抓手后现，反向从当前矩形继续。开关、层级、位置仍存 `settings` 的 `desk.*` 键，`desk.enabled` 表示当前/启动时是否为小窗形态；默认落点是主显示器工作区右上角，小窗右上角按钮是「回到主窗口」。`desk.controls`（默认开）决定小窗内是否显示开始/挂起/完成按钮；小窗挂起不带日期和原因，主窗口仍保留完整对话框。桌面小窗另有全局快捷键（默认 Ctrl+Alt+W，设置 → 通用可改）：Rust 只在 `desk.enabled` 为真时发 `widget:summon`，前端把置底/隐藏的小窗抬到最前、展开收起的小条，失焦后按原状态收回或隐藏；主窗口快捷键（默认 Ctrl+Alt+M）直接复用 `show_main`。面板 360×500 在窗口中居中，圆角、边框和阴影由 `DeskView` 自绘，收起提示条贴边；原生拖动期间（左键按住）不要移动窗口，吸附等松手后再做。不要改回系统阴影或非透明窗口，否则会出现 1px 白边或无法做小窗。
 
 分层规则：业务规则放 Rust services；前端 View 不碰 `invoke` 或数据库；新增数据流从 `dto.rs` → `ipc.ts` → `types.ts` → ViewModel 一路补齐。少数 overlay（`TaskSheet.vue`、`SettingsModal.vue`、`ProjectSettings.vue`）直接调 `model/ipc`；新逻辑不要照抄，放进 VM 或 service。
 

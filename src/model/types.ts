@@ -31,6 +31,10 @@ export interface Settings {
   aiBaseUrl: string;
   aiModel: string;
   shortcut: string;
+  deskShortcut: string;
+  deskShortcutWarning?: string | null;
+  mainShortcut: string;
+  mainShortcutWarning?: string | null;
   autostart: boolean;
   backupKeepDays: number;
   backupError: string | null;

@@ -238,7 +238,11 @@ export const zh = {
   "settings.autostart": "开机自启",
   "settings.deskControls": "小窗内变更任务状态",
   "settings.deskControlsHint": "开启后小窗里可直接开始、挂起、完成；小窗挂起不填日期和原因。",
-  "settings.shortcut": "全局快捷键",
+  "settings.shortcut": "迷你窗口快捷键",
+  "settings.deskShortcut": "桌面小窗快捷键",
+  "settings.mainShortcut": "主窗口快捷键",
+  "settings.deskShortcutHint":
+    "小窗置底或隐藏时按下叫到最前；失焦后回到原样，收起的小条先展开、失焦再收回。主窗口形态下不生效。",
   "settings.shortcutRecording": "按下带 Ctrl 或 Win 的组合键…",
   "settings.shortcutChange": "改",
   "settings.shortcutWarning": "没换成：{error}",
@@ -590,7 +594,11 @@ export const en: Record<MessageKey, string> = {
   "settings.deskControls": "Change status from the widget",
   "settings.deskControlsHint":
     "Start, park and complete tasks right in the widget; parking there skips the date and reason.",
-  "settings.shortcut": "Global shortcut",
+  "settings.shortcut": "Mini window shortcut",
+  "settings.deskShortcut": "Week widget shortcut",
+  "settings.mainShortcut": "Main window shortcut",
+  "settings.deskShortcutHint":
+    "Brings the widget forward when it is behind other windows or hidden; on focus loss it returns to that state, expanding a docked tab first. It does nothing in the main window.",
   "settings.shortcutRecording": "Press a shortcut with Ctrl or Win…",
   "settings.shortcutChange": "Change",
   "settings.shortcutWarning": "Not applied: {error}",

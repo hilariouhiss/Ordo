@@ -1,5 +1,6 @@
 use crate::dto::{BootstrapDto, CategoryDto, SettingsDto, SettingsPatch, TagDto};
 use crate::now_iso;
+use crate::services::shortcut::{ShortcutOutcome, ShortcutTarget};
 use crate::state::{with_db, AppState};
 use rusqlite::Connection;
 use tauri::{Manager, State};
@@ -51,9 +52,15 @@ mod tests {
     fn settings_roundtrip() {
         let c = crate::db::open_in_memory().unwrap();
         crate::repo::settings::set(&c, "shortcut", "Ctrl+Alt+P").unwrap();
+        crate::repo::settings::set(&c, "desk.shortcut", "Ctrl+Alt+D").unwrap();
+        crate::repo::settings::set(&c, "main.shortcut", "Ctrl+Alt+N").unwrap();
+        crate::repo::settings::set(&c, "main.shortcut_warning", "taken").unwrap();
         crate::repo::settings::set(&c, "backup_error", "disk full").unwrap();
         let s = crate::repo::settings::dto(&c).unwrap();
         assert_eq!(s.shortcut, "Ctrl+Alt+P");
+        assert_eq!(s.desk_shortcut, "Ctrl+Alt+D");
+        assert_eq!(s.main_shortcut, "Ctrl+Alt+N");
+        assert_eq!(s.main_shortcut_warning.as_deref(), Some("taken"));
         assert_eq!(s.backup_error.as_deref(), Some("disk full"));
 
         crate::repo::settings::set(&c, "backup_error", "").unwrap();
@@ -95,6 +102,8 @@ mod tests {
         assert_eq!(b.categories.len(), 7);
         assert_eq!(b.settings.language, crate::i18n::system_language());
         assert_eq!(b.settings.shortcut, "Ctrl+Alt+O");
+        assert_eq!(b.settings.desk_shortcut, "Ctrl+Alt+W");
+        assert_eq!(b.settings.main_shortcut, "Ctrl+Alt+M");
     }
 
     #[test]
@@ -375,18 +384,20 @@ pub async fn delete_tag(state: State<'_, AppState>, id: String) -> Result<(), St
     })
     .await
 }
-#[tauri::command]
-pub async fn set_shortcut(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
+/// Swaps one of the shortcuts, rolling back to the old key when the new one is refused.
+async fn set_shortcut_for(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    target: ShortcutTarget,
     next: String,
-) -> Result<crate::services::shortcut::ShortcutOutcome, String> {
+) -> Result<ShortcutOutcome, String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-    let current = crate::state::with_db(&state, |conn| {
-        crate::repo::settings::get(conn, "shortcut")
+    let key = target.settings_key();
+    let current = with_db(state, move |conn| {
+        crate::repo::settings::get(conn, key)
             .map_err(|e| e.to_string())
-            .map(|v| v.unwrap_or_else(|| "Ctrl+Alt+O".into()))
+            .map(|v| v.unwrap_or_else(|| target.default_value().into()))
     })
     .await?;
 
@@ -394,21 +405,50 @@ pub async fn set_shortcut(
         let _ = app.global_shortcut().unregister(old);
     }
 
-    let register = |candidate: &str| -> Result<(), String> {
+    let register_app = app.clone();
+    let register = move |candidate: &str| -> Result<(), String> {
         let parsed = candidate.parse::<Shortcut>().map_err(|e| e.to_string())?;
-        crate::register_shortcut(&app, parsed)
+        crate::register_shortcut(&register_app, parsed, target)
     };
     let outcome = crate::services::shortcut::apply(&current, &next, register.clone(), register);
 
     if outcome.warning.is_none() {
         let active = outcome.active.clone();
-        crate::state::with_db(&state, move |conn| {
-            crate::repo::settings::set(conn, "shortcut", &active).map_err(|e| e.to_string())?;
-            crate::repo::settings::set(conn, "shortcut_warning", "").map_err(|e| e.to_string())
+        let warning_key = target.warning_key();
+        with_db(state, move |conn| {
+            crate::repo::settings::set(conn, key, &active).map_err(|e| e.to_string())?;
+            crate::repo::settings::set(conn, warning_key, "").map_err(|e| e.to_string())
         })
         .await?;
     }
     Ok(outcome)
+}
+
+#[tauri::command]
+pub async fn set_shortcut(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    next: String,
+) -> Result<ShortcutOutcome, String> {
+    set_shortcut_for(&app, &state, ShortcutTarget::Capture, next).await
+}
+
+#[tauri::command]
+pub async fn set_desk_shortcut(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    next: String,
+) -> Result<ShortcutOutcome, String> {
+    set_shortcut_for(&app, &state, ShortcutTarget::Desk, next).await
+}
+
+#[tauri::command]
+pub async fn set_main_shortcut(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    next: String,
+) -> Result<ShortcutOutcome, String> {
+    set_shortcut_for(&app, &state, ShortcutTarget::Main, next).await
 }
 
 // The high bit of GetAsyncKeyState reports whether the key is currently down.

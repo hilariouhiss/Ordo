@@ -263,6 +263,14 @@ export function markNotificationsSeen(): Promise<void> {
 export function setShortcut(next: string): Promise<ShortcutOutcome> {
   return invoke<ShortcutOutcome>("set_shortcut", { next });
 }
+
+export function setDeskShortcut(next: string): Promise<ShortcutOutcome> {
+  return invoke<ShortcutOutcome>("set_desk_shortcut", { next });
+}
+
+export function setMainShortcut(next: string): Promise<ShortcutOutcome> {
+  return invoke<ShortcutOutcome>("set_main_shortcut", { next });
+}
 export function aiEnrich(taskId: string): Promise<void> {
   return invoke<void>("ai_enrich", { taskId });
 }

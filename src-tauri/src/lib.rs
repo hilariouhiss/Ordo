@@ -1,3 +1,4 @@
+use crate::services::shortcut::ShortcutTarget;
 use tauri::Emitter;
 use tauri::Manager;
 
@@ -80,15 +81,43 @@ fn create_capture_soon(app: &tauri::AppHandle, reveal_when_loaded: bool) {
     });
 }
 
+/// Shows and focuses the widget, then asks the page to raise it; the page owns
+/// the raise, the expand and the focus-loss restore.
+fn summon_widget(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    // The widget shortcut has no meaning while the app shows the main window.
+    if !widget_mode(app) {
+        return;
+    }
+    // The ledger can lag a failed form switch; a resizable window is the main shape.
+    if window.is_resizable().unwrap_or(true) {
+        return;
+    }
+    let hidden = !window.is_visible().unwrap_or(true) || window.is_minimized().unwrap_or(false);
+    // The page raises the window after it handles the summon; if this event were
+    // missed, leaving it topmost here would strand it above every other window.
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = app.emit_to("main", "widget:summon", hidden);
+}
+
 pub fn register_shortcut(
     app: &tauri::AppHandle,
     shortcut: tauri_plugin_global_shortcut::Shortcut,
+    target: ShortcutTarget,
 ) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     app.global_shortcut()
-        .on_shortcut(shortcut, |app, _shortcut, event| {
+        .on_shortcut(shortcut, move |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                toggle_capture(app);
+                match target {
+                    ShortcutTarget::Capture => toggle_capture(app),
+                    ShortcutTarget::Desk => summon_widget(app),
+                    ShortcutTarget::Main => show_main(app),
+                }
             }
         })
         .map_err(|e| e.to_string())
@@ -318,6 +347,8 @@ pub fn run() {
       commands::meta::create_tag,
       commands::meta::delete_tag,
       commands::meta::set_shortcut,
+      commands::meta::set_desk_shortcut,
+      commands::meta::set_main_shortcut,
       commands::meta::desk_left_button_down,
       commands::ai::set_ai_key,
       commands::ai::clear_ai_key,
@@ -404,19 +435,19 @@ pub fn run() {
               app.autolaunch().disable()
           };
       }
-      let shortcut_setting = crate::repo::settings::get(&conn, "shortcut")
-          .ok()
-          .flatten()
-          .unwrap_or_else(|| "Ctrl+Alt+O".into());
-      if let Ok(shortcut) = shortcut_setting.parse() {
-          match register_shortcut(app.handle(), shortcut) {
-              Ok(()) => {
-                  let _ = crate::repo::settings::set(&conn, "shortcut_warning", "");
-              }
-              Err(e) => {
-                  let _ = crate::repo::settings::set(&conn, "shortcut_warning", &e.to_string());
-              }
-          }
+      for target in ShortcutTarget::ALL {
+          let saved = crate::repo::settings::get(&conn, target.settings_key())
+              .ok()
+              .flatten()
+              .unwrap_or_else(|| target.default_value().into());
+          let Ok(shortcut) = saved.parse::<tauri_plugin_global_shortcut::Shortcut>() else {
+              continue;
+          };
+          let warning = match register_shortcut(app.handle(), shortcut, target) {
+              Ok(()) => String::new(),
+              Err(e) => e,
+          };
+          let _ = crate::repo::settings::set(&conn, target.warning_key(), &warning);
       }
 
       let lang = crate::i18n::from_conn(&conn);

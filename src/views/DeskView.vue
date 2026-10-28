@@ -45,6 +45,8 @@ const COLLAPSE_DELAY_MS = 400;
 const DOCK_MS = 200;
 const REFRESH_MS = 60_000;
 const HOVER_REFRESH_MS = 10_000;
+/** Grace period before a focus loss restores; clicking back cancels it. */
+const SUMMON_RESTORE_MS = 150;
 
 const vm = deskVM;
 const { state, days, count } = vm;
@@ -57,6 +59,9 @@ const edge = ref<DeskEdge | null>(null);
 const pin = computed(() => state.pin);
 /** A newer tween overtook an async animation continuation. */
 let animRun = 0;
+/** A hotkey summoned the widget; put this state back when it loses focus. */
+let summoned: { hidden: boolean; collapsed: boolean } | null = null;
+let restoreTimer: ReturnType<typeof setTimeout> | undefined;
 
 let scale = 1;
 let pad = DESK_PAD;
@@ -185,7 +190,7 @@ async function shape(next: boolean): Promise<void> {
   if (run !== animRun || !running) return;
   moving.value = false;
   // The pointer left while the panel was still growing: settle back down.
-  if (!next && !hovering) scheduleCollapse();
+  if (!next && !hovering && !summoned?.collapsed) scheduleCollapse();
 }
 
 async function expand(): Promise<void> {
@@ -232,6 +237,8 @@ async function activate(): Promise<void> {
 async function deactivate(): Promise<void> {
   if (!running) return;
   running = false;
+  summoned = null;
+  clearTimeout(restoreTimer);
   animRun += 1;
   moving.value = false;
   clearTimeout(collapseTimer);
@@ -289,7 +296,7 @@ function scheduleCollapse(): void {
 
 /** A native drag fires a stream of moves; do not shrink the window under it. */
 function maybeCollapse(): void {
-  if (hovering || collapsed.value || !edge.value) return;
+  if (summoned?.collapsed || hovering || collapsed.value || !edge.value) return;
   if (Date.now() - lastMovedAt < SETTLE_MS + 100) {
     collapseTimer = setTimeout(maybeCollapse, COLLAPSE_DELAY_MS);
     return;
@@ -355,7 +362,84 @@ function completeRow(task: Task): void {
   void vm.complete(task);
 }
 
+/** The hotkey asked for the widget; raise it, expand a docked tab, remember how to put it back. */
+async function summonFromHotkey(hidden: boolean): Promise<void> {
+  if (!running || !props.active) return;
+  clearTimeout(restoreTimer);
+  // A press while it was hidden starts a fresh session; a repeat press while it is
+  // still on screen keeps the state captured before the first summon.
+  if (!summoned || hidden) summoned = { hidden, collapsed: collapsed.value };
+  if (summoned.collapsed) clearTimeout(collapseTimer);
+  // Dropping the bottom layer cannot raise the window; topmost is the way up.
+  await win()
+    .setAlwaysOnBottom(false)
+    .catch(() => {});
+  await win()
+    .setAlwaysOnTop(true)
+    .catch(() => {});
+  await win()
+    .setFocus()
+    .catch(() => {});
+  if (summoned.collapsed && collapsed.value) await expand();
+  if (Date.now() - lastLoadedAt > HOVER_REFRESH_MS) refresh();
+}
+
+/** Puts the widget back the way the hotkey found it after it loses focus. */
+async function restoreSummoned(): Promise<void> {
+  const session = summoned;
+  if (!session) return;
+  const focused = (): Promise<boolean> =>
+    win()
+      .isFocused()
+      .catch(() => false);
+  if (await focused()) return;
+  if (session.collapsed) {
+    await shape(true);
+    if (!running) return;
+    // Clicked back while it was folding: keep it summoned.
+    if (await focused()) {
+      await expand();
+      return;
+    }
+  }
+  summoned = null;
+  if (session.hidden)
+    await win()
+      .hide()
+      .catch(() => {});
+  if (state.pin === "bottom") {
+    await applyDeskPin(win(), "bottom");
+  } else {
+    // Keep a top-pinned widget on top instead of dropping and re-raising it.
+    await win()
+      .setAlwaysOnBottom(false)
+      .catch(() => {});
+    await win()
+      .setAlwaysOnTop(true)
+      .catch(() => {});
+  }
+}
+
+function onWindowBlur(): void {
+  if (!summoned) return;
+  clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(() => void restoreSummoned(), SUMMON_RESTORE_MS);
+}
+
+function onWindowFocus(): void {
+  clearTimeout(restoreTimer);
+}
+
 onMounted(async () => {
+  // Register the summon before the first awaits so a hotkey right after the
+  // window appears is not missed.
+  unlisteners.push(
+    await listen<boolean>("widget:summon", (event) => {
+      void summonFromHotkey(event.payload === true);
+    }),
+  );
+  window.addEventListener("blur", onWindowBlur);
+  window.addEventListener("focus", onWindowFocus);
   const settings = await vm.loadConfig().catch(() => null);
   savedPos =
     settings && settings.deskX !== null && settings.deskY !== null
@@ -371,7 +455,6 @@ onMounted(async () => {
       refresh();
     }),
   );
-
   await vm.load();
   lastLoadedAt = Date.now();
   if (props.active) await activate();
@@ -379,10 +462,14 @@ onMounted(async () => {
 
 onUnmounted(() => {
   animRun += 1;
+  summoned = null;
+  clearTimeout(restoreTimer);
   clearTimeout(collapseTimer);
   clearTimeout(settleTimer);
   clearInterval(refreshTimer);
   moveUnlisten?.();
+  window.removeEventListener("blur", onWindowBlur);
+  window.removeEventListener("focus", onWindowFocus);
   for (const unlisten of unlisteners) unlisten();
 });
 </script>

@@ -30,10 +30,12 @@ type AiStatus =
   | { kind: "failed"; error: string }
   | null;
 
+type ShortcutTarget = "capture" | "desk" | "main";
+
 const settings = computed(() => appVM.state.settings);
-const recording = ref(false);
-const pendingShortcut = ref("");
-const shortcutWarning = ref("");
+const recording = ref<ShortcutTarget | null>(null);
+const pendingShortcut = ref<{ target: ShortcutTarget; combo: string } | null>(null);
+const shortcutWarnings = ref<Partial<Record<ShortcutTarget, string>>>({});
 const keyDraft = ref("");
 const hasKey = ref(false);
 const aiStatus = ref<AiStatus>(null);
@@ -47,22 +49,63 @@ const aiStatusText = computed(() => {
   return t("settings.aiFailed", { error: errorText(status.error) || t("settings.aiUnknown") });
 });
 
-function startRecord(): void {
-  pendingShortcut.value = "";
-  recording.value = true;
+const shortcutSetters = {
+  capture: ipc.setShortcut,
+  desk: ipc.setDeskShortcut,
+  main: ipc.setMainShortcut,
+};
+
+const shortcutRows = computed(() => {
+  const current = settings.value;
+  return [
+    {
+      target: "capture" as const,
+      label: t("settings.shortcut"),
+      value: current?.shortcut ?? "",
+      warning: current?.shortcutWarning ?? "",
+    },
+    {
+      target: "desk" as const,
+      label: t("settings.deskShortcut"),
+      value: current?.deskShortcut ?? "",
+      warning: current?.deskShortcutWarning ?? "",
+    },
+    {
+      target: "main" as const,
+      label: t("settings.mainShortcut"),
+      value: current?.mainShortcut ?? "",
+      warning: current?.mainShortcutWarning ?? "",
+    },
+  ];
+});
+
+function startRecord(target: ShortcutTarget): void {
+  pendingShortcut.value = null;
+  recording.value = target;
 }
 
 function onKey(event: KeyboardEvent): void {
-  if (!recording.value) return;
+  const target = recording.value;
+  if (!target) return;
   event.preventDefault();
   if (event.key === "Escape") {
-    recording.value = false;
+    recording.value = null;
     return;
   }
   const combo = recordShortcut(event);
   if (!combo) return;
-  pendingShortcut.value = combo;
-  recording.value = false;
+  pendingShortcut.value = { target, combo };
+  recording.value = null;
+}
+
+function displayShortcut(target: ShortcutTarget, value: string): string {
+  if (recording.value === target) return t("settings.shortcutRecording");
+  if (pendingShortcut.value?.target === target) return pendingShortcut.value.combo;
+  return value;
+}
+
+function warningText(target: ShortcutTarget, stored: string): string {
+  return shortcutWarnings.value[target] || stored;
 }
 
 async function saveKey(): Promise<void> {
@@ -103,14 +146,23 @@ async function testAi(): Promise<void> {
 }
 
 async function applyShortcut(): Promise<void> {
-  if (!pendingShortcut.value) return;
-  const outcome = await ipc.setShortcut(pendingShortcut.value);
-  if (appVM.state.settings) {
-    appVM.state.settings.shortcut = outcome.active;
-    appVM.state.settings.shortcutWarning = outcome.warning;
+  const pending = pendingShortcut.value;
+  if (!pending) return;
+  const outcome = await shortcutSetters[pending.target](pending.combo);
+  if (settings.value) {
+    if (pending.target === "capture") {
+      settings.value.shortcut = outcome.active;
+      settings.value.shortcutWarning = outcome.warning;
+    } else if (pending.target === "desk") {
+      settings.value.deskShortcut = outcome.active;
+      settings.value.deskShortcutWarning = outcome.warning;
+    } else {
+      settings.value.mainShortcut = outcome.active;
+      settings.value.mainShortcutWarning = outcome.warning;
+    }
   }
-  shortcutWarning.value = outcome.warning ?? "";
-  pendingShortcut.value = "";
+  shortcutWarnings.value[pending.target] = outcome.warning ?? "";
+  pendingShortcut.value = null;
 }
 
 onMounted(() => {
@@ -321,40 +373,41 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
                 {{ t("settings.deskControlsHint") }}
               </p>
-              <div class="mt-3 flex items-center justify-between text-[12px]">
-                <span>{{ t("settings.shortcut") }}</span>
-                <span class="flex items-center gap-2">
-                  <span class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50">
-                    {{
-                      recording
-                        ? t("settings.shortcutRecording")
-                        : pendingShortcut || settings.shortcut
-                    }}
+              <div v-for="row in shortcutRows" :key="row.target" class="mt-3">
+                <div class="flex items-center justify-between text-[12px]">
+                  <span>{{ row.label }}</span>
+                  <span class="flex items-center gap-2">
+                    <span class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50">
+                      {{ displayShortcut(row.target, row.value) }}
+                    </span>
+                    <button
+                      class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                      @click="startRecord(row.target)"
+                    >
+                      {{ t("settings.shortcutChange") }}
+                    </button>
+                    <button
+                      v-if="pendingShortcut?.target === row.target"
+                      class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
+                      @click="applyShortcut"
+                    >
+                      {{ t("common.save") }}
+                    </button>
                   </span>
-                  <button
-                    class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
-                    @click="startRecord"
-                  >
-                    {{ t("settings.shortcutChange") }}
-                  </button>
-                  <button
-                    v-if="pendingShortcut"
-                    class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
-                    @click="applyShortcut"
-                  >
-                    {{ t("common.save") }}
-                  </button>
-                </span>
+                </div>
+                <p
+                  v-if="warningText(row.target, row.warning)"
+                  class="mt-1 text-[10.5px] text-error"
+                >
+                  {{
+                    t("settings.shortcutWarning", {
+                      error: errorText(warningText(row.target, row.warning)),
+                    })
+                  }}
+                </p>
               </div>
-              <p
-                v-if="shortcutWarning || settings.shortcutWarning"
-                class="mt-1 text-[10.5px] text-error"
-              >
-                {{
-                  t("settings.shortcutWarning", {
-                    error: errorText(shortcutWarning || settings.shortcutWarning || ""),
-                  })
-                }}
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.deskShortcutHint") }}
               </p>
               <div class="mt-3 flex items-center justify-between text-[12px]">
                 <span>{{ t("settings.weekStart") }}</span>

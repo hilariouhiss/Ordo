@@ -7,6 +7,8 @@ export const defaultSettings: Settings = {
   aiBaseUrl: "https://api.deepseek.com",
   aiModel: "deepseek-flash",
   shortcut: "Ctrl+Alt+O",
+  deskShortcut: "Ctrl+Alt+W",
+  mainShortcut: "Ctrl+Alt+M",
   autostart: true,
   backupKeepDays: 30,
   backupError: null,
