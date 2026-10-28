@@ -543,6 +543,11 @@ async function doEnterFull(options: { reveal: boolean }): Promise<void> {
   closeOverlays();
 
   const win = currentWindow();
+  // A bottom-pinned widget sits under every window, and dropping that layer alone cannot
+  // raise it (tao clears it with HWND_NOTOPMOST, a no-op for normal windows); pin top once
+  // to lift the window, then unpin so the main shape lands on top of the normal band.
+  await applyDeskPin(win, "top");
+  await win.setAlwaysOnTop(false).catch(() => {});
   const visible = await win.isVisible().catch(() => true);
   const minimized = await win.isMinimized().catch(() => false);
   if (!visible || minimized) {
