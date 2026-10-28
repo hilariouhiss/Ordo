@@ -31,7 +31,9 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
             continue;
         };
         let advance = local_at(due_date - Duration::days(1), 17, 30)?;
-        let overdue_at = local_at(due_date, 17, 30)?;
+        // The task is overdue only after its own day ends; the notice belongs to
+        // the next day's 17:30, or the first launch after that.
+        let overdue_at = local_at(due_date + Duration::days(1), 17, 30)?;
 
         if due_date >= today && advance <= now && recent(advance, now) {
             out.push(Candidate {
@@ -132,6 +134,41 @@ mod tests {
             crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 29))
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn overdue_waits_until_1730_the_next_day() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+
+        let early = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 0, 1)).unwrap();
+        assert!(early.iter().all(|candidate| candidate.kind != "overdue"));
+
+        let late = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 17, 31)).unwrap();
+        let overdue = late
+            .iter()
+            .find(|candidate| candidate.kind == "overdue")
+            .unwrap();
+        assert_eq!(
+            overdue.scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-10-21 17:30"
+        );
+    }
+
+    #[test]
+    fn overdue_catches_up_after_the_next_evening() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+
+        let caught = crate::reminders::rules::candidates(&c, at(2026, 10, 22, 10, 0)).unwrap();
+        let overdue = caught
+            .iter()
+            .find(|candidate| candidate.kind == "overdue")
+            .unwrap();
+        assert_eq!(
+            overdue.scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-10-21 17:30"
         );
     }
 
