@@ -188,6 +188,11 @@ pub async fn set_settings(
             return Err("invalid_desk_pin".into());
         }
     }
+    if let Some(url) = patch.ai_base_url.as_deref() {
+        if !crate::repo::settings::valid_ai_base_url(url) {
+            return Err("invalid_ai_base_url".into());
+        }
+    }
     if let Some(autostart) = patch.autostart {
         let _ = if autostart {
             app.autolaunch().enable()
@@ -201,7 +206,7 @@ pub async fn set_settings(
         let sets: Vec<(&str, Option<String>)> = vec![
             ("language", patch.language),
             ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
-            ("ai.base_url", patch.ai_base_url),
+            ("ai.base_url", patch.ai_base_url.map(|v| v.trim().to_string())),
             ("ai.model", patch.ai_model),
             ("autostart", patch.autostart.map(|v| v.to_string())),
             ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
@@ -389,17 +394,13 @@ pub async fn set_shortcut(
         let _ = app.global_shortcut().unregister(old);
     }
 
-    let app_for_register = app.clone();
-    let outcome = crate::services::shortcut::apply(&current, &next, |candidate| {
+    let register = |candidate: &str| -> Result<(), String> {
         let parsed = candidate.parse::<Shortcut>().map_err(|e| e.to_string())?;
-        crate::register_shortcut(&app_for_register, parsed)
-    });
+        crate::register_shortcut(&app, parsed)
+    };
+    let outcome = crate::services::shortcut::apply(&current, &next, register.clone(), register);
 
-    if outcome.warning.is_some() {
-        if let Ok(old) = current.parse::<Shortcut>() {
-            let _ = crate::register_shortcut(&app, old);
-        }
-    } else {
+    if outcome.warning.is_none() {
         let active = outcome.active.clone();
         crate::state::with_db(&state, move |conn| {
             crate::repo::settings::set(conn, "shortcut", &active).map_err(|e| e.to_string())?;

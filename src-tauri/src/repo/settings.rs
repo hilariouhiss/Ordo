@@ -62,6 +62,21 @@ pub fn valid_desk_pin(value: &str) -> bool {
     matches!(value, "top" | "bottom")
 }
 
+/// The endpoint receives the API key, so it has to be https; a local server may be http.
+pub fn valid_ai_base_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value.trim()) else {
+        return false;
+    };
+    match url.scheme() {
+        "https" => url.host_str().is_some(),
+        "http" => matches!(
+            url.host_str(),
+            Some("localhost") | Some("127.0.0.1") | Some("[::1]")
+        ),
+        _ => false,
+    }
+}
+
 /// The main window starts as the week widget when this is on.
 pub fn desk_enabled(conn: &Connection) -> bool {
     get(conn, "desk.enabled")
@@ -115,6 +130,22 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_base_url_is_https_or_local() {
+        assert!(valid_ai_base_url("https://api.deepseek.com"));
+        assert!(valid_ai_base_url(" https://api.deepseek.com/v1 "));
+        assert!(valid_ai_base_url("http://localhost:11434"));
+        assert!(valid_ai_base_url("http://127.0.0.1:8080/v1"));
+        assert!(valid_ai_base_url("http://[::1]:8080"));
+
+        // The key follows this URL, so cleartext and typos are refused.
+        assert!(!valid_ai_base_url("http://api.deepseek.com"));
+        assert!(!valid_ai_base_url("https://"));
+        assert!(!valid_ai_base_url("api.deepseek.com"));
+        assert!(!valid_ai_base_url("ftp://api.deepseek.com"));
+        assert!(!valid_ai_base_url(""));
+    }
 
     #[test]
     fn desk_pin_validation() {

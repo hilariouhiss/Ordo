@@ -84,6 +84,12 @@ async function clearKey(): Promise<void> {
   }
 }
 
+/** A refused URL must not stay in the box as if it had been saved. */
+async function saveBaseUrl(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  if (!(await vm.save({ aiBaseUrl: input.value }))) input.value = settings.value?.aiBaseUrl ?? "";
+}
+
 async function testAi(): Promise<void> {
   aiStatus.value = { kind: "testing" };
   try {
@@ -200,7 +206,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                   <input
                     class="input input-sm flex-1 rounded-lg border-base-300"
                     :value="settings.aiBaseUrl"
-                    @change="vm.save({ aiBaseUrl: ($event.target as HTMLInputElement).value })"
+                    @change="saveBaseUrl"
                   />
                 </label>
                 <label class="flex items-center gap-3">
@@ -346,7 +352,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               >
                 {{
                   t("settings.shortcutWarning", {
-                    error: shortcutWarning || settings.shortcutWarning || "",
+                    error: errorText(shortcutWarning || settings.shortcutWarning || ""),
                   })
                 }}
               </p>

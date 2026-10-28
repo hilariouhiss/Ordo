@@ -25,12 +25,14 @@ export function createSettingsVM() {
     state.open = false;
   }
 
-  async function save(patch: Partial<Settings>): Promise<void> {
+  async function save(patch: Partial<Settings>): Promise<boolean> {
     state.error = "";
     try {
       appVM.state.settings = await ipc.setSettings(patch);
+      return true;
     } catch (e) {
       state.error = String(e);
+      return false;
     }
   }
 

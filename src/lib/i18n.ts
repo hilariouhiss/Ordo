@@ -347,6 +347,8 @@ export const zh = {
   "error.invalid_project": "项目不存在或已删除。",
   "error.invalid_owner": "负责人不存在或已删除。",
   "error.invalid_desk_pin": "小窗层级只能是置顶或置底。",
+  "error.invalid_ai_base_url": "AI 地址必须是 https://（本机服务可以用 http://）。",
+  "error.shortcut_rollback_failed": "新快捷键没生效，旧快捷键也没能恢复；重启 ordo 会再试一次。",
 } as const;
 
 export type MessageKey = keyof typeof zh;
@@ -699,6 +701,9 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_project": "That project no longer exists.",
   "error.invalid_owner": "That person no longer exists.",
   "error.invalid_desk_pin": "The widget can only be on top or at the bottom.",
+  "error.invalid_ai_base_url": "The AI URL must be https:// (a local server may use http://).",
+  "error.shortcut_rollback_failed":
+    "The new shortcut didn't take and the old one couldn't be restored; restarting ordo tries again.",
 };
 
 export const messages = { zh, en } as const;
@@ -747,6 +752,8 @@ const knownErrors = [
   "invalid_project",
   "invalid_owner",
   "invalid_desk_pin",
+  "invalid_ai_base_url",
+  "shortcut_rollback_failed",
 ] as const;
 
 /** Maps the backend's short error codes; anything else is shown as-is. */

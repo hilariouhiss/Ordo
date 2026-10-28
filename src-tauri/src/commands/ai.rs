@@ -21,9 +21,11 @@ fn ai_settings(conn: &Connection) -> (bool, String, String) {
         .flatten()
         .map(|v| v == "true")
         .unwrap_or(false);
+    // A hand-edited or older row must not redirect the API key either.
     let base_url = crate::repo::settings::get(conn, "ai.base_url")
         .ok()
         .flatten()
+        .filter(|value| crate::repo::settings::valid_ai_base_url(value))
         .unwrap_or_else(|| "https://api.deepseek.com".into());
     let model = crate::repo::settings::get(conn, "ai.model")
         .ok()
