@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ChevronRight, GripVertical } from "@lucide/vue";
-import { AnimatePresence } from "motion-v";
+import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { t } from "../lib/i18n";
+import { panelSwapMotion } from "../lib/motion";
 import { NONE_GROUP_KEY, type TaskGroup } from "../lib/taskGroups";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
@@ -128,82 +129,91 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
       </button>
     </div>
 
-    <div v-if="tasksVM.state.tasks.length" class="space-y-2">
-      <section
-        v-for="group in sections"
-        :key="group.key"
-        :class="
-          tasksVM.state.groupBy === 'project' && dragOverGroup === group.key
-            ? 'rounded-xl bg-primary/5 ring-2 ring-primary/30'
-            : ''
-        "
-        @dragover="onGroupDragOver($event, group)"
-        @dragleave="onGroupDragLeave($event, group)"
-        @drop="onGroupDrop($event, group)"
-      >
-        <h2 v-if="tasksVM.state.groupBy !== 'none'">
-          <button
-            type="button"
-            class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-1 pt-2 pb-1 text-left text-[10.5px] text-base-content/45 hover:text-base-content/70 focus-visible:ring-2 focus-visible:ring-primary/40"
-            :aria-expanded="!tasksVM.isGroupCollapsed(group.key)"
-            :aria-controls="groupListId(group.key)"
-            :aria-label="
-              t(tasksVM.isGroupCollapsed(group.key) ? 'tasks.expandGroup' : 'tasks.collapseGroup', {
-                name: group.name,
-              })
+    <AnimatePresence mode="wait" :initial="false">
+      <motion.div :key="tasksVM.state.groupBy" v-bind="panelSwapMotion">
+        <div v-if="tasksVM.state.tasks.length" class="space-y-2">
+          <section
+            v-for="group in sections"
+            :key="group.key"
+            :class="
+              tasksVM.state.groupBy === 'project' && dragOverGroup === group.key
+                ? 'rounded-xl bg-primary/5 ring-2 ring-primary/30'
+                : ''
             "
-            @click="tasksVM.toggleGroup(group.key)"
+            @dragover="onGroupDragOver($event, group)"
+            @dragleave="onGroupDragLeave($event, group)"
+            @drop="onGroupDrop($event, group)"
           >
-            <ChevronRight
-              :size="12"
-              aria-hidden="true"
-              class="shrink-0 transition-transform duration-150"
-              :class="{ 'rotate-90': !tasksVM.isGroupCollapsed(group.key) }"
-            />
-            <span class="font-medium text-base-content/60">{{ group.name }}</span>
-            <span class="tabular-nums">{{ group.tasks.length }}</span>
-            <span class="h-px flex-1 bg-base-300/70"></span>
-          </button>
-        </h2>
-        <div :id="groupListId(group.key)">
-          <AnimatePresence
-            v-if="tasksVM.state.groupBy === 'none' || !tasksVM.isGroupCollapsed(group.key)"
-            as="ul"
-            mode="popLayout"
-            :initial="false"
-            class="space-y-1.5"
-          >
-            <TaskRow
-              v-for="task in group.tasks"
-              :key="task.id"
-              :task="task"
-              :show-project="tasksVM.state.groupBy !== 'project'"
-              :draggable="tasksVM.state.groupBy === 'project'"
-              :style="{ opacity: draggingTaskId === task.id ? 0.4 : undefined }"
-              @open="openTask"
-              @changed="refresh"
-              @drag-start="onTaskDragStart"
-              @drag-end="onTaskDragEnd"
-            >
-              <template #leading>
-                <span
-                  v-if="tasksVM.state.groupBy === 'project'"
-                  class="mt-0.5 shrink-0 cursor-grab text-base-content/25 active:cursor-grabbing"
-                  :title="t('tasks.dragProjectHint')"
+            <h2 v-if="tasksVM.state.groupBy !== 'none'">
+              <button
+                type="button"
+                class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-1 pt-2 pb-1 text-left text-[10.5px] text-base-content/45 hover:text-base-content/70 focus-visible:ring-2 focus-visible:ring-primary/40"
+                :aria-expanded="!tasksVM.isGroupCollapsed(group.key)"
+                :aria-controls="groupListId(group.key)"
+                :aria-label="
+                  t(
+                    tasksVM.isGroupCollapsed(group.key)
+                      ? 'tasks.expandGroup'
+                      : 'tasks.collapseGroup',
+                    {
+                      name: group.name,
+                    },
+                  )
+                "
+                @click="tasksVM.toggleGroup(group.key)"
+              >
+                <ChevronRight
+                  :size="12"
                   aria-hidden="true"
-                  @click.stop
+                  class="shrink-0 transition-transform duration-150"
+                  :class="{ 'rotate-90': !tasksVM.isGroupCollapsed(group.key) }"
+                />
+                <span class="font-medium text-base-content/60">{{ group.name }}</span>
+                <span class="tabular-nums">{{ group.tasks.length }}</span>
+                <span class="h-px flex-1 bg-base-300/70"></span>
+              </button>
+            </h2>
+            <div :id="groupListId(group.key)">
+              <AnimatePresence
+                v-if="tasksVM.state.groupBy === 'none' || !tasksVM.isGroupCollapsed(group.key)"
+                as="ul"
+                mode="popLayout"
+                :initial="false"
+                class="space-y-1.5"
+              >
+                <TaskRow
+                  v-for="task in group.tasks"
+                  :key="task.id"
+                  :task="task"
+                  :show-project="tasksVM.state.groupBy !== 'project'"
+                  :draggable="tasksVM.state.groupBy === 'project'"
+                  :style="{ opacity: draggingTaskId === task.id ? 0.4 : undefined }"
+                  @open="openTask"
+                  @changed="refresh"
+                  @drag-start="onTaskDragStart"
+                  @drag-end="onTaskDragEnd"
                 >
-                  <GripVertical :size="14" />
-                </span>
-              </template>
-            </TaskRow>
-          </AnimatePresence>
+                  <template #leading>
+                    <span
+                      v-if="tasksVM.state.groupBy === 'project'"
+                      class="mt-0.5 shrink-0 cursor-grab text-base-content/25 active:cursor-grabbing"
+                      :title="t('tasks.dragProjectHint')"
+                      aria-hidden="true"
+                      @click.stop
+                    >
+                      <GripVertical :size="14" />
+                    </span>
+                  </template>
+                </TaskRow>
+              </AnimatePresence>
+            </div>
+          </section>
         </div>
-      </section>
-    </div>
-    <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
-      {{ t("tasks.empty") }}
-    </p>
+        <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
+          {{ t("tasks.empty") }}
+        </p>
+      </motion.div>
+    </AnimatePresence>
 
     <AnimatePresence>
       <TaskSheet v-if="taskSheetVM.state.openId" />
