@@ -92,6 +92,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 本周顺序是 `tasks.sort_order`（手动拖拽），`list_week` 与 `pass_queue` 都按它排；`effort_minutes`（分钟，480 = 一人天）只喂给 `src/lib/schedule.ts` 按小时排计划日期——计划只显示、不落库、不写 `delays`、不触发提醒。
 - 新任务、新周期任务、新模板默认独占（`exclusive`）：独占任务只占其 effort 对应的小时位（480 分钟 = 8 个小时位），其他任务可补进剩下的小时；共享任务可并行；已有任务/规则/模板保持原标志，不做数据迁移。显式开始日期优先于手动队列。
 - UI：文案走 `src/lib/i18n.ts` 的 `t()`，不要在组件里硬编码中文/英文；Rust 运行时文案（托盘、通知）走 `src-tauri/src/i18n.rs`。用 daisyUI 的 `soft`/`soft-dark` 主题 token 和 Tailwind 类，不要写死颜色；图标用 `@lucide/vue` 并加 `aria-hidden`。界面日期显示用 `shortDate`（`11/20`）。
+- 界面先出图：新增、删除或改版界面的布局、层级、交互前，先画出静态稿（HTML/SVG 或截图）确认关键状态；纯文案、颜色、间距微调可直接改。
 - 迁移只追加：在 `migrations.rs` 末尾加 `if version < N` 并提高 `LATEST`，不要改旧迁移或重排版本。升级旧库前 `open_with_recovery` 会备份到 `backups/pre-migration-v{n}.db`。
 - 提交用 Conventional Commits：`feat:`、`fix:`、`chore:`、`refactor:`、`polish:`，主题小写、单句。
 
