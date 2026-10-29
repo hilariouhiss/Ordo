@@ -12,8 +12,8 @@ import TaskSheet from "./overlays/TaskSheet.vue";
 const groupOptions = computed(
   () =>
     [
-      { value: "none", label: t("tasks.groupNone") },
       { value: "project", label: t("tasks.groupProject") },
+      { value: "none", label: t("tasks.groupNone") },
       { value: "category", label: t("tasks.groupCategory") },
       { value: "tag", label: t("tasks.groupTag") },
       { value: "owner", label: t("tasks.groupOwner") },

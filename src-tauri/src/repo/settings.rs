@@ -151,7 +151,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get("tasks.group_by")
             .filter(|value| valid_task_group_by(value))
             .cloned()
-            .unwrap_or_else(|| "none".into()),
+            .unwrap_or_else(|| "project".into()),
     })
 }
 
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn task_group_by_defaults_and_roundtrips() {
         let c = crate::db::open_in_memory().unwrap();
-        assert_eq!(dto(&c).unwrap().tasks_group_by, "none");
+        assert_eq!(dto(&c).unwrap().tasks_group_by, "project");
 
         for value in ["none", "project", "category", "tag", "owner", "priority"] {
             assert!(valid_task_group_by(value));
@@ -214,6 +214,6 @@ mod tests {
         }
 
         set(&c, "tasks.group_by", "status").unwrap();
-        assert_eq!(dto(&c).unwrap().tasks_group_by, "none");
+        assert_eq!(dto(&c).unwrap().tasks_group_by, "project");
     }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { Category, Person, Priority, Tag } from "../../model/types";
+import type { Category, Person, Priority, ProjectSummary, Tag } from "../../model/types";
 import { task } from "../../viewmodels/__tests__/fixtures";
 import { groupTasks, type TaskGroupOptions } from "../taskGroups";
 
@@ -21,12 +21,25 @@ const priorityLabels: Record<Priority, string> = {
 function options(overrides: Partial<TaskGroupOptions> = {}): TaskGroupOptions {
   return {
     by: "project",
+    projects: [],
     categories,
     people,
     priorityLabels,
     collator,
     noneName: "None",
     ...overrides,
+  };
+}
+
+function project(id: string, name: string): ProjectSummary {
+  return {
+    id,
+    name,
+    groupId: null,
+    priority: "normal",
+    total: 0,
+    done: 0,
+    byCategory: [],
   };
 }
 
@@ -55,6 +68,24 @@ describe("groupTasks", () => {
       ["Alpha", ["t3"]],
       ["Beta", ["t1", "t4"]],
       ["No project", ["t2", "t5"]],
+    ]);
+  });
+
+  it("keeps empty active projects as drop targets and always keeps unassigned", () => {
+    const groups = groupTasks(
+      [task({ id: "t1", projectId: "p1", projectName: "Alpha" })],
+      options({
+        by: "project",
+        projects: [project("p2", "Beta"), project("p3", "Empty"), project("p1", "Alpha")],
+        noneName: "No project",
+      }),
+    );
+
+    expect(summary(groups)).toEqual([
+      ["Alpha", ["t1"]],
+      ["Beta", []],
+      ["Empty", []],
+      ["No project", []],
     ]);
   });
 

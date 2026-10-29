@@ -17,7 +17,7 @@ export const defaultSettings: Settings = {
   deskPin: "top",
   deskX: null,
   deskY: null,
-  tasksGroupBy: "none",
+  tasksGroupBy: "project",
 };
 
 export function task(over: Partial<Task> = {}): Task {

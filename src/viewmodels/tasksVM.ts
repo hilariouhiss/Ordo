@@ -1,7 +1,8 @@
 import { computed, reactive, watch } from "vue";
-import { language, t } from "../lib/i18n";
+import { askNotice } from "../lib/dialog";
+import { errorText, language, t } from "../lib/i18n";
 import { groupTasks, type TaskGroup, type TaskGrouping } from "../lib/taskGroups";
-import { listAllTasks, setSettings } from "../model/ipc";
+import { listAllTasks, setSettings, updateTaskPatch } from "../model/ipc";
 import type { Task } from "../model/types";
 import { appVM } from "./appVM";
 
@@ -9,7 +10,7 @@ export function createTasksVM() {
   const state = reactive({
     tasks: [] as Task[],
     loading: false,
-    groupBy: "none" as TaskGrouping,
+    groupBy: "project" as TaskGrouping,
     collapsed: {} as Record<string, boolean>,
   });
 
@@ -29,6 +30,7 @@ export function createTasksVM() {
       by,
       categories: appVM.state.categories,
       people: appVM.state.people,
+      projects: appVM.state.projects,
       priorityLabels: {
         high: t("task.priorityHigh"),
         normal: t("task.priorityNormal"),
@@ -78,7 +80,20 @@ export function createTasksVM() {
     state.collapsed[id] = !state.collapsed[id];
   }
 
-  return { state, sections, load, setGroupBy, isGroupCollapsed, toggleGroup };
+  async function assignProject(taskId: string, projectId: string | null): Promise<boolean> {
+    const current = state.tasks.find((task) => task.id === taskId);
+    if (!current || current.projectId === projectId) return false;
+    try {
+      const updated = await updateTaskPatch(taskId, { projectId });
+      state.tasks = state.tasks.map((task) => (task.id === taskId ? updated : task));
+      return true;
+    } catch (e) {
+      void askNotice(t("common.actionFailed"), errorText(e));
+      return false;
+    }
+  }
+
+  return { state, sections, load, setGroupBy, isGroupCollapsed, toggleGroup, assignProject };
 }
 
 export const tasksVM = createTasksVM();

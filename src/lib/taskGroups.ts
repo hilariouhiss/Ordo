@@ -1,4 +1,4 @@
-import type { Category, Person, Priority, Task } from "../model/types";
+import type { Category, Person, Priority, ProjectSummary, Task } from "../model/types";
 
 export type TaskGroupBy = "project" | "category" | "tag" | "owner" | "priority";
 export type TaskGrouping = TaskGroupBy | "none";
@@ -13,12 +13,13 @@ export interface TaskGroupOptions {
   by: TaskGroupBy;
   categories: Category[];
   people: Person[];
+  projects: ProjectSummary[];
   priorityLabels: Record<Priority, string>;
   collator: Intl.Collator;
   noneName: string;
 }
 
-const NONE_KEY = "__none__";
+export const NONE_GROUP_KEY = "__none__";
 const PRIORITY_ORDER: Priority[] = ["high", "normal", "low"];
 
 /** Keeps the incoming task order inside a group; only the groups themselves are sorted. */
@@ -26,8 +27,17 @@ function sortByName(groups: TaskGroup[], collator: Intl.Collator): void {
   groups.sort((a, b) => collator.compare(a.name, b.name) || a.key.localeCompare(b.key));
 }
 
-function byProject(tasks: Task[], collator: Intl.Collator, noneName: string): TaskGroup[] {
+function byProject(
+  tasks: Task[],
+  projects: ProjectSummary[],
+  collator: Intl.Collator,
+  noneName: string,
+): TaskGroup[] {
   const groups = new Map<string, TaskGroup>();
+  // Seed active projects so an empty project can still be a drop target.
+  for (const project of projects) {
+    groups.set(project.id, { key: project.id, name: project.name, tasks: [] });
+  }
   const none: Task[] = [];
   for (const task of tasks) {
     if (!task.projectId || !task.projectName) {
@@ -45,7 +55,8 @@ function byProject(tasks: Task[], collator: Intl.Collator, noneName: string): Ta
 
   const result = [...groups.values()];
   sortByName(result, collator);
-  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  // Always present, so dragging here can clear a project.
+  result.push({ key: NONE_GROUP_KEY, name: noneName, tasks: none });
   return result;
 }
 
@@ -70,7 +81,7 @@ function byCategory(
   }
 
   const result = groups.filter((group) => group.tasks.length > 0);
-  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  if (none.length) result.push({ key: NONE_GROUP_KEY, name: noneName, tasks: none });
   return result;
 }
 
@@ -91,7 +102,7 @@ function byTag(tasks: Task[], collator: Intl.Collator, noneName: string): TaskGr
 
   const result = [...groups.values()];
   sortByName(result, collator);
-  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  if (none.length) result.push({ key: NONE_GROUP_KEY, name: noneName, tasks: none });
   return result;
 }
 
@@ -117,7 +128,7 @@ function byOwner(
 
   const result = [...groups.values()];
   sortByName(result, collator);
-  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  if (none.length) result.push({ key: NONE_GROUP_KEY, name: noneName, tasks: none });
   return result;
 }
 
@@ -140,7 +151,7 @@ function byPriority(
   }
 
   const result = groups.filter((group) => group.tasks.length > 0);
-  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  if (none.length) result.push({ key: NONE_GROUP_KEY, name: noneName, tasks: none });
   return result;
 }
 
@@ -148,7 +159,7 @@ export function groupTasks(tasks: Task[], options: TaskGroupOptions): TaskGroup[
   if (!tasks.length) return [];
   switch (options.by) {
     case "project":
-      return byProject(tasks, options.collator, options.noneName);
+      return byProject(tasks, options.projects, options.collator, options.noneName);
     case "category":
       return byCategory(tasks, options.categories, options.collator, options.noneName);
     case "tag":
