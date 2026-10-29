@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "build": "vue-tsc --noEmit && vp build",
+    "build": "node scripts/build.mjs",
     "preview": "vp preview",
     "prepare": "vp config",
     "typecheck": "vue-tsc --noEmit",

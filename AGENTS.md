@@ -53,7 +53,7 @@ ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍
 | 单个 TS 测试文件   | `vp test run src/lib/__tests__/dates.test.ts`   |
 | Rust 单元测试      | `cd src-tauri && cargo test`                    |
 | 单个 Rust 测试     | `cd src-tauri && cargo test migrates_schema_v1` |
-| 前端生产构建       | `pnpm build`（`vue-tsc --noEmit && vp build`）  |
+| 前端生产构建       | `pnpm build`（类型检查与 `vp build` 并行）      |
 | Windows 安装包     | `pnpm tauri build`（会自动先跑 `pnpm build`）   |
 
 提交前必须三项都过：`vp check`、`vp test run`、`cd src-tauri && cargo test`。仓库没有 CI workflow，这三条就是门禁。Rust 首次编译较慢；`vp check` 不检查 Rust。
