@@ -9,8 +9,9 @@ import {
 
 const TODAY = "2026-10-20";
 
-function t(id: string, effortDays: number, extra: Partial<PlanTask> = {}): PlanTask {
-  return { id, effortDays, dueDate: null, ...extra };
+// The tests speak in days; the planner takes minutes.
+function t(id: string, days: number, extra: Partial<PlanTask> = {}): PlanTask {
+  return { id, effortMinutes: days * 480, dueDate: null, ...extra };
 }
 
 function spans(tasks: PlanTask[]) {

@@ -90,6 +90,8 @@ export interface Task {
   ownerId: string | null;
   startDate: string | null;
   dueDate: string | null;
+  /** Local "HH:MM" a timed task is due; null for a plain day. */
+  dueTime: string | null;
   status: Status;
   inWeek: boolean;
   carryCount: number;
@@ -106,9 +108,65 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   sortOrder: number;
-  effortDays: number;
+  effortMinutes: number;
   priority: Priority;
   exclusive: boolean;
+}
+
+/** A recurring rule: the weekday set and time a task appears at. */
+export interface TaskRule {
+  id: string;
+  title: string;
+  /** ISO weekdays, Monday = 1 … Sunday = 7. */
+  weekdays: number[];
+  /** Local "HH:MM". */
+  at: string;
+  projectId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  priority: Priority;
+  effortMinutes: number;
+  exclusive: boolean;
+  enabled: boolean;
+}
+
+/** The attribute block a rule and a template share, edited by one component. */
+export interface TaskAttrs {
+  projectId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  priority: Priority;
+  effortMinutes: number;
+  exclusive: boolean;
+}
+
+/** An absent id creates a rule; a present one rewrites that rule. */
+export interface RuleInput extends TaskAttrs {
+  id?: string | null;
+  title: string;
+  weekdays: number[];
+  at: string;
+}
+
+/** A fixed flow: the attributes and step titles every new task starts with. */
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  projectId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  priority: Priority;
+  effortMinutes: number;
+  exclusive: boolean;
+  note: string | null;
+  steps: string[];
+}
+
+export interface TemplateInput extends TaskAttrs {
+  id?: string | null;
+  name: string;
+  note: string | null;
+  steps: string[];
 }
 
 export interface CategoryProgress {
@@ -152,7 +210,7 @@ export interface TaskPatch {
   startDate?: string | null;
   note?: string | null;
   tags?: string[];
-  effortDays?: number;
+  effortMinutes?: number;
   priority?: Priority;
   exclusive?: boolean;
 }
@@ -163,7 +221,7 @@ export interface CaptureFields {
   ownerId: string | null;
   priority: Priority;
   dueDate: string | null;
-  effortDays: number;
+  effortMinutes: number;
 }
 export interface ArchiveTask {
   id: string;

@@ -52,11 +52,12 @@ export const panelSwapMotion = {
 const NAV_RANK: Record<string, number> = {
   week: 0,
   tasks: 1,
-  projects: 2,
-  categories: 3,
-  tags: 4,
-  people: 5,
-  archive: 6,
+  templates: 2,
+  projects: 3,
+  categories: 4,
+  tags: 5,
+  people: 6,
+  archive: 7,
 };
 
 export function pageRank(name: string | null | undefined): number {

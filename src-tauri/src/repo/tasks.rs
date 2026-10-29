@@ -23,11 +23,11 @@ pub fn insert(
     now: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO tasks (id, title, project_id, owner_id, priority, due_date, effort_days,
+        "INSERT INTO tasks (id, title, project_id, owner_id, priority, due_date, effort_minutes,
                             status, in_week, carry_count, sort_order, created_at, updated_at)
          VALUES (?1, ?2, ?3,
                  COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
-                 COALESCE(?5, 'normal'), ?6, COALESCE(?7, 1),
+                 COALESCE(?5, 'normal'), ?6, COALESCE(?7, 480),
                  'todo', 1, 0,
                  (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8)",
         params![
@@ -37,7 +37,7 @@ pub fn insert(
             fields.owner_id.as_deref(),
             fields.priority.as_deref(),
             fields.due_date.as_deref(),
-            fields.effort_days,
+            fields.effort_minutes,
             now
         ],
     )?;
@@ -80,10 +80,10 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let mut task_stmt = conn.prepare_cached(
-        "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, status,
+        "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, due_time, status,
                 in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
                 note, archived_at, canceled_at,
-                created_at, updated_at, sort_order, effort_days, priority, time_exclusive
+                created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive
          FROM tasks WHERE id = ?1",
     )?;
     let mut task = task_stmt.query_row([id], |r| {
@@ -95,25 +95,26 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
             owner_id: r.get(4)?,
             start_date: r.get(5)?,
             due_date: r.get(6)?,
-            status: r.get(7)?,
-            in_week: r.get::<_, i64>(8)? == 1,
-            carry_count: r.get(9)?,
-            suspended_until: r.get(10)?,
-            suspended: r.get::<_, i64>(11)? == 1,
-            suspended_at: r.get(12)?,
-            suspend_reason: r.get(13)?,
-            note: r.get(14)?,
-            archived_at: r.get(15)?,
-            canceled_at: r.get(16)?,
+            due_time: r.get(7)?,
+            status: r.get(8)?,
+            in_week: r.get::<_, i64>(9)? == 1,
+            carry_count: r.get(10)?,
+            suspended_until: r.get(11)?,
+            suspended: r.get::<_, i64>(12)? == 1,
+            suspended_at: r.get(13)?,
+            suspend_reason: r.get(14)?,
+            note: r.get(15)?,
+            archived_at: r.get(16)?,
+            canceled_at: r.get(17)?,
             steps: vec![],
             tags: vec![],
             delays: vec![],
-            created_at: r.get(17)?,
-            updated_at: r.get(18)?,
-            sort_order: r.get(19)?,
-            effort_days: r.get(20)?,
-            priority: r.get(21)?,
-            exclusive: r.get::<_, i64>(22)? == 1,
+            created_at: r.get(18)?,
+            updated_at: r.get(19)?,
+            sort_order: r.get(20)?,
+            effort_minutes: r.get(21)?,
+            priority: r.get(22)?,
+            exclusive: r.get::<_, i64>(23)? == 1,
         })
     })?;
 
@@ -228,9 +229,9 @@ pub fn apply_patch(
     push(&mut cols, &mut vals, "owner_id", &patch.owner_id);
     push(&mut cols, &mut vals, "start_date", &patch.start_date);
     push(&mut cols, &mut vals, "note", &patch.note);
-    if let Some(effort) = patch.effort_days {
-        cols.push("effort_days");
-        vals.push(Value::Real(effort));
+    if let Some(effort) = patch.effort_minutes {
+        cols.push("effort_minutes");
+        vals.push(Value::Integer(effort));
     }
     if let Some(priority) = &patch.priority {
         cols.push("priority");

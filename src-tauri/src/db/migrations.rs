@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 12;
+pub const LATEST: i64 = 14;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -311,16 +311,106 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 12)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 13 {
+        // Recurring rules and templates arrive together; the two task columns mark what a
+        // rule generated. IF NOT EXISTS plus the column guards make a crash mid-step safe.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS task_rules (
+               id TEXT PRIMARY KEY,
+               title TEXT NOT NULL,
+               weekdays TEXT NOT NULL,
+               at_time TEXT NOT NULL,
+               project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+               category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+               owner_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+               priority TEXT NOT NULL DEFAULT 'normal'
+                 CHECK (priority IN ('high','normal','low')),
+               effort_days REAL NOT NULL DEFAULT 1,
+               time_exclusive INTEGER NOT NULL DEFAULT 0,
+               enabled INTEGER NOT NULL DEFAULT 1,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               deleted_at TEXT
+             );
+             CREATE TABLE IF NOT EXISTS task_templates (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+               category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+               owner_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+               priority TEXT NOT NULL DEFAULT 'normal'
+                 CHECK (priority IN ('high','normal','low')),
+               effort_days REAL NOT NULL DEFAULT 1,
+               time_exclusive INTEGER NOT NULL DEFAULT 0,
+               note TEXT,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               deleted_at TEXT
+             );
+             CREATE TABLE IF NOT EXISTS template_steps (
+               id TEXT PRIMARY KEY,
+               template_id TEXT NOT NULL REFERENCES task_templates(id) ON DELETE CASCADE,
+               title TEXT NOT NULL,
+               sort_order INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_template_steps ON template_steps(template_id, sort_order);",
+        )?;
+        if !has_task_column(&tx, "due_time")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN due_time TEXT")?;
+        }
+        if !has_task_column(&tx, "rule_id")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN rule_id TEXT
+                 REFERENCES task_rules(id) ON DELETE SET NULL",
+            )?;
+        }
+        // One row per rule and day, even if two ticks race.
+        tx.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_rule_day
+             ON tasks(rule_id, due_date) WHERE rule_id IS NOT NULL",
+        )?;
+        tx.pragma_update(None, "user_version", 13)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 14 {
+        // Effort is minutes now: one task day was eight hours. The old column is dropped
+        // so nothing can keep writing days; every step is guarded for a retry after a crash.
+        let tx = conn.unchecked_transaction()?;
+        for table in ["tasks", "task_rules", "task_templates"] {
+            if !has_column(&tx, table, "effort_minutes")? {
+                tx.execute_batch(&format!(
+                    "ALTER TABLE {table} ADD COLUMN effort_minutes INTEGER NOT NULL DEFAULT 480"
+                ))?;
+            }
+            if has_column(&tx, table, "effort_days")? {
+                tx.execute_batch(&format!(
+                    "UPDATE {table} SET effort_minutes = CAST(ROUND(effort_days * 480) AS INTEGER)"
+                ))?;
+                tx.execute_batch(&format!("ALTER TABLE {table} DROP COLUMN effort_days"))?;
+            }
+        }
+        tx.pragma_update(None, "user_version", 14)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
-fn has_task_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
+fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
     conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?1",
+        &format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"),
         [column],
         |r| r.get::<_, i64>(0),
     )
     .map(|count| count > 0)
+}
+
+fn has_task_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
+    has_column(conn, "tasks", column)
 }
 
 fn has_project_member_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
@@ -399,14 +489,14 @@ mod tests {
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
         let mut stmt = c
-            .prepare("SELECT id, sort_order, effort_days FROM tasks ORDER BY sort_order")
+            .prepare("SELECT id, sort_order, effort_minutes FROM tasks ORDER BY sort_order")
             .unwrap();
-        let rows: Vec<(String, i64, f64)> = stmt
+        let rows: Vec<(String, i64, i64)> = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
-        assert_eq!(rows, vec![("a".to_string(), 1, 1.0), ("b".to_string(), 2, 1.0)]);
+        assert_eq!(rows, vec![("a".to_string(), 1, 480), ("b".to_string(), 2, 480)]);
     }
 
     fn v2_database() -> rusqlite::Connection {
@@ -501,16 +591,16 @@ mod tests {
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
         let mut stmt = c
-            .prepare("SELECT id, sort_order, effort_days, done_at FROM tasks ORDER BY sort_order")
+            .prepare("SELECT id, sort_order, effort_minutes, done_at FROM tasks ORDER BY sort_order")
             .unwrap();
-        let rows: Vec<(String, i64, f64, Option<String>)> = stmt
+        let rows: Vec<(String, i64, i64, Option<String>)> = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!((rows[0].1, rows[0].2), (1, 1.0));
-        assert_eq!((rows[1].1, rows[1].2), (2, 1.0));
+        assert_eq!((rows[0].1, rows[0].2), (1, 480));
+        assert_eq!((rows[1].1, rows[1].2), (2, 480));
         assert!(rows[0].3.is_none());
     }
 
@@ -869,5 +959,127 @@ mod tests {
         migrate(&c).unwrap();
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn adds_rules_templates_and_the_task_columns() {
+        let c = db::open_in_memory().unwrap();
+
+        let tables: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN
+                 ('task_rules','task_templates','template_steps')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 3);
+        for column in ["due_time", "rule_id"] {
+            assert!(has_task_column(&c, column).unwrap(), "{column} missing");
+        }
+        let index: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index'
+                 AND name='uq_tasks_rule_day'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(index, 1);
+    }
+
+    #[test]
+    fn retries_a_half_applied_v13_step() {
+        let c = db::open_in_memory().unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, created_at, updated_at)
+             VALUES ('a', '旧事', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        // A crash after everything was written but before the version bump.
+        c.pragma_update(None, "user_version", 12).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let (title, due_time, rule_id): (String, Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT title, due_time, rule_id FROM tasks WHERE id = 'a'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "旧事");
+        assert!(due_time.is_none());
+        assert!(rule_id.is_none());
+    }
+
+    #[test]
+    fn converts_effort_days_to_minutes_and_drops_the_old_column() {
+        let c = db::open_in_memory().unwrap();
+        // Put the v13 shape back: the day column returns, the minute column stays for
+        // the SQL above to overwrite.
+        c.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN effort_days REAL NOT NULL DEFAULT 1;
+             ALTER TABLE task_rules ADD COLUMN effort_days REAL NOT NULL DEFAULT 1;
+             ALTER TABLE task_templates ADD COLUMN effort_days REAL NOT NULL DEFAULT 1;",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, effort_days, created_at, updated_at)
+             VALUES ('a', '旧事', 1.5, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, effort_days, created_at, updated_at)
+             VALUES ('r1', '周报', '4', '09:00', 0.5, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO task_templates (id, name, effort_days, created_at, updated_at)
+             VALUES ('p1', '发布', 2, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 13).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        for table in ["tasks", "task_rules", "task_templates"] {
+            assert!(
+                !has_column(&c, table, "effort_days").unwrap(),
+                "{table} kept effort_days"
+            );
+        }
+        let task: i64 = c
+            .query_row("SELECT effort_minutes FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(task, 720);
+        let rule: i64 = c
+            .query_row("SELECT effort_minutes FROM task_rules WHERE id = 'r1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rule, 240);
+        let template: i64 = c
+            .query_row(
+                "SELECT effort_minutes FROM task_templates WHERE id = 'p1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(template, 960);
+
+        // A crash after the conversion but before the bump must be safe to replay.
+        c.pragma_update(None, "user_version", 13).unwrap();
+        migrate(&c).unwrap();
+        let task: i64 = c
+            .query_row("SELECT effort_minutes FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(task, 720);
     }
 }

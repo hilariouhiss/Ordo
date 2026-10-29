@@ -5,6 +5,7 @@ import PeopleView from "./views/PeopleView.vue";
 import ProjectView from "./views/ProjectView.vue";
 import ProjectsView from "./views/ProjectsView.vue";
 import TagsView from "./views/TagsView.vue";
+import TemplatesView from "./views/TemplatesView.vue";
 import TasksView from "./views/TasksView.vue";
 import WeekView from "./views/WeekView.vue";
 
@@ -14,6 +15,7 @@ export const router = createRouter({
     { path: "/", redirect: "/week" },
     { path: "/week", name: "week", component: WeekView },
     { path: "/tasks", name: "tasks", component: TasksView },
+    { path: "/templates", name: "templates", component: TemplatesView },
     { path: "/projects", name: "projects", component: ProjectsView },
     { path: "/projects/:id", name: "project", component: ProjectView, props: true },
     { path: "/categories", name: "categories", component: CategoriesView },

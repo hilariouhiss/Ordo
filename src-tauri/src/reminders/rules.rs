@@ -1,5 +1,5 @@
 use crate::repo::tasks::VISIBLE_TASK_FILTER;
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use rusqlite::Connection;
 
 pub struct Candidate {
@@ -16,17 +16,23 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     let today = now.date_naive();
 
     let sql = format!(
-        "SELECT id, due_date FROM tasks
+        "SELECT id, due_date, due_time FROM tasks
          WHERE due_date IS NOT NULL AND status <> 'done'
            AND {}",
         VISIBLE_TASK_FILTER
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (task_id, due) = row.map_err(|e| e.to_string())?;
+        let (task_id, due, due_time) = row.map_err(|e| e.to_string())?;
         let Ok(due_date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
             continue;
         };
@@ -34,8 +40,27 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         // The task is overdue only after its own day ends; the notice belongs to
         // the next day's 17:30, or the first launch after that.
         let overdue_at = local_at(due_date + Duration::days(1), 17, 30)?;
+        let timed = due_time
+            .as_deref()
+            .and_then(|raw| NaiveTime::parse_from_str(raw, "%H:%M").ok());
 
-        if due_date >= today && advance <= now && recent(advance, now) {
+        // A timed task reminds once at its own moment on its own day instead.
+        // shortcut: it reuses the day-before kind so the notifications CHECK stays put;
+        // the key is still the day, so it fires once. Add a due_at kind when the copy
+        // needs to differ.
+        if let Some(at) = timed {
+            let scheduled = local_at(due_date, at.hour(), at.minute())?;
+            if due_date == today && scheduled <= now && recent(scheduled, now) {
+                out.push(Candidate {
+                    task_id: task_id.clone(),
+                    kind: "due_tomorrow",
+                    due_key: due.clone(),
+                    scheduled_for: scheduled,
+                });
+            }
+        }
+
+        if timed.is_none() && due_date >= today && advance <= now && recent(advance, now) {
             out.push(Candidate {
                 task_id: task_id.clone(),
                 kind: "due_tomorrow",
@@ -302,5 +327,50 @@ mod tests {
                 .iter()
                 .any(|c| c.task_id == "t2" && c.kind == "due_tomorrow")
         );
+    }
+
+    fn timed_task(c: &Connection, id: &str, due: &str, time: &str) {
+        task_with_due(c, id, due);
+        c.execute(
+            "UPDATE tasks SET due_time = ?1 WHERE id = ?2",
+            rusqlite::params![time, id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_timed_reminder_waits_for_its_own_minute() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-20", "13:30");
+
+        let early = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 13, 29)).unwrap();
+        assert!(early.is_empty());
+
+        let on_time = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 13, 30)).unwrap();
+        assert_eq!(on_time.len(), 1);
+        assert_eq!(on_time[0].task_id, "t1");
+        assert_eq!(on_time[0].due_key, "2026-10-20");
+        assert_eq!(
+            on_time[0].scheduled_for.format("%H:%M").to_string(),
+            "13:30"
+        );
+    }
+
+    #[test]
+    fn a_timed_task_skips_the_evening_before_notice() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-21", "13:30");
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        assert!(cands.is_empty());
+    }
+
+    #[test]
+    fn yesterday_timed_task_gets_no_late_toast() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-19", "13:30");
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 10, 0)).unwrap();
+        // No timed toast for a past day; it is only the next day's 17:30 overdue check.
+        assert!(cands.iter().all(|c| c.scheduled_for.format("%Y-%m-%d").to_string()
+            != "2026-10-19"));
     }
 }

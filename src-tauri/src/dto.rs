@@ -85,6 +85,8 @@ pub struct TaskDto {
     pub owner_id: Option<String>,
     pub start_date: Option<String>,
     pub due_date: Option<String>,
+    /// Local "HH:MM" a timed task is due; null for a plain day.
+    pub due_time: Option<String>,
     pub status: String,
     pub in_week: bool,
     pub carry_count: i64,
@@ -101,7 +103,8 @@ pub struct TaskDto {
     pub created_at: String,
     pub updated_at: String,
     pub sort_order: i64,
-    pub effort_days: f64,
+    /// Minutes of work; 480 is one eight-hour day.
+    pub effort_minutes: i64,
     pub priority: String,
     pub exclusive: bool,
 }
@@ -209,15 +212,97 @@ pub struct TaskPatch {
     #[serde(default)]
     pub tags: Option<Vec<String>>,
     #[serde(default)]
-    pub effort_days: Option<f64>,
+    pub effort_minutes: Option<i64>,
     #[serde(default)]
     pub priority: Option<String>,
     #[serde(default)]
     pub exclusive: Option<bool>,
 }
 
+/// A recurring rule: the weekday set and time a task appears at.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleDto {
+    pub id: String,
+    pub title: String,
+    /// ISO weekdays, Monday = 1 … Sunday = 7.
+    pub weekdays: Vec<u32>,
+    /// Local "HH:MM".
+    pub at: String,
+    pub project_id: Option<String>,
+    pub category_id: Option<String>,
+    pub owner_id: Option<String>,
+    pub priority: String,
+    pub effort_minutes: i64,
+    pub exclusive: bool,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleInput {
+    /// Absent creates a rule; present rewrites that rule.
+    #[serde(default)]
+    pub id: Option<String>,
+    pub title: String,
+    pub weekdays: Vec<u32>,
+    pub at: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub category_id: Option<String>,
+    #[serde(default)]
+    pub owner_id: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub effort_minutes: Option<i64>,
+    #[serde(default)]
+    pub exclusive: Option<bool>,
+}
+
+/// A fixed flow: the attributes and the step titles every task starts with.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateDto {
+    pub id: String,
+    pub name: String,
+    pub project_id: Option<String>,
+    pub category_id: Option<String>,
+    pub owner_id: Option<String>,
+    pub priority: String,
+    pub effort_minutes: i64,
+    pub exclusive: bool,
+    pub note: Option<String>,
+    pub steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub category_id: Option<String>,
+    #[serde(default)]
+    pub owner_id: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub effort_minutes: Option<i64>,
+    #[serde(default)]
+    pub exclusive: Option<bool>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub steps: Vec<String>,
+}
+
 /// The fields a quick capture can carry. All optional: a missing field keeps the
-/// database default (owner "me", priority "normal", effort 1 day).
+/// database default (owner "me", priority "normal", effort 480 minutes).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureFields {
@@ -230,7 +315,7 @@ pub struct CaptureFields {
     #[serde(default)]
     pub due_date: Option<String>,
     #[serde(default)]
-    pub effort_days: Option<f64>,
+    pub effort_minutes: Option<i64>,
 }
 
 /// Without this, serde maps an explicit `null` to the same `None` as a missing field.

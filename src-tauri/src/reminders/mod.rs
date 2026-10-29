@@ -67,6 +67,8 @@ fn tick(app: &AppHandle) -> Result<(), String> {
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
             let _ = crate::repo::notifications::prune_before(&conn, &cutoff);
         }
+        // Rules turn into real task rows first, so today's timed task can remind below.
+        let _ = crate::services::rules::materialize(&conn, now);
         let candidates = rules::candidates(&conn, now)?;
         let today = now.format("%Y-%m-%d").to_string();
         let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);

@@ -19,7 +19,7 @@ export interface PlannedDay {
 export function toPlanTask(task: Task): PlanTask {
   return {
     id: task.id,
-    effortDays: task.effortDays,
+    effortMinutes: task.effortMinutes,
     dueDate: task.dueDate,
     startDate: task.startDate,
     exclusive: task.exclusive,

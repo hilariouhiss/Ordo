@@ -37,8 +37,8 @@ describe("deskVM", () => {
 
   it("groups the week list by planned day", async () => {
     vi.mocked(listWeek).mockResolvedValue([
-      task({ id: "a", effortDays: 0.5 }),
-      task({ id: "b", effortDays: 0.5 }),
+      task({ id: "a", effortMinutes: 240 }),
+      task({ id: "b", effortMinutes: 240 }),
       task({ id: "c", startDate: "2026-10-22" }),
     ]);
 

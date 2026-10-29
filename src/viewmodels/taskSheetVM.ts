@@ -21,7 +21,7 @@ export interface TaskForm {
   dueDate: string;
   note: string;
   tags: string[];
-  effortDays: number;
+  effortMinutes: number;
   priority: Priority;
   exclusive: boolean;
 }
@@ -39,7 +39,7 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
     patch.tags = form.tags;
   }
-  if (form.effortDays !== task.effortDays) patch.effortDays = form.effortDays;
+  if (form.effortMinutes !== task.effortMinutes) patch.effortMinutes = form.effortMinutes;
   if (form.priority !== task.priority) patch.priority = form.priority;
   if (form.exclusive !== task.exclusive) patch.exclusive = form.exclusive;
   return patch;

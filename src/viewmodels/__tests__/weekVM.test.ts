@@ -140,9 +140,9 @@ describe("weekVM plan", () => {
 
   it("keeps parallel tasks on the day they start", async () => {
     const vm = await loadedWith([
-      task({ id: "a", effortDays: 0.5 }),
-      task({ id: "b", effortDays: 0.5 }),
-      task({ id: "c", effortDays: 1 }),
+      task({ id: "a", effortMinutes: 240 }),
+      task({ id: "b", effortMinutes: 240 }),
+      task({ id: "c", effortMinutes: 480 }),
     ]);
 
     expect(vm.days.value).toHaveLength(1);
@@ -154,7 +154,7 @@ describe("weekVM plan", () => {
   });
 
   it("keeps a spanning task under its start day and shows where it ends", async () => {
-    const vm = await loadedWith([task({ id: "a", effortDays: 2 })]);
+    const vm = await loadedWith([task({ id: "a", effortMinutes: 960 })]);
 
     expect(vm.days.value).toHaveLength(1);
     expect(vm.days.value[0].rows[0].spans).toBe(true);
@@ -198,7 +198,7 @@ describe("weekVM plan", () => {
   });
 
   it("takes the latest finish as the plan end", async () => {
-    const vm = await loadedWith([task({ id: "a" }), task({ id: "b", effortDays: 3 })]);
+    const vm = await loadedWith([task({ id: "a" }), task({ id: "b", effortMinutes: 1440 })]);
 
     expect(vm.planEnd.value).toBe("2026-10-22");
   });

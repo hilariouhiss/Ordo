@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const TABLES: [&str; 12] = [
+const TABLES: [&str; 15] = [
     "people",
     "project_groups",
     "projects",
@@ -15,6 +15,9 @@ const TABLES: [&str; 12] = [
     "steps",
     "delays",
     "notifications",
+    "task_rules",
+    "task_templates",
+    "template_steps",
     "settings",
 ];
 

@@ -11,12 +11,16 @@ import type {
   Project,
   ProjectGroup,
   ProjectSummary,
+  RuleInput,
   Settings,
   Status,
   ShortcutOutcome,
   Tag,
   Task,
   TaskPatch,
+  TaskRule,
+  TaskTemplate,
+  TemplateInput,
   WeekStats,
 } from "./types";
 
@@ -218,6 +222,38 @@ export function restoreTask(id: string): Promise<Task> {
 export function deleteTask(id: string): Promise<void> {
   return invoke<void>("delete_task", { id });
 }
+export function listRules(): Promise<TaskRule[]> {
+  return invoke<TaskRule[]>("list_rules");
+}
+
+export function saveRule(rule: RuleInput): Promise<TaskRule> {
+  return invoke<TaskRule>("save_rule", { rule });
+}
+
+export function setRuleEnabled(id: string, enabled: boolean): Promise<TaskRule> {
+  return invoke<TaskRule>("set_rule_enabled", { id, enabled });
+}
+
+export function deleteRule(id: string): Promise<void> {
+  return invoke<void>("delete_rule", { id });
+}
+
+export function listTemplates(): Promise<TaskTemplate[]> {
+  return invoke<TaskTemplate[]>("list_templates");
+}
+
+export function saveTemplate(template: TemplateInput): Promise<TaskTemplate> {
+  return invoke<TaskTemplate>("save_template", { template });
+}
+
+export function deleteTemplate(id: string): Promise<void> {
+  return invoke<void>("delete_template", { id });
+}
+
+export function createTaskFromTemplate(templateId: string): Promise<Task> {
+  return invoke<Task>("create_task_from_template", { templateId });
+}
+
 export function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
 }

@@ -1,8 +1,9 @@
 use crate::dto::{TaskDto, TaskPatch};
 use rusqlite::Connection;
 
-pub fn valid_effort(effort: f64) -> bool {
-    effort.is_finite() && (0.5..=60.0).contains(&effort) && (effort * 2.0).fract() == 0.0
+/// Minutes of work: one minute up to 480 hours (sixty eight-hour days).
+pub fn valid_effort(minutes: i64) -> bool {
+    (1..=28800).contains(&minutes)
 }
 
 pub fn valid_priority(priority: &str) -> bool {
@@ -15,7 +16,7 @@ pub fn update_patch(
     patch: &TaskPatch,
     now: &str,
 ) -> Result<TaskDto, String> {
-    if let Some(effort) = patch.effort_days {
+    if let Some(effort) = patch.effort_minutes {
         if !valid_effort(effort) {
             return Err("invalid_effort".into());
         }
@@ -435,7 +436,7 @@ mod tests {
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
         let bad = TaskPatch {
-            effort_days: Some(0.25),
+            effort_minutes: Some(0),
             ..Default::default()
         };
         assert_eq!(
@@ -445,31 +446,31 @@ mod tests {
 
         let patch = TaskPatch {
             title: Some("改名".into()),
-            effort_days: Some(2.5),
+            effort_minutes: Some(150),
             ..Default::default()
         };
         let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
         assert_eq!(t.title, "改名");
-        assert_eq!(t.effort_days, 2.5);
+        assert_eq!(t.effort_minutes, 150);
 
         let later = TaskPatch {
             title: Some("再改".into()),
             ..Default::default()
         };
         let t = tasks::update_patch(&c, "t1", &later, NOW).unwrap();
-        assert_eq!(t.effort_days, 2.5);
+        assert_eq!(t.effort_minutes, 150);
 
-        for accepted in [0.5, 60.0] {
+        for accepted in [1, 28800] {
             let patch = TaskPatch {
-                effort_days: Some(accepted),
+                effort_minutes: Some(accepted),
                 ..Default::default()
             };
             let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
-            assert_eq!(t.effort_days, accepted);
+            assert_eq!(t.effort_minutes, accepted);
         }
-        for rejected in [0.25, 60.5, f64::NAN, f64::INFINITY] {
+        for rejected in [0, 28801] {
             let patch = TaskPatch {
-                effort_days: Some(rejected),
+                effort_minutes: Some(rejected),
                 ..Default::default()
             };
             assert_eq!(

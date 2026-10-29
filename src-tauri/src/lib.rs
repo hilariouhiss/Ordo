@@ -357,7 +357,15 @@ pub fn run() {
       commands::ai::ai_enrich,
       commands::tasks::mark_notifications_seen,
       commands::tasks::set_status,
-      commands::tasks::move_task
+      commands::tasks::move_task,
+      commands::rules::list_rules,
+      commands::rules::save_rule,
+      commands::rules::set_rule_enabled,
+      commands::rules::delete_rule,
+      commands::rules::list_templates,
+      commands::rules::save_template,
+      commands::rules::delete_template,
+      commands::rules::create_task_from_template
     ])
     .setup(|app| {
       let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;

@@ -39,6 +39,7 @@ const navItems = computed(
     [
       { name: "week", to: "/week", label: t("nav.week") },
       { name: "tasks", to: "/tasks", label: t("nav.tasks") },
+      { name: "templates", to: "/templates", label: t("nav.templates") },
       { name: "projects", to: "/projects", label: t("nav.projects") },
       { name: "categories", to: "/categories", label: t("nav.categories") },
       { name: "tags", to: "/tags", label: t("nav.tags") },

@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  CAPTURE_DEFAULTS,
-  parseCapture,
-  stepEffort,
-  type CaptureContext,
-  type CaptureField,
-} from "../capture";
+import { CAPTURE_DEFAULTS, parseCapture, type CaptureContext, type CaptureField } from "../capture";
 import type { CaptureFields } from "../../model/types";
 
 const ctx: CaptureContext = {
@@ -37,7 +31,7 @@ function due(raw: string): string | null {
 }
 
 function effort(raw: string): number {
-  return parse(raw).fields.effortDays;
+  return parse(raw).fields.effortMinutes;
 }
 
 function priority(raw: string): string {
@@ -54,16 +48,16 @@ describe("parseCapture", () => {
   });
 
   it("reads all five symbols", () => {
-    expect(parse("#华东客户交付 @老李 !P1 ^下周一 ~1.5天 把方案发出去")).toEqual({
+    expect(parse("#华东客户交付 @老李 !P1 ^下周一 ~1.5h 把方案发出去")).toEqual({
       title: "把方案发出去",
       fields: fields({
         projectId: "p1",
         ownerId: "u1",
         priority: "high",
         dueDate: "2026-10-26",
-        effortDays: 1.5,
+        effortMinutes: 90,
       }),
-      matched: ["projectId", "ownerId", "priority", "dueDate", "effortDays"],
+      matched: ["projectId", "ownerId", "priority", "dueDate", "effortMinutes"],
     });
   });
 
@@ -74,7 +68,7 @@ describe("parseCapture", () => {
     expect(parsed.fields.ownerId).toBe("u1");
     expect(parsed.fields.priority).toBe("high");
     expect(parsed.fields.dueDate).toBe("2026-10-23");
-    expect(parsed.fields.effortDays).toBe(2);
+    expect(parsed.fields.effortMinutes).toBe(960);
   });
 
   it("prefers the longest matching project or person", () => {
@@ -103,7 +97,7 @@ describe("parseCapture", () => {
     expect(parsed.fields.projectId).toBe("p1");
     expect(parsed.fields.priority).toBe("high");
     expect(parsed.fields.dueDate).toBe("2026-10-23");
-    expect(parsed.fields.effortDays).toBe(2);
+    expect(parsed.fields.effortMinutes).toBe(960);
   });
 
   it("leaves unrecognized tokens in the title", () => {
@@ -148,7 +142,7 @@ describe("parseCapture", () => {
       "ownerId",
       "priority",
       "dueDate",
-      "effortDays",
+      "effortMinutes",
     ] satisfies CaptureField[]);
   });
 });
@@ -205,38 +199,29 @@ describe("year rollover", () => {
 });
 
 describe("effort tokens", () => {
-  it("reads days and person-days", () => {
-    expect(effort("~2天")).toBe(2);
-    expect(effort("~1.5天")).toBe(1.5);
-    expect(effort("~半天")).toBe(0.5);
-    expect(effort("~两天")).toBe(2);
-    expect(effort("~2人天")).toBe(2);
-    expect(effort("~2人日")).toBe(2);
-    expect(effort("~2个工作日")).toBe(2);
-    expect(effort("~2")).toBe(2);
-    expect(effort("~2d")).toBe(2);
+  it("reads hours, minutes and clock shapes", () => {
+    expect(effort("~2小时")).toBe(120);
+    expect(effort("~1.5h")).toBe(90);
+    expect(effort("~30分钟")).toBe(30);
+    expect(effort("~30m")).toBe(30);
+    expect(effort("~2:30")).toBe(150);
   });
 
-  it("ignores values outside the half-day range", () => {
-    expect(effort("~0.25")).toBe(1);
-    expect(effort("~61")).toBe(1);
-    expect(effort("~0.25天")).toBe(1);
-    expect(effort("~2.25天")).toBe(1);
-  });
-});
-
-describe("stepping effort", () => {
-  it("moves on the half-day grid and clamps at both ends", () => {
-    expect(stepEffort(1, 1)).toBe(1.5);
-    expect(stepEffort(1, -1)).toBe(0.5);
-    expect(stepEffort(0.5, -1)).toBe(0.5);
-    expect(stepEffort(59.5, 1)).toBe(60);
-    expect(stepEffort(60, 1)).toBe(60);
+  it("still reads the old day shapes at eight hours a day", () => {
+    expect(effort("~2天")).toBe(960);
+    expect(effort("~1.5天")).toBe(720);
+    expect(effort("~半天")).toBe(240);
+    expect(effort("~2人天")).toBe(960);
+    expect(effort("~2d")).toBe(960);
   });
 
-  it("aligns an off-grid value in the direction of travel", () => {
-    expect(stepEffort(1.3, 1)).toBe(1.5);
-    expect(stepEffort(1.3, -1)).toBe(1);
+  it("treats a bare number as minutes", () => {
+    expect(effort("~90")).toBe(90);
+  });
+
+  it("falls back to the default outside the range", () => {
+    expect(effort("~0")).toBe(480);
+    expect(effort("~481h")).toBe(480);
   });
 });
 

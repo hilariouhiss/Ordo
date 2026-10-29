@@ -26,14 +26,14 @@ describe("captureDraftVM", () => {
       ownerId: "u1",
       priority: "high",
       dueDate: "2026-10-23",
-      effortDays: 2,
+      effortMinutes: 960,
     });
     expect(draft.matched.value).toEqual([
       "projectId",
       "ownerId",
       "priority",
       "dueDate",
-      "effortDays",
+      "effortMinutes",
     ]);
   });
 

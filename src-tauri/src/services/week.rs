@@ -39,7 +39,7 @@ pub fn capture_with_fields(
             return Err("invalid_due_date".into());
         }
     }
-    if let Some(effort) = fields.effort_days {
+    if let Some(effort) = fields.effort_minutes {
         if !crate::services::tasks::valid_effort(effort) {
             return Err("invalid_effort".into());
         }
@@ -290,7 +290,7 @@ mod tests {
             .unwrap();
         assert_eq!(t.owner_id.as_deref(), Some(me.as_str()));
         assert_eq!(t.priority, "normal");
-        assert_eq!(t.effort_days, 1.0);
+        assert_eq!(t.effort_minutes, 480);
     }
 
     #[test]
@@ -302,7 +302,7 @@ mod tests {
             owner_id: Some("u1".into()),
             priority: Some("high".into()),
             due_date: Some("2026-11-20".into()),
-            effort_days: Some(2.5),
+            effort_minutes: Some(150),
         };
 
         let t = week::capture_with_fields(&c, "  交底  ", &fields, NOW, "t1").unwrap();
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(t.owner_id.as_deref(), Some("u1"));
         assert_eq!(t.priority, "high");
         assert_eq!(t.due_date.as_deref(), Some("2026-11-20"));
-        assert_eq!(t.effort_days, 2.5);
+        assert_eq!(t.effort_minutes, 150);
     }
 
     #[test]
@@ -380,7 +380,7 @@ mod tests {
             ),
             (
                 CaptureFields {
-                    effort_days: Some(0.25),
+                    effort_minutes: Some(0),
                     ..Default::default()
                 },
                 "invalid_effort",

@@ -2,7 +2,6 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { validEffort } from "../../lib/capture";
 import { localDate, shortDate, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -14,6 +13,7 @@ import type { Person, Priority, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import DateField from "../components/DateField.vue";
+import EffortField from "../components/EffortField.vue";
 
 const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "todo", key: "task.statusTodo" },
@@ -35,7 +35,7 @@ const form = reactive({
   dueDate: "",
   note: "",
   tags: [] as string[],
-  effortDays: 1,
+  effortMinutes: 480,
   priority: "normal" as Priority,
   status: "todo" as Status,
   exclusive: false,
@@ -78,7 +78,7 @@ watch(
     form.dueDate = task.dueDate ?? "";
     form.note = task.note ?? "";
     form.tags = task.tags.map((tag) => tag.name);
-    form.effortDays = task.effortDays;
+    form.effortMinutes = task.effortMinutes;
     form.priority = task.priority;
     form.status = task.status;
     form.exclusive = task.exclusive;
@@ -122,13 +122,6 @@ async function setStatus(status: Status): Promise<void> {
 
 function onPriorityChange(event: Event): void {
   form.priority = (event.target as HTMLSelectElement).value as Priority;
-}
-
-function onEffortChange(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  const value = Number(input.value);
-  if (validEffort(value)) form.effortDays = value;
-  input.value = String(form.effortDays);
 }
 
 function addTag(): void {
@@ -357,18 +350,18 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               v-model="form.dueDate"
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
+            <span
+              v-if="taskSheetVM.state.task?.dueTime"
+              class="mt-1 block text-[10.5px] text-base-content/45"
+            >
+              {{ taskSheetVM.state.task.dueTime }}
+            </span>
           </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.effort") }}
-            <input
-              :value="form.effortDays"
-              type="number"
-              min="0.5"
-              max="60"
-              step="0.5"
-              class="input input-sm mt-1 w-full rounded-lg border-base-300"
-              @change="onEffortChange"
-            />
+            <div class="mt-1">
+              <EffortField v-model="form.effortMinutes" />
+            </div>
           </label>
         </div>
 

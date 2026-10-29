@@ -2,7 +2,7 @@ import { addDays, isWeekend } from "./dates";
 
 export interface PlanTask {
   id: string;
-  effortDays: number;
+  effortMinutes: number;
   dueDate: string | null;
   /** The task's own start date; missing or in the past falls back to the plan start. */
   startDate?: string | null;
@@ -29,6 +29,9 @@ export interface ExclusiveConflict {
 /** One working day holds two half-day units; every task takes at least one. */
 const HALF_DAYS_PER_DAY = 2;
 
+/** Four hours: the planner still books in half days, and effort is minutes. */
+const HALF_DAY_MINUTES = 240;
+
 /** More than two person-days of shared work on one working day is worth a warning. */
 export const LOAD_WARN_HALF_DAYS = 4;
 
@@ -50,8 +53,8 @@ function startWorkday(iso: string): string {
 }
 
 function needOf(task: PlanTask): number {
-  const days = Number.isFinite(task.effortDays) ? task.effortDays : 0;
-  return Math.max(1, Math.round(days * 2));
+  const minutes = Number.isFinite(task.effortMinutes) ? task.effortMinutes : 0;
+  return Math.max(1, Math.ceil(minutes / HALF_DAY_MINUTES));
 }
 
 function anchorOf(task: PlanTask, start: string): string {

@@ -4,6 +4,7 @@ import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
 import { askNotice, askSuspend } from "../../lib/dialog";
+import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
 import { canSuspendTask } from "../../lib/status";
@@ -175,8 +176,8 @@ async function suspend(): Promise<void> {
               :class="{ 'rotate-90': expanded }"
             />
           </button>
-          <span v-if="task.effortDays !== 1" class="badge badge-ghost badge-xs">
-            {{ t("task.effortDays", { days: task.effortDays }) }}
+          <span v-if="task.effortMinutes !== 480" class="badge badge-ghost badge-xs">
+            {{ formatEffort(task.effortMinutes) }}
           </span>
           <span
             v-if="task.exclusive"
@@ -214,10 +215,14 @@ async function suspend(): Promise<void> {
           <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
           <span
             v-if="task.dueDate"
-            class="w-11 text-right text-[11px]"
-            :class="overdue ? 'text-error' : 'text-base-content/45'"
+            class="text-right text-[11px]"
+            :class="[
+              overdue ? 'text-error' : 'text-base-content/45',
+              task.dueTime ? 'w-20' : 'w-11',
+            ]"
           >
             {{ shortDate(task.dueDate) }}
+            <span v-if="task.dueTime" class="text-[10px]">{{ task.dueTime }}</span>
           </span>
           <div class="flex shrink-0 items-center gap-0.5">
             <button

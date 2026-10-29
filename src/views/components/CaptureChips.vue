@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { stepEffort, validEffort, type CaptureField } from "../../lib/capture";
+import type { CaptureField } from "../../lib/capture";
 import { errorText, t } from "../../lib/i18n";
 import type { CaptureFields, Priority } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
 import ChipSelect from "./ChipSelect.vue";
 import DateField from "./DateField.vue";
+import EffortField from "./EffortField.vue";
 
 const props = defineProps<{
   fields: CaptureFields;
@@ -70,38 +71,11 @@ function onDue(value: string): void {
   emit("edit", { dueDate: value || null });
 }
 
-function onEffort(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  const value = Number(input.value);
-  if (validEffort(value)) {
-    emit("edit", { effortDays: value });
-  } else {
-    input.value = String(props.fields.effortDays);
-  }
-}
-
-// Native number stepping drops the caret at the end; step a text field instead.
-function onEffortKey(event: KeyboardEvent): void {
-  if (event.isComposing || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
-  event.preventDefault();
-  const input = event.currentTarget as HTMLInputElement;
-  const parsed = Number(input.value);
-  const base =
-    input.value.trim() !== "" && Number.isFinite(parsed) ? parsed : props.fields.effortDays;
-  const next = stepEffort(base, event.key === "ArrowUp" ? 1 : -1);
-  const caret = input.selectionStart ?? input.value.length;
-  const atEnd = caret === input.value.length && (input.selectionEnd ?? caret) === caret;
-  input.value = String(next);
-  const pos = atEnd ? input.value.length : Math.min(caret, input.value.length);
-  input.setSelectionRange(pos, pos);
-}
-
-/** Blur commits a stepped value; emitting per arrow press would pull focus back to the capture box. */
-function commitEffort(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  if (input.value === String(props.fields.effortDays)) return;
-  onEffort(event);
-}
+/** Effort is minutes; the field commits on blur, so the capture box keeps focus. */
+const effort = computed({
+  get: () => props.fields.effortMinutes,
+  set: (value: number) => emit("edit", { effortMinutes: value }),
+});
 </script>
 
 <template>
@@ -156,16 +130,7 @@ function commitEffort(event: Event): void {
 
     <label class="flex items-center gap-1">
       <span class="shrink-0 text-base-content/40">{{ t("capture.effort") }}</span>
-      <input
-        type="text"
-        inputmode="decimal"
-        :value="String(fields.effortDays)"
-        :class="controlClass('effortDays')"
-        class="field-sizing-content h-6 min-w-7 rounded-md border border-base-300 bg-base-100 px-1 text-center text-[10.5px] outline-none"
-        @keydown="onEffortKey"
-        @blur="commitEffort"
-      />
-      <span class="text-base-content/40">{{ t("capture.effortUnit") }}</span>
+      <EffortField v-model="effort" compact :class="controlClass('effortMinutes')" />
     </label>
 
     <p v-if="error" class="basis-full text-[10.5px] text-error">{{ error }}</p>

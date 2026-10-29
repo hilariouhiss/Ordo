@@ -1,6 +1,7 @@
 import type { CaptureFields, Priority } from "../model/types";
 import { dateFromParts } from "./calendar";
 import { addDays, weekdayOf } from "./dates";
+import { parseEffortText, validEffort } from "./effort";
 
 export interface CaptureContext {
   today: string;
@@ -28,10 +29,16 @@ export const CAPTURE_DEFAULTS: CaptureFields = {
   ownerId: null,
   priority: "normal",
   dueDate: null,
-  effortDays: 1,
+  effortMinutes: 480,
 };
 
-const FIELD_ORDER: CaptureField[] = ["projectId", "ownerId", "priority", "dueDate", "effortDays"];
+const FIELD_ORDER: CaptureField[] = [
+  "projectId",
+  "ownerId",
+  "priority",
+  "dueDate",
+  "effortMinutes",
+];
 
 const SYMBOLS = new Set(["#", "@", "!", "^", "~"]);
 const ASCII_WORD = /[A-Za-z0-9_]/;
@@ -97,8 +104,8 @@ export function parseCapture(
     } else {
       const match = matchEffort(text);
       if (!match) continue;
-      found.effortDays = match.value;
-      matched.add("effortDays");
+      found.effortMinutes = match.value;
+      matched.add("effortMinutes");
       end = valueStart + match.length;
     }
 
@@ -272,43 +279,24 @@ function dateFromWeekday(today: string, day: string, prefix: string | undefined)
   return date;
 }
 
+const EFFORT_TOKEN =
+  /^(\d{1,3}:\d{1,2}|\d+\s*小时\s*\d+\s*分|\d+(?:\.\d+)?\s*(?:个工作日|人天|人日|工作日|天|日|days|day|d|个?小时|h|hr|hours|分钟|分|minutes|minute|mins|min|m))/i;
+
+/** Minutes, with the old day tokens still mapped at eight hours a day. */
 function matchEffort(text: string): PrefixMatch<number> | null {
-  const arabic = /^(\d+(?:\.\d+)?)\s*(?:个工作日|人天|人日|工作日|天|日|days|day|d)/i.exec(text);
-  if (arabic) {
-    const value = Number(arabic[1]);
-    return validEffort(value) ? { value, length: arabic[0].length } : null;
+  if (text.startsWith("半天")) return { value: 240, length: 2 };
+  const match = EFFORT_TOKEN.exec(text);
+  if (match) {
+    const raw = match[1];
+    const days = /(?:个工作日|人天|人日|工作日|天|日|days|day|d)$/i.test(raw.trim());
+    const total = days ? Math.round(parseFloat(raw) * 480) : parseEffortText(raw);
+    if (total === null || !validEffort(total)) return null;
+    return { value: total, length: match[0].length };
   }
-  const chinese = /^(半天|[一二两三四五六七八九十]天)/.exec(text);
-  if (chinese) {
-    const value = chinese[1] === "半天" ? 0.5 : parseCount(chinese[1][0]);
-    return validEffort(value) ? { value, length: chinese[0].length } : null;
-  }
-  const bare = /^(\d+(?:\.\d+)?)(?=\s|$|[#@!^~])/.exec(text);
-  if (bare) {
-    const value = Number(bare[1]);
-    return validEffort(value) ? { value, length: bare[0].length } : null;
-  }
-  return null;
-}
-
-export const EFFORT_MIN = 0.5;
-export const EFFORT_MAX = 60;
-export const EFFORT_STEP = 0.5;
-
-/** Steps on the half-day grid; an off-grid value aligns in the direction of travel. */
-export function stepEffort(value: number, direction: 1 | -1): number {
-  const steps = direction > 0 ? Math.floor(value / EFFORT_STEP) : Math.ceil(value / EFFORT_STEP);
-  const stepped = (steps + direction) * EFFORT_STEP;
-  return Math.min(EFFORT_MAX, Math.max(EFFORT_MIN, stepped));
-}
-
-export function validEffort(value: number): boolean {
-  return (
-    Number.isFinite(value) &&
-    value >= EFFORT_MIN &&
-    value <= EFFORT_MAX &&
-    Number.isInteger(value / EFFORT_STEP)
-  );
+  const bare = /^(\d+)(?=\s|$|[#@!^~])/.exec(text);
+  if (!bare) return null;
+  const total = Number(bare[1]);
+  return validEffort(total) ? { value: total, length: bare[0].length } : null;
 }
 
 function parseCount(value: string): number {
