@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
   EFFORT_MAX_MINUTES,
   EFFORT_MIN_MINUTES,
+  bestEffortUnit,
+  effortAmountIn,
   formatEffort,
+  parseEffortAmount,
   parseEffortText,
   splitEffort,
-  stepEffort,
   validEffort,
 } from "../effort";
 import { setLanguage } from "../i18n";
@@ -67,11 +69,64 @@ describe("validEffort", () => {
   });
 });
 
-describe("stepEffort", () => {
-  it("moves a quarter hour and clamps", () => {
-    expect(stepEffort(480, 1)).toBe(495);
-    expect(stepEffort(480, -1)).toBe(465);
-    expect(stepEffort(EFFORT_MIN_MINUTES, -1)).toBe(EFFORT_MIN_MINUTES);
-    expect(stepEffort(EFFORT_MAX_MINUTES, 1)).toBe(EFFORT_MAX_MINUTES);
+describe("bestEffortUnit", () => {
+  it("uses the largest unit that leaves a whole or half number", () => {
+    expect(bestEffortUnit(480)).toEqual({ amount: 1, unit: "days" });
+    expect(bestEffortUnit(240)).toEqual({ amount: 0.5, unit: "days" });
+    expect(bestEffortUnit(720)).toEqual({ amount: 1.5, unit: "days" });
+    expect(bestEffortUnit(600)).toEqual({ amount: 10, unit: "hours" });
+    expect(bestEffortUnit(90)).toEqual({ amount: 1.5, unit: "hours" });
+    expect(bestEffortUnit(30)).toEqual({ amount: 0.5, unit: "hours" });
+    expect(bestEffortUnit(150)).toEqual({ amount: 2.5, unit: "hours" });
+    expect(bestEffortUnit(45)).toEqual({ amount: 45, unit: "minutes" });
+    expect(bestEffortUnit(1)).toEqual({ amount: 1, unit: "minutes" });
+    expect(bestEffortUnit(EFFORT_MAX_MINUTES)).toEqual({ amount: 60, unit: "days" });
+  });
+});
+
+describe("effortAmountIn", () => {
+  it("shows a duration in the chosen unit", () => {
+    expect(effortAmountIn(960, "hours")).toBe("16");
+    expect(effortAmountIn(90, "days")).toBe("0.1875");
+    expect(effortAmountIn(240, "days")).toBe("0.5");
+  });
+
+  it("keeps enough precision to read back", () => {
+    for (const minutes of [1, 7, 45, 90, 479, 240, 960, EFFORT_MAX_MINUTES]) {
+      for (const unit of ["days", "hours", "minutes"] as const) {
+        expect(parseEffortAmount(effortAmountIn(minutes, unit), unit)).toBe(minutes);
+      }
+    }
+  });
+});
+
+describe("parseEffortAmount", () => {
+  it("reads a decimal amount in the chosen unit", () => {
+    expect(parseEffortAmount("0.5", "days")).toBe(240);
+    expect(parseEffortAmount("0.5", "hours")).toBe(30);
+    expect(parseEffortAmount("1.25", "hours")).toBe(75);
+    expect(parseEffortAmount("2", "minutes")).toBe(2);
+  });
+
+  it("rounds to whole minutes", () => {
+    expect(parseEffortAmount("0.1", "hours")).toBe(6);
+    expect(parseEffortAmount("0.33", "hours")).toBe(20);
+    expect(parseEffortAmount("0.001", "hours")).toBeNull();
+  });
+
+  it("rejects nonsense and out-of-range values", () => {
+    expect(parseEffortAmount("", "hours")).toBeNull();
+    expect(parseEffortAmount("  ", "hours")).toBeNull();
+    expect(parseEffortAmount("abc", "hours")).toBeNull();
+    expect(parseEffortAmount("0", "days")).toBeNull();
+    expect(parseEffortAmount("-1", "hours")).toBeNull();
+    expect(parseEffortAmount("100", "days")).toBeNull();
+  });
+
+  it("round-trips the normalized pair", () => {
+    for (const minutes of [1, 15, 30, 45, 60, 90, 150, 240, 480, 600, 720, EFFORT_MAX_MINUTES]) {
+      const value = bestEffortUnit(minutes);
+      expect(parseEffortAmount(String(value.amount), value.unit)).toBe(minutes);
+    }
   });
 });

@@ -3,8 +3,6 @@ import { t } from "./i18n";
 /** Effort is minutes of work: one minute up to 480 hours (sixty eight-hour days). */
 export const EFFORT_MIN_MINUTES = 1;
 export const EFFORT_MAX_MINUTES = 28800;
-/** Arrow keys move a quarter hour. */
-export const EFFORT_STEP_MINUTES = 15;
 
 export function validEffort(minutes: number): boolean {
   return (
@@ -14,6 +12,43 @@ export function validEffort(minutes: number): boolean {
 
 /** One task day is eight hours, so a day is 480 minutes. */
 export const MINUTES_PER_DAY = 480;
+
+export type EffortUnit = "days" | "hours" | "minutes";
+
+export interface EffortAmount {
+  amount: number;
+  unit: EffortUnit;
+}
+
+const MINUTES_PER_UNIT: Record<EffortUnit, number> = {
+  days: MINUTES_PER_DAY,
+  hours: 60,
+  minutes: 1,
+};
+
+/** The largest unit that shows the value as a whole or half number. */
+export function bestEffortUnit(minutes: number): EffortAmount {
+  for (const unit of ["days", "hours"] as const) {
+    const amount = minutes / MINUTES_PER_UNIT[unit];
+    if (Number.isInteger(amount * 2)) return { amount, unit };
+  }
+  return { amount: minutes, unit: "minutes" };
+}
+
+/** An amount shown in the chosen unit, precise enough to read back to the same minute. */
+export function effortAmountIn(minutes: number, unit: EffortUnit): string {
+  return String(Number((minutes / MINUTES_PER_UNIT[unit]).toFixed(4)));
+}
+
+/** Reads a decimal amount in the chosen unit, rounded to whole minutes. */
+export function parseEffortAmount(text: string, unit: EffortUnit): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const amount = Number(trimmed);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const minutes = Math.round(amount * MINUTES_PER_UNIT[unit]);
+  return validEffort(minutes) ? minutes : null;
+}
 
 export function splitEffort(minutes: number): {
   days: number;
@@ -64,9 +99,4 @@ function readEffortText(text: string): number | null {
   if (minutes) return Math.round(Number(minutes[1]));
   const bare = /^\d+$/.exec(text);
   return bare ? Number(text) : null;
-}
-
-export function stepEffort(minutes: number, direction: 1 | -1): number {
-  const stepped = minutes + direction * EFFORT_STEP_MINUTES;
-  return Math.min(EFFORT_MAX_MINUTES, Math.max(EFFORT_MIN_MINUTES, stepped));
 }
