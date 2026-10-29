@@ -1,4 +1,4 @@
-import { setTaskStatus, startTask, suspendTask } from "../model/ipc";
+import { setTaskStatus, startTask, suspendTask, toggleStep } from "../model/ipc";
 import type { Task } from "../model/types";
 
 export function createTaskRowVM() {
@@ -14,7 +14,11 @@ export function createTaskRowVM() {
     return setTaskStatus(task.id, task.status === "done" ? "todo" : "done");
   }
 
-  return { start, suspend, toggleDone };
+  function toggleStepDone(stepId: string): Promise<Task> {
+    return toggleStep(stepId);
+  }
+
+  return { start, suspend, toggleDone, toggleStepDone };
 }
 
 export const taskRowVM = createTaskRowVM();

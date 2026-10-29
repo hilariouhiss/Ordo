@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pause, Play } from "@lucide/vue";
+import { ChevronRight, Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
@@ -7,6 +7,7 @@ import { askNotice, askSuspend } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
 import { canSuspendTask } from "../../lib/status";
+import { currentStep, stepLabel, stepsDone } from "../../lib/steps";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -27,7 +28,10 @@ const category = computed(
 const owner = computed(
   () => appVM.state.people.find((p) => p.id === props.task.ownerId)?.name ?? null,
 );
-const stepsDone = computed(() => props.task.steps.filter((s) => s.done).length);
+const done = computed(() => stepsDone(props.task.steps));
+const current = computed(() => currentStep(props.task.steps));
+const stepLine = computed(() => stepLabel(props.task.steps));
+const stepsId = computed(() => `steps-${props.task.id}`);
 const late = computed(() => overdueDays(props.task.dueDate, todayIso()));
 const overdue = computed(() => late.value > 0 && props.task.status !== "done");
 const conflictTitle = computed(() =>
@@ -38,6 +42,7 @@ const conflictTitle = computed(() =>
 );
 
 const busy = ref(false);
+const expanded = ref(false);
 const hasSteps = computed(() => props.task.steps.length > 0);
 const isDone = computed(() => props.task.status === "done");
 const canStart = computed(
@@ -49,6 +54,7 @@ const doneLabel = computed(() =>
 );
 const startLabel = computed(() => t("task.startAria", { title: props.task.title }));
 const suspendLabel = computed(() => t("task.suspendAria", { title: props.task.title }));
+const stepsLabel = computed(() => t(expanded.value ? "task.collapseSteps" : "task.expandSteps"));
 const suspendedBadge = computed(() =>
   props.task.suspendedAt
     ? t("task.suspendedFor", { days: daysSince(props.task.suspendedAt, todayIso()) })
@@ -71,6 +77,14 @@ async function run(action: () => Promise<unknown>): Promise<void> {
 function toggleDone(): void {
   if (hasSteps.value) return;
   void run(() => taskRowVM.toggleDone(props.task));
+}
+
+function toggleStep(stepId: string): void {
+  void run(() => taskRowVM.toggleStepDone(stepId));
+}
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value;
 }
 
 function onRowKey(event: KeyboardEvent): void {
@@ -108,7 +122,8 @@ async function suspend(): Promise<void> {
 <template>
   <motion.li
     v-bind="listItemMotion"
-    class="relative flex cursor-pointer items-center gap-2.5 rounded-xl bg-base-100 px-3 py-3 transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary/40"
+    class="relative cursor-pointer rounded-xl bg-base-100 px-3 py-3 focus-visible:ring-2 focus-visible:ring-primary/40"
+    :class="{ 'transition-opacity hover:opacity-90': !hasSteps }"
     tabindex="0"
     @click="onRowClick"
     @keydown.enter="onRowKey"
@@ -117,96 +132,158 @@ async function suspend(): Promise<void> {
       v-if="dropLine"
       class="pointer-events-none absolute -top-1 right-2 left-2 h-0.5 rounded-full bg-primary"
     ></span>
-    <slot name="leading" />
-    <button
-      v-if="!hasSteps"
-      class="flex shrink-0 rounded-full disabled:opacity-60"
-      :aria-label="doneLabel"
-      :title="doneLabel"
-      :disabled="busy"
-      @click.stop="toggleDone"
-    >
-      <StatusDot :status="task.status" :suspended="task.suspended" />
-    </button>
-    <span v-else class="shrink-0" :title="t('task.stepsHint')" @click.stop>
-      <StatusDot :status="task.status" :suspended="task.suspended" />
-    </span>
-    <span
-      class="text-[13px]"
-      :class="{ 'text-base-content/40 line-through': task.status === 'done' }"
-    >
-      {{ task.title }}
-    </span>
-    <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
-    <PriorityBadge :priority="task.priority" />
-    <span v-if="task.steps.length" class="text-[10px] text-base-content/40">
-      {{ stepsDone }}/{{ task.steps.length }}
-    </span>
-    <span v-if="task.effortDays !== 1" class="badge badge-ghost badge-xs">
-      {{ t("task.effortDays", { days: task.effortDays }) }}
-    </span>
-    <span
-      v-if="task.exclusive"
-      class="badge badge-soft badge-accent badge-xs"
-      :title="t('task.exclusiveHint')"
-    >
-      {{ t("task.exclusive") }}
-    </span>
-    <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
-      {{ t("task.plannedEnd", { date: shortDate(plan.end) }) }}
-    </span>
-    <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
-      {{ t("task.carry", { count: task.carryCount }) }}
-    </span>
-    <span
-      v-if="task.suspended"
-      class="badge badge-ghost badge-xs"
-      :title="task.suspendReason ?? undefined"
-    >
-      {{ suspendedBadge }}
-    </span>
-    <span v-if="task.suspended && task.suspendedUntil" class="badge badge-ghost badge-xs">
-      {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
-    </span>
-    <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
-      t("task.overdue", { days: late })
-    }}</span>
-    <span
-      v-if="plan?.conflict"
-      class="badge badge-soft badge-error badge-xs"
-      :title="conflictTitle"
-    >
-      {{ t("task.notFit") }}
-    </span>
-    <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
-    <span
-      v-if="task.dueDate"
-      class="w-11 text-right text-[11px]"
-      :class="overdue ? 'text-error' : 'text-base-content/45'"
-    >
-      {{ shortDate(task.dueDate) }}
-    </span>
-    <div class="flex shrink-0 items-center gap-0.5">
+    <div class="flex items-start gap-2.5">
+      <slot name="leading" />
       <button
-        v-if="canStart"
-        class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary disabled:opacity-50"
-        :aria-label="startLabel"
-        :title="startLabel"
+        v-if="!hasSteps"
+        class="mt-0.5 flex shrink-0 rounded-full disabled:opacity-60"
+        :aria-label="doneLabel"
+        :title="doneLabel"
         :disabled="busy"
-        @click.stop="start"
+        @click.stop="toggleDone"
       >
-        <Play :size="13" aria-hidden="true" />
+        <StatusDot :status="task.status" :suspended="task.suspended" />
       </button>
-      <button
-        v-if="canSuspend"
-        class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning disabled:opacity-50"
-        :aria-label="suspendLabel"
-        :title="suspendLabel"
-        :disabled="busy"
-        @click.stop="suspend"
-      >
-        <Pause :size="13" aria-hidden="true" />
-      </button>
+      <span v-else class="mt-0.5 shrink-0" :title="t('task.stepsHint')" @click.stop>
+        <StatusDot :status="task.status" :suspended="task.suspended" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2.5">
+          <span
+            class="text-[13px]"
+            :class="{ 'text-base-content/40 line-through': task.status === 'done' }"
+          >
+            {{ task.title }}
+          </span>
+          <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
+          <PriorityBadge :priority="task.priority" />
+          <button
+            v-if="hasSteps"
+            type="button"
+            class="flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[10px] text-base-content/40 hover:bg-base-200"
+            :aria-expanded="expanded"
+            :aria-controls="expanded ? stepsId : undefined"
+            :title="stepsLabel"
+            :aria-label="stepsLabel"
+            @click.stop="toggleExpanded"
+          >
+            {{ done }}/{{ task.steps.length }}
+            <ChevronRight
+              :size="11"
+              aria-hidden="true"
+              class="transition-transform duration-200"
+              :class="{ 'rotate-90': expanded }"
+            />
+          </button>
+          <span v-if="task.effortDays !== 1" class="badge badge-ghost badge-xs">
+            {{ t("task.effortDays", { days: task.effortDays }) }}
+          </span>
+          <span
+            v-if="task.exclusive"
+            class="badge badge-soft badge-accent badge-xs"
+            :title="t('task.exclusiveHint')"
+          >
+            {{ t("task.exclusive") }}
+          </span>
+          <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
+            {{ t("task.plannedEnd", { date: shortDate(plan.end) }) }}
+          </span>
+          <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
+            {{ t("task.carry", { count: task.carryCount }) }}
+          </span>
+          <span
+            v-if="task.suspended"
+            class="badge badge-ghost badge-xs"
+            :title="task.suspendReason ?? undefined"
+          >
+            {{ suspendedBadge }}
+          </span>
+          <span v-if="task.suspended && task.suspendedUntil" class="badge badge-ghost badge-xs">
+            {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
+          </span>
+          <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
+            t("task.overdue", { days: late })
+          }}</span>
+          <span
+            v-if="plan?.conflict"
+            class="badge badge-soft badge-error badge-xs"
+            :title="conflictTitle"
+          >
+            {{ t("task.notFit") }}
+          </span>
+          <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
+          <span
+            v-if="task.dueDate"
+            class="w-11 text-right text-[11px]"
+            :class="overdue ? 'text-error' : 'text-base-content/45'"
+          >
+            {{ shortDate(task.dueDate) }}
+          </span>
+          <div class="flex shrink-0 items-center gap-0.5">
+            <button
+              v-if="canStart"
+              class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary disabled:opacity-50"
+              :aria-label="startLabel"
+              :title="startLabel"
+              :disabled="busy"
+              @click.stop="start"
+            >
+              <Play :size="13" aria-hidden="true" />
+            </button>
+            <button
+              v-if="canSuspend"
+              class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning disabled:opacity-50"
+              :aria-label="suspendLabel"
+              :title="suspendLabel"
+              :disabled="busy"
+              @click.stop="suspend"
+            >
+              <Pause :size="13" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <p
+          v-if="stepLine && !expanded"
+          class="truncate text-[10.5px] leading-4 text-base-content/45"
+        >
+          {{ stepLine }}
+        </p>
+        <ul v-if="expanded" :id="stepsId" class="mt-1 mb-0.5 space-y-0.5">
+          <li v-for="(step, index) in task.steps" :key="step.id">
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-base-200 disabled:opacity-60"
+              :aria-label="step.title"
+              :disabled="busy"
+              @click.stop="toggleStep(step.id)"
+            >
+              <span class="w-3 shrink-0 text-[10px] tabular-nums text-base-content/30">{{
+                index + 1
+              }}</span>
+              <span
+                class="grid size-3.5 shrink-0 place-items-center rounded-full border-[1.5px]"
+                :class="
+                  step.done
+                    ? 'border-success bg-success'
+                    : current?.id === step.id
+                      ? 'border-primary/60'
+                      : 'border-base-content/25'
+                "
+              ></span>
+              <span
+                class="truncate text-[11px]"
+                :class="{ 'text-base-content/40 line-through': step.done }"
+                >{{ step.title }}</span
+              >
+              <span
+                v-if="current?.id === step.id"
+                class="badge badge-ghost badge-xs text-primary"
+                >{{ t("task.current") }}</span
+              >
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
   </motion.li>
 </template>

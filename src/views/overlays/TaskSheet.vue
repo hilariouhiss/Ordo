@@ -7,6 +7,7 @@ import { localDate, shortDate, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
+import { currentStep } from "../../lib/steps";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status } from "../../model/types";
@@ -260,7 +261,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ s.title }}
             </span>
             <span
-              v-if="!s.done && taskSheetVM.state.task.steps.findIndex((x) => !x.done) === i"
+              v-if="currentStep(taskSheetVM.state.task.steps)?.id === s.id"
               class="badge badge-ghost badge-xs text-primary"
             >
               {{ t("task.current") }}

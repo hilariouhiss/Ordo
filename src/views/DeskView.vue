@@ -23,6 +23,7 @@ import {
 import { applyDeskPin, readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
 import { errorText, t } from "../lib/i18n";
 import { canSuspendTask } from "../lib/status";
+import { stepLabel, stepsDone } from "../lib/steps";
 import { flatRect, prefersReducedMotion, tweenRect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
@@ -346,10 +347,6 @@ function canComplete(task: Task): boolean {
   return task.steps.length === 0 && task.status !== "done";
 }
 
-function stepsDone(task: Task): number {
-  return task.steps.filter((step) => step.done).length;
-}
-
 function startRow(task: Task): void {
   void vm.start(task);
 }
@@ -537,12 +534,12 @@ onUnmounted(() => {
             <div
               v-for="row in day.rows"
               :key="row.task.id"
-              class="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 hover:bg-base-200/70"
+              class="flex w-full items-start gap-1.5 rounded-lg px-1.5 py-1.5 hover:bg-base-200/70"
             >
               <button
                 v-if="state.controls && canComplete(row.task)"
                 type="button"
-                class="flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
+                class="mt-0.5 flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
                 :aria-label="t('task.doneAria', { title: row.task.title })"
                 :title="t('task.doneAria', { title: row.task.title })"
                 :disabled="state.busy"
@@ -550,36 +547,45 @@ onUnmounted(() => {
               >
                 <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
               </button>
-              <span v-else class="shrink-0">
+              <span v-else class="mt-0.5 shrink-0">
                 <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
               </span>
               <button
                 type="button"
-                class="flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-primary/40"
+                class="flex min-w-0 flex-1 flex-col gap-0.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-primary/40"
                 :title="t('desk.openTask', { title: row.task.title })"
                 :aria-label="t('desk.openTask', { title: row.task.title })"
                 @click="openTask(row.task)"
               >
-                <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.task.title }}</span>
-                <PriorityBadge :priority="row.task.priority" />
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.task.title }}</span>
+                  <PriorityBadge :priority="row.task.priority" />
+                  <span
+                    v-if="overdueDays(row.task.dueDate, todayIso()) > 0"
+                    class="badge badge-soft badge-error badge-xs"
+                    >{{
+                      t("task.overdue", { days: overdueDays(row.task.dueDate, todayIso()) })
+                    }}</span
+                  >
+                  <span v-if="row.task.carryCount" class="badge badge-ghost badge-xs">{{
+                    t("task.carry", { count: row.task.carryCount })
+                  }}</span>
+                  <span
+                    v-if="row.task.steps.length"
+                    class="shrink-0 text-[10px] text-base-content/40"
+                    >{{ stepsDone(row.task.steps) }}/{{ row.task.steps.length }}</span
+                  >
+                  <span v-if="row.spans" class="shrink-0 text-[10px] text-base-content/35"
+                    >→ {{ shortDate(row.end) }}</span
+                  >
+                </span>
                 <span
-                  v-if="overdueDays(row.task.dueDate, todayIso()) > 0"
-                  class="badge badge-soft badge-error badge-xs"
-                  >{{
-                    t("task.overdue", { days: overdueDays(row.task.dueDate, todayIso()) })
-                  }}</span
-                >
-                <span v-if="row.task.carryCount" class="badge badge-ghost badge-xs">{{
-                  t("task.carry", { count: row.task.carryCount })
-                }}</span>
-                <span v-if="row.task.steps.length" class="shrink-0 text-[10px] text-base-content/40"
-                  >{{ stepsDone(row.task) }}/{{ row.task.steps.length }}</span
-                >
-                <span v-if="row.spans" class="shrink-0 text-[10px] text-base-content/35"
-                  >→ {{ shortDate(row.end) }}</span
+                  v-if="stepLabel(row.task.steps)"
+                  class="truncate text-[10.5px] text-base-content/40"
+                  >{{ stepLabel(row.task.steps) }}</span
                 >
               </button>
-              <div v-if="state.controls" class="flex shrink-0 items-center gap-0.5">
+              <div v-if="state.controls" class="mt-0.5 flex shrink-0 items-center gap-0.5">
                 <button
                   v-if="canStart(row.task)"
                   type="button"
