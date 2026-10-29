@@ -53,26 +53,32 @@ fn route_owner(conn: &Connection, id: &str, patch: &TaskPatch, now: &str) -> Res
 
 /// Puts a task just before `before_id`, or last when there is no anchor.
 pub fn move_task(conn: &Connection, task_id: &str, before_id: Option<&str>) -> Result<(), String> {
-    let ids = crate::repo::tasks::ordered_ids(conn).map_err(|e| e.to_string())?;
-    let from = ids
+    let rows = crate::repo::tasks::ordered_rows(conn).map_err(|e| e.to_string())?;
+    let from = rows
         .iter()
-        .position(|id| id.as_str() == task_id)
+        .position(|(id, _)| id.as_str() == task_id)
         .ok_or("task_not_found")?;
-    let mut rest = ids;
-    rest.remove(from);
+    let mut rest = rows;
+    let moved = rest.remove(from);
     let to = match before_id {
         Some(before) if before == task_id => return Ok(()),
         Some(before) => rest
             .iter()
-            .position(|id| id.as_str() == before)
+            .position(|(id, _)| id.as_str() == before)
             .ok_or("task_not_found")?,
         None => rest.len(),
     };
     if to == from {
         return Ok(());
     }
-    rest.insert(to, task_id.to_owned());
-    crate::repo::tasks::write_orders(conn, &rest).map_err(|e| e.to_string())
+    rest.insert(to, moved);
+    let mut changes = Vec::new();
+    for (index, (id, order)) in rest.into_iter().enumerate() {
+        if index as i64 != order {
+            changes.push((id, index as i64));
+        }
+    }
+    crate::repo::tasks::write_orders(conn, &changes).map_err(|e| e.to_string())
 }
 
 pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Result<TaskDto, String> {
@@ -330,7 +336,11 @@ mod tests {
     }
 
     fn ordered(c: &Connection) -> Vec<String> {
-        crate::repo::tasks::ordered_ids(c).unwrap()
+        crate::repo::tasks::ordered_rows(c)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect()
     }
 
     fn three_tasks() -> Connection {
@@ -408,6 +418,28 @@ mod tests {
         let c = three_tasks();
         tasks::move_task(&c, "t2", Some("t3")).unwrap();
         assert_eq!(ordered(&c), vec!["t1", "t2", "t3"]);
+    }
+
+    #[test]
+    fn a_move_writes_only_the_rows_that_change_place() {
+        let c = db::open_in_memory().unwrap();
+        for id in ["t1", "t2", "t3", "t4", "t5"] {
+            week::capture(&c, id, NOW, id).unwrap();
+        }
+        c.execute_batch(
+            "CREATE TABLE order_writes (id TEXT);
+             CREATE TRIGGER log_order AFTER UPDATE OF sort_order ON tasks
+             BEGIN INSERT INTO order_writes (id) VALUES (OLD.id); END;",
+        )
+        .unwrap();
+
+        tasks::move_task(&c, "t2", Some("t4")).unwrap();
+
+        let writes: i64 = c
+            .query_row("SELECT COUNT(*) FROM order_writes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(writes, 2, "only t2 and t3 change place");
+        assert_eq!(ordered(&c), vec!["t1", "t3", "t2", "t4", "t5"]);
     }
 
     #[test]

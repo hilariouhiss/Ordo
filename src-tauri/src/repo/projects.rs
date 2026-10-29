@@ -118,6 +118,28 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
     Ok(project)
 }
 
+/// Whether the project exists at all, archived or not. Rule and template config
+/// may keep pointing at a project that was archived after the fact.
+pub fn exists_any(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM projects WHERE id = ?1 AND deleted_at IS NULL",
+        [id],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
+}
+
+pub fn is_archived(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM projects WHERE id = ?1 AND archived_at IS NOT NULL",
+        [id],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
+}
+
 pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT 1 FROM projects

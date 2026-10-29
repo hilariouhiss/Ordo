@@ -1,6 +1,6 @@
 use crate::dto::{PersonDto, ProjectDto, ProjectGroupDto};
 use crate::repo::{people, project_groups, projects};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
 
 pub fn create(conn: &Connection, name: &str, now: &str) -> Result<ProjectDto, String> {
@@ -95,6 +95,23 @@ pub fn rename_group(conn: &Connection, id: &str, name: &str, now: &str) -> Resul
 
 pub fn delete_group(conn: &Connection, id: &str) -> Result<(), String> {
     project_groups::delete(conn, id).map_err(|e| e.to_string())
+}
+
+/// Only an archived project may be deleted, the same rule a task follows.
+pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
+    let archived: Option<Option<String>> = conn
+        .query_row(
+            "SELECT archived_at FROM projects WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    match archived {
+        None => Ok(()),
+        Some(None) => Err("project_not_archived".into()),
+        Some(Some(_)) => projects::delete(conn, id).map_err(|e| e.to_string()),
+    }
 }
 
 pub fn add_member(
@@ -398,6 +415,48 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn an_active_project_cannot_be_deleted() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
+            .unwrap();
+
+        assert_eq!(
+            projects::delete(&c, &p.id).unwrap_err(),
+            "project_not_archived"
+        );
+        let tasks: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tasks, 1);
+        assert!(crate::repo::projects::dto(&c, &p.id).is_ok());
+    }
+
+    #[test]
+    fn an_archived_project_can_be_deleted() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
+            .unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+
+        projects::delete(&c, &p.id).unwrap();
+
+        let tasks: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tasks, 0);
+    }
+
+    #[test]
+    fn deleting_a_missing_project_is_a_noop() {
+        let c = db::open_in_memory().unwrap();
+        projects::delete(&c, "nope").unwrap();
     }
 
     #[test]

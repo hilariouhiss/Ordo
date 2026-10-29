@@ -53,6 +53,18 @@ pub fn live(conn: &Connection) -> rusqlite::Result<Vec<RuleDto>> {
     query(conn, "enabled = 1")
 }
 
+/// The local date the rule started existing; a new rule must not backfill before it.
+pub fn created_on(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
+    let found: Option<Option<String>> = conn
+        .query_row(
+            "SELECT date(created_at, 'localtime') FROM task_rules WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(found.flatten())
+}
+
 pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<Option<RuleDto>> {
     let sql = format!("SELECT {COLUMNS} FROM task_rules WHERE id = ?1 AND deleted_at IS NULL");
     conn.prepare_cached(&sql)?

@@ -1,6 +1,6 @@
 use crate::dto::{CaptureFields, TaskDto, TemplateDto, TemplateInput};
 use crate::repo::steps as step_repo;
-use crate::repo::{categories, people, projects, tasks, templates};
+use crate::repo::{tasks, templates};
 use crate::services::steps as step_service;
 use crate::services::week;
 use rusqlite::{params, Connection};
@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 pub fn save(conn: &Connection, input: &TemplateInput, now: &str) -> Result<TemplateDto, String> {
     let template = normalize(input)?;
-    validate_links(
+    crate::services::validate_links(
         conn,
         template.project_id.as_deref(),
         template.category_id.as_deref(),
@@ -126,30 +126,6 @@ fn normalize(input: &TemplateInput) -> Result<TemplateInput, String> {
             .filter(|step| !step.is_empty())
             .collect(),
     })
-}
-
-fn validate_links(
-    conn: &Connection,
-    project_id: Option<&str>,
-    category_id: Option<&str>,
-    owner_id: Option<&str>,
-) -> Result<(), String> {
-    if let Some(id) = project_id {
-        if !projects::exists(conn, id).map_err(|e| e.to_string())? {
-            return Err("invalid_project".into());
-        }
-    }
-    if let Some(id) = category_id {
-        if !categories::exists(conn, id).map_err(|e| e.to_string())? {
-            return Err("invalid_category".into());
-        }
-    }
-    if let Some(id) = owner_id {
-        if !people::exists(conn, id).map_err(|e| e.to_string())? {
-            return Err("invalid_owner".into());
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

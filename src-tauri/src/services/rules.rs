@@ -1,5 +1,5 @@
 use crate::dto::{RuleDto, RuleInput};
-use crate::repo::{categories, people, projects, rules};
+use crate::repo::rules;
 use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, SecondsFormat};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
@@ -10,7 +10,7 @@ const BACK_DAYS: i64 = 1;
 
 pub fn save(conn: &Connection, input: &RuleInput, now: &str) -> Result<RuleDto, String> {
     let rule = normalize(input)?;
-    validate_links(
+    crate::services::validate_links(
         conn,
         rule.project_id.as_deref(),
         rule.category_id.as_deref(),
@@ -106,30 +106,6 @@ pub fn normalize_time(raw: &str) -> Result<String, String> {
     Ok(format!("{hour:02}:{minute:02}"))
 }
 
-fn validate_links(
-    conn: &Connection,
-    project_id: Option<&str>,
-    category_id: Option<&str>,
-    owner_id: Option<&str>,
-) -> Result<(), String> {
-    if let Some(id) = project_id {
-        if !projects::exists(conn, id).map_err(|e| e.to_string())? {
-            return Err("invalid_project".into());
-        }
-    }
-    if let Some(id) = category_id {
-        if !categories::exists(conn, id).map_err(|e| e.to_string())? {
-            return Err("invalid_category".into());
-        }
-    }
-    if let Some(id) = owner_id {
-        if !people::exists(conn, id).map_err(|e| e.to_string())? {
-            return Err("invalid_owner".into());
-        }
-    }
-    Ok(())
-}
-
 /// Creates the task rows for the occurrences that are due. Runs on the reminder tick and
 /// right after a rule is saved, so a new rule shows today's occurrence immediately.
 pub fn materialize(conn: &Connection, now: DateTime<Local>) -> Result<Vec<String>, String> {
@@ -151,6 +127,14 @@ pub fn materialize_rule(
     if NaiveTime::parse_from_str(&rule.at, "%H:%M").is_err() {
         return Ok(Vec::new());
     }
+    // An archived project is parked, so its rules must not fill the ledger with rows
+    // that no surface shows and that reappear when the project is restored.
+    if let Some(project_id) = rule.project_id.as_deref() {
+        if crate::repo::projects::is_archived(conn, project_id).map_err(|e| e.to_string())? {
+            return Ok(Vec::new());
+        }
+    }
+    let created_on = rules::created_on(conn, &rule.id).map_err(|e| e.to_string())?;
     let today = now.date_naive();
     let mut created = Vec::new();
     for back in 0..=BACK_DAYS {
@@ -162,6 +146,12 @@ pub fn materialize_rule(
             continue;
         }
         let due = date.format("%Y-%m-%d").to_string();
+        // A rule cannot owe occurrences from before it existed.
+        if let Some(created) = created_on.as_deref() {
+            if due.as_str() < created {
+                continue;
+            }
+        }
         // Deleted and archived rows count too: a removed occurrence must not come back.
         let exists: bool = conn
             .query_row(
@@ -188,7 +178,15 @@ fn insert_generated(
     let stamp = now
         .to_utc()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
-    conn.execute(
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    // Same rule as a captured task: an owner inside a project is a member of it.
+    crate::services::projects::ensure_member(
+        &tx,
+        rule.project_id.as_deref(),
+        rule.owner_id.as_deref(),
+        &stamp,
+    )?;
+    tx.execute(
         "INSERT INTO tasks (id, title, project_id, category_id, owner_id, priority, due_date,
                             due_time, effort_minutes, time_exclusive, status, in_week, carry_count,
                             sort_order, rule_id, created_at, updated_at)
@@ -212,6 +210,7 @@ fn insert_generated(
         ],
     )
     .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(id)
 }
 
@@ -294,14 +293,90 @@ mod tests {
     }
 
     #[test]
-    fn yesterday_is_backfilled() {
+    fn an_existing_rule_backfills_yesterday() {
         let c = db::open_in_memory().unwrap();
         let yesterday = weekday(2026, 10, 19);
         let rule = save(&c, &input("开会", vec![yesterday], "13:30"), NOW).unwrap();
+        // The rule existed before yesterday; the tick catches its missed occurrence up.
+        c.execute(
+            "UPDATE task_rules SET created_at = '2026-10-18T08:00:00Z' WHERE id = ?1",
+            [&rule.id],
+        )
+        .unwrap();
 
         let created = materialize(&c, at(2026, 10, 20, 8, 0)).unwrap();
         assert_eq!(created.len(), 1);
         assert_eq!(generated(&c, &rule.id)[0].0, "2026-10-19");
+    }
+
+    #[test]
+    fn a_new_rule_does_not_backfill_yesterday() {
+        let c = db::open_in_memory().unwrap();
+        let monday = weekday(2026, 10, 19);
+        let rule = save(&c, &input("开会", vec![monday], "13:30"), NOW).unwrap();
+
+        // The save command materializes right after creating the rule.
+        let created = materialize_rule(&c, &rule, at(2026, 10, 20, 8, 0)).unwrap();
+
+        assert!(created.is_empty());
+        assert!(generated(&c, &rule.id).is_empty());
+
+        // A later Monday is after the rule existed, so it still appears.
+        assert_eq!(
+            materialize_rule(&c, &rule, at(2026, 10, 26, 8, 0))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_rule_for_an_archived_project_creates_nothing() {
+        let c = db::open_in_memory().unwrap();
+        let project = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let day = weekday(2026, 10, 20);
+        let mut draft = input("报销", vec![day], "09:00");
+        draft.project_id = Some(project.id.clone());
+        let rule = save(&c, &draft, NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &project.id, true, NOW).unwrap();
+
+        assert!(materialize(&c, at(2026, 10, 20, 10, 0)).unwrap().is_empty());
+        assert!(generated(&c, &rule.id).is_empty());
+    }
+
+    #[test]
+    fn an_archived_project_rule_can_still_be_edited() {
+        let c = db::open_in_memory().unwrap();
+        let project = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let day = weekday(2026, 10, 20);
+        let mut draft = input("报销", vec![day], "09:00");
+        draft.project_id = Some(project.id.clone());
+        let rule = save(&c, &draft, NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &project.id, true, NOW).unwrap();
+
+        draft.id = Some(rule.id.clone());
+        draft.title = "报销（改）".into();
+        let saved = save(&c, &draft, NOW).unwrap();
+
+        assert_eq!(saved.title, "报销（改）");
+        assert_eq!(saved.project_id.as_deref(), Some(project.id.as_str()));
+    }
+
+    #[test]
+    fn a_generated_task_joins_the_project_members() {
+        let c = db::open_in_memory().unwrap();
+        let project = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let outsider = crate::repo::people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        let day = weekday(2026, 10, 20);
+        let mut draft = input("交底", vec![day], "09:00");
+        draft.project_id = Some(project.id.clone());
+        draft.owner_id = Some(outsider.id.clone());
+        let rule = save(&c, &draft, NOW).unwrap();
+
+        materialize(&c, at(2026, 10, 20, 10, 0)).unwrap();
+
+        assert!(crate::repo::projects::is_member(&c, &project.id, &outsider.id).unwrap());
+        assert_eq!(generated(&c, &rule.id).len(), 1);
     }
 
     #[test]

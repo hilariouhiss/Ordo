@@ -329,19 +329,21 @@ pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub fn ordered_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE deleted_at IS NULL ORDER BY sort_order, id")?;
-    let rows = stmt.query_map([], |r| r.get(0))?;
+/// Ids with their current order value, so a move can write only what changed.
+pub fn ordered_rows(conn: &Connection) -> rusqlite::Result<Vec<(String, i64)>> {
+    let mut stmt =
+        conn.prepare("SELECT id, sort_order FROM tasks WHERE deleted_at IS NULL ORDER BY sort_order, id")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
     rows.collect()
 }
 
-/// Renumbers every task in one transaction, so the order stays dense and tie-free.
-pub fn write_orders(conn: &Connection, ids: &[String]) -> rusqlite::Result<()> {
+/// Writes only the given order values, in one transaction, so the order stays dense.
+pub fn write_orders(conn: &Connection, orders: &[(String, i64)]) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     {
         let mut stmt = tx.prepare_cached("UPDATE tasks SET sort_order = ?1 WHERE id = ?2")?;
-        for (index, id) in ids.iter().enumerate() {
-            stmt.execute(params![index as i64, id])?;
+        for (id, order) in orders {
+            stmt.execute(params![order, id])?;
         }
     }
     tx.commit()

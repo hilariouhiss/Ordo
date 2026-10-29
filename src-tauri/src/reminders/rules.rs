@@ -49,14 +49,17 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         // the key is still the day, so it fires once. Add a due_at kind when the copy
         // needs to differ.
         if let Some(at) = timed {
-            let scheduled = local_at(due_date, at.hour(), at.minute())?;
-            if due_date == today && scheduled <= now && recent(scheduled, now) {
-                out.push(Candidate {
-                    task_id: task_id.clone(),
-                    kind: "due_tomorrow",
-                    due_key: due.clone(),
-                    scheduled_for: scheduled,
-                });
+            // A daylight-saving gap means this clock time does not exist that day;
+            // skip the task instead of failing every other reminder in the scan.
+            if let Ok(scheduled) = local_at(due_date, at.hour(), at.minute()) {
+                if due_date == today && scheduled <= now && recent(scheduled, now) {
+                    out.push(Candidate {
+                        task_id: task_id.clone(),
+                        kind: "due_tomorrow",
+                        due_key: due.clone(),
+                        scheduled_for: scheduled,
+                    });
+                }
             }
         }
 
