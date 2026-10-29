@@ -123,3 +123,9 @@ html[data-window="main"] body {
 html[data-window="main"] .window-scrim {
   border-radius: var(--window-radius, 8px);
 }
+
+/* The right-side task sheet reaches the window edge; round only its outer corners. */
+html[data-window="main"] .window-edge-panel {
+  border-top-right-radius: var(--window-radius, 8px);
+  border-bottom-right-radius: var(--window-radius, 8px);
+}

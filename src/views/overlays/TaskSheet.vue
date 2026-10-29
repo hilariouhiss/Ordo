@@ -192,7 +192,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   >
     <motion.aside
       v-bind="sheetPanelMotion"
-      class="h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl"
+      class="window-edge-panel h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl"
     >
       <div class="flex items-start gap-2">
         <h2 class="text-[17px] font-semibold leading-snug">{{ taskSheetVM.state.task?.title }}</h2>
