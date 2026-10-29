@@ -595,6 +595,19 @@ mod tests {
     }
 
     #[test]
+    fn task_list_keeps_the_name_of_an_archived_project() {
+        let c = db::open_in_memory().unwrap();
+        seed_project(&c, "p1");
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET project_id='p1' WHERE id='t1'", [])
+            .unwrap();
+        crate::repo::projects::set_archived(&c, "p1", true, NOW).unwrap();
+
+        let task = crate::repo::tasks::list_all_active(&c).unwrap().remove(0);
+        assert_eq!(task.project_name.as_deref(), Some("p1"));
+    }
+
+    #[test]
     fn a_status_change_keeps_a_suspended_task_out_of_the_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();

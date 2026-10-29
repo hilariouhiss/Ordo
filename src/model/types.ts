@@ -86,6 +86,8 @@ export interface Task {
   id: string;
   title: string;
   projectId: string | null;
+  /** Display name of the project, even when it is archived. */
+  projectName: string | null;
   categoryId: string | null;
   ownerId: string | null;
   startDate: string | null;

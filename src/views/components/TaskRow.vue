@@ -16,11 +16,15 @@ import { taskRowVM } from "../../viewmodels/taskRowVM";
 import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
-const props = defineProps<{
-  task: Task;
-  plan?: { end: string; spans: boolean; conflict: boolean };
-  dropLine?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    task: Task;
+    plan?: { end: string; spans: boolean; conflict: boolean };
+    dropLine?: boolean;
+    showProject?: boolean;
+  }>(),
+  { showProject: true },
+);
 const emit = defineEmits<{ open: [Task]; changed: [] }>();
 
 const category = computed(
@@ -155,6 +159,13 @@ async function suspend(): Promise<void> {
             :class="{ 'text-base-content/40 line-through': task.status === 'done' }"
           >
             {{ task.title }}
+          </span>
+          <span
+            v-if="showProject && task.projectName"
+            class="badge badge-soft badge-primary badge-xs max-w-32 truncate"
+            :title="task.projectName"
+          >
+            {{ task.projectName }}
           </span>
           <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
           <PriorityBadge :priority="task.priority" />

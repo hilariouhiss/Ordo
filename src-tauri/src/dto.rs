@@ -81,6 +81,8 @@ pub struct TaskDto {
     pub id: String,
     pub title: String,
     pub project_id: Option<String>,
+    /// Display name of the project, even when it is archived.
+    pub project_name: Option<String>,
     pub category_id: Option<String>,
     pub owner_id: Option<String>,
     pub start_date: Option<String>,

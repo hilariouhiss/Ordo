@@ -24,6 +24,7 @@ export function task(over: Partial<Task> = {}): Task {
     id: "t1",
     title: "示例",
     projectId: null,
+    projectName: null,
     categoryId: null,
     ownerId: null,
     startDate: null,

@@ -85,7 +85,8 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
         "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, due_time, status,
                 in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
                 note, archived_at, canceled_at,
-                created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive
+                created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
+                (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL)
          FROM tasks WHERE id = ?1",
     )?;
     let mut task = task_stmt.query_row([id], |r| {
@@ -117,6 +118,7 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
             effort_minutes: r.get(21)?,
             priority: r.get(22)?,
             exclusive: r.get::<_, i64>(23)? == 1,
+            project_name: r.get(24)?,
         })
     })?;
 
