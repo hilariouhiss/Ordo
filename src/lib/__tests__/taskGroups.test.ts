@@ -1,13 +1,34 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { Category, Tag } from "../../model/types";
+import type { Category, Person, Priority, Tag } from "../../model/types";
 import { task } from "../../viewmodels/__tests__/fixtures";
-import { groupTasks } from "../taskGroups";
+import { groupTasks, type TaskGroupOptions } from "../taskGroups";
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 const categories: Category[] = [
   { id: "c2", name: "Docs", sortOrder: 2 },
   { id: "c1", name: "Code", sortOrder: 1 },
 ];
+const people: Person[] = [
+  { id: "u1", name: "Alice", isMe: true },
+  { id: "u2", name: "Bob", isMe: false },
+];
+const priorityLabels: Record<Priority, string> = {
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+function options(overrides: Partial<TaskGroupOptions> = {}): TaskGroupOptions {
+  return {
+    by: "project",
+    categories,
+    people,
+    priorityLabels,
+    collator,
+    noneName: "None",
+    ...overrides,
+  };
+}
 
 function tag(id: string, name: string): Tag {
   return { id, name };
@@ -27,7 +48,7 @@ describe("groupTasks", () => {
         task({ id: "t4", projectId: "p2", projectName: "Beta" }),
         task({ id: "t5", projectId: "gone", projectName: null }),
       ],
-      { by: "project", categories, collator, noneName: "No project" },
+      options({ by: "project", noneName: "No project" }),
     );
 
     expect(summary(groups)).toEqual([
@@ -45,7 +66,7 @@ describe("groupTasks", () => {
         task({ id: "t3", categoryId: "gone" }),
         task({ id: "t4", categoryId: null }),
       ],
-      { by: "category", categories, collator, noneName: "Uncategorized" },
+      options({ by: "category", noneName: "Uncategorized" }),
     );
 
     expect(summary(groups)).toEqual([
@@ -62,7 +83,7 @@ describe("groupTasks", () => {
         task({ id: "t2", tags: [] }),
         task({ id: "t3", tags: [tag("g1", "Client"), tag("g2", "Work")] }),
       ],
-      { by: "tag", categories, collator, noneName: "No tag" },
+      options({ by: "tag", noneName: "No tag" }),
     );
 
     expect(summary(groups)).toEqual([
@@ -72,9 +93,43 @@ describe("groupTasks", () => {
     ]);
   });
 
-  it("returns nothing when there are no tasks", () => {
-    expect(groupTasks([], { by: "project", categories, collator, noneName: "No project" })).toEqual(
-      [],
+  it("groups by owner and folds missing people into unassigned", () => {
+    const groups = groupTasks(
+      [
+        task({ id: "t1", ownerId: "u2" }),
+        task({ id: "t2", ownerId: null }),
+        task({ id: "t3", ownerId: "u1" }),
+        task({ id: "t4", ownerId: "gone" }),
+      ],
+      options({ by: "owner", noneName: "Unassigned" }),
     );
+
+    expect(summary(groups)).toEqual([
+      ["Alice", ["t3"]],
+      ["Bob", ["t1"]],
+      ["Unassigned", ["t2", "t4"]],
+    ]);
+  });
+
+  it("orders priority groups from high to low", () => {
+    const groups = groupTasks(
+      [
+        task({ id: "t1", priority: "low" }),
+        task({ id: "t2", priority: "high" }),
+        task({ id: "t3", priority: "normal" }),
+        task({ id: "t4", priority: "high" }),
+      ],
+      options({ by: "priority", noneName: "Unassigned" }),
+    );
+
+    expect(summary(groups)).toEqual([
+      ["High", ["t2", "t4"]],
+      ["Normal", ["t3"]],
+      ["Low", ["t1"]],
+    ]);
+  });
+
+  it("returns nothing when there are no tasks", () => {
+    expect(groupTasks([], options({ by: "project", noneName: "No project" }))).toEqual([]);
   });
 });

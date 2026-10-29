@@ -1,4 +1,5 @@
 import type { Language } from "../lib/i18n";
+import type { TaskGrouping } from "../lib/taskGroups";
 import type { ThemePref } from "../lib/theme";
 
 export type Status = "todo" | "doing" | "done";
@@ -43,6 +44,7 @@ export interface Settings {
   deskPin: DeskPin;
   deskX: number | null;
   deskY: number | null;
+  tasksGroupBy: TaskGrouping;
 }
 
 export interface ProjectMember {

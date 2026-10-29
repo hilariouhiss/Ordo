@@ -1,18 +1,25 @@
-import { computed, reactive } from "vue";
+import { computed, reactive, watch } from "vue";
 import { language, t } from "../lib/i18n";
-import { groupTasks, type TaskGroup, type TaskGroupBy } from "../lib/taskGroups";
-import { listAllTasks } from "../model/ipc";
+import { groupTasks, type TaskGroup, type TaskGrouping } from "../lib/taskGroups";
+import { listAllTasks, setSettings } from "../model/ipc";
 import type { Task } from "../model/types";
 import { appVM } from "./appVM";
-
-type TaskGrouping = TaskGroupBy | "none";
 
 export function createTasksVM() {
   const state = reactive({
     tasks: [] as Task[],
     loading: false,
     groupBy: "none" as TaskGrouping,
+    collapsed: {} as Record<string, boolean>,
   });
+
+  watch(
+    () => appVM.state.settings?.tasksGroupBy,
+    (saved) => {
+      if (saved) state.groupBy = saved;
+    },
+    { immediate: true },
+  );
 
   const sections = computed<TaskGroup[]>(() => {
     if (!state.tasks.length) return [];
@@ -21,13 +28,21 @@ export function createTasksVM() {
     return groupTasks(state.tasks, {
       by,
       categories: appVM.state.categories,
+      people: appVM.state.people,
+      priorityLabels: {
+        high: t("task.priorityHigh"),
+        normal: t("task.priorityNormal"),
+        low: t("task.priorityLow"),
+      },
       collator: new Intl.Collator(language.value, { sensitivity: "base", numeric: true }),
       noneName:
         by === "project"
           ? t("task.noProject")
           : by === "category"
             ? t("common.uncategorized")
-            : t("tasks.noTag"),
+            : by === "tag"
+              ? t("tasks.noTag")
+              : t("task.unassigned"),
     });
   });
 
@@ -40,11 +55,30 @@ export function createTasksVM() {
     }
   }
 
-  function setGroupBy(next: TaskGrouping): void {
+  async function setGroupBy(next: TaskGrouping): Promise<void> {
+    if (state.groupBy === next) return;
     state.groupBy = next;
+    try {
+      await setSettings({ tasksGroupBy: next });
+      // A slower reply must not pull the tab back after another click.
+      if (state.groupBy === next && appVM.state.settings) {
+        appVM.state.settings.tasksGroupBy = next;
+      }
+    } catch {
+      // Best effort: the list still works if the preference cannot be saved.
+    }
   }
 
-  return { state, sections, load, setGroupBy };
+  function isGroupCollapsed(key: string): boolean {
+    return !!state.collapsed[`${state.groupBy}:${key}`];
+  }
+
+  function toggleGroup(key: string): void {
+    const id = `${state.groupBy}:${key}`;
+    state.collapsed[id] = !state.collapsed[id];
+  }
+
+  return { state, sections, load, setGroupBy, isGroupCollapsed, toggleGroup };
 }
 
 export const tasksVM = createTasksVM();

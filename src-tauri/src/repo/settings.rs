@@ -62,6 +62,13 @@ pub fn valid_desk_pin(value: &str) -> bool {
     matches!(value, "top" | "bottom")
 }
 
+pub fn valid_task_group_by(value: &str) -> bool {
+    matches!(
+        value,
+        "none" | "project" | "category" | "tag" | "owner" | "priority"
+    )
+}
+
 /// The endpoint receives the API key, so it has to be https; a local server may be http.
 pub fn valid_ai_base_url(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value.trim()) else {
@@ -140,6 +147,11 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .unwrap_or_else(|| "top".into()),
         desk_x: opt_num(&map, "desk.x"),
         desk_y: opt_num(&map, "desk.y"),
+        tasks_group_by: map
+            .get("tasks.group_by")
+            .filter(|value| valid_task_group_by(value))
+            .cloned()
+            .unwrap_or_else(|| "none".into()),
     })
 }
 
@@ -188,5 +200,20 @@ mod tests {
         assert!(valid_desk_pin("bottom"));
         assert!(!valid_desk_pin(""));
         assert!(!valid_desk_pin("normal"));
+    }
+
+    #[test]
+    fn task_group_by_defaults_and_roundtrips() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert_eq!(dto(&c).unwrap().tasks_group_by, "none");
+
+        for value in ["none", "project", "category", "tag", "owner", "priority"] {
+            assert!(valid_task_group_by(value));
+            set(&c, "tasks.group_by", value).unwrap();
+            assert_eq!(dto(&c).unwrap().tasks_group_by, value);
+        }
+
+        set(&c, "tasks.group_by", "status").unwrap();
+        assert_eq!(dto(&c).unwrap().tasks_group_by, "none");
     }
 }

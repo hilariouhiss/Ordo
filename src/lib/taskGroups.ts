@@ -1,6 +1,7 @@
-import type { Category, Task } from "../model/types";
+import type { Category, Person, Priority, Task } from "../model/types";
 
-export type TaskGroupBy = "project" | "category" | "tag";
+export type TaskGroupBy = "project" | "category" | "tag" | "owner" | "priority";
+export type TaskGrouping = TaskGroupBy | "none";
 
 export interface TaskGroup {
   key: string;
@@ -11,11 +12,14 @@ export interface TaskGroup {
 export interface TaskGroupOptions {
   by: TaskGroupBy;
   categories: Category[];
+  people: Person[];
+  priorityLabels: Record<Priority, string>;
   collator: Intl.Collator;
   noneName: string;
 }
 
 const NONE_KEY = "__none__";
+const PRIORITY_ORDER: Priority[] = ["high", "normal", "low"];
 
 /** Keeps the incoming task order inside a group; only the groups themselves are sorted. */
 function sortByName(groups: TaskGroup[], collator: Intl.Collator): void {
@@ -91,6 +95,55 @@ function byTag(tasks: Task[], collator: Intl.Collator, noneName: string): TaskGr
   return result;
 }
 
+function byOwner(
+  tasks: Task[],
+  people: Person[],
+  collator: Intl.Collator,
+  noneName: string,
+): TaskGroup[] {
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  const groups = new Map<string, TaskGroup>();
+  const none: Task[] = [];
+  for (const task of tasks) {
+    const person = task.ownerId ? peopleById.get(task.ownerId) : undefined;
+    if (!person) {
+      none.push(task);
+      continue;
+    }
+    const group = groups.get(person.id) ?? { key: person.id, name: person.name, tasks: [] };
+    group.tasks.push(task);
+    groups.set(person.id, group);
+  }
+
+  const result = [...groups.values()];
+  sortByName(result, collator);
+  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  return result;
+}
+
+function byPriority(
+  tasks: Task[],
+  labels: Record<Priority, string>,
+  noneName: string,
+): TaskGroup[] {
+  const groups: TaskGroup[] = PRIORITY_ORDER.map((priority) => ({
+    key: priority,
+    name: labels[priority],
+    tasks: [],
+  }));
+  const byId = new Map(groups.map((group) => [group.key, group]));
+  const none: Task[] = [];
+  for (const task of tasks) {
+    const group = byId.get(task.priority);
+    if (group) group.tasks.push(task);
+    else none.push(task);
+  }
+
+  const result = groups.filter((group) => group.tasks.length > 0);
+  if (none.length) result.push({ key: NONE_KEY, name: noneName, tasks: none });
+  return result;
+}
+
 export function groupTasks(tasks: Task[], options: TaskGroupOptions): TaskGroup[] {
   if (!tasks.length) return [];
   switch (options.by) {
@@ -100,5 +153,9 @@ export function groupTasks(tasks: Task[], options: TaskGroupOptions): TaskGroup[
       return byCategory(tasks, options.categories, options.collator, options.noneName);
     case "tag":
       return byTag(tasks, options.collator, options.noneName);
+    case "owner":
+      return byOwner(tasks, options.people, options.collator, options.noneName);
+    case "priority":
+      return byPriority(tasks, options.priorityLabels, options.noneName);
   }
 }

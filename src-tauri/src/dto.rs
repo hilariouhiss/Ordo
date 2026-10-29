@@ -51,6 +51,8 @@ pub struct SettingsDto {
     /// Physical pixels of the expanded window's top-left corner.
     pub desk_x: Option<i64>,
     pub desk_y: Option<i64>,
+    /// The task page grouping choice; "none" when unset.
+    pub tasks_group_by: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -344,4 +346,5 @@ pub struct SettingsPatch {
     pub desk_pin: Option<String>,
     pub desk_x: Option<i64>,
     pub desk_y: Option<i64>,
+    pub tasks_group_by: Option<String>,
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ChevronRight } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, onMounted, watch } from "vue";
 import { t } from "../lib/i18n";
@@ -15,6 +16,8 @@ const groupOptions = computed(
       { value: "project", label: t("tasks.groupProject") },
       { value: "category", label: t("tasks.groupCategory") },
       { value: "tag", label: t("tasks.groupTag") },
+      { value: "owner", label: t("tasks.groupOwner") },
+      { value: "priority", label: t("tasks.groupPriority") },
     ] as const,
 );
 // A ref nested in the VM object is not unwrapped by the template.
@@ -35,6 +38,10 @@ function openTask(task: Task): void {
 
 function refresh(): void {
   void tasksVM.load();
+}
+
+function groupListId(key: string): string {
+  return `tasks-group-${key}`;
 }
 </script>
 
@@ -66,24 +73,48 @@ function refresh(): void {
 
     <div v-if="tasksVM.state.tasks.length" class="space-y-2">
       <section v-for="group in sections" :key="group.key">
-        <div
-          v-if="tasksVM.state.groupBy !== 'none'"
-          class="flex items-center gap-2 px-1 pt-2 pb-1 text-[10.5px] text-base-content/45"
-        >
-          <h2 class="font-medium text-base-content/60">{{ group.name }}</h2>
-          <span class="tabular-nums">{{ group.tasks.length }}</span>
-          <span class="h-px flex-1 bg-base-300/70"></span>
+        <h2 v-if="tasksVM.state.groupBy !== 'none'">
+          <button
+            type="button"
+            class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-1 pt-2 pb-1 text-left text-[10.5px] text-base-content/45 hover:text-base-content/70 focus-visible:ring-2 focus-visible:ring-primary/40"
+            :aria-expanded="!tasksVM.isGroupCollapsed(group.key)"
+            :aria-controls="groupListId(group.key)"
+            :aria-label="
+              t(tasksVM.isGroupCollapsed(group.key) ? 'tasks.expandGroup' : 'tasks.collapseGroup', {
+                name: group.name,
+              })
+            "
+            @click="tasksVM.toggleGroup(group.key)"
+          >
+            <ChevronRight
+              :size="12"
+              aria-hidden="true"
+              class="shrink-0 transition-transform duration-150"
+              :class="{ 'rotate-90': !tasksVM.isGroupCollapsed(group.key) }"
+            />
+            <span class="font-medium text-base-content/60">{{ group.name }}</span>
+            <span class="tabular-nums">{{ group.tasks.length }}</span>
+            <span class="h-px flex-1 bg-base-300/70"></span>
+          </button>
+        </h2>
+        <div :id="groupListId(group.key)">
+          <AnimatePresence
+            v-if="tasksVM.state.groupBy === 'none' || !tasksVM.isGroupCollapsed(group.key)"
+            as="ul"
+            mode="popLayout"
+            :initial="false"
+            class="space-y-1.5"
+          >
+            <TaskRow
+              v-for="task in group.tasks"
+              :key="task.id"
+              :task="task"
+              :show-project="tasksVM.state.groupBy !== 'project'"
+              @open="openTask"
+              @changed="refresh"
+            />
+          </AnimatePresence>
         </div>
-        <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
-          <TaskRow
-            v-for="task in group.tasks"
-            :key="task.id"
-            :task="task"
-            :show-project="tasksVM.state.groupBy !== 'project'"
-            @open="openTask"
-            @changed="refresh"
-          />
-        </AnimatePresence>
       </section>
     </div>
     <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">

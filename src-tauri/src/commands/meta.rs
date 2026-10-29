@@ -197,6 +197,11 @@ pub async fn set_settings(
             return Err("invalid_desk_pin".into());
         }
     }
+    if let Some(group_by) = patch.tasks_group_by.as_deref() {
+        if !crate::repo::settings::valid_task_group_by(group_by) {
+            return Err("invalid_task_group_by".into());
+        }
+    }
     if let Some(url) = patch.ai_base_url.as_deref() {
         if !crate::repo::settings::valid_ai_base_url(url) {
             return Err("invalid_ai_base_url".into());
@@ -225,6 +230,7 @@ pub async fn set_settings(
             ("desk.pin", patch.desk_pin),
             ("desk.x", patch.desk_x.map(|v| v.to_string())),
             ("desk.y", patch.desk_y.map(|v| v.to_string())),
+            ("tasks.group_by", patch.tasks_group_by),
         ];
         for (key, value) in sets {
             if let Some(value) = value {
