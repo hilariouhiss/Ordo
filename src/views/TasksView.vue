@@ -17,6 +17,8 @@ const groupOptions = computed(
       { value: "tag", label: t("tasks.groupTag") },
     ] as const,
 );
+// A ref nested in the VM object is not unwrapped by the template.
+const sections = computed(() => tasksVM.sections.value);
 
 onMounted(() => void tasksVM.load());
 
@@ -63,7 +65,7 @@ function refresh(): void {
     </div>
 
     <div v-if="tasksVM.state.tasks.length" class="space-y-2">
-      <section v-for="group in tasksVM.sections" :key="group.key">
+      <section v-for="group in sections" :key="group.key">
         <div
           v-if="tasksVM.state.groupBy !== 'none'"
           class="flex items-center gap-2 px-1 pt-2 pb-1 text-[10.5px] text-base-content/45"
