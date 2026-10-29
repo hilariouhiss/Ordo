@@ -162,10 +162,10 @@ async function suspend(): Promise<void> {
           </span>
           <span
             v-if="showProject && task.projectName"
-            class="badge badge-soft badge-primary badge-xs max-w-32 truncate"
+            class="badge badge-soft badge-primary badge-xs max-w-32"
             :title="task.projectName"
           >
-            {{ task.projectName }}
+            <span class="min-w-0 truncate">{{ task.projectName }}</span>
           </span>
           <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
           <PriorityBadge :priority="task.priority" />
