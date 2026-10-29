@@ -22,7 +22,7 @@ const attrs = ref<TaskAttrs>({
   ownerId: props.template?.ownerId ?? null,
   priority: props.template?.priority ?? "normal",
   effortMinutes: props.template?.effortMinutes ?? 480,
-  exclusive: props.template?.exclusive ?? false,
+  exclusive: props.template?.exclusive ?? true,
 });
 const steps = ref<string[]>([...(props.template?.steps ?? [])]);
 const stepDraft = ref("");

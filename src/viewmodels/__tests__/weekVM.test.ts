@@ -215,21 +215,6 @@ describe("weekVM plan", () => {
     expect(vm.overloadDates.value).toEqual([]);
   });
 
-  it("warns when a capture lands on exclusive time", async () => {
-    const blocker = task({ id: "x", title: "出差", exclusive: true });
-    const added = task({ id: "n", title: "新任务" });
-    vi.mocked(listWeek).mockResolvedValueOnce([blocker]).mockResolvedValueOnce([blocker, added]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
-    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
-    vi.mocked(capture).mockResolvedValue(added);
-
-    const vm = createWeekVM();
-    await vm.load();
-    await vm.capture({ raw: "新任务", title: "新任务", fields: CAPTURE_DEFAULTS });
-
-    expect(dialogRequest.value?.kind).toBe("notice");
-  });
-
   it("has no plan for an empty week", async () => {
     const vm = await loadedWith([]);
 

@@ -112,7 +112,7 @@ fn normalize(input: &TemplateInput) -> Result<TemplateInput, String> {
         owner_id: input.owner_id.clone(),
         priority: Some(priority),
         effort_minutes: Some(effort_minutes),
-        exclusive: Some(input.exclusive.unwrap_or(false)),
+        exclusive: Some(input.exclusive.unwrap_or(true)),
         note: input
             .note
             .as_deref()
@@ -186,6 +186,16 @@ mod tests {
         let template = save(&c, &input("打电话", vec![]), NOW).unwrap();
         let task = create_task(&c, &template.id, NOW, "t1").unwrap();
         assert!(task.steps.is_empty());
+    }
+
+    #[test]
+    fn a_new_template_and_its_task_are_exclusive_by_default() {
+        let c = db::open_in_memory().unwrap();
+        let template = save(&c, &input("发布", vec![]), NOW).unwrap();
+        assert!(template.exclusive);
+
+        let task = create_task(&c, &template.id, NOW, "t1").unwrap();
+        assert!(task.exclusive);
     }
 
     #[test]

@@ -4,7 +4,7 @@ import { mondayOf, todayIso } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import { groupPlannedDays, toPlanTask } from "../lib/plan";
-import { LOAD_WARN_HALF_DAYS, planLoads, planSchedule } from "../lib/schedule";
+import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
   aiEnrich,
   capture as captureApi,
@@ -17,7 +17,6 @@ import {
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
-import { warnExclusiveConflict } from "./planning";
 
 export function createWeekVM() {
   const state = reactive({
@@ -33,7 +32,7 @@ export function createWeekVM() {
   const loads = computed(() => planLoads(planTasks.value, plan.value));
   const overloadDates = computed(() =>
     [...loads.value.entries()]
-      .filter(([, halfDays]) => halfDays > LOAD_WARN_HALF_DAYS)
+      .filter(([, hours]) => hours > LOAD_WARN_HOURS)
       .map(([date]) => date)
       .sort(),
   );
@@ -82,7 +81,6 @@ export function createWeekVM() {
       void aiEnrich(task.id);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       await load();
-      warnExclusiveConflict(task, state.tasks);
     } catch (e) {
       void askNotice(t("common.actionFailed"), errorText(e));
     } finally {
@@ -104,7 +102,7 @@ export function createWeekVM() {
     }
   }
 
-  /** Moves one slot in the list; the order also decides the exclusive queue. */
+  /** Moves one slot in the list; the order decides the exclusive queue unless a start date pins the task. */
   async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
     const ids = state.tasks.map((task) => task.id);
     const index = ids.indexOf(taskId);

@@ -38,7 +38,7 @@ const form = reactive({
   effortMinutes: 480,
   priority: "normal" as Priority,
   status: "todo" as Status,
-  exclusive: false,
+  exclusive: true,
 });
 const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
@@ -392,7 +392,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ t(option.key) }}
             </button>
             <span class="ml-1 text-[10.5px] text-base-content/40">{{
-              t("task.exclusiveHint")
+              t(form.exclusive ? "task.exclusiveHint" : "task.sharedHint")
             }}</span>
           </div>
         </div>

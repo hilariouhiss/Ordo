@@ -17,9 +17,7 @@ import {
   type AppliedTheme,
   type ThemeWindow,
 } from "./lib/theme";
-import type { Task } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
-import { warnExclusiveConflict } from "./viewmodels/planning";
 import { passVM } from "./viewmodels/passVM";
 import { projectsVM } from "./viewmodels/projectsVM";
 import { quickCreateVM } from "./viewmodels/quickCreateVM";
@@ -216,11 +214,8 @@ onMounted(async () => {
     () => void syncTheme(),
   );
   if (isTauri()) {
-    await listen<Task>("capture:created", (event) => {
-      void weekVM
-        .load()
-        .then(() => warnExclusiveConflict(event.payload, weekVM.state.tasks))
-        .catch(() => {});
+    await listen("capture:created", () => {
+      void weekVM.load().catch(() => {});
       void tasksVM.load();
     });
     await listen("ai:enriched", () => {

@@ -22,14 +22,16 @@ pub fn insert(
     fields: &CaptureFields,
     now: &str,
 ) -> rusqlite::Result<()> {
+    // New tasks own their days; switching one to shared is an explicit edit.
     conn.execute(
         "INSERT INTO tasks (id, title, project_id, owner_id, priority, due_date, effort_minutes,
-                            status, in_week, carry_count, sort_order, created_at, updated_at)
+                            status, in_week, carry_count, sort_order, created_at, updated_at,
+                            time_exclusive)
          VALUES (?1, ?2, ?3,
                  COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
                  COALESCE(?5, 'normal'), ?6, COALESCE(?7, 480),
                  'todo', 1, 0,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8)",
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8, 1)",
         params![
             id,
             title,

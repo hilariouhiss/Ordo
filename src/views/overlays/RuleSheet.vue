@@ -32,7 +32,7 @@ const attrs = ref<TaskAttrs>({
   ownerId: props.rule?.ownerId ?? null,
   priority: props.rule?.priority ?? "normal",
   effortMinutes: props.rule?.effortMinutes ?? 480,
-  exclusive: props.rule?.exclusive ?? false,
+  exclusive: props.rule?.exclusive ?? true,
 });
 const error = ref("");
 const saving = ref(false);

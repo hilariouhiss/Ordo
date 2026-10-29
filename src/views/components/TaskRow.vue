@@ -180,11 +180,11 @@ async function suspend(): Promise<void> {
             {{ formatEffort(task.effortMinutes) }}
           </span>
           <span
-            v-if="task.exclusive"
-            class="badge badge-soft badge-accent badge-xs"
-            :title="t('task.exclusiveHint')"
+            v-if="!task.exclusive"
+            class="badge badge-ghost badge-xs"
+            :title="t('task.sharedHint')"
           >
-            {{ t("task.exclusive") }}
+            {{ t("task.shared") }}
           </span>
           <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
             {{ t("task.plannedEnd", { date: shortDate(plan.end) }) }}

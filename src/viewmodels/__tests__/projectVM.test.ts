@@ -5,12 +5,11 @@ vi.mock("../../model/ipc", () => ({
   capture: vi.fn(),
   getProjectSummary: vi.fn(),
   listProjectTasks: vi.fn(),
-  listWeek: vi.fn(),
 }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
-import { closeDialog, dialogRequest } from "../../lib/dialog";
-import { capture, getProjectSummary, listProjectTasks, listWeek } from "../../model/ipc";
+import { closeDialog } from "../../lib/dialog";
+import { capture, getProjectSummary, listProjectTasks } from "../../model/ipc";
 import type { ProjectSummary, Task } from "../../model/types";
 import { createProjectVM } from "../projectVM";
 import { task } from "./fixtures";
@@ -28,7 +27,6 @@ const summary: ProjectSummary = {
 describe("projectVM", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(listWeek).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -100,23 +98,5 @@ describe("projectVM", () => {
     });
 
     expect(vm.state.draft).toBe("");
-  });
-
-  it("warns from the captured snapshot, not the enriched copy", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 9, 20, 9, 0, 0));
-    const blocker = task({ id: "x", title: "出差", exclusive: true });
-    const captured = task({ id: "n", title: "新任务" });
-    // AI already moved the stored copy off today; the notice must use the capture.
-    const enriched = task({ id: "n", title: "新任务", startDate: "2026-11-30" });
-    vi.mocked(capture).mockResolvedValue(captured);
-    vi.mocked(getProjectSummary).mockResolvedValue(summary);
-    vi.mocked(listProjectTasks).mockResolvedValue([]);
-    vi.mocked(listWeek).mockResolvedValue([blocker, enriched]);
-
-    const vm = createProjectVM();
-    await vm.captureInto("p1", { raw: "新任务", title: "新任务", fields: CAPTURE_DEFAULTS });
-
-    expect(dialogRequest.value?.kind).toBe("notice");
   });
 });

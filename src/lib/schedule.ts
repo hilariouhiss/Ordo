@@ -6,7 +6,7 @@ export interface PlanTask {
   dueDate: string | null;
   /** The task's own start date; missing or in the past falls back to the plan start. */
   startDate?: string | null;
-  /** Exclusive tasks own their whole planned span; nothing else may overlap it. */
+  /** Exclusive tasks reserve only the hours they need; nothing else may use them. */
   exclusive?: boolean;
 }
 
@@ -14,30 +14,22 @@ export interface PlannedTask {
   id: string;
   start: string;
   end: string;
+  /** The hour of the working day the task starts in: 0–7. */
+  startHour: number;
   conflict: boolean;
 }
 
-export interface ExclusiveConflict {
-  /** The exclusive task already sitting on the new task's natural span. */
-  taskId: string;
-  start: string;
-  end: string;
-  /** Where the new task actually starts once it is pushed clear. */
-  plannedStart: string;
-}
+/** An eight-hour working day; effort is minutes and the planner books whole hours. */
+const HOURS_PER_DAY = 8;
 
-/** One working day holds two half-day units; every task takes at least one. */
-const HALF_DAYS_PER_DAY = 2;
+const MINUTES_PER_HOUR = 60;
 
-/** Four hours: the planner still books in half days, and effort is minutes. */
-const HALF_DAY_MINUTES = 240;
+/** More than two person-days (16 hours) of work on one working day is worth a warning. */
+export const LOAD_WARN_HOURS = 16;
 
-/** More than two person-days of shared work on one working day is worth a warning. */
-export const LOAD_WARN_HALF_DAYS = 4;
-
-interface Span {
-  start: string;
-  end: string;
+interface Start {
+  day: string;
+  hour: number;
 }
 
 function nextWorkday(iso: string): string {
@@ -54,104 +46,116 @@ function startWorkday(iso: string): string {
 
 function needOf(task: PlanTask): number {
   const minutes = Number.isFinite(task.effortMinutes) ? task.effortMinutes : 0;
-  return Math.max(1, Math.ceil(minutes / HALF_DAY_MINUTES));
+  return Math.max(1, Math.ceil(minutes / MINUTES_PER_HOUR));
 }
 
 function anchorOf(task: PlanTask, start: string): string {
   return startWorkday(task.startDate && task.startDate > start ? task.startDate : start);
 }
 
-function spanEnd(start: string, need: number): string {
-  let day = start;
-  let left = need;
-  while (left > HALF_DAYS_PER_DAY) {
-    left -= HALF_DAYS_PER_DAY;
-    day = nextWorkday(day);
+/** The next hourly slot: the next hour, then the next working day's first hour. */
+function slotAfter(day: string, hour: number): Start {
+  return hour < HOURS_PER_DAY - 1 ? { day, hour: hour + 1 } : { day: nextWorkday(day), hour: 0 };
+}
+
+/** A working day has eight hourly slots; the bits mark the ones already taken. */
+function isFree(taken: Map<string, number>, day: string, hour: number): boolean {
+  return ((taken.get(day) ?? 0) & (1 << hour)) === 0;
+}
+
+function fits(taken: Map<string, number>, start: Start, need: number): boolean {
+  let slot = start;
+  for (let left = need; left > 0; left--) {
+    if (!isFree(taken, slot.day, slot.hour)) return false;
+    if (left > 1) slot = slotAfter(slot.day, slot.hour);
   }
-  return day;
+  return true;
 }
 
-function overlaps(a: Span, b: Span): boolean {
-  return a.start <= b.end && a.end >= b.start;
-}
-
-/** The first free working day after an exclusive span, or the anchor if it is clear. */
-function placeClear(anchor: string, need: number, blocked: Span[]): Span {
-  let start = anchor;
+/** The first working hour at or after the anchor with `need` free slots in a row. */
+function firstFree(anchor: string, need: number, taken: Map<string, number>): Start {
+  let slot: Start = { day: startWorkday(anchor), hour: 0 };
   for (;;) {
-    const end = spanEnd(start, need);
-    const hit = blocked.find((span) => overlaps({ start, end }, span));
-    if (!hit) return { start, end };
-    start = nextWorkday(hit.end);
+    if (fits(taken, slot, need)) return slot;
+    slot = slotAfter(slot.day, slot.hour);
   }
+}
+
+function reserve(taken: Map<string, number>, start: Start, need: number): void {
+  let slot = start;
+  for (let left = need; left > 0; left--) {
+    taken.set(slot.day, (taken.get(slot.day) ?? 0) | (1 << slot.hour));
+    if (left > 1) slot = slotAfter(slot.day, slot.hour);
+  }
+}
+
+function endOf(start: Start, need: number): string {
+  let slot = start;
+  for (let left = need - 1; left > 0; left--) slot = slotAfter(slot.day, slot.hour);
+  return slot.day;
 }
 
 /**
- * Places exclusive tasks first and shared tasks around them. Shared tasks never
- * block each other; exclusive tasks are days nothing else may enter.
+ * Places exclusive tasks first and shared tasks around them. Exclusive tasks take
+ * only the hours their effort needs, so other work can fill the rest of the day;
+ * shared tasks never block each other. An explicit start date is honored before
+ * the manual queue.
  */
 export function planSchedule(tasks: PlanTask[], start: string): PlannedTask[] {
-  const planned = new Map<string, Span>();
-  const blocked: Span[] = [];
+  const planned = new Map<string, { slot: Start; end: string }>();
+  const taken = new Map<string, number>();
+  const pinned = tasks
+    .filter((task) => task.exclusive && task.startDate && task.startDate >= start)
+    .sort((a, b) => (a.startDate as string).localeCompare(b.startDate as string));
+  const queued = tasks.filter(
+    (task) => task.exclusive && !(task.startDate && task.startDate >= start),
+  );
 
-  for (const task of tasks) {
-    if (!task.exclusive) continue;
-    const span = placeClear(anchorOf(task, start), needOf(task), blocked);
-    blocked.push(span);
-    planned.set(task.id, span);
+  for (const task of [...pinned, ...queued]) {
+    const need = needOf(task);
+    const slot = firstFree(anchorOf(task, start), need, taken);
+    reserve(taken, slot, need);
+    planned.set(task.id, { slot, end: endOf(slot, need) });
   }
   for (const task of tasks) {
     if (task.exclusive) continue;
-    planned.set(task.id, placeClear(anchorOf(task, start), needOf(task), blocked));
+    const need = needOf(task);
+    const slot = firstFree(anchorOf(task, start), need, taken);
+    planned.set(task.id, { slot, end: endOf(slot, need) });
   }
 
   return tasks.map((task) => {
-    const span = planned.get(task.id) as Span;
+    const row = planned.get(task.id) as { slot: Start; end: string };
     return {
       id: task.id,
-      start: span.start,
-      end: span.end,
-      conflict: task.dueDate !== null && span.end > task.dueDate,
+      start: row.slot.day,
+      end: row.end,
+      startHour: row.slot.hour,
+      conflict: task.dueDate !== null && row.end > task.dueDate,
     };
   });
 }
 
-/** Half-day units booked on each working day, summed over every planned task. */
+/** Hours booked on each working day, summed over every planned task. */
 export function planLoads(tasks: PlanTask[], plan: PlannedTask[]): Map<string, number> {
-  const starts = new Map(plan.map((row) => [row.id, row.start]));
+  const rows = new Map(plan.map((row) => [row.id, row]));
   const loads = new Map<string, number>();
 
   for (const task of tasks) {
-    let day = starts.get(task.id);
-    if (!day) continue;
+    const row = rows.get(task.id);
+    if (!row) continue;
+    let day = row.start;
+    let hour = row.startHour;
     let left = needOf(task);
     while (left > 0) {
-      const take = Math.min(left, HALF_DAYS_PER_DAY);
-      loads.set(day, (loads.get(day) ?? 0) + take);
-      left -= take;
-      if (left > 0) day = nextWorkday(day);
+      const booked = Math.min(left, HOURS_PER_DAY - hour);
+      loads.set(day, (loads.get(day) ?? 0) + booked);
+      left -= booked;
+      if (left > 0) {
+        day = nextWorkday(day);
+        hour = 0;
+      }
     }
   }
   return loads;
-}
-
-/** The first exclusive task whose planned span covers the new task's natural span. */
-export function exclusiveConflict(
-  task: PlanTask,
-  tasks: PlanTask[],
-  start: string,
-): ExclusiveConflict | null {
-  const naturalStart = anchorOf(task, start);
-  const naturalEnd = spanEnd(naturalStart, needOf(task));
-  const plan = planSchedule(tasks, start);
-  const exclusiveIds = new Set(tasks.filter((one) => one.exclusive).map((one) => one.id));
-  const plannedStart = plan.find((row) => row.id === task.id)?.start ?? naturalStart;
-
-  for (const row of plan) {
-    if (row.id === task.id || !exclusiveIds.has(row.id)) continue;
-    if (naturalStart <= row.end && naturalEnd >= row.start) {
-      return { taskId: row.id, start: row.start, end: row.end, plannedStart };
-    }
-  }
-  return null;
 }

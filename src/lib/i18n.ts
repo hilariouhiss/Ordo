@@ -44,9 +44,6 @@ export const zh = {
   "week.planEnd": "预计最晚 {date}（{weekday}）做完",
   "week.conflict": "{count} 件赶不上截止日",
   "week.overloaded": "{dates} 排得太满",
-  "week.exclusiveClashTitle": "独占时间冲突",
-  "week.exclusiveClash":
-    "「{task}」和「{blocker}」的独占时间（{start}–{end}）重叠，已排到 {planned} 开始。",
   "week.today": "今天",
   "week.empty": "这周还是空的。在上面记一句。",
   "week.suspended": "挂起 ({count})",
@@ -216,7 +213,8 @@ export const zh = {
   "task.timeMode": "时间占用",
   "task.shared": "共享",
   "task.exclusive": "独占",
-  "task.exclusiveHint": "独占期间不排其他任务",
+  "task.exclusiveHint": "独占只占需要的小时位，不占整天",
+  "task.sharedHint": "可与其他任务排在同一天",
 
   "pass.title": "过一遍",
   "pass.subtitle": "把上周抄下来的逐条结掉",
@@ -444,9 +442,6 @@ export const en: Record<MessageKey, string> = {
   "week.planEnd": "Everything done by {date} ({weekday})",
   "week.conflict": "{count} won't meet the due date",
   "week.overloaded": "Overloaded: {dates}",
-  "week.exclusiveClashTitle": "Exclusive time conflict",
-  "week.exclusiveClash":
-    '"{task}" overlaps exclusive time "{blocker}" ({start}–{end}); it now starts {planned}.',
   "week.today": "Today",
   "week.empty": "This week is empty. Jot one down above.",
   "week.suspended": "Suspended ({count})",
@@ -619,7 +614,8 @@ export const en: Record<MessageKey, string> = {
   "task.timeMode": "Time mode",
   "task.shared": "Shared",
   "task.exclusive": "Exclusive",
-  "task.exclusiveHint": "Other work is kept out of its days",
+  "task.exclusiveHint": "Takes only its hourly slots, not the whole day",
+  "task.sharedHint": "Other work may share its days",
 
   "pass.title": "Weekly pass",
   "pass.subtitle": "Settle last week's carried-over items, one by one",

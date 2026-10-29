@@ -294,6 +294,13 @@ mod tests {
     }
 
     #[test]
+    fn a_new_task_is_exclusive_by_default() {
+        let c = db::open_in_memory().unwrap();
+        let t = week::capture(&c, "交底", NOW, "t1").unwrap();
+        assert!(t.exclusive);
+    }
+
+    #[test]
     fn capture_with_fields_saves_recognized_attributes() {
         let c = db::open_in_memory().unwrap();
         seed_known(&c);

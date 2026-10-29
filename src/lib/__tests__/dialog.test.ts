@@ -44,11 +44,11 @@ describe("dialog", () => {
   });
 
   it("shows a notice until it is dismissed", async () => {
-    const pending = askNotice("独占时间冲突", "已排到 10/21 开始。");
+    const pending = askNotice("提示", "操作已完成。");
     expect(dialogRequest.value).toEqual({
       kind: "notice",
-      title: "独占时间冲突",
-      message: "已排到 10/21 开始。",
+      title: "提示",
+      message: "操作已完成。",
     });
     closeDialog(null);
     await expect(pending).resolves.toBeUndefined();

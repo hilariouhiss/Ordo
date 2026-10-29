@@ -82,6 +82,8 @@ const attrs = defineModel<TaskAttrs>({ required: true });
     >
       {{ t("task.exclusive") }}
     </button>
-    <span class="ml-1 text-[10.5px] text-base-content/40">{{ t("task.exclusiveHint") }}</span>
+    <span class="ml-1 text-[10.5px] text-base-content/40">{{
+      t(attrs.exclusive ? "task.exclusiveHint" : "task.sharedHint")
+    }}</span>
   </div>
 </template>

@@ -89,7 +89,8 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 输入：所有输入框的回车提交都要先过 `isImeEnter(event)`（`src/lib/keys.ts`），否则中文输入法选词会误提交。
 - 任务编辑：`TaskPatch` 里没有 dueDate；改截止日必须走 `set_due`，否则不会写 `delays` 记录。对可空字段，patch 的“字段缺失”=保持原值，“显式 null”=清空。有步骤的任务状态由步骤推导；勾完最后一步会自动完成并移出本周。
 - 本周集合是显式的 `in_week` 布尔值，不要按日期重算；取消不进统计分母，挂起仍计入。
-- 本周顺序是 `tasks.sort_order`（手动拖拽），`list_week` 与 `pass_queue` 都按它排；`effort_minutes`（分钟，480 = 一人天）只喂给 `src/lib/schedule.ts` 按半天排计划日期——计划只显示、不落库、不写 `delays`、不触发提醒。
+- 本周顺序是 `tasks.sort_order`（手动拖拽），`list_week` 与 `pass_queue` 都按它排；`effort_minutes`（分钟，480 = 一人天）只喂给 `src/lib/schedule.ts` 按小时排计划日期——计划只显示、不落库、不写 `delays`、不触发提醒。
+- 新任务、新周期任务、新模板默认独占（`exclusive`）：独占任务只占其 effort 对应的小时位（480 分钟 = 8 个小时位），其他任务可补进剩下的小时；共享任务可并行；已有任务/规则/模板保持原标志，不做数据迁移。显式开始日期优先于手动队列。
 - UI：文案走 `src/lib/i18n.ts` 的 `t()`，不要在组件里硬编码中文/英文；Rust 运行时文案（托盘、通知）走 `src-tauri/src/i18n.rs`。用 daisyUI 的 `soft`/`soft-dark` 主题 token 和 Tailwind 类，不要写死颜色；图标用 `@lucide/vue` 并加 `aria-hidden`。界面日期显示用 `shortDate`（`11/20`）。
 - 迁移只追加：在 `migrations.rs` 末尾加 `if version < N` 并提高 `LATEST`，不要改旧迁移或重排版本。升级旧库前 `open_with_recovery` 会备份到 `backups/pre-migration-v{n}.db`。
 - 提交用 Conventional Commits：`feat:`、`fix:`、`chore:`、`refactor:`、`polish:`，主题小写、单句。

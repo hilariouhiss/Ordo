@@ -71,7 +71,7 @@ pub fn insert(
             template.owner_id.as_deref(),
             template.priority.as_deref(),
             template.effort_minutes,
-            template.exclusive.unwrap_or(false) as i64,
+            template.exclusive.unwrap_or(true) as i64,
             template.note.as_deref(),
             now
         ],
@@ -98,7 +98,7 @@ pub fn update(
             template.owner_id.as_deref(),
             template.priority.as_deref(),
             template.effort_minutes,
-            template.exclusive.unwrap_or(false) as i64,
+            template.exclusive.unwrap_or(true) as i64,
             template.note.as_deref(),
             now,
             id

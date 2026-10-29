@@ -88,7 +88,7 @@ fn normalize(input: &RuleInput) -> Result<RuleInput, String> {
         owner_id: input.owner_id.clone(),
         priority: Some(priority),
         effort_minutes: Some(effort_minutes),
-        exclusive: Some(input.exclusive.unwrap_or(false)),
+        exclusive: Some(input.exclusive.unwrap_or(true)),
     })
 }
 
@@ -448,6 +448,25 @@ mod tests {
         assert!(task.exclusive);
         assert_eq!(task.effort_minutes, 960);
         assert_eq!(task.due_time.as_deref(), Some("15:00"));
+    }
+
+    #[test]
+    fn a_new_rule_and_its_task_are_exclusive_by_default() {
+        let c = db::open_in_memory().unwrap();
+        let day = weekday(2026, 10, 20);
+        let rule = save(&c, &input("报销", vec![day], "09:00"), NOW).unwrap();
+        assert!(rule.exclusive);
+
+        materialize(&c, at(2026, 10, 20, 10, 0)).unwrap();
+
+        let flag: i64 = c
+            .query_row(
+                "SELECT time_exclusive FROM tasks WHERE rule_id = ?1",
+                [&rule.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(flag, 1);
     }
 
     #[test]

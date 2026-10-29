@@ -3,9 +3,8 @@ import type { CaptureSubmission } from "../lib/capture";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import { projectSummaryLine } from "../lib/summary";
-import { aiEnrich, capture, getProjectSummary, listProjectTasks, listWeek } from "../model/ipc";
+import { aiEnrich, capture, getProjectSummary, listProjectTasks } from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
-import { warnExclusiveConflict } from "./planning";
 
 export function createProjectVM() {
   const state = reactive({
@@ -53,8 +52,6 @@ export function createProjectVM() {
       void aiEnrich(task.id);
       await load(projectId);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
-      const week = await listWeek().catch(() => null);
-      if (week) warnExclusiveConflict(task, week);
     } finally {
       capturing = false;
     }

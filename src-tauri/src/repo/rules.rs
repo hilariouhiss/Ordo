@@ -88,7 +88,7 @@ pub fn insert(conn: &Connection, id: &str, rule: &RuleInput, now: &str) -> rusql
             rule.owner_id.as_deref(),
             rule.priority.as_deref(),
             rule.effort_minutes,
-            rule.exclusive.unwrap_or(false) as i64,
+            rule.exclusive.unwrap_or(true) as i64,
             now
         ],
     )?;
@@ -115,7 +115,7 @@ pub fn update(
             rule.owner_id.as_deref(),
             rule.priority.as_deref(),
             rule.effort_minutes,
-            rule.exclusive.unwrap_or(false) as i64,
+            rule.exclusive.unwrap_or(true) as i64,
             now,
             id
         ],
