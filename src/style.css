@@ -1,4 +1,7 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+/* shortcut: only src/ and index.html are scanned; add an @source here if classed markup ever lives elsewhere. */
+@source "./";
+@source "../index.html";
 
 @plugin "daisyui" {
   themes: false;
