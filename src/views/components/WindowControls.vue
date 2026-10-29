@@ -2,24 +2,12 @@
 import { Copy, Minus, Square, X } from "@lucide/vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed } from "vue";
 import { t } from "../../lib/i18n";
+import { windowModeVM } from "../../viewmodels/windowModeVM";
 
 const win = isTauri() ? getCurrentWindow() : null;
-const maximized = ref(false);
-let unlisten: (() => void) | undefined;
-
-async function syncMaximized(): Promise<void> {
-  if (win) maximized.value = await win.isMaximized();
-}
-
-onMounted(async () => {
-  if (!win) return;
-  await syncMaximized();
-  unlisten = await win.onResized(() => void syncMaximized());
-});
-
-onUnmounted(() => unlisten?.());
+const maximized = computed(() => windowModeVM.state.maximized);
 
 function minimize(): void {
   void win?.minimize();

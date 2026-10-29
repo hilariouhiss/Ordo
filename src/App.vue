@@ -260,11 +260,14 @@ onUnmounted(() => {
 
 <template>
   <MotionConfig reducedMotion="user">
-    <div class="relative h-screen overflow-hidden">
+    <div
+      class="relative h-screen overflow-hidden"
+      :style="{ '--window-radius': windowModeVM.state.maximized ? '0px' : '8px' }"
+    >
       <div
         ref="appSurface"
         v-show="windowModeVM.state.appMounted"
-        class="h-full transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        class="app-surface h-full overflow-hidden transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         :class="
           windowModeVM.state.appOpacity === 0 ? 'pointer-events-none opacity-0' : 'opacity-100'
         "

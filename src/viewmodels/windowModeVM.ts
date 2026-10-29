@@ -57,6 +57,7 @@ let wasMaximized = false;
 let initPromise: Promise<void> | null = null;
 let queue: Promise<void> = Promise.resolve();
 let animToken = 0;
+let maximizeTimer: ReturnType<typeof setTimeout> | undefined;
 let surfaceEl: HTMLElement | null = null;
 let widgetLayerEl: HTMLElement | null = null;
 let morphBase: DeskSize | null = null;
@@ -342,6 +343,21 @@ async function doInit(): Promise<void> {
   if (!isTauri()) return;
   const win = currentWindow();
   wasMaximized = await win.isMaximized().catch(() => false);
+  state.maximized = wasMaximized;
+  // The morph resizes every frame; debounce instead of asking the OS each time.
+  void win
+    .onResized(() => {
+      clearTimeout(maximizeTimer);
+      maximizeTimer = setTimeout(() => {
+        void win
+          .isMaximized()
+          .then((maximized) => {
+            state.maximized = maximized;
+          })
+          .catch(() => {});
+      }, 80);
+    })
+    .catch(() => {});
   const rect = await readWindowRect().catch(() => null);
   const { primary } = await readDeskMonitors();
   const small = !rect || rect.size.width < MIN_FULL.width || rect.size.height < MIN_FULL.height;
@@ -605,6 +621,7 @@ async function doEnterFull(options: { reveal: boolean }): Promise<void> {
 export const state = reactive({
   mode: "full" as WindowMode,
   phase: "idle" as ModePhase,
+  maximized: false,
   appMounted: true,
   appOpacity: 1,
   widgetMounted: false,

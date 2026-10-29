@@ -49,7 +49,7 @@ async function submitProject(): Promise<void> {
     <motion.div
       v-if="mode"
       v-bind="backdropMotion"
-      class="fixed inset-0 z-[80] flex items-center justify-center bg-neutral/40 p-4"
+      class="window-scrim fixed inset-0 z-[80] flex items-center justify-center bg-neutral/40 p-4"
       @click.self="close"
       @keydown.esc="close"
     >

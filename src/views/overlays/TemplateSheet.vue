@@ -70,7 +70,7 @@ async function save(): Promise<void> {
 <template>
   <motion.div
     v-bind="backdropMotion"
-    class="fixed inset-0 z-[80] flex items-center justify-center bg-neutral/40 p-4"
+    class="window-scrim fixed inset-0 z-[80] flex items-center justify-center bg-neutral/40 p-4"
     @click.self="emit('close')"
     @keydown.esc="emit('close')"
   >

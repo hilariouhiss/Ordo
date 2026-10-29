@@ -63,7 +63,7 @@ function onEnter(event: KeyboardEvent): void {
     <motion.div
       v-if="dialogRequest"
       v-bind="backdropMotion"
-      class="fixed inset-0 z-70 flex items-center justify-center bg-neutral/40 p-4"
+      class="window-scrim fixed inset-0 z-70 flex items-center justify-center bg-neutral/40 p-4"
       @click.self="closeDialog(null)"
       @keydown.esc="closeDialog(null)"
     >

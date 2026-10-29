@@ -181,7 +181,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 <template>
   <motion.div
     v-bind="backdropMotion"
-    class="fixed inset-0 z-40 flex items-center justify-center bg-neutral/40 p-4"
+    class="window-scrim fixed inset-0 z-40 flex items-center justify-center bg-neutral/40 p-4"
     @click.self="vm.close()"
   >
     <motion.div

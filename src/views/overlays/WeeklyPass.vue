@@ -111,7 +111,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 <template>
   <motion.div
     v-bind="backdropMotion"
-    class="fixed inset-0 z-50 overflow-y-auto bg-neutral/92 p-6 text-neutral-content"
+    class="window-scrim fixed inset-0 z-50 overflow-y-auto bg-neutral/92 p-6 text-neutral-content"
   >
     <motion.div v-bind="screenColumnMotion" class="mx-auto max-w-[720px]">
       <div class="flex items-center gap-3 text-[12px]">

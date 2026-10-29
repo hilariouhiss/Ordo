@@ -117,3 +117,9 @@ html[data-window="main"],
 html[data-window="main"] body {
   background: transparent;
 }
+
+/* The window surface and every full-window scrim share one Win11 radius. */
+.app-surface,
+html[data-window="main"] .window-scrim {
+  border-radius: var(--window-radius, 8px);
+}
