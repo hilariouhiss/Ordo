@@ -22,10 +22,16 @@ const props = withDefaults(
     plan?: { end: string; spans: boolean; conflict: boolean };
     dropLine?: boolean;
     showProject?: boolean;
+    draggable?: boolean;
   }>(),
-  { showProject: true },
+  { showProject: true, draggable: false },
 );
-const emit = defineEmits<{ open: [Task]; changed: [] }>();
+const emit = defineEmits<{
+  open: [Task];
+  changed: [];
+  dragStart: [DragEvent, Task];
+  dragEnd: [];
+}>();
 
 const category = computed(
   () => appVM.state.categories.find((c) => c.id === props.task.categoryId)?.name ?? null,
@@ -129,9 +135,12 @@ async function suspend(): Promise<void> {
     v-bind="listItemMotion"
     class="relative cursor-pointer rounded-xl bg-base-100 px-3 py-3 focus-visible:ring-2 focus-visible:ring-primary/40"
     :class="{ 'transition-opacity hover:opacity-90': !hasSteps }"
+    :draggable="draggable"
     tabindex="0"
     @click="onRowClick"
     @keydown.enter="onRowKey"
+    @dragstart="emit('dragStart', $event, task)"
+    @dragend="emit('dragEnd')"
   >
     <span
       v-if="dropLine"

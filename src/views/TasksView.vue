@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ChevronRight } from "@lucide/vue";
+import { ChevronRight, GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { t } from "../lib/i18n";
+import { NONE_GROUP_KEY, type TaskGroup } from "../lib/taskGroups";
 import type { Task } from "../model/types";
+import { appVM } from "../viewmodels/appVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { tasksVM } from "../viewmodels/tasksVM";
 import TaskRow from "./components/TaskRow.vue";
@@ -22,6 +24,15 @@ const groupOptions = computed(
 );
 // A ref nested in the VM object is not unwrapped by the template.
 const sections = computed(() => tasksVM.sections.value);
+const draggingTaskId = ref<string | null>(null);
+const dragOverGroup = ref<string | null>(null);
+let dragEndedAt = 0;
+
+const hint = computed(() => {
+  if (tasksVM.state.groupBy === "project") return t("tasks.dragProjectHint");
+  if (tasksVM.state.groupBy === "tag") return t("tasks.tagHint");
+  return t("tasks.hint");
+});
 
 onMounted(() => void tasksVM.load());
 
@@ -33,6 +44,8 @@ watch(
 );
 
 function openTask(task: Task): void {
+  // Native drag usually suppresses click; WebView2 can still emit one right after.
+  if (Date.now() - dragEndedAt < 200) return;
   void taskSheetVM.open(task.id);
 }
 
@@ -43,6 +56,52 @@ function refresh(): void {
 function groupListId(key: string): string {
   return `tasks-group-${key}`;
 }
+
+function projectIdForGroup(group: TaskGroup): string | null | undefined {
+  if (group.key === NONE_GROUP_KEY) return null;
+  return appVM.state.projects.some((project) => project.id === group.key) ? group.key : undefined;
+}
+
+function onTaskDragStart(event: DragEvent, task: Task): void {
+  if (tasksVM.state.groupBy !== "project") return;
+  draggingTaskId.value = task.id;
+  dragOverGroup.value = null;
+  event.dataTransfer?.setData("text/plain", task.id);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+}
+
+function onTaskDragEnd(): void {
+  dragEndedAt = Date.now();
+  draggingTaskId.value = null;
+  dragOverGroup.value = null;
+}
+
+function onGroupDragOver(event: DragEvent, group: TaskGroup): void {
+  if (!draggingTaskId.value || projectIdForGroup(group) === undefined) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dragOverGroup.value = group.key;
+}
+
+function onGroupDragLeave(event: DragEvent, group: TaskGroup): void {
+  if (dragOverGroup.value !== group.key) return;
+  const section = event.currentTarget as HTMLElement | null;
+  const under = document.elementFromPoint(event.clientX, event.clientY);
+  if (section && under && section.contains(under)) return;
+  dragOverGroup.value = null;
+}
+
+async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
+  const projectId = projectIdForGroup(group);
+  if (projectId === undefined) return;
+  event.preventDefault();
+  const taskId = draggingTaskId.value ?? event.dataTransfer?.getData("text/plain") ?? null;
+  const groupKey = group.key;
+  onTaskDragEnd();
+  if (!taskId) return;
+  const moved = await tasksVM.assignProject(taskId, projectId);
+  if (moved && tasksVM.isGroupCollapsed(groupKey)) tasksVM.toggleGroup(groupKey);
+}
 </script>
 
 <template>
@@ -52,9 +111,7 @@ function groupListId(key: string): string {
       <span class="text-[11px] tabular-nums text-base-content/45">
         {{ t("tasks.count", { count: tasksVM.state.tasks.length }) }}
       </span>
-      <span class="ml-auto text-[10.5px] text-base-content/35">{{
-        tasksVM.state.groupBy === "tag" ? t("tasks.tagHint") : t("tasks.hint")
-      }}</span>
+      <span class="ml-auto text-[10.5px] text-base-content/35">{{ hint }}</span>
     </div>
 
     <div role="tablist" :aria-label="t('tasks.groupByAria')" class="tabs tabs-border tabs-sm">
@@ -72,7 +129,18 @@ function groupListId(key: string): string {
     </div>
 
     <div v-if="tasksVM.state.tasks.length" class="space-y-2">
-      <section v-for="group in sections" :key="group.key">
+      <section
+        v-for="group in sections"
+        :key="group.key"
+        :class="
+          tasksVM.state.groupBy === 'project' && dragOverGroup === group.key
+            ? 'rounded-xl bg-primary/5 ring-2 ring-primary/30'
+            : ''
+        "
+        @dragover="onGroupDragOver($event, group)"
+        @dragleave="onGroupDragLeave($event, group)"
+        @drop="onGroupDrop($event, group)"
+      >
         <h2 v-if="tasksVM.state.groupBy !== 'none'">
           <button
             type="button"
@@ -110,9 +178,25 @@ function groupListId(key: string): string {
               :key="task.id"
               :task="task"
               :show-project="tasksVM.state.groupBy !== 'project'"
+              :draggable="tasksVM.state.groupBy === 'project'"
+              :style="{ opacity: draggingTaskId === task.id ? 0.4 : undefined }"
               @open="openTask"
               @changed="refresh"
-            />
+              @drag-start="onTaskDragStart"
+              @drag-end="onTaskDragEnd"
+            >
+              <template #leading>
+                <span
+                  v-if="tasksVM.state.groupBy === 'project'"
+                  class="mt-0.5 shrink-0 cursor-grab text-base-content/25 active:cursor-grabbing"
+                  :title="t('tasks.dragProjectHint')"
+                  aria-hidden="true"
+                  @click.stop
+                >
+                  <GripVertical :size="14" />
+                </span>
+              </template>
+            </TaskRow>
           </AnimatePresence>
         </div>
       </section>

@@ -66,6 +66,7 @@ export const zh = {
   "tasks.groupByAria": "分组方式",
   "tasks.noTag": "无标签",
   "tasks.tagHint": "同一任务可出现在多个标签下",
+  "tasks.dragProjectHint": "拖到项目分组可改所属项目",
   "tasks.collapseGroup": "折叠「{name}」",
   "tasks.expandGroup": "展开「{name}」",
 
@@ -476,6 +477,7 @@ export const en: Record<MessageKey, string> = {
   "tasks.groupByAria": "Group by",
   "tasks.noTag": "No tag",
   "tasks.tagHint": "A task can appear under more than one tag",
+  "tasks.dragProjectHint": "Drag onto a project group to move it",
   "tasks.collapseGroup": 'Collapse "{name}"',
   "tasks.expandGroup": 'Expand "{name}"',
 
