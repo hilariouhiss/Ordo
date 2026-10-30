@@ -4,6 +4,7 @@ import CategoriesView from "./views/CategoriesView.vue";
 import PeopleView from "./views/PeopleView.vue";
 import ProjectView from "./views/ProjectView.vue";
 import ProjectsView from "./views/ProjectsView.vue";
+import StatisticsView from "./views/StatisticsView.vue";
 import TagsView from "./views/TagsView.vue";
 import TemplatesView from "./views/TemplatesView.vue";
 import TasksView from "./views/TasksView.vue";
@@ -21,6 +22,7 @@ export const router = createRouter({
     { path: "/categories", name: "categories", component: CategoriesView },
     { path: "/tags", name: "tags", component: TagsView },
     { path: "/people", name: "people", component: PeopleView },
+    { path: "/stats", name: "stats", component: StatisticsView },
     { path: "/archive", name: "archive", component: ArchiveView },
   ],
 });

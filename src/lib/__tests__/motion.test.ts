@@ -5,7 +5,8 @@ describe("page motion", () => {
   it("ranks nav pages in reading order and folds project detail into projects", () => {
     expect(pageRank("week")).toBe(0);
     expect(pageRank("templates")).toBe(2);
-    expect(pageRank("archive")).toBe(7);
+    expect(pageRank("stats")).toBe(7);
+    expect(pageRank("archive")).toBe(8);
     expect(pageRank("project")).toBe(3);
     expect(pageRank(undefined)).toBe(0);
   });

@@ -15,6 +15,7 @@ import type {
   Settings,
   Status,
   ShortcutOutcome,
+  StatsOverview,
   Tag,
   Task,
   TaskPatch,
@@ -88,6 +89,11 @@ export function markPassDone(today: string): Promise<void> {
 
 export function weekStats(today: string): Promise<WeekStats> {
   return invoke<WeekStats>("week_stats", { today });
+}
+
+/** Completed / created / delayed work for one local date range. */
+export function statsOverview(from: string, to: string): Promise<StatsOverview> {
+  return invoke<StatsOverview>("stats_overview", { from, to });
 }
 
 export function listSuspended(): Promise<Task[]> {

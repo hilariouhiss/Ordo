@@ -1,6 +1,182 @@
-use crate::dto::{CategoryProgressDto, ProjectSummaryDto};
+use crate::dto::{
+    CategoryProgressDto, DayStatsDto, ProjectSummaryDto, StatsOverviewDto, StatsSliceDto,
+};
 use crate::repo::projects;
+use chrono::{NaiveDate, TimeDelta};
 use rusqlite::Connection;
+
+/// A year and a day; the page offers presets well inside this, and a longer
+/// request would only make the client-side bucketing pointless.
+const MAX_RANGE_DAYS: i64 = 366;
+
+/// What finished work means everywhere on the statistics page: a live done task
+/// with a real completion stamp. Archiving is filing, not undoing, so archived
+/// tasks and tasks inside archived projects still count. Reopening a task clears
+/// its stamp, which is why only the latest completion of a task can be counted.
+const COMPLETED_FILTER: &str = concat!(
+    "t.deleted_at IS NULL AND t.canceled_at IS NULL ",
+    "AND t.status = 'done' AND t.actual_finish_at IS NOT NULL"
+);
+
+struct RangeCounts {
+    completed: i64,
+    minutes: i64,
+    on_time: i64,
+    with_due: i64,
+}
+
+fn format_day(day: NaiveDate) -> String {
+    day.format("%Y-%m-%d").to_string()
+}
+
+fn parse_day(value: &str) -> Result<NaiveDate, String> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "invalid_stats_range".to_string())
+}
+
+fn range_counts(conn: &Connection, from: &str, to: &str) -> Result<RangeCounts, String> {
+    conn.query_row(
+        &format!(
+            "SELECT COUNT(*), COALESCE(SUM(t.effort_minutes), 0),
+                    COALESCE(SUM(t.expected_finish_date IS NOT NULL
+                                 AND date(t.actual_finish_at, 'localtime') <= t.expected_finish_date), 0),
+                    COALESCE(SUM(t.expected_finish_date IS NOT NULL), 0)
+             FROM tasks t
+             WHERE {COMPLETED_FILTER}
+               AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2"
+        ),
+        [from, to],
+        |r| {
+            Ok(RangeCounts {
+                completed: r.get(0)?,
+                minutes: r.get(1)?,
+                on_time: r.get(2)?,
+                with_due: r.get(3)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn created_count(conn: &Connection, from: &str, to: &str) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks
+         WHERE deleted_at IS NULL AND date(created_at, 'localtime') BETWEEN ?1 AND ?2",
+        [from, to],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn delayed_count(conn: &Connection, from: &str, to: &str) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM delays WHERE date(created_at, 'localtime') BETWEEN ?1 AND ?2",
+        [from, to],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Completions and additions per local day, skipping the days neither happened.
+fn daily(conn: &Connection, from: &str, to: &str) -> Result<Vec<DayStatsDto>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT day, SUM(completed), SUM(created) FROM (
+                SELECT date(t.actual_finish_at, 'localtime') AS day, 1 AS completed, 0 AS created
+                FROM tasks t
+                WHERE t.deleted_at IS NULL AND t.canceled_at IS NULL AND t.status = 'done'
+                  AND t.actual_finish_at IS NOT NULL
+                  AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2
+                UNION ALL
+                SELECT date(created_at, 'localtime'), 0, 1
+                FROM tasks
+                WHERE deleted_at IS NULL
+                  AND date(created_at, 'localtime') BETWEEN ?1 AND ?2
+             ) GROUP BY day ORDER BY day",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([from, to], |r| {
+            Ok(DayStatsDto {
+                date: r.get(0)?,
+                completed: r.get(1)?,
+                created: r.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())
+}
+
+/// Completed work per project or category, largest first. Names come from a left
+/// join so a soft-deleted category still labels its history.
+fn slices(conn: &Connection, from: &str, to: &str, by_project: bool) -> Result<Vec<StatsSliceDto>, String> {
+    let (id, name, join) = if by_project {
+        ("t.project_id", "p.name", "LEFT JOIN projects p ON p.id = t.project_id")
+    } else {
+        ("t.category_id", "c.name", "LEFT JOIN categories c ON c.id = t.category_id")
+    };
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {id}, {name}, COUNT(*), COALESCE(SUM(t.effort_minutes), 0)
+             FROM tasks t {join}
+             WHERE {COMPLETED_FILTER}
+               AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2
+             GROUP BY {id}
+             ORDER BY COUNT(*) DESC, 4 DESC, 2"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([from, to], |r| {
+            Ok(StatsSliceDto {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                completed: r.get(2)?,
+                minutes: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())
+}
+
+/// The statistics page's whole payload for one local date range.
+pub fn overview(conn: &Connection, from: &str, to: &str) -> Result<StatsOverviewDto, String> {
+    let start = parse_day(from)?;
+    let end = parse_day(to)?;
+    if start > end {
+        return Err("invalid_stats_range".into());
+    }
+    let days = (end - start).num_days() + 1;
+    if days > MAX_RANGE_DAYS {
+        return Err("stats_range_too_long".into());
+    }
+    let from = format_day(start);
+    let to = format_day(end);
+
+    let current = range_counts(conn, &from, &to)?;
+    let previous_from = format_day(start - TimeDelta::days(days));
+    let previous_to = format_day(start - TimeDelta::days(1));
+    let previous = range_counts(conn, &previous_from, &previous_to)?;
+
+    Ok(StatsOverviewDto {
+        completed: current.completed,
+        created: created_count(conn, &from, &to)?,
+        completed_minutes: current.minutes,
+        on_time: current.on_time,
+        with_due: current.with_due,
+        delayed: delayed_count(conn, &from, &to)?,
+        daily: daily(conn, &from, &to)?,
+        by_project: slices(conn, &from, &to, true)?,
+        by_category: slices(conn, &from, &to, false)?,
+        previous_completed: previous.completed,
+        previous_minutes: previous.minutes,
+        previous_on_time: previous.on_time,
+        previous_with_due: previous.with_due,
+        previous_delayed: delayed_count(conn, &previous_from, &previous_to)?,
+        from,
+        to,
+    })
+}
 
 pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto, String> {
     let project = projects::dto(conn, project_id).map_err(|e| e.to_string())?;
@@ -117,5 +293,158 @@ mod tests {
         assert_eq!(s.by_category[1].name, "资料");
         assert_eq!(s.by_category[1].total, 1);
         assert_eq!(s.by_category[1].done, 0);
+    }
+
+    /// Local `YYYY-MM-DD` of an RFC3339 stamp, matching the SQL `localtime` bucket.
+    fn local_day(stamp: &str) -> String {
+        chrono::DateTime::parse_from_rfc3339(stamp)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string()
+    }
+
+    fn finish(c: &Connection, id: &str, stamp: &str, due: Option<&str>, minutes: i64) {
+        c.execute(
+            "UPDATE tasks SET status='done', in_week=0, actual_finish_at=?1,
+                    expected_finish_date=?2, effort_minutes=?3 WHERE id=?4",
+            rusqlite::params![stamp, due, minutes, id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn overview_buckets_by_local_day_and_splits_on_time() {
+        let c = db::open_in_memory().unwrap();
+        for id in ["t1", "t2", "t3", "t4"] {
+            week::capture(&c, id, NOW, id).unwrap();
+        }
+        finish(&c, "t1", "2026-10-05T09:00:00Z", Some("2026-10-05"), 240);
+        finish(&c, "t2", "2026-10-05T15:00:00Z", Some("2026-10-04"), 480);
+        // No expected finish day: it counts as work done, not as punctuality.
+        finish(&c, "t3", "2026-10-07T02:00:00Z", None, 120);
+
+        let s = stats::overview(&c, "2026-10-01", "2026-10-15").unwrap();
+
+        assert_eq!((s.from.as_str(), s.to.as_str()), ("2026-10-01", "2026-10-15"));
+        assert_eq!(s.completed, 3);
+        assert_eq!(s.completed_minutes, 840);
+        assert_eq!(s.on_time, 1);
+        assert_eq!(s.with_due, 2);
+        // The captures happened after this window, so only two days carry counters.
+        assert_eq!(s.created, 0);
+        assert_eq!(s.daily.len(), 2);
+        assert_eq!(s.daily[0].date, local_day("2026-10-05T09:00:00Z"));
+        assert_eq!(s.daily[0].completed, 2);
+        assert_eq!(s.daily[1].date, local_day("2026-10-07T02:00:00Z"));
+        assert_eq!(s.daily[1].completed, 1);
+    }
+
+    #[test]
+    fn overview_counts_archived_tasks_but_not_canceled_ones() {
+        let c = db::open_in_memory().unwrap();
+        for id in ["t1", "t2", "t3"] {
+            week::capture(&c, id, NOW, id).unwrap();
+        }
+        finish(&c, "t1", "2026-10-06T09:00:00Z", None, 480);
+        finish(&c, "t2", "2026-10-06T10:00:00Z", None, 480);
+        finish(&c, "t3", "2026-10-06T11:00:00Z", None, 480);
+        c.execute("UPDATE tasks SET archived_at=?1 WHERE id='t2'", [NOW])
+            .unwrap();
+        c.execute("UPDATE tasks SET canceled_at=?1 WHERE id='t3'", [NOW])
+            .unwrap();
+
+        let s = stats::overview(&c, "2026-10-01", "2026-10-31").unwrap();
+
+        assert_eq!(s.completed, 2);
+        assert_eq!(s.completed_minutes, 960);
+    }
+
+    #[test]
+    fn overview_keeps_archived_projects_visible() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "旧项目", NOW).unwrap();
+        week::capture(&c, "收尾", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET project_id=?1 WHERE id='t1'",
+            [&p.id],
+        )
+        .unwrap();
+        finish(&c, "t1", "2026-10-06T09:00:00Z", None, 480);
+        c.execute("UPDATE projects SET archived_at=?1 WHERE id=?2", rusqlite::params![NOW, p.id])
+            .unwrap();
+
+        let s = stats::overview(&c, "2026-10-01", "2026-10-31").unwrap();
+
+        assert_eq!(s.completed, 1);
+        assert_eq!(s.by_project.len(), 1);
+        assert_eq!(s.by_project[0].name.as_deref(), Some("旧项目"));
+    }
+
+    #[test]
+    fn overview_compares_with_the_equally_long_previous_window() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "上期", NOW, "t1").unwrap();
+        week::capture(&c, "本期", NOW, "t2").unwrap();
+        finish(&c, "t1", "2026-09-28T09:00:00Z", None, 480);
+        finish(&c, "t2", "2026-10-05T09:00:00Z", None, 240);
+        c.execute(
+            "INSERT INTO delays (id, task_id, kind, old_due, new_due, reason, created_at)
+             VALUES ('d1', 't1', 'reschedule', '2026-09-28', '2026-09-30', NULL,
+                     '2026-09-29T09:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO delays (id, task_id, kind, old_due, new_due, reason, created_at)
+             VALUES ('d2', 't2', 'overdue_note', NULL, NULL, NULL, '2026-10-05T09:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        // 10-05 .. 10-11; the previous window is 09-28 .. 10-04.
+        let s = stats::overview(&c, "2026-10-05", "2026-10-11").unwrap();
+
+        assert_eq!((s.completed, s.completed_minutes), (1, 240));
+        assert_eq!((s.previous_completed, s.previous_minutes), (1, 480));
+        assert_eq!((s.delayed, s.previous_delayed), (1, 1));
+    }
+
+    #[test]
+    fn overview_is_empty_outside_any_activity() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "没做完", NOW, "t1").unwrap();
+
+        let s = stats::overview(&c, "2025-01-01", "2025-01-31").unwrap();
+
+        assert_eq!(s.completed, 0);
+        assert_eq!(s.completed_minutes, 0);
+        assert_eq!(s.with_due, 0);
+        assert!(s.daily.is_empty());
+        assert!(s.by_project.is_empty());
+        assert!(s.by_category.is_empty());
+        // Nothing was created in the window either; the seeded capture is "now".
+        assert_eq!(s.created, 0);
+        assert_eq!(s.previous_completed, 0);
+    }
+
+    #[test]
+    fn overview_rejects_backwards_and_oversized_ranges() {
+        let c = db::open_in_memory().unwrap();
+
+        assert_eq!(
+            stats::overview(&c, "2026-10-31", "2026-10-01").unwrap_err(),
+            "invalid_stats_range"
+        );
+        assert_eq!(
+            stats::overview(&c, "2026-10-01", "not-a-day").unwrap_err(),
+            "invalid_stats_range"
+        );
+        assert_eq!(
+            stats::overview(&c, "2025-01-01", "2026-10-01").unwrap_err(),
+            "stats_range_too_long"
+        );
+        // The limit itself is inclusive: 366 days pass.
+        assert!(stats::overview(&c, "2025-10-01", "2026-10-01").is_ok());
     }
 }

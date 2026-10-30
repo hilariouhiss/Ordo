@@ -5,6 +5,7 @@ pub mod meta;
 pub mod projects;
 pub mod rules;
 pub mod shortcuts;
+pub mod stats;
 pub mod tags;
 pub mod tasks;
 pub mod window;

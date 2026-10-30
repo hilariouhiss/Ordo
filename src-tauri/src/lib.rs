@@ -357,6 +357,7 @@ pub fn run() {
       commands::projects::rename_person,
       commands::projects::delete_person,
       commands::archive::list_archive,
+      commands::stats::stats_overview,
       commands::archive::archive_task,
       commands::archive::restore_task,
       commands::archive::delete_task,

@@ -203,6 +203,40 @@ export interface WeekStats {
   delayed: number;
 }
 
+/** One local day with activity; the statistics page fills the quiet days in. */
+export interface DayStats {
+  date: string;
+  completed: number;
+  created: number;
+}
+
+/** Completed work grouped by project or category; both ids are null when unset. */
+export interface StatsSlice {
+  id: string | null;
+  name: string | null;
+  completed: number;
+  minutes: number;
+}
+
+export interface StatsOverview {
+  from: string;
+  to: string;
+  completed: number;
+  created: number;
+  completedMinutes: number;
+  onTime: number;
+  withDue: number;
+  delayed: number;
+  daily: DayStats[];
+  byProject: StatsSlice[];
+  byCategory: StatsSlice[];
+  previousCompleted: number;
+  previousMinutes: number;
+  previousOnTime: number;
+  previousWithDue: number;
+  previousDelayed: number;
+}
+
 export interface Bootstrap {
   people: Person[];
   categories: Category[];

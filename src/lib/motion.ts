@@ -57,7 +57,8 @@ const NAV_RANK: Record<string, number> = {
   categories: 4,
   tags: 5,
   people: 6,
-  archive: 7,
+  stats: 7,
+  archive: 8,
 };
 
 export function pageRank(name: string | null | undefined): number {

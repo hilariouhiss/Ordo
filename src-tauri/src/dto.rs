@@ -203,6 +203,53 @@ pub struct WeekStatsDto {
     pub done: i64,
     pub delayed: i64,
 }
+
+/// One local day of the statistics page. Days without activity are left out;
+/// the page fills the gaps so the chart keeps an even scale.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayStatsDto {
+    /// Local `YYYY-MM-DD`.
+    pub date: String,
+    pub completed: i64,
+    pub created: i64,
+}
+
+/// Completed work grouped by project or category. `id` and `name` stay null for
+/// tasks that carry neither; the page names that bucket itself.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsSliceDto {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub completed: i64,
+    pub minutes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsOverviewDto {
+    /// Local `YYYY-MM-DD` bounds, echoed back from the request.
+    pub from: String,
+    pub to: String,
+    pub completed: i64,
+    pub created: i64,
+    pub completed_minutes: i64,
+    /// Completions that landed on or before the expected finish day.
+    pub on_time: i64,
+    /// Completions that had an expected finish day; the on-time rate's denominator.
+    pub with_due: i64,
+    pub delayed: i64,
+    pub daily: Vec<DayStatsDto>,
+    pub by_project: Vec<StatsSliceDto>,
+    pub by_category: Vec<StatsSliceDto>,
+    /// The equally long window just before this one.
+    pub previous_completed: i64,
+    pub previous_minutes: i64,
+    pub previous_on_time: i64,
+    pub previous_with_due: i64,
+    pub previous_delayed: i64,
+}
 /// A task edit. An absent field keeps its value; an explicit `null` clears it.
 /// `title` and `tags` are not nullable, so absent keeps and a value replaces.
 /// No expected finish date: it only moves through `set_expected_finish`, which writes
