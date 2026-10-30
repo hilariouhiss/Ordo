@@ -19,6 +19,9 @@ impl ReminderTargets {
     pub fn next_id(&self, task_id: &str) -> i32 {
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         if let Ok(mut tasks) = self.tasks.lock() {
+            if tasks.len() >= MAX_TARGETS {
+                tasks.clear();
+            }
             tasks.insert(id, task_id.to_owned());
         }
         id
@@ -31,6 +34,9 @@ impl ReminderTargets {
 
 /// Per-task toasts in one tick before the rest collapse into a single summary.
 const MAX_TOASTS: usize = 3;
+
+/// Only a toast still on screen can be tapped, so the id map keeps the newest few.
+const MAX_TARGETS: usize = 200;
 
 /// Fired reminders older than this are dropped after a successful daily backup.
 const NOTIFICATION_KEEP_DAYS: i64 = 90;
@@ -156,6 +162,18 @@ mod tests {
         assert_eq!(map.task_for(a).as_deref(), Some("t1"));
         assert_eq!(map.task_for(b).as_deref(), Some("t2"));
         assert_eq!(map.task_for(-1), None);
+    }
+
+    #[test]
+    fn reminder_targets_keep_only_the_newest() {
+        let map = ReminderTargets::default();
+        let oldest = map.next_id("t1");
+        for _ in 0..MAX_TARGETS {
+            map.next_id("t2");
+        }
+        assert!(map.task_for(oldest).is_none(), "the oldest target is dropped");
+        let newest = map.next_id("t3");
+        assert_eq!(map.task_for(newest).as_deref(), Some("t3"));
     }
 
     #[test]

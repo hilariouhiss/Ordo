@@ -84,16 +84,23 @@ pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, String> {
+/// Writes `dir/ordo-<stamp>.db` unless that name is already there, and says whether
+/// it wrote it. Pruning stays with the caller: the daily job only prunes after a write.
+fn write_backup(conn: &Connection, dir: &Path, name: String) -> Result<(PathBuf, bool), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let name = format!("ordo-{}.db", chrono::Local::now().format("%Y-%m-%d"));
     let path = dir.join(name);
     if path.exists() {
-        return Ok(None);
+        return Ok((path, false));
     }
     conn.execute("VACUUM INTO ?1", [path.to_string_lossy().to_string()])
         .map_err(|e| e.to_string())?;
-    Ok(Some(path))
+    Ok((path, true))
+}
+
+pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, String> {
+    let name = format!("ordo-{}.db", chrono::Local::now().format("%Y-%m-%d"));
+    let (path, written) = write_backup(conn, dir, name)?;
+    Ok(written.then_some(path))
 }
 
 fn keep_days(conn: &Connection) -> i64 {
@@ -131,16 +138,8 @@ pub fn record_error(conn: &Connection, error: Option<String>) {
 /// snapshot sorting after the daily ordo-YYYY-MM-DD.db in backups_newest_first,
 /// so recovery prefers the newer of the two.
 pub fn backup_snapshot(conn: &Connection, dir: &Path) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let name = format!(
-        "ordo-{}.db",
-        chrono::Local::now().format("%Y-%m-%dT%H%M%S")
-    );
-    let path = dir.join(name);
-    if !path.exists() {
-        conn.execute("VACUUM INTO ?1", [path.to_string_lossy().to_string()])
-            .map_err(|e| e.to_string())?;
-    }
+    let name = format!("ordo-{}.db", chrono::Local::now().format("%Y-%m-%dT%H%M%S"));
+    let (path, _) = write_backup(conn, dir, name)?;
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let _ = prune(dir, keep_days(conn), &today);
     Ok(path)

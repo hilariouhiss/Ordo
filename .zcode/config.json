@@ -1,0 +1,10 @@
+{
+  "plugins": {
+    "enabledPlugins": {
+      "gitlab@zcode-plugins-official": false,
+      "plugin-creator@zcode-plugins-official": false,
+      "zcode-guide@zcode-plugins-official": false,
+      "skill-creator@zcode-plugins-official": false
+    }
+  }
+}

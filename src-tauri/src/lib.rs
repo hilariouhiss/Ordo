@@ -20,6 +20,27 @@ pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// Release builds have no console and the log plugin only runs in debug, so a
+/// runtime failure appends one line to a capped file the user can send.
+fn note_error_in(dir: &std::path::Path, message: &str) {
+    let path = dir.join("ordo-errors.txt");
+    if std::fs::metadata(&path).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+        let _ = std::fs::remove_file(&path);
+    }
+    let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let _ = std::fs::create_dir_all(dir);
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write;
+        let _ = file.write_all(format!("{stamp} {message}\n").as_bytes());
+    }
+}
+
+fn note_error(app: &tauri::AppHandle, message: &str) {
+    if let Ok(dir) = app.path().app_data_dir() {
+        note_error_in(&dir, message);
+    }
+}
+
 pub fn toggle_capture(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("capture") else {
         // Building a window inside the shortcut callback is not worth the risk; the next
@@ -66,6 +87,7 @@ fn ensure_capture(app: &tauri::AppHandle, reveal_when_loaded: bool) -> Option<ta
         Ok(window) => Some(window),
         Err(e) => {
             eprintln!("捕获窗口创建失败：{e}");
+            note_error(app, &format!("捕获窗口创建失败：{e}"));
             None
         }
     }
@@ -259,7 +281,10 @@ pub(crate) fn refresh_tray(
         Ok(menu) => {
             let _ = tray.set_menu(Some(menu));
         }
-        Err(e) => eprintln!("托盘菜单重建失败：{e}"),
+        Err(e) => {
+            eprintln!("托盘菜单重建失败：{e}");
+            note_error(app, &format!("托盘菜单重建失败：{e}"));
+        }
     }
 }
 
@@ -336,20 +361,20 @@ pub fn run() {
       commands::archive::restore_task,
       commands::archive::delete_task,
       commands::meta::get_settings,
-      commands::meta::set_window_rect,
+      commands::window::set_window_rect,
       commands::meta::set_settings,
       commands::meta::export_json,
       commands::meta::backup_now,
-      commands::meta::create_category,
-      commands::meta::rename_category,
-      commands::meta::delete_category,
-      commands::meta::reorder_categories,
-      commands::meta::create_tag,
-      commands::meta::delete_tag,
-      commands::meta::set_shortcut,
-      commands::meta::set_desk_shortcut,
-      commands::meta::set_main_shortcut,
-      commands::meta::desk_left_button_down,
+      commands::categories::create_category,
+      commands::categories::rename_category,
+      commands::categories::delete_category,
+      commands::categories::reorder_categories,
+      commands::tags::create_tag,
+      commands::tags::delete_tag,
+      commands::shortcuts::set_shortcut,
+      commands::shortcuts::set_desk_shortcut,
+      commands::shortcuts::set_main_shortcut,
+      commands::window::desk_left_button_down,
       commands::ai::set_ai_key,
       commands::ai::clear_ai_key,
       commands::ai::ai_key_status,
@@ -513,6 +538,22 @@ pub fn run() {
 mod tests {
     /// The tray decodes the app icon at startup. A missing size or a repainted file would
     /// otherwise only surface as an app that comes up without its tray icon.
+    #[test]
+    fn runtime_errors_land_in_a_capped_file() {
+        let dir = std::env::temp_dir().join(format!("ordo-errors-{}", uuid::Uuid::new_v4()));
+        super::note_error_in(&dir, "第一次失败");
+        let text = std::fs::read_to_string(dir.join("ordo-errors.txt")).unwrap();
+        assert!(text.ends_with("第一次失败\n"), "{text}");
+
+        // A grown file is replaced instead of growing forever.
+        std::fs::write(dir.join("ordo-errors.txt"), vec![b'x'; 300 * 1024]).unwrap();
+        super::note_error_in(&dir, "又失败了");
+        let text = std::fs::read_to_string(dir.join("ordo-errors.txt")).unwrap();
+        assert!(!text.contains("第一次失败"));
+        assert!(text.ends_with("又失败了\n"), "{text}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn tray_icon_decodes() {
         let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap();

@@ -1,6 +1,10 @@
 pub mod ai;
 pub mod archive;
+pub mod categories;
 pub mod meta;
 pub mod projects;
 pub mod rules;
+pub mod shortcuts;
+pub mod tags;
 pub mod tasks;
+pub mod window;
