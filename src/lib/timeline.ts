@@ -1,8 +1,8 @@
 export interface TimelineTask {
   id: string;
   title: string;
-  startDate: string | null;
-  dueDate: string | null;
+  expectedStartDate: string | null;
+  expectedFinishDate: string | null;
   categoryId: string | null;
   status: string;
 }
@@ -35,18 +35,18 @@ export function timelineLayout(range: TimelineRange, tasks: TimelineTask[]): Tim
   if (total <= 0) return [];
 
   return tasks
-    .filter((task) => task.startDate || task.dueDate)
+    .filter((task) => task.expectedStartDate || task.expectedFinishDate)
     .map((task) => {
-      const rawStart = task.startDate ? Date.parse(task.startDate) : rangeStart;
-      const rawEnd = task.dueDate ? Date.parse(task.dueDate) : rangeEnd;
+      const rawStart = task.expectedStartDate ? Date.parse(task.expectedStartDate) : rangeStart;
+      const rawEnd = task.expectedFinishDate ? Date.parse(task.expectedFinishDate) : rangeEnd;
       const start = Math.max(rawStart, rangeStart);
       const end = Math.min(rawEnd, rangeEnd);
       return {
         taskId: task.id,
         leftPct: clampPct(((start - rangeStart) / DAY / total) * 100),
         widthPct: clampPct(Math.max(MIN_BAR_PCT, ((end - start) / DAY / total) * 100)),
-        dashedStart: !task.startDate,
-        dashedEnd: !task.dueDate,
+        dashedStart: !task.expectedStartDate,
+        dashedEnd: !task.expectedFinishDate,
       };
     });
 }

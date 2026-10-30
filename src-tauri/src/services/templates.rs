@@ -48,7 +48,7 @@ pub fn create_task(
         project_id: template.project_id.clone(),
         owner_id: template.owner_id.clone(),
         priority: Some(template.priority.clone()),
-        due_date: None,
+        expected_finish_date: None,
         effort_minutes: Some(template.effort_minutes),
     };
     week::capture_with_fields(conn, &template.name, &fields, now, task_id)?;

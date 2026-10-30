@@ -77,6 +77,10 @@ pub async fn set_settings(
             ("desk.x", patch.desk_x.map(|v| v.to_string())),
             ("desk.y", patch.desk_y.map(|v| v.to_string())),
             ("tasks.group_by", patch.tasks_group_by),
+            (
+                "week.show_empty_days",
+                patch.week_show_empty_days.map(|v| v.to_string()),
+            ),
         ];
         for (key, value) in sets {
             if let Some(value) = value {

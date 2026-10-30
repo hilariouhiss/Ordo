@@ -80,16 +80,16 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
             project_id = COALESCE(project_id, ?1),
             category_id = COALESCE(category_id, ?2),
             owner_id = COALESCE(owner_id, ?3),
-            start_date = COALESCE(start_date, ?4),
-            due_date = COALESCE(due_date, ?5),
+            expected_start_date = COALESCE(expected_start_date, ?4),
+            expected_finish_date = COALESCE(expected_finish_date, ?5),
             updated_at = ?6
          WHERE id = ?7",
         params![
             enrichment.project_id,
             enrichment.category_id,
             enrichment.owner_id,
-            enrichment.start_date,
-            enrichment.due_date,
+            enrichment.expected_start_date,
+            enrichment.expected_finish_date,
             now,
             task_id
         ],
@@ -377,21 +377,21 @@ mod tests {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET note = '用户写的', due_date = '2026-11-01' WHERE id = 't1'",
+            "UPDATE tasks SET note = '用户写的', expected_finish_date = '2026-11-01' WHERE id = 't1'",
             [],
         )
         .unwrap();
         let enrichment = Enrichment {
-            due_date: Some("2026-12-01".into()),
-            start_date: Some("2026-10-22".into()),
+            expected_finish_date: Some("2026-12-01".into()),
+            expected_start_date: Some("2026-10-22".into()),
             tags: vec!["fix".into()],
             ..Default::default()
         };
 
         let t = apply(&c, "t1", &enrichment, LATER).unwrap();
 
-        assert_eq!(t.due_date.as_deref(), Some("2026-11-01"));
-        assert_eq!(t.start_date.as_deref(), Some("2026-10-22"));
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-11-01"));
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
         assert_eq!(t.note.as_deref(), Some("用户写的"));
         assert_eq!(t.updated_at, LATER);
         let tags: Vec<String> = t.tags.into_iter().map(|tag| tag.name).collect();

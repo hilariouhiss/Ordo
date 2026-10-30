@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 14;
+pub const LATEST: i64 = 15;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -397,6 +397,33 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 14)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 15 {
+        // A task now has four times: expected start and finish stay whole days, while the
+        // actual pair is stamped when the work really happens. Every rename is guarded so a
+        // crash mid-step replays cleanly; SQLite rewrites the indexes with the column.
+        let tx = conn.unchecked_transaction()?;
+        for (old, new) in [
+            ("start_date", "expected_start_date"),
+            ("due_date", "expected_finish_date"),
+            ("due_time", "expected_finish_time"),
+            ("done_at", "actual_finish_at"),
+        ] {
+            if has_task_column(&tx, old)? && !has_task_column(&tx, new)? {
+                tx.execute_batch(&format!("ALTER TABLE tasks RENAME COLUMN {old} TO {new}"))?;
+            }
+        }
+        if !has_task_column(&tx, "started_at")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN started_at TEXT")?;
+        }
+        tx.execute_batch(
+            "DROP INDEX IF EXISTS idx_tasks_due;
+             CREATE INDEX IF NOT EXISTS idx_tasks_finish ON tasks(expected_finish_date);",
+        )?;
+        tx.pragma_update(None, "user_version", 15)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -583,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_a_v2_database_and_keeps_done_at() {
+    fn upgrades_a_v2_database_and_keeps_the_actual_finish() {
         let c = v2_database();
 
         migrate(&c).unwrap();
@@ -591,7 +618,9 @@ mod tests {
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
         let mut stmt = c
-            .prepare("SELECT id, sort_order, effort_minutes, done_at FROM tasks ORDER BY sort_order")
+            .prepare(
+                "SELECT id, sort_order, effort_minutes, actual_finish_at FROM tasks ORDER BY sort_order",
+            )
             .unwrap();
         let rows: Vec<(String, i64, i64, Option<String>)> = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
@@ -974,7 +1003,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(tables, 3);
-        for column in ["due_time", "rule_id"] {
+        for column in ["expected_finish_time", "rule_id"] {
             assert!(has_task_column(&c, column).unwrap(), "{column} missing");
         }
         let index: i64 = c
@@ -1081,5 +1110,71 @@ mod tests {
             .query_row("SELECT effort_minutes FROM tasks WHERE id = 'a'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(task, 720);
+    }
+
+    #[test]
+    fn renames_the_time_columns_and_adds_the_actual_start() {
+        let c = db::open_in_memory().unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, expected_start_date, expected_finish_date,
+                                expected_finish_time, actual_finish_at, created_at, updated_at)
+             VALUES ('a', '旧事', '2026-10-19', '2026-10-23', '17:30',
+                     '2026-10-23T09:00:00Z', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        // Put the v14 shape back: the old names return, the new column goes away.
+        c.execute_batch(
+            "ALTER TABLE tasks RENAME COLUMN expected_start_date TO start_date;
+             ALTER TABLE tasks RENAME COLUMN expected_finish_date TO due_date;
+             ALTER TABLE tasks RENAME COLUMN expected_finish_time TO due_time;
+             ALTER TABLE tasks RENAME COLUMN actual_finish_at TO done_at;
+             ALTER TABLE tasks DROP COLUMN started_at;",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 14).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        for column in ["start_date", "due_date", "due_time", "done_at"] {
+            assert!(
+                !has_task_column(&c, column).unwrap(),
+                "{column} should be gone"
+            );
+        }
+        let (start, finish, time, finished, started): (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+        ) = c
+            .query_row(
+                "SELECT expected_start_date, expected_finish_date, expected_finish_time,
+                        actual_finish_at, started_at
+                 FROM tasks WHERE id = 'a'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(start, "2026-10-19");
+        assert_eq!(finish, "2026-10-23");
+        assert_eq!(time, "17:30");
+        assert_eq!(finished, "2026-10-23T09:00:00Z");
+        assert!(started.is_none());
+
+        // A crash after the rename but before the bump must be safe to replay.
+        c.pragma_update(None, "user_version", 14).unwrap();
+        migrate(&c).unwrap();
+        let finish: String = c
+            .query_row(
+                "SELECT expected_finish_date FROM tasks WHERE id = 'a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(finish, "2026-10-23");
     }
 }

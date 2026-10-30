@@ -10,12 +10,13 @@ vi.mock("../../model/ipc", () => ({
   resumeTask: vi.fn(),
   markNotificationsSeen: vi.fn(),
   moveTask: vi.fn(),
+  placeTask: vi.fn(),
 }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { mondayOf, todayIso } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
-import { capture, listSuspended, listWeek, moveTask, weekStats } from "../../model/ipc";
+import { capture, listSuspended, listWeek, moveTask, placeTask, weekStats } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { appVM } from "../appVM";
 import { createWeekVM } from "../weekVM";
@@ -127,6 +128,7 @@ describe("weekVM plan", () => {
   afterEach(() => {
     closeDialog(null);
     vi.useRealTimers();
+    appVM.state.settings = null;
   });
 
   async function loadedWith(tasks: Task[]) {
@@ -163,8 +165,8 @@ describe("weekVM plan", () => {
 
   it("counts a finish after the due date, not one on it", async () => {
     const vm = await loadedWith([
-      task({ id: "late", dueDate: "2026-10-19" }),
-      task({ id: "fit", dueDate: "2026-10-21" }),
+      task({ id: "late", expectedFinishDate: "2026-10-19" }),
+      task({ id: "fit", expectedFinishDate: "2026-10-21" }),
     ]);
 
     expect(vm.conflictCount.value).toBe(1);
@@ -173,7 +175,7 @@ describe("weekVM plan", () => {
   });
 
   it("uses the task's own start date", async () => {
-    const vm = await loadedWith([task({ id: "a", startDate: "2026-10-22" })]);
+    const vm = await loadedWith([task({ id: "a", expectedStartDate: "2026-10-22" })]);
 
     expect(vm.days.value[0].date).toBe("2026-10-22");
     expect(vm.days.value[0].isToday).toBe(false);
@@ -221,6 +223,43 @@ describe("weekVM plan", () => {
     expect(vm.days.value).toEqual([]);
     expect(vm.planEnd.value).toBeNull();
     expect(vm.conflictCount.value).toBe(0);
+  });
+
+  it("fills the rest of the workweek when the setting is on", async () => {
+    appVM.state.settings = defaultSettings;
+    const vm = await loadedWith([]);
+
+    expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-10-20",
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+    ]);
+    expect(vm.days.value.every((day) => day.rows.length === 0)).toBe(true);
+  });
+
+  it("leaves days covered by a spanning task out of the empty fill", async () => {
+    appVM.state.settings = defaultSettings;
+    const vm = await loadedWith([task({ id: "a", effortMinutes: 960 })]);
+
+    expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-10-20",
+      "2026-10-22",
+      "2026-10-23",
+    ]);
+  });
+
+  it("places a dropped task on the day and reloads", async () => {
+    vi.mocked(placeTask).mockResolvedValue();
+    vi.mocked(listWeek).mockResolvedValue([task({ id: "t1", expectedStartDate: "2026-10-22" })]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+
+    await vm.place("t1", "2026-10-22", "t2");
+
+    expect(placeTask).toHaveBeenCalledWith("t1", "2026-10-22", "t2");
+    expect(vm.state.tasks[0].expectedStartDate).toBe("2026-10-22");
   });
 });
 

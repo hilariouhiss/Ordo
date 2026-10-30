@@ -2,9 +2,9 @@
 import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { shortDate, todayIso, weekdayLabel } from "../lib/dates";
+import { remainingWorkdays, shortDate, todayIso, weekdayLabel } from "../lib/dates";
 import { t } from "../lib/i18n";
-import { daysSince } from "../model/mappers";
+import { fillPlannedDays } from "../lib/plan";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -18,6 +18,7 @@ import WeeklyPass from "./overlays/WeeklyPass.vue";
 const {
   state,
   days,
+  plan,
   planEnd,
   overloadDates,
   conflictCount,
@@ -26,52 +27,71 @@ const {
   capture,
   resume,
   move,
+  place,
   moveBy,
 } = weekVM;
 const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
 const suspendedOpen = computed(() => state.suspended.length > 0);
 
-function suspendedMeta(task: Task): string {
-  const parts: string[] = [];
-  if (task.suspendedUntil) {
-    parts.push(t("week.reviewAt", { date: shortDate(task.suspendedUntil) }));
-  }
-  if (task.suspendedAt) {
-    parts.push(t("task.suspendedFor", { days: daysSince(task.suspendedAt, todayIso()) }));
-  }
-  return parts.length ? parts.join(" · ") : t("week.noReviewDate");
-}
-
 const listEl = ref<HTMLElement | null>(null);
 const draggingId = ref<string | null>(null);
-const dropBeforeId = ref<string | null | undefined>(undefined);
+const dropTarget = ref<{ day: string; beforeId: string | null } | null>(null);
 const dragMoved = ref(false);
 let startY = 0;
 let pointerY = 0;
 let scrollFrame = 0;
 
+/** The day the planner starts each in-week task on, so a drop inside it only reorders. */
+const plannedDay = computed(() => new Map(plan.value.map((row) => [row.id, row.start])));
+const draggingSuspended = computed(
+  () => draggingId.value !== null && state.suspended.some((task) => task.id === draggingId.value),
+);
+/**
+ * A parked task still needs somewhere to land. With the empty-day setting off the list
+ * can be empty, so a suspended drag temporarily fills this week's workdays back in.
+ */
+const shownDays = computed(() => {
+  if (days.value.length || !draggingSuspended.value) return days.value;
+  const today = todayIso();
+  return fillPlannedDays(days.value, remainingWorkdays(today), plan.value, today);
+});
+
 function onHandleDown(event: PointerEvent, id: string): void {
   if (event.button !== 0) return;
   draggingId.value = id;
-  dropBeforeId.value = undefined;
+  dropTarget.value = null;
   dragMoved.value = false;
   startY = event.clientY;
   pointerY = event.clientY;
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
 }
 
+/** Finds the day under the pointer, then the row inside it to insert before. */
 function updateDropTarget(): void {
-  const rows = listEl.value?.querySelectorAll<HTMLElement>("[data-task-id]");
-  if (!rows) return;
-  let before: string | null = null;
-  for (const row of rows) {
-    const rect = row.getBoundingClientRect();
-    if (pointerY < rect.top + rect.height / 2) {
-      before = row.dataset.taskId ?? null;
+  const sections = listEl.value?.querySelectorAll<HTMLElement>("[data-day]");
+  if (!sections?.length) return;
+  let section: HTMLElement | null = null;
+  for (const candidate of sections) {
+    const rect = candidate.getBoundingClientRect();
+    if (pointerY < rect.bottom) {
+      section = candidate;
       break;
     }
   }
-  dropBeforeId.value = before;
+  const day = section?.dataset.day;
+  if (!section || !day) {
+    dropTarget.value = null;
+    return;
+  }
+  let beforeId: string | null = null;
+  for (const row of section.querySelectorAll<HTMLElement>("[data-task-id]")) {
+    const rect = row.getBoundingClientRect();
+    if (pointerY < rect.top + rect.height / 2) {
+      beforeId = row.dataset.taskId ?? null;
+      break;
+    }
+  }
+  dropTarget.value = { day, beforeId };
 }
 
 /** Dragging to a window edge keeps scrolling, so rows that are off-screen stay reachable. */
@@ -106,17 +126,35 @@ function endDrag(): void {
   if (scrollFrame) cancelAnimationFrame(scrollFrame);
   scrollFrame = 0;
   draggingId.value = null;
-  dropBeforeId.value = undefined;
+  dropTarget.value = null;
   dragMoved.value = false;
+}
+
+/**
+ * The global anchor for a day-local drop: the first task of a later day when the drop
+ * lands after the day's last row, so `move_task` leaves it at the bottom of that day.
+ */
+function anchorFor(day: string, beforeId: string | null): string | null {
+  if (beforeId) return beforeId;
+  const index = shownDays.value.findIndex((entry) => entry.date === day);
+  for (const later of shownDays.value.slice(index + 1)) {
+    const first = later.rows[0];
+    if (first) return first.task.id;
+  }
+  return null;
 }
 
 function onHandleUp(): void {
   const id = draggingId.value;
   const moved = dragMoved.value;
-  const before = dropBeforeId.value;
+  const target = dropTarget.value;
+  // The anchor is read while the drag is still live: a suspended drag may have filled
+  // days that disappear again as soon as the drag ends.
+  const beforeId = target ? anchorFor(target.day, target.beforeId) : null;
   endDrag();
-  if (!id || !moved || before === undefined) return;
-  void move(id, before);
+  if (!id || !moved || !target) return;
+  if (plannedDay.value.get(id) === target.day) void move(id, beforeId);
+  else void place(id, target.day, beforeId);
 }
 
 /** Keyboard reordering keeps focus on the same handle, even across a day boundary. */
@@ -191,7 +229,7 @@ function refresh(): void {
     <CaptureBar v-model="state.draft" @submit="capture" />
 
     <div
-      v-if="days.length"
+      v-if="planEnd"
       class="flex flex-wrap items-center gap-2 px-1 text-[10.5px] text-base-content/45"
       aria-live="polite"
     >
@@ -211,14 +249,27 @@ function refresh(): void {
       </span>
     </div>
 
-    <div v-if="days.length" ref="listEl" :class="{ 'select-none': draggingId }">
-      <section v-for="(day, dayIndex) in days" :key="day.date">
+    <p
+      v-if="!state.tasks.length && !shownDays.length && !state.loading"
+      class="px-1 text-[13px] text-base-content/40"
+    >
+      {{ t("week.empty") }}
+    </p>
+
+    <div v-if="shownDays.length" ref="listEl" :class="{ 'select-none': draggingId }">
+      <section v-for="day in shownDays" :key="day.date" :data-day="day.date">
         <div class="flex items-center gap-2 px-1 pt-1.5 pb-1 text-[10.5px] text-base-content/40">
           <span class="font-medium">{{ day.weekday }}</span>
           <span>{{ shortDate(day.date) }}</span>
           <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
             t("week.today")
           }}</span>
+          <span
+            v-if="dragMoved && dropTarget?.day === day.date"
+            class="ml-auto text-[10px] text-primary"
+          >
+            {{ t("week.dropDay") }}
+          </span>
         </div>
         <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
           <TaskRow
@@ -226,7 +277,12 @@ function refresh(): void {
             :key="row.task.id"
             :task="row.task"
             :plan="{ end: row.end, spans: row.spans, conflict: row.conflict }"
-            :drop-line="dragMoved && dropBeforeId === row.task.id && draggingId !== row.task.id"
+            :drop-line="
+              dragMoved &&
+              dropTarget?.day === day.date &&
+              dropTarget.beforeId === row.task.id &&
+              draggingId !== row.task.id
+            "
             :style="{ opacity: draggingId === row.task.id ? 0.4 : undefined }"
             :data-task-id="row.task.id"
             @open="openTask"
@@ -250,41 +306,59 @@ function refresh(): void {
           </TaskRow>
         </AnimatePresence>
         <div
-          v-if="dayIndex === days.length - 1 && dragMoved && dropBeforeId === null"
+          v-if="!day.rows.length"
+          class="mt-0.5 flex h-9 items-center justify-center rounded-xl border border-dashed text-[10.5px]"
+          :class="
+            dragMoved && dropTarget?.day === day.date
+              ? 'border-primary/60 bg-primary/5 text-primary'
+              : 'border-base-content/15 text-base-content/30'
+          "
+        >
+          {{ dragMoved ? t("week.dropDay") : t("week.emptyDay") }}
+        </div>
+        <div
+          v-else-if="dragMoved && dropTarget?.day === day.date && dropTarget.beforeId === null"
           class="mt-1.5 h-6 rounded-xl border border-dashed border-primary/50"
         ></div>
       </section>
     </div>
 
-    <p v-else-if="!state.loading" class="px-1 text-[13px] text-base-content/40">
-      {{ t("week.empty") }}
-    </p>
-
-    <div v-if="suspendedOpen" class="rounded-xl bg-base-100 px-3 py-2.5">
-      <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+    <div v-if="suspendedOpen" class="space-y-1.5">
+      <div class="px-1 text-[10.5px] font-medium tracking-wide text-base-content/40">
         {{ t("week.suspended", { count: state.suspended.length }) }}
       </div>
-      <div
-        v-for="task in state.suspended"
-        :key="task.id"
-        class="mt-1.5 flex items-start gap-2 text-[12px]"
-      >
-        <div class="min-w-0">
-          <div>{{ task.title }}</div>
-          <div
-            v-if="task.suspendReason"
-            class="mt-0.5 break-words text-[10.5px] text-base-content/45"
-          >
-            {{ task.suspendReason }}
-          </div>
-        </div>
-        <span class="ml-auto shrink-0 text-[10.5px] text-base-content/40">
-          {{ suspendedMeta(task) }}
-        </span>
-        <button class="shrink-0 text-[10.5px] text-primary" @click="resume(task.id)">
-          {{ t("week.resume") }}
-        </button>
-      </div>
+      <ul class="space-y-1.5">
+        <TaskRow
+          v-for="task in state.suspended"
+          :key="task.id"
+          :task="task"
+          :style="{ opacity: draggingId === task.id ? 0.4 : undefined }"
+          @open="openTask"
+          @changed="refresh"
+        >
+          <template #leading>
+            <button
+              class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
+              :aria-label="t('week.reorderAria', { title: task.title })"
+              @click.stop
+              @pointerdown="onHandleDown($event, task.id)"
+              @pointermove="onHandleMove"
+              @pointerup="onHandleUp"
+              @pointercancel="endDrag"
+            >
+              <GripVertical :size="14" aria-hidden="true" />
+            </button>
+          </template>
+          <template #actions>
+            <button
+              class="grid h-5 place-items-center rounded-md px-1 text-[10.5px] text-primary hover:bg-base-200"
+              @click.stop="resume(task.id)"
+            >
+              {{ t("week.resume") }}
+            </button>
+          </template>
+        </TaskRow>
+      </ul>
     </div>
 
     <div class="flex items-center gap-3 px-1 text-[11px] text-base-content/45">

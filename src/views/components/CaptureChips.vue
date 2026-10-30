@@ -68,7 +68,7 @@ function onPriority(value: string): void {
 }
 
 function onDue(value: string): void {
-  emit("edit", { dueDate: value || null });
+  emit("edit", { expectedFinishDate: value || null });
 }
 
 /** Effort is minutes; the field commits on blur, so the capture box keeps focus. */
@@ -119,10 +119,10 @@ const effort = computed({
     </label>
 
     <label class="flex items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{ t("task.due") }}</span>
+      <span class="shrink-0 text-base-content/40">{{ t("task.expectedFinish") }}</span>
       <DateField
-        :model-value="fields.dueDate ?? ''"
-        :class="controlClass('dueDate')"
+        :model-value="fields.expectedFinishDate ?? ''"
+        :class="controlClass('expectedFinishDate')"
         class="input input-xs w-[112px] rounded-md border-base-300 text-[10.5px]"
         @update:model-value="onDue"
       />

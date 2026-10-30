@@ -16,8 +16,8 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     let today = now.date_naive();
 
     let sql = format!(
-        "SELECT id, due_date, due_time FROM tasks
-         WHERE due_date IS NOT NULL AND status <> 'done'
+        "SELECT id, expected_finish_date, expected_finish_time FROM tasks
+         WHERE expected_finish_date IS NOT NULL AND status <> 'done'
            AND {}",
         VISIBLE_TASK_FILTER
     );
@@ -32,7 +32,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (task_id, due, due_time) = row.map_err(|e| e.to_string())?;
+        let (task_id, due, expected_finish_time) = row.map_err(|e| e.to_string())?;
         let Ok(due_date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
             continue;
         };
@@ -40,7 +40,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         // The task is overdue only after its own day ends; the notice belongs to
         // the next day's 17:30, or the first launch after that.
         let overdue_at = local_at(due_date + Duration::days(1), 17, 30)?;
-        let timed = due_time
+        let timed = expected_finish_time
             .as_deref()
             .and_then(|raw| NaiveTime::parse_from_str(raw, "%H:%M").ok());
 
@@ -131,7 +131,7 @@ mod tests {
     fn task_with_due(c: &Connection, id: &str, due: &str) {
         crate::services::week::capture(c, "交底", NOW, id).unwrap();
         c.execute(
-            "UPDATE tasks SET due_date = ?1 WHERE id = ?2",
+            "UPDATE tasks SET expected_finish_date = ?1 WHERE id = ?2",
             rusqlite::params![due, id],
         )
         .unwrap();
@@ -274,7 +274,7 @@ mod tests {
     fn malformed_dates_are_skipped_not_fatal() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "bad-due", "2026-10-21");
-        c.execute("UPDATE tasks SET due_date = '周五' WHERE id = 'bad-due'", [])
+        c.execute("UPDATE tasks SET expected_finish_date = '周五' WHERE id = 'bad-due'", [])
             .unwrap();
         task_with_due(&c, "good-due", "2026-10-21");
 
@@ -335,7 +335,7 @@ mod tests {
     fn timed_task(c: &Connection, id: &str, due: &str, time: &str) {
         task_with_due(c, id, due);
         c.execute(
-            "UPDATE tasks SET due_time = ?1 WHERE id = ?2",
+            "UPDATE tasks SET expected_finish_time = ?1 WHERE id = ?2",
             rusqlite::params![time, id],
         )
         .unwrap();

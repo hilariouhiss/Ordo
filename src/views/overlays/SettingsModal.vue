@@ -373,6 +373,18 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
                 {{ t("settings.deskControlsHint") }}
               </p>
+              <div class="mt-3 flex items-center justify-between text-[12px]">
+                <span>{{ t("settings.weekShowEmptyDays") }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs toggle-success"
+                  :checked="settings.weekShowEmptyDays"
+                  @change="vm.save({ weekShowEmptyDays: !settings.weekShowEmptyDays })"
+                />
+              </div>
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.weekShowEmptyDaysHint") }}
+              </p>
               <div v-for="row in shortcutRows" :key="row.target" class="mt-3">
                 <div class="flex items-center justify-between text-[12px]">
                   <span>{{ row.label }}</span>

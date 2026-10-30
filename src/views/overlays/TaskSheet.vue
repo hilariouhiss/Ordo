@@ -2,7 +2,7 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { localDate, shortDate, todayIso } from "../../lib/dates";
+import { localDate, shortDate, shortDateTime, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
@@ -31,8 +31,8 @@ const form = reactive({
   projectId: null as string | null,
   categoryId: null as string | null,
   ownerId: null as string | null,
-  startDate: "",
-  dueDate: "",
+  expectedStartDate: "",
+  expectedFinishDate: "",
   note: "",
   tags: [] as string[],
   effortMinutes: 480,
@@ -46,11 +46,13 @@ const noteDraft = ref("");
 const tagDraft = ref("");
 const rescheduleReason = ref("");
 
-const late = computed(() => overdueDays(taskSheetVM.state.task?.dueDate ?? null, todayIso()));
+const late = computed(() =>
+  overdueDays(taskSheetVM.state.task?.expectedFinishDate ?? null, todayIso()),
+);
 const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0);
-const dueMovedLater = computed(() => {
-  const current = taskSheetVM.state.task?.dueDate;
-  return Boolean(current && form.dueDate && form.dueDate > current);
+const finishMovedLater = computed(() => {
+  const current = taskSheetVM.state.task?.expectedFinishDate;
+  return Boolean(current && form.expectedFinishDate && form.expectedFinishDate > current);
 });
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
@@ -74,8 +76,8 @@ watch(
     form.projectId = task.projectId;
     form.categoryId = task.categoryId;
     form.ownerId = task.ownerId;
-    form.startDate = task.startDate ?? "";
-    form.dueDate = task.dueDate ?? "";
+    form.expectedStartDate = task.expectedStartDate ?? "";
+    form.expectedFinishDate = task.expectedFinishDate ?? "";
     form.note = task.note ?? "";
     form.tags = task.tags.map((tag) => tag.name);
     form.effortMinutes = task.effortMinutes;
@@ -103,7 +105,7 @@ async function save(): Promise<void> {
     if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
       await addMember(form.projectId, form.ownerId, null);
     }
-    const reason = dueMovedLater.value ? rescheduleReason.value.trim() || null : null;
+    const reason = finishMovedLater.value ? rescheduleReason.value.trim() || null : null;
     if (await taskSheetVM.saveForm(form, reason)) taskSheetVM.close();
   } catch (e) {
     taskSheetVM.state.error = String(e);
@@ -111,13 +113,8 @@ async function save(): Promise<void> {
 }
 
 async function setStatus(status: Status): Promise<void> {
-  const before = taskSheetVM.state.task?.startDate;
   await taskSheetVM.setStatus(status);
   form.status = status;
-  const after = taskSheetVM.state.task?.startDate;
-  // The backend fills an empty start date when the task starts; show it without
-  // overwriting a date the user has typed but not saved yet.
-  if (!form.startDate && !before && after) form.startDate = after;
 }
 
 function onPriorityChange(event: Event): void {
@@ -338,23 +335,23 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </select>
           </label>
           <label class="block text-[11px] text-base-content/45">
-            {{ t("task.start") }}
+            {{ t("task.expectedStart") }}
             <DateField
-              v-model="form.startDate"
+              v-model="form.expectedStartDate"
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
           </label>
           <label class="block text-[11px] text-base-content/45">
-            {{ t("task.due") }}
+            {{ t("task.expectedFinish") }}
             <DateField
-              v-model="form.dueDate"
+              v-model="form.expectedFinishDate"
               class="input input-sm mt-1 w-full rounded-lg border-base-300"
             />
             <span
-              v-if="taskSheetVM.state.task?.dueTime"
+              v-if="taskSheetVM.state.task?.expectedFinishTime"
               class="mt-1 block text-[10.5px] text-base-content/45"
             >
-              {{ taskSheetVM.state.task.dueTime }}
+              {{ taskSheetVM.state.task.expectedFinishTime }}
             </span>
           </label>
           <label class="block text-[11px] text-base-content/45">
@@ -365,7 +362,24 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </label>
         </div>
 
-        <label v-if="dueMovedLater" class="mt-2 block text-[11px] text-base-content/45">
+        <div class="mt-2 grid grid-cols-2 gap-2 text-[11px] text-base-content/45">
+          <div>
+            {{ t("task.actualStart") }}
+            <div class="mt-1 text-[12px] text-base-content/70">
+              {{ shortDateTime(taskSheetVM.state.task?.actualStartAt ?? null) || t("common.none") }}
+            </div>
+          </div>
+          <div>
+            {{ t("task.actualFinish") }}
+            <div class="mt-1 text-[12px] text-base-content/70">
+              {{
+                shortDateTime(taskSheetVM.state.task?.actualFinishAt ?? null) || t("common.none")
+              }}
+            </div>
+          </div>
+        </div>
+
+        <label v-if="finishMovedLater" class="mt-2 block text-[11px] text-base-content/45">
           {{ t("task.rescheduleReason") }}
           <input
             v-model="rescheduleReason"

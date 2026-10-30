@@ -45,6 +45,7 @@ export interface Settings {
   deskX: number | null;
   deskY: number | null;
   tasksGroupBy: TaskGrouping;
+  weekShowEmptyDays: boolean;
 }
 
 export interface ProjectMember {
@@ -92,10 +93,16 @@ export interface Task {
   projectName: string | null;
   categoryId: string | null;
   ownerId: string | null;
-  startDate: string | null;
-  dueDate: string | null;
+  /** Local `YYYY-MM-DD` the work is planned to begin. */
+  expectedStartDate: string | null;
+  /** Local `YYYY-MM-DD` the work is planned to be finished. */
+  expectedFinishDate: string | null;
   /** Local "HH:MM" a timed task is due; null for a plain day. */
-  dueTime: string | null;
+  expectedFinishTime: string | null;
+  /** RFC3339 UTC stamp of when the task actually started. */
+  actualStartAt: string | null;
+  /** RFC3339 UTC stamp of when the task was actually finished. */
+  actualFinishAt: string | null;
   status: Status;
   inWeek: boolean;
   carryCount: number;
@@ -211,7 +218,7 @@ export interface TaskPatch {
   projectId?: string | null;
   categoryId?: string | null;
   ownerId?: string | null;
-  startDate?: string | null;
+  expectedStartDate?: string | null;
   note?: string | null;
   tags?: string[];
   effortMinutes?: number;
@@ -224,7 +231,7 @@ export interface CaptureFields {
   projectId: string | null;
   ownerId: string | null;
   priority: Priority;
-  dueDate: string | null;
+  expectedFinishDate: string | null;
   effortMinutes: number;
 }
 export interface ArchiveTask {

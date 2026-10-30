@@ -47,7 +47,7 @@ pub(crate) fn recompute(conn: &Connection, task_id: &str, now: &str) -> Result<T
         .map(|s| s.done)
         .collect();
     let status = derive(&stored, &done_flags);
-    tasks::set_status(conn, task_id, status, status == "done", now, None)
+    tasks::set_status(conn, task_id, status, status == "done", now)
         .map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }

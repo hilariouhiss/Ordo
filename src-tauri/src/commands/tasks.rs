@@ -171,15 +171,21 @@ pub async fn suspend_task(
 }
 
 #[tauri::command]
-pub async fn set_due(
+pub async fn set_expected_finish(
     state: State<'_, AppState>,
     id: String,
-    new_due: Option<String>,
+    new_finish: Option<String>,
     reason: Option<String>,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::deliverables::set_due(conn, &id, new_due.as_deref(), reason.as_deref(), &now)
+        crate::services::deliverables::set_expected_finish(
+            conn,
+            &id,
+            new_finish.as_deref(),
+            reason.as_deref(),
+            &now,
+        )
     })
     .await
 }
@@ -223,6 +229,20 @@ pub async fn move_task(
     with_db(&state, move |conn| {
         crate::services::tasks::move_task(conn, &task_id, before_id.as_deref())?;
         week::list(conn)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn place_task(
+    state: State<'_, AppState>,
+    task_id: String,
+    day: String,
+    before_id: Option<String>,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        week::place(conn, &task_id, &day, before_id.as_deref(), &now)
     })
     .await
 }

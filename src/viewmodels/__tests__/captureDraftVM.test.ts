@@ -25,14 +25,14 @@ describe("captureDraftVM", () => {
       projectId: "p1",
       ownerId: "u1",
       priority: "high",
-      dueDate: "2026-10-23",
+      expectedFinishDate: "2026-10-23",
       effortMinutes: 960,
     });
     expect(draft.matched.value).toEqual([
       "projectId",
       "ownerId",
       "priority",
-      "dueDate",
+      "expectedFinishDate",
       "effortMinutes",
     ]);
   });
@@ -45,7 +45,7 @@ describe("captureDraftVM", () => {
     draft.setRaw("写方案 #华东客户交付 @老李 !高 ^明天");
 
     expect(draft.fields.value.ownerId).toBeNull();
-    expect(draft.fields.value.dueDate).toBe("2026-10-22");
+    expect(draft.fields.value.expectedFinishDate).toBe("2026-10-22");
     expect(draft.matched.value).not.toContain("ownerId");
   });
 
@@ -86,9 +86,9 @@ describe("captureDraftVM", () => {
   it("does not let a chip edit rewrite the cleaned title", () => {
     const draft = createCaptureDraftVM(() => ctx);
     draft.setRaw("^周五前 发邮件");
-    draft.edit({ dueDate: "2026-12-31" });
+    draft.edit({ expectedFinishDate: "2026-12-31" });
 
     expect(draft.title.value).toBe("发邮件");
-    expect(draft.fields.value.dueDate).toBe("2026-12-31");
+    expect(draft.fields.value.expectedFinishDate).toBe("2026-12-31");
   });
 });

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { addDays, isWeekend, localDate, mondayOf, weekdayLabel, weekdayOf } from "../dates";
+import {
+  addDays,
+  isWeekend,
+  localDate,
+  mondayOf,
+  remainingWorkdays,
+  shortDateTime,
+  weekdayLabel,
+  weekdayOf,
+} from "../dates";
 import { setLanguage } from "../i18n";
 
 afterEach(() => setLanguage("zh"));
@@ -53,5 +62,37 @@ describe("mondayOf", () => {
 describe("localDate", () => {
   it("keeps the local calendar day of a timestamp", () => {
     expect(localDate(new Date(2026, 9, 20, 0, 30).toISOString())).toBe("2026-10-20");
+  });
+});
+
+describe("remainingWorkdays", () => {
+  it("lists today through Friday in the middle of the week", () => {
+    expect(remainingWorkdays("2026-10-20")).toEqual([
+      "2026-10-20",
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+    ]);
+  });
+
+  it("keeps only Friday on a Friday", () => {
+    expect(remainingWorkdays("2026-10-23")).toEqual(["2026-10-23"]);
+  });
+
+  it("rolls the weekend to the next Monday through Friday", () => {
+    const nextWeek = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"];
+    expect(remainingWorkdays("2026-10-24")).toEqual(nextWeek);
+    expect(remainingWorkdays("2026-10-25")).toEqual(nextWeek);
+  });
+});
+
+describe("shortDateTime", () => {
+  it("renders the local month, day, hour and minute", () => {
+    expect(shortDateTime(new Date(2026, 9, 20, 9, 5).toISOString())).toBe("10/20 09:05");
+  });
+
+  it("returns an empty string when there is no stamp", () => {
+    expect(shortDateTime(null)).toBe("");
+    expect(shortDateTime("nope")).toBe("");
   });
 });

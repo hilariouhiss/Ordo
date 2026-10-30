@@ -360,7 +360,7 @@ mod tests {
         let path = dir.join("ordo.db");
         {
             let c = open(&path).unwrap();
-            for column in ["done_at", "sort_order", "effort_minutes"] {
+            for column in ["actual_finish_at", "sort_order", "effort_minutes", "started_at"] {
                 c.execute(&format!("ALTER TABLE tasks DROP COLUMN {column}"), [])
                     .unwrap();
             }

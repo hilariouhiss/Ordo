@@ -1,9 +1,9 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
-import { mondayOf, todayIso } from "../lib/dates";
+import { mondayOf, remainingWorkdays, todayIso } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
-import { groupPlannedDays, toPlanTask } from "../lib/plan";
+import { fillPlannedDays, groupPlannedDays, toPlanTask } from "../lib/plan";
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
   aiEnrich,
@@ -12,6 +12,7 @@ import {
   listWeek,
   markNotificationsSeen,
   moveTask,
+  placeTask,
   resumeTask,
   weekStats,
 } from "../model/ipc";
@@ -37,7 +38,13 @@ export function createWeekVM() {
       .sort(),
   );
 
-  const days = computed(() => groupPlannedDays(state.tasks, plan.value, todayIso()));
+  /** The planner hides untouched workdays; the setting fills the rest of this week back in. */
+  const days = computed(() => {
+    const today = todayIso();
+    const planned = groupPlannedDays(state.tasks, plan.value, today);
+    if (!appVM.state.settings?.weekShowEmptyDays) return planned;
+    return fillPlannedDays(planned, remainingWorkdays(today), plan.value, today);
+  });
 
   const planEnd = computed(() =>
     plan.value.reduce<string | null>(
@@ -102,7 +109,17 @@ export function createWeekVM() {
     }
   }
 
-  /** Moves one slot in the list; the order decides the exclusive queue unless a start date pins the task. */
+  /** Drops a task on a day: it joins the week there, and order follows the drop anchor. */
+  async function place(taskId: string, day: string, beforeId: string | null): Promise<void> {
+    try {
+      await placeTask(taskId, day, beforeId);
+    } catch (e) {
+      void askNotice(t("common.actionFailed"), errorText(e));
+    }
+    await load();
+  }
+
+  /** Moves one slot in the list; the order decides the exclusive queue unless a place pins the task. */
   async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
     const ids = state.tasks.map((task) => task.id);
     const index = ids.indexOf(taskId);
@@ -123,6 +140,7 @@ export function createWeekVM() {
     capture,
     resume,
     move,
+    place,
     moveBy,
   };
 }

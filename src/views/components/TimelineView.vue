@@ -20,8 +20,8 @@ const layout = computed(() => {
     props.tasks.map((task) => ({
       id: task.id,
       title: task.title,
-      startDate: task.startDate,
-      dueDate: task.dueDate,
+      expectedStartDate: task.expectedStartDate,
+      expectedFinishDate: task.expectedFinishDate,
       categoryId: task.categoryId,
       status: task.status,
     })),

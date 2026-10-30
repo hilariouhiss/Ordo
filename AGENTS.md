@@ -87,10 +87,11 @@ Rust 拥有数据和调度，WebView 只是界面。
 - Rust：命令是 `async`，通过 `with_db` 访问库；repo 返回 `rusqlite::Result`，service 通常用 `Result<_, String>` 并 `map_err(|e| e.to_string())`。领域拒绝用短 snake_case 码（`empty_title`、`suspend_until_required`、`invalid_status`），测试会断言这些字符串。
 - 时间：日期是本地 `YYYY-MM-DD`，时间戳是 RFC3339 UTC；用 `todayIso()` / `chrono::Local` 算今天，别用 UTC 截断。周一为一周起点。
 - 输入：所有输入框的回车提交都要先过 `isImeEnter(event)`（`src/lib/keys.ts`），否则中文输入法选词会误提交。
-- 任务编辑：`TaskPatch` 里没有 dueDate；改截止日必须走 `set_due`，否则不会写 `delays` 记录。对可空字段，patch 的“字段缺失”=保持原值，“显式 null”=清空。有步骤的任务状态由步骤推导；勾完最后一步会自动完成并移出本周。
+- 任务时间分四个字段：预计开始 `expected_start_date`、预计完成 `expected_finish_date`/`expected_finish_time` 只到日期（`expected_finish_time` 由周期规则写入，只读），实际开始 `started_at`、实际完成 `actual_finish_at` 是 RFC3339 UTC 时间戳，只在状态真正进入 doing / done 时写入。`TaskPatch` 里没有 expectedFinishDate；改预计完成必须走 `set_expected_finish`，否则不会写 `delays` 记录。对可空字段，patch 的“字段缺失”=保持原值，“显式 null”=清空。有步骤的任务状态由步骤推导；勾完最后一步会自动完成并移出本周。
 - 本周集合是显式的 `in_week` 布尔值，不要按日期重算；取消不进统计分母，挂起仍计入。
 - 本周顺序是 `tasks.sort_order`（手动拖拽），`list_week` 与 `pass_queue` 都按它排；`effort_minutes`（分钟，480 = 一人天）只喂给 `src/lib/schedule.ts` 按小时排计划日期——计划只显示、不落库、不写 `delays`、不触发提醒。
-- 新任务、新周期任务、新模板默认独占（`exclusive`）：独占任务只占其 effort 对应的小时位（480 分钟 = 8 个小时位），其他任务可补进剩下的小时；共享任务可并行；已有任务/规则/模板保持原标志，不做数据迁移。显式开始日期优先于手动队列。
+- 本周页拖拽：同一天内只改 `sort_order`；拖到另一天或从挂起区拖入走 `place_task`，写 `expected_start_date`、清挂起、加入本周并按落点定序（挂起任务拖入即自动恢复）。设置 `week.show_empty_days`（默认开）让本周页补齐今天到周五没有安排的工作日，空白天可整块投放。
+- 新任务、新周期任务、新模板默认独占（`exclusive`）：独占任务只占其 effort 对应的小时位（480 分钟 = 8 个小时位），其他任务可补进剩下的小时；共享任务可并行；已有任务/规则/模板保持原标志，不做数据迁移。显式预计开始日期优先于手动队列。
 - UI：文案走 `src/lib/i18n.ts` 的 `t()`，不要在组件里硬编码中文/英文；Rust 运行时文案（托盘、通知）走 `src-tauri/src/i18n.rs`。用 daisyUI 的 `soft`/`soft-dark` 主题 token 和 Tailwind 类，不要写死颜色；图标用 `@lucide/vue` 并加 `aria-hidden`。界面日期显示用 `shortDate`（`11/20`）。
 - 界面先出图：新增、删除或改版界面的布局、层级、交互前，先画出静态稿（HTML/SVG 或截图）确认关键状态；纯文案、颜色、间距微调可直接改。
 - 迁移只追加：在 `migrations.rs` 末尾加 `if version < N` 并提高 `LATEST`，不要改旧迁移或重排版本。升级旧库前 `open_with_recovery` 会备份到 `backups/pre-migration-v{n}.db`。

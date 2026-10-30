@@ -6,10 +6,10 @@ vi.mock("../../model/ipc", () => ({
   addStep: vi.fn(),
   updateTaskPatch: vi.fn(),
   deleteStep: vi.fn(),
-  setDue: vi.fn(),
+  setExpectedFinish: vi.fn(),
 }));
 
-import { getTask, setDue, toggleStep, updateTaskPatch } from "../../model/ipc";
+import { getTask, setExpectedFinish, toggleStep, updateTaskPatch } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { createTaskSheetVM, diffTask, type TaskForm } from "../taskSheetVM";
 import { step, task } from "./fixtures";
@@ -20,8 +20,8 @@ function formOf(t: Task): TaskForm {
     projectId: t.projectId,
     categoryId: t.categoryId,
     ownerId: t.ownerId,
-    startDate: t.startDate ?? "",
-    dueDate: t.dueDate ?? "",
+    expectedStartDate: t.expectedStartDate ?? "",
+    expectedFinishDate: t.expectedFinishDate ?? "",
     note: t.note ?? "",
     tags: t.tags.map((tag) => tag.name),
     effortMinutes: t.effortMinutes,
@@ -46,44 +46,53 @@ describe("taskSheetVM", () => {
     expect(toggleStep).toHaveBeenCalledWith("s1");
   });
 
-  it("keeps an edit made in the same save as a due-date change", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", title: "旧", dueDate: "2026-10-25" }));
-    // setDue refreshes the task; that refresh must not swallow what else was typed.
-    vi.mocked(setDue).mockResolvedValue(task({ id: "t1", title: "旧", dueDate: "2026-11-01" }));
+  it("keeps an edit made in the same save as a finish-date change", async () => {
+    vi.mocked(getTask).mockResolvedValue(
+      task({ id: "t1", title: "旧", expectedFinishDate: "2026-10-25" }),
+    );
+    // the finish call refreshes the task; that refresh must not swallow what else was typed.
+    vi.mocked(setExpectedFinish).mockResolvedValue(
+      task({ id: "t1", title: "旧", expectedFinishDate: "2026-11-01" }),
+    );
     vi.mocked(updateTaskPatch).mockResolvedValue(
-      task({ id: "t1", title: "新", dueDate: "2026-11-01" }),
+      task({ id: "t1", title: "新", expectedFinishDate: "2026-11-01" }),
     );
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
     const form = formOf(task({ title: "旧" }));
-    const saved = await vm.saveForm({ ...form, title: "新", dueDate: "2026-11-01" });
+    const saved = await vm.saveForm({ ...form, title: "新", expectedFinishDate: "2026-11-01" });
 
     expect(saved).toBe(true);
-    expect(setDue).toHaveBeenCalledWith("t1", "2026-11-01", null);
+    expect(setExpectedFinish).toHaveBeenCalledWith("t1", "2026-11-01", null);
     expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
   });
 
-  it("passes a reschedule reason when the due date moves later", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", dueDate: "2026-10-25" }));
-    vi.mocked(setDue).mockResolvedValue(task({ id: "t1", dueDate: "2026-11-01" }));
+  it("passes a reschedule reason when the finish date moves later", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
+    vi.mocked(setExpectedFinish).mockResolvedValue(
+      task({ id: "t1", expectedFinishDate: "2026-11-01" }),
+    );
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const form = formOf(task({ id: "t1", dueDate: "2026-10-25" }));
-    const saved = await vm.saveForm({ ...form, dueDate: "2026-11-01" }, "客户改期");
+    const form = formOf(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
+    const saved = await vm.saveForm({ ...form, expectedFinishDate: "2026-11-01" }, "客户改期");
 
     expect(saved).toBe(true);
-    expect(setDue).toHaveBeenCalledWith("t1", "2026-11-01", "客户改期");
+    expect(setExpectedFinish).toHaveBeenCalledWith("t1", "2026-11-01", "客户改期");
   });
 
   it("returns false and reports a failed save", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", dueDate: "2026-10-25" }));
-    vi.mocked(setDue).mockRejectedValue("boom");
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
+    vi.mocked(setExpectedFinish).mockRejectedValue("boom");
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const saved = await vm.saveForm({ ...formOf(task({ id: "t1" })), dueDate: "2026-11-01" });
+    const saved = await vm.saveForm({
+      ...formOf(task({ id: "t1" })),
+      expectedFinishDate: "2026-11-01",
+    });
 
     expect(saved).toBe(false);
     expect(vm.state.error).toBe("boom");

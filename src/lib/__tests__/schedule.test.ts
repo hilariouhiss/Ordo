@@ -5,11 +5,11 @@ const TODAY = "2026-10-20";
 
 // The tests speak in days; the planner takes minutes and books whole hours.
 function t(id: string, days: number, extra: Partial<PlanTask> = {}): PlanTask {
-  return { id, effortMinutes: days * 480, dueDate: null, ...extra };
+  return { id, effortMinutes: days * 480, expectedFinishDate: null, ...extra };
 }
 
 function minutes(id: string, value: number, extra: Partial<PlanTask> = {}): PlanTask {
-  return { id, effortMinutes: value, dueDate: null, ...extra };
+  return { id, effortMinutes: value, expectedFinishDate: null, ...extra };
 }
 
 function spans(tasks: PlanTask[]) {
@@ -40,7 +40,10 @@ describe("planSchedule", () => {
 
   it("flags a finish after the due date and not one on it", () => {
     const plan = planSchedule(
-      [t("late", 1, { dueDate: "2026-10-19" }), t("fit", 1, { dueDate: "2026-10-21" })],
+      [
+        t("late", 1, { expectedFinishDate: "2026-10-19" }),
+        t("fit", 1, { expectedFinishDate: "2026-10-21" }),
+      ],
       TODAY,
     );
     expect(plan[0].conflict).toBe(true);
@@ -59,15 +62,19 @@ describe("planSchedule", () => {
   });
 
   it("anchors a future task on its own start date", () => {
-    expect(spans([t("a", 1, { startDate: "2026-10-22" })])).toEqual([["2026-10-22", "2026-10-22"]]);
+    expect(spans([t("a", 1, { expectedStartDate: "2026-10-22" })])).toEqual([
+      ["2026-10-22", "2026-10-22"],
+    ]);
   });
 
   it("pulls a past start date back to today", () => {
-    expect(spans([t("a", 1, { startDate: "2026-10-19" })])).toEqual([[TODAY, TODAY]]);
+    expect(spans([t("a", 1, { expectedStartDate: "2026-10-19" })])).toEqual([[TODAY, TODAY]]);
   });
 
   it("rolls a weekend start date to Monday", () => {
-    expect(spans([t("a", 1, { startDate: "2026-10-24" })])).toEqual([["2026-10-26", "2026-10-26"]]);
+    expect(spans([t("a", 1, { expectedStartDate: "2026-10-24" })])).toEqual([
+      ["2026-10-26", "2026-10-26"],
+    ]);
   });
 
   it("queues exclusive tasks after one another in list order", () => {
@@ -80,7 +87,7 @@ describe("planSchedule", () => {
   it("keeps a later exclusive task where it is when nothing overlaps", () => {
     expect(
       spans([
-        t("x1", 1, { exclusive: true, startDate: "2026-10-22" }),
+        t("x1", 1, { exclusive: true, expectedStartDate: "2026-10-22" }),
         t("x2", 1, { exclusive: true }),
       ]),
     ).toEqual([
@@ -93,7 +100,7 @@ describe("planSchedule", () => {
     expect(
       spans([
         t("queued", 1, { exclusive: true }),
-        t("pinned", 1, { exclusive: true, startDate: TODAY }),
+        t("pinned", 1, { exclusive: true, expectedStartDate: TODAY }),
       ]),
     ).toEqual([
       ["2026-10-21", "2026-10-21"],
@@ -104,8 +111,8 @@ describe("planSchedule", () => {
   it("places the earliest pinned exclusive task first", () => {
     expect(
       spans([
-        t("later", 1, { exclusive: true, startDate: "2026-10-21" }),
-        t("earlier", 2, { exclusive: true, startDate: TODAY }),
+        t("later", 1, { exclusive: true, expectedStartDate: "2026-10-21" }),
+        t("earlier", 2, { exclusive: true, expectedStartDate: TODAY }),
       ]),
     ).toEqual([
       ["2026-10-22", "2026-10-22"],

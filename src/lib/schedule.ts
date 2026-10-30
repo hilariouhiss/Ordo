@@ -3,9 +3,9 @@ import { addDays, isWeekend } from "./dates";
 export interface PlanTask {
   id: string;
   effortMinutes: number;
-  dueDate: string | null;
+  expectedFinishDate: string | null;
   /** The task's own start date; missing or in the past falls back to the plan start. */
-  startDate?: string | null;
+  expectedStartDate?: string | null;
   /** Exclusive tasks reserve only the hours they need; nothing else may use them. */
   exclusive?: boolean;
 }
@@ -50,7 +50,9 @@ function needOf(task: PlanTask): number {
 }
 
 function anchorOf(task: PlanTask, start: string): string {
-  return startWorkday(task.startDate && task.startDate > start ? task.startDate : start);
+  return startWorkday(
+    task.expectedStartDate && task.expectedStartDate > start ? task.expectedStartDate : start,
+  );
 }
 
 /** The next hourly slot: the next hour, then the next working day's first hour. */
@@ -105,10 +107,10 @@ export function planSchedule(tasks: PlanTask[], start: string): PlannedTask[] {
   const planned = new Map<string, { slot: Start; end: string }>();
   const taken = new Map<string, number>();
   const pinned = tasks
-    .filter((task) => task.exclusive && task.startDate && task.startDate >= start)
-    .sort((a, b) => (a.startDate as string).localeCompare(b.startDate as string));
+    .filter((task) => task.exclusive && task.expectedStartDate && task.expectedStartDate >= start)
+    .sort((a, b) => (a.expectedStartDate as string).localeCompare(b.expectedStartDate as string));
   const queued = tasks.filter(
-    (task) => task.exclusive && !(task.startDate && task.startDate >= start),
+    (task) => task.exclusive && !(task.expectedStartDate && task.expectedStartDate >= start),
   );
 
   for (const task of [...pinned, ...queued]) {
@@ -131,7 +133,7 @@ export function planSchedule(tasks: PlanTask[], start: string): PlannedTask[] {
       start: row.slot.day,
       end: row.end,
       startHour: row.slot.hour,
-      conflict: task.dueDate !== null && row.end > task.dueDate,
+      conflict: task.expectedFinishDate !== null && row.end > task.expectedFinishDate,
     };
   });
 }

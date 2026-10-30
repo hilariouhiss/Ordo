@@ -55,3 +55,27 @@ export function addDays(iso: string, offset: number): string {
 export function mondayOf(iso: string): string {
   return addDays(iso, -((weekdayOf(iso) + 6) % 7));
 }
+
+/** The local "M/D HH:MM" of an RFC3339 timestamp, or an empty string when missing. */
+export function shortDateTime(timestamp: string | null): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${shortDate(isoOf(date))} ${hours}:${minutes}`;
+}
+
+/**
+ * The workdays left in the current week, starting from today. A weekend rolls to the
+ * next Monday, so the list is never empty and never points at a past day.
+ */
+export function remainingWorkdays(today: string): string[] {
+  const days: string[] = [];
+  let day = isWeekend(today) ? addDays(today, (8 - weekdayOf(today)) % 7) : today;
+  while (!isWeekend(day)) {
+    days.push(day);
+    day = addDays(day, 1);
+  }
+  return days;
+}

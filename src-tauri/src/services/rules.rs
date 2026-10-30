@@ -155,7 +155,7 @@ pub fn materialize_rule(
         // Deleted and archived rows count too: a removed occurrence must not come back.
         let exists: bool = conn
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM tasks WHERE rule_id = ?1 AND due_date = ?2)",
+                "SELECT EXISTS(SELECT 1 FROM tasks WHERE rule_id = ?1 AND expected_finish_date = ?2)",
                 params![rule.id, due],
                 |r| r.get(0),
             )
@@ -187,8 +187,9 @@ fn insert_generated(
         &stamp,
     )?;
     tx.execute(
-        "INSERT INTO tasks (id, title, project_id, category_id, owner_id, priority, due_date,
-                            due_time, effort_minutes, time_exclusive, status, in_week, carry_count,
+        "INSERT INTO tasks (id, title, project_id, category_id, owner_id, priority,
+                            expected_finish_date, expected_finish_time, effort_minutes,
+                            time_exclusive, status, in_week, carry_count,
                             sort_order, rule_id, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4,
                  COALESCE(?5, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
@@ -245,7 +246,7 @@ mod tests {
 
     fn generated(c: &Connection, rule_id: &str) -> Vec<(String, Option<String>, bool)> {
         let mut stmt = c
-            .prepare("SELECT due_date, due_time, in_week FROM tasks WHERE rule_id = ?1 ORDER BY due_date")
+            .prepare("SELECT expected_finish_date, expected_finish_time, in_week FROM tasks WHERE rule_id = ?1 ORDER BY expected_finish_date")
             .unwrap();
         let rows = stmt
             .query_map([rule_id], |r| {
@@ -447,7 +448,7 @@ mod tests {
         assert_eq!(task.category_id.as_deref(), Some(category.as_str()));
         assert!(task.exclusive);
         assert_eq!(task.effort_minutes, 960);
-        assert_eq!(task.due_time.as_deref(), Some("15:00"));
+        assert_eq!(task.expected_finish_time.as_deref(), Some("15:00"));
     }
 
     #[test]

@@ -20,8 +20,8 @@ export function toPlanTask(task: Task): PlanTask {
   return {
     id: task.id,
     effortMinutes: task.effortMinutes,
-    dueDate: task.dueDate,
-    startDate: task.startDate,
+    expectedFinishDate: task.expectedFinishDate,
+    expectedStartDate: task.expectedStartDate,
     exclusive: task.exclusive,
   };
 }
@@ -49,6 +49,27 @@ export function groupPlannedDays(tasks: Task[], plan: PlannedTask[], today: stri
       spans: row.end !== row.start,
       conflict: row.conflict,
     });
+  }
+  return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Adds an empty group for every listed date the planner left without work. A day counts
+ * as busy when any planned task starts on it or spans across it, so a filled day never
+ * shows up twice and a multi-day task does not look like a gap.
+ */
+export function fillPlannedDays(
+  days: PlannedDay[],
+  dates: string[],
+  plan: PlannedTask[],
+  today: string,
+): PlannedDay[] {
+  const groups = new Map(days.map((day) => [day.date, day]));
+  for (const date of dates) {
+    if (groups.has(date)) continue;
+    const busy = plan.some((row) => row.start <= date && date <= row.end);
+    if (busy) continue;
+    groups.set(date, { date, weekday: weekdayLabel(date), isToday: date === today, rows: [] });
   }
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }

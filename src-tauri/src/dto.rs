@@ -53,6 +53,8 @@ pub struct SettingsDto {
     pub desk_y: Option<i64>,
     /// The task page grouping choice; "project" when unset.
     pub tasks_group_by: String,
+    /// Whether the week page lists workdays the planner left empty.
+    pub week_show_empty_days: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,10 +89,16 @@ pub struct TaskDto {
     pub project_name: Option<String>,
     pub category_id: Option<String>,
     pub owner_id: Option<String>,
-    pub start_date: Option<String>,
-    pub due_date: Option<String>,
+    /// Local `YYYY-MM-DD` the work is planned to begin.
+    pub expected_start_date: Option<String>,
+    /// Local `YYYY-MM-DD` the work is planned to be finished.
+    pub expected_finish_date: Option<String>,
     /// Local "HH:MM" a timed task is due; null for a plain day.
-    pub due_time: Option<String>,
+    pub expected_finish_time: Option<String>,
+    /// RFC3339 UTC stamp of when the task actually started.
+    pub actual_start_at: Option<String>,
+    /// RFC3339 UTC stamp of when the task was actually finished.
+    pub actual_finish_at: Option<String>,
     pub status: String,
     pub in_week: bool,
     pub carry_count: i64,
@@ -197,7 +205,8 @@ pub struct WeekStatsDto {
 }
 /// A task edit. An absent field keeps its value; an explicit `null` clears it.
 /// `title` and `tags` are not nullable, so absent keeps and a value replaces.
-/// No `due_date`: a deadline only moves through `set_due`, which writes the delay record.
+/// No expected finish date: it only moves through `set_expected_finish`, which writes
+/// the reschedule record. The actual times are stamped by the status changes instead.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPatch {
@@ -210,7 +219,7 @@ pub struct TaskPatch {
     #[serde(default, deserialize_with = "clearable")]
     pub owner_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "clearable")]
-    pub start_date: Option<Option<String>>,
+    pub expected_start_date: Option<Option<String>>,
     #[serde(default, deserialize_with = "clearable")]
     pub note: Option<Option<String>>,
     #[serde(default)]
@@ -317,7 +326,7 @@ pub struct CaptureFields {
     #[serde(default)]
     pub priority: Option<String>,
     #[serde(default)]
-    pub due_date: Option<String>,
+    pub expected_finish_date: Option<String>,
     #[serde(default)]
     pub effort_minutes: Option<i64>,
 }
@@ -347,4 +356,5 @@ pub struct SettingsPatch {
     pub desk_x: Option<i64>,
     pub desk_y: Option<i64>,
     pub tasks_group_by: Option<String>,
+    pub week_show_empty_days: Option<bool>,
 }

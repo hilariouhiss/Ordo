@@ -13,9 +13,9 @@ pub struct Enrichment {
     #[serde(default)]
     pub owner_id: Option<String>,
     #[serde(default)]
-    pub start_date: Option<String>,
+    pub expected_start_date: Option<String>,
     #[serde(default)]
-    pub due_date: Option<String>,
+    pub expected_finish_date: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -70,8 +70,8 @@ pub fn validate(raw: Enrichment, ctx: &AiContext) -> Enrichment {
         project_id: known(&ctx.projects, &raw.project_id),
         category_id: known(&ctx.categories, &raw.category_id),
         owner_id: known(&ctx.people, &raw.owner_id),
-        start_date: date(&raw.start_date),
-        due_date: date(&raw.due_date),
+        expected_start_date: date(&raw.expected_start_date),
+        expected_finish_date: date(&raw.expected_finish_date),
         tags: raw
             .tags
             .iter()
@@ -114,7 +114,7 @@ mod tests {
             project_id: Some("nope".into()),
             category_id: Some("c1".into()),
             owner_id: Some("u1".into()),
-            due_date: Some("周五".into()),
+            expected_finish_date: Some("周五".into()),
             tags: vec![" fix ".into(), "".into()],
             ..Default::default()
         };
@@ -122,7 +122,7 @@ mod tests {
         assert!(out.project_id.is_none());
         assert_eq!(out.category_id.as_deref(), Some("c1"));
         assert_eq!(out.owner_id.as_deref(), Some("u1"));
-        assert!(out.due_date.is_none());
+        assert!(out.expected_finish_date.is_none());
         assert_eq!(out.tags, vec!["fix".to_string()]);
     }
 
@@ -140,13 +140,13 @@ mod tests {
     fn valid_response_is_validated() {
         let fake = Fake {
             replies: RefCell::new(vec![
-                r#"{"projectId":"p1","categoryId":"c1","ownerId":"nope","dueDate":"2026-11-20","tags":["交付"]}"#.into(),
+                r#"{"projectId":"p1","categoryId":"c1","ownerId":"nope","expectedFinishDate":"2026-11-20","tags":["交付"]}"#.into(),
             ]),
             calls: Cell::new(0),
         };
         let out = enrich(&fake, &ctx(), "周五前把软件方案评审发老李").unwrap();
         assert_eq!(out.project_id.as_deref(), Some("p1"));
         assert!(out.owner_id.is_none());
-        assert_eq!(out.due_date.as_deref(), Some("2026-11-20"));
+        assert_eq!(out.expected_finish_date.as_deref(), Some("2026-11-20"));
     }
 }

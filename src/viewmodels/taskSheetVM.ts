@@ -4,7 +4,7 @@ import {
   addStep,
   deleteStep,
   getTask,
-  setDue as setDueApi,
+  setExpectedFinish,
   setTaskStatus,
   toggleStep,
   updateTaskPatch,
@@ -17,8 +17,8 @@ export interface TaskForm {
   projectId: string | null;
   categoryId: string | null;
   ownerId: string | null;
-  startDate: string;
-  dueDate: string;
+  expectedStartDate: string;
+  expectedFinishDate: string;
   note: string;
   tags: string[];
   effortMinutes: number;
@@ -34,7 +34,9 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if (form.projectId !== task.projectId) patch.projectId = form.projectId;
   if (form.categoryId !== task.categoryId) patch.categoryId = form.categoryId;
   if (form.ownerId !== task.ownerId) patch.ownerId = form.ownerId;
-  if ((form.startDate || null) !== task.startDate) patch.startDate = form.startDate || null;
+  if ((form.expectedStartDate || null) !== task.expectedStartDate) {
+    patch.expectedStartDate = form.expectedStartDate || null;
+  }
   if ((form.note || null) !== task.note) patch.note = form.note || null;
   if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
     patch.tags = form.tags;
@@ -84,17 +86,17 @@ export function createTaskSheetVM() {
     state.task = await deleteStep(stepId);
   }
 
-  /// Saves the sheet: the deadline through set_due, everything else as a patch.
+  /// Saves the sheet: the expected finish through its own command, the rest as a patch.
   async function saveForm(form: TaskForm, reason: string | null = null): Promise<boolean> {
     const task = state.task;
     const id = state.openId;
     if (!task || !id) return false;
     state.error = null;
     try {
-      // Diff first: setDue replaces state.task before the rest of the patch is sent.
+      // Diff first: the finish call replaces state.task before the patch is sent.
       const patch = diffTask(task, form);
-      if ((form.dueDate || null) !== task.dueDate) {
-        state.task = await setDueApi(id, form.dueDate || null, reason);
+      if ((form.expectedFinishDate || null) !== task.expectedFinishDate) {
+        state.task = await setExpectedFinish(id, form.expectedFinishDate || null, reason);
       }
       if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
       return true;

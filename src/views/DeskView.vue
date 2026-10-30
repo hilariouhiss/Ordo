@@ -561,10 +561,12 @@ onUnmounted(() => {
                   <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.task.title }}</span>
                   <PriorityBadge :priority="row.task.priority" />
                   <span
-                    v-if="overdueDays(row.task.dueDate, todayIso()) > 0"
+                    v-if="overdueDays(row.task.expectedFinishDate, todayIso()) > 0"
                     class="badge badge-soft badge-error badge-xs"
                     >{{
-                      t("task.overdue", { days: overdueDays(row.task.dueDate, todayIso()) })
+                      t("task.overdue", {
+                        days: overdueDays(row.task.expectedFinishDate, todayIso()),
+                      })
                     }}</span
                   >
                   <span v-if="row.task.carryCount" class="badge badge-ghost badge-xs">{{

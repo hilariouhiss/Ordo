@@ -152,6 +152,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .filter(|value| valid_task_group_by(value))
             .cloned()
             .unwrap_or_else(|| "project".into()),
+        week_show_empty_days: flag(&map, "week.show_empty_days", true),
     })
 }
 

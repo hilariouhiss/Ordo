@@ -28,7 +28,7 @@ export const CAPTURE_DEFAULTS: CaptureFields = {
   projectId: null,
   ownerId: null,
   priority: "normal",
-  dueDate: null,
+  expectedFinishDate: null,
   effortMinutes: 480,
 };
 
@@ -36,7 +36,7 @@ const FIELD_ORDER: CaptureField[] = [
   "projectId",
   "ownerId",
   "priority",
-  "dueDate",
+  "expectedFinishDate",
   "effortMinutes",
 ];
 
@@ -98,8 +98,8 @@ export function parseCapture(
     } else if (symbol === "^") {
       const match = matchDate(text, ctx.today);
       if (!match) continue;
-      found.dueDate = match.value;
-      matched.add("dueDate");
+      found.expectedFinishDate = match.value;
+      matched.add("expectedFinishDate");
       end = valueStart + match.length;
     } else {
       const match = matchEffort(text);

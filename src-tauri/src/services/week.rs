@@ -34,9 +34,9 @@ pub fn capture_with_fields(
             return Err("invalid_priority".into());
         }
     }
-    if let Some(due) = fields.due_date.as_deref() {
-        if chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d").is_err() {
-            return Err("invalid_due_date".into());
+    if let Some(finish) = fields.expected_finish_date.as_deref() {
+        if chrono::NaiveDate::parse_from_str(finish, "%Y-%m-%d").is_err() {
+            return Err("invalid_finish_date".into());
         }
     }
     if let Some(effort) = fields.effort_minutes {
@@ -114,7 +114,7 @@ pub fn resolve(
             // The task's status is derived from its steps, so finish them together with it.
             let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
             crate::repo::steps::complete_all(&tx, task_id, now).map_err(|e| e.to_string())?;
-            tasks::set_status(&tx, task_id, "done", true, now, None).map_err(|e| e.to_string())?;
+            tasks::set_status(&tx, task_id, "done", true, now).map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }
         PassAction::Suspend => {
@@ -181,8 +181,9 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
              AND date(created_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
         done: count(
-            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done' AND done_at IS NOT NULL
-             AND date(done_at,'localtime') BETWEEN ?1 AND ?2",
+            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done'
+             AND actual_finish_at IS NOT NULL
+             AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
         delayed: count(
             "SELECT COUNT(*) FROM delays WHERE date(created_at,'localtime') BETWEEN ?1 AND ?2",
@@ -218,6 +219,37 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
     )
     .map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
+}
+
+/// Drops a task onto one day: it joins the week with that expected start and, when it
+/// was parked, stops being suspended. Order is a separate write, so a bad anchor cannot
+/// leave the date half-applied.
+pub fn place(
+    conn: &Connection,
+    task_id: &str,
+    day: &str,
+    before_id: Option<&str>,
+    now: &str,
+) -> Result<(), String> {
+    NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| "invalid_start_date".to_string())?;
+    // One transaction: a bad anchor rolls the date back too, so a drop is all or nothing.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let changed = tx
+        .execute(
+            "UPDATE tasks SET expected_start_date = ?1, in_week = 1, suspended = 0,
+                    suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL,
+                    updated_at = ?2
+             WHERE id = ?3 AND canceled_at IS NULL AND archived_at IS NULL
+               AND deleted_at IS NULL AND status <> 'done'",
+            params![day, now, task_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("task_not_found".into());
+    }
+    let orders = crate::services::tasks::order_changes(&tx, task_id, before_id)?;
+    crate::repo::tasks::write_orders_in(&tx, &orders).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
 }
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
@@ -308,7 +340,7 @@ mod tests {
             project_id: Some("p1".into()),
             owner_id: Some("u1".into()),
             priority: Some("high".into()),
-            due_date: Some("2026-11-20".into()),
+            expected_finish_date: Some("2026-11-20".into()),
             effort_minutes: Some(150),
         };
 
@@ -318,7 +350,7 @@ mod tests {
         assert_eq!(t.project_id.as_deref(), Some("p1"));
         assert_eq!(t.owner_id.as_deref(), Some("u1"));
         assert_eq!(t.priority, "high");
-        assert_eq!(t.due_date.as_deref(), Some("2026-11-20"));
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-11-20"));
         assert_eq!(t.effort_minutes, 150);
     }
 
@@ -380,10 +412,10 @@ mod tests {
             ),
             (
                 CaptureFields {
-                    due_date: Some("周五".into()),
+                    expected_finish_date: Some("周五".into()),
                     ..Default::default()
                 },
-                "invalid_due_date",
+                "invalid_finish_date",
             ),
             (
                 CaptureFields {
@@ -674,25 +706,14 @@ mod tests {
     }
 
     #[test]
-    fn start_backfills_a_missing_start_date() {
+    fn start_stamps_the_actual_start_without_filling_in_a_plan() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
         let t = week::start(&c, "t1", NOW).unwrap();
 
-        assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
-    }
-
-    #[test]
-    fn start_uses_the_local_calendar_day_across_utc_midnight() {
-        // 2026-10-20 00:30 local (+08); the UTC date is still 2026-10-19.
-        let now = "2026-10-19T16:30:00Z";
-        let c = db::open_in_memory().unwrap();
-        week::capture(&c, "交底", now, "t1").unwrap();
-
-        let t = week::start(&c, "t1", now).unwrap();
-
-        assert_eq!(t.start_date.as_deref(), Some("2026-10-20"));
+        assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
+        assert!(t.expected_start_date.is_none());
     }
 
     #[test]
@@ -716,19 +737,22 @@ mod tests {
 
         let t = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert_eq!(t.status, "todo");
-        assert!(t.start_date.is_none());
+        assert!(t.actual_start_at.is_none());
     }
 
     #[test]
-    fn start_keeps_an_existing_start_date() {
+    fn start_keeps_a_plan_the_user_already_set() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        c.execute("UPDATE tasks SET start_date = '2026-10-01' WHERE id = 't1'", [])
-            .unwrap();
+        c.execute(
+            "UPDATE tasks SET expected_start_date = '2026-10-01' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
 
         let t = week::start(&c, "t1", NOW).unwrap();
 
-        assert_eq!(t.start_date.as_deref(), Some("2026-10-01"));
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-01"));
     }
 
     #[test]
@@ -746,9 +770,58 @@ mod tests {
         assert!(t.suspended_until.is_none());
         assert!(t.suspended_at.is_none());
         assert!(t.suspend_reason.is_none());
-        assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
+        assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t1"]);
+    }
+
+    #[test]
+    fn place_brings_a_suspended_task_back_on_the_dropped_day() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+
+        week::place(&c, "t1", "2026-10-22", Some("t2"), NOW).unwrap();
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert!(t.in_week);
+        assert!(!t.suspended);
+        assert!(t.suspended_until.is_none());
+        assert!(t.suspended_at.is_none());
+        assert!(t.suspend_reason.is_none());
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t1", "t2"]);
+    }
+
+    #[test]
+    fn place_puts_a_task_at_the_end_without_an_anchor() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+
+        week::place(&c, "t1", "2026-10-21", None, NOW).unwrap();
+
+        let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec!["t2", "t1"]);
+    }
+
+    #[test]
+    fn place_rejects_a_bad_day_or_a_missing_task() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        assert_eq!(
+            week::place(&c, "t1", "周四", None, NOW).unwrap_err(),
+            "invalid_start_date"
+        );
+        assert_eq!(
+            week::place(&c, "nope", "2026-10-22", None, NOW).unwrap_err(),
+            "task_not_found"
+        );
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert!(t.expected_start_date.is_none());
     }
 
     #[test]
@@ -761,12 +834,12 @@ mod tests {
     }
 
     #[test]
-    fn stats_count_done_by_done_at_not_updated_at() {
+    fn stats_count_done_by_actual_finish_not_updated_at() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         c.execute(
             "UPDATE tasks SET status='done', updated_at='2026-09-01T00:00:00Z',
-             done_at='2026-10-20T09:00:00Z' WHERE id='t1'",
+             actual_finish_at='2026-10-20T09:00:00Z' WHERE id='t1'",
             [],
         )
         .unwrap();

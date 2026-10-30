@@ -144,7 +144,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{
                 t("pass.due", {
                   owner: ownerName || "",
-                  date: shortDate(passVM.current.value.dueDate) || t("pass.noDue"),
+                  date: shortDate(passVM.current.value.expectedFinishDate) || t("pass.noDue"),
                 })
               }}
             </span>

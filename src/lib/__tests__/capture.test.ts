@@ -27,7 +27,7 @@ function fields(over: Partial<CaptureFields> = {}): CaptureFields {
 }
 
 function due(raw: string): string | null {
-  return parse(raw).fields.dueDate;
+  return parse(raw).fields.expectedFinishDate;
 }
 
 function effort(raw: string): number {
@@ -54,10 +54,10 @@ describe("parseCapture", () => {
         projectId: "p1",
         ownerId: "u1",
         priority: "high",
-        dueDate: "2026-10-26",
+        expectedFinishDate: "2026-10-26",
         effortMinutes: 90,
       }),
-      matched: ["projectId", "ownerId", "priority", "dueDate", "effortMinutes"],
+      matched: ["projectId", "ownerId", "priority", "expectedFinishDate", "effortMinutes"],
     });
   });
 
@@ -67,7 +67,7 @@ describe("parseCapture", () => {
     expect(parsed.fields.projectId).toBe("p1");
     expect(parsed.fields.ownerId).toBe("u1");
     expect(parsed.fields.priority).toBe("high");
-    expect(parsed.fields.dueDate).toBe("2026-10-23");
+    expect(parsed.fields.expectedFinishDate).toBe("2026-10-23");
     expect(parsed.fields.effortMinutes).toBe(960);
   });
 
@@ -96,7 +96,7 @@ describe("parseCapture", () => {
     expect(parsed.title).toBe("发邮件");
     expect(parsed.fields.projectId).toBe("p1");
     expect(parsed.fields.priority).toBe("high");
-    expect(parsed.fields.dueDate).toBe("2026-10-23");
+    expect(parsed.fields.expectedFinishDate).toBe("2026-10-23");
     expect(parsed.fields.effortMinutes).toBe(960);
   });
 
@@ -110,14 +110,14 @@ describe("parseCapture", () => {
   });
 
   it("keeps invalid dates as text", () => {
-    expect(parse("^2/30 交底").fields.dueDate).toBeNull();
+    expect(parse("^2/30 交底").fields.expectedFinishDate).toBeNull();
     expect(parse("^2/30 交底").title).toBe("^2/30 交底");
-    expect(parse("^2026-02-30 交底").fields.dueDate).toBeNull();
+    expect(parse("^2026-02-30 交底").fields.expectedFinishDate).toBeNull();
   });
 
   it("strips the optional before/after suffix with the date token", () => {
     expect(parse("^周五前 发邮件").title).toBe("发邮件");
-    expect(parse("^周五前 发邮件").fields.dueDate).toBe("2026-10-23");
+    expect(parse("^周五前 发邮件").fields.expectedFinishDate).toBe("2026-10-23");
     expect(parse("^2026-11-20 前 发邮件").title).toBe("发邮件");
   });
 
@@ -141,7 +141,7 @@ describe("parseCapture", () => {
       "projectId",
       "ownerId",
       "priority",
-      "dueDate",
+      "expectedFinishDate",
       "effortMinutes",
     ] satisfies CaptureField[]);
   });
@@ -183,17 +183,17 @@ describe("year rollover", () => {
   }
 
   it("rolls a month/day token into next year when it has passed", () => {
-    expect(parseAt("^1/5 发报表", "2026-12-30").fields.dueDate).toBe("2027-01-05");
-    expect(parseAt("^1月5日 发报表", "2026-12-30").fields.dueDate).toBe("2027-01-05");
+    expect(parseAt("^1/5 发报表", "2026-12-30").fields.expectedFinishDate).toBe("2027-01-05");
+    expect(parseAt("^1月5日 发报表", "2026-12-30").fields.expectedFinishDate).toBe("2027-01-05");
   });
 
   it("keeps a month/day token in this year when it is still ahead", () => {
-    expect(parseAt("^12/31 发报表", "2026-12-30").fields.dueDate).toBe("2026-12-31");
+    expect(parseAt("^12/31 发报表", "2026-12-30").fields.expectedFinishDate).toBe("2026-12-31");
   });
 
   it("does not invent an invalid date across a leap year", () => {
     const parsed = parseAt("^2/29 发报表", "2027-03-01");
-    expect(parsed.fields.dueDate).toBeNull();
+    expect(parsed.fields.expectedFinishDate).toBeNull();
     expect(parsed.title).toBe("^2/29 发报表");
   });
 });

@@ -43,12 +43,12 @@ const done = computed(() => stepsDone(props.task.steps));
 const current = computed(() => currentStep(props.task.steps));
 const stepLine = computed(() => stepLabel(props.task.steps));
 const stepsId = computed(() => `steps-${props.task.id}`);
-const late = computed(() => overdueDays(props.task.dueDate, todayIso()));
+const late = computed(() => overdueDays(props.task.expectedFinishDate, todayIso()));
 const overdue = computed(() => late.value > 0 && props.task.status !== "done");
 const conflictTitle = computed(() =>
   t("task.conflictTitle", {
     date: shortDate(props.plan?.end ?? null),
-    due: shortDate(props.task.dueDate),
+    due: shortDate(props.task.expectedFinishDate),
   }),
 );
 
@@ -234,17 +234,20 @@ async function suspend(): Promise<void> {
           </span>
           <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
           <span
-            v-if="task.dueDate"
+            v-if="task.expectedFinishDate"
             class="text-right text-[11px]"
             :class="[
               overdue ? 'text-error' : 'text-base-content/45',
-              task.dueTime ? 'w-20' : 'w-11',
+              task.expectedFinishTime ? 'w-20' : 'w-11',
             ]"
           >
-            {{ shortDate(task.dueDate) }}
-            <span v-if="task.dueTime" class="text-[10px]">{{ task.dueTime }}</span>
+            {{ shortDate(task.expectedFinishDate) }}
+            <span v-if="task.expectedFinishTime" class="text-[10px]">{{
+              task.expectedFinishTime
+            }}</span>
           </span>
           <div class="flex shrink-0 items-center gap-0.5">
+            <slot name="actions" />
             <button
               v-if="canStart"
               class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary disabled:opacity-50"

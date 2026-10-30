@@ -52,6 +52,11 @@ export function moveTask(taskId: string, beforeId: string | null): Promise<Task[
   return invoke<Task[]>("move_task", { taskId, beforeId });
 }
 
+/** Drops a task on a day: it joins the week with that expected start and order. */
+export function placeTask(taskId: string, day: string, beforeId: string | null): Promise<void> {
+  return invoke<void>("place_task", { taskId, day, beforeId });
+}
+
 export function addStep(taskId: string, title: string): Promise<Task> {
   return invoke<Task>("add_step", { taskId, title });
 }
@@ -102,8 +107,12 @@ export function suspendTask(
 ): Promise<Task> {
   return invoke<Task>("suspend_task", { id, until, reason });
 }
-export function setDue(id: string, newDue: string | null, reason: string | null): Promise<Task> {
-  return invoke<Task>("set_due", { id, newDue, reason });
+export function setExpectedFinish(
+  id: string,
+  newFinish: string | null,
+  reason: string | null,
+): Promise<Task> {
+  return invoke<Task>("set_expected_finish", { id, newFinish, reason });
 }
 
 export function addDelayNote(id: string, reason: string): Promise<Task> {

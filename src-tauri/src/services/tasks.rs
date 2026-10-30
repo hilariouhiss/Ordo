@@ -51,8 +51,13 @@ fn route_owner(conn: &Connection, id: &str, patch: &TaskPatch, now: &str) -> Res
     }
 }
 
-/// Puts a task just before `before_id`, or last when there is no anchor.
-pub fn move_task(conn: &Connection, task_id: &str, before_id: Option<&str>) -> Result<(), String> {
+/// The order values a move would change, so a caller can apply them inside its own
+/// transaction instead of nesting one.
+pub fn order_changes(
+    conn: &Connection,
+    task_id: &str,
+    before_id: Option<&str>,
+) -> Result<Vec<(String, i64)>, String> {
     let rows = crate::repo::tasks::ordered_rows(conn).map_err(|e| e.to_string())?;
     let from = rows
         .iter()
@@ -61,7 +66,7 @@ pub fn move_task(conn: &Connection, task_id: &str, before_id: Option<&str>) -> R
     let mut rest = rows;
     let moved = rest.remove(from);
     let to = match before_id {
-        Some(before) if before == task_id => return Ok(()),
+        Some(before) if before == task_id => return Ok(vec![]),
         Some(before) => rest
             .iter()
             .position(|(id, _)| id.as_str() == before)
@@ -69,7 +74,7 @@ pub fn move_task(conn: &Connection, task_id: &str, before_id: Option<&str>) -> R
         None => rest.len(),
     };
     if to == from {
-        return Ok(());
+        return Ok(vec![]);
     }
     rest.insert(to, moved);
     let mut changes = Vec::new();
@@ -78,6 +83,12 @@ pub fn move_task(conn: &Connection, task_id: &str, before_id: Option<&str>) -> R
             changes.push((id, index as i64));
         }
     }
+    Ok(changes)
+}
+
+/// Puts a task just before `before_id`, or last when there is no anchor.
+pub fn move_task(conn: &Connection, task_id: &str, before_id: Option<&str>) -> Result<(), String> {
+    let changes = order_changes(conn, task_id, before_id)?;
     crate::repo::tasks::write_orders(conn, &changes).map_err(|e| e.to_string())
 }
 
@@ -85,18 +96,11 @@ pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Resul
     if !["todo", "doing", "done"].contains(&status) {
         return Err("invalid_status".into());
     }
+    // The actual start and finish store this stamp verbatim, so reject a malformed one
+    // before anything is written.
+    crate::services::local_today(now)?;
     let done = status == "done";
-    let start_date = if status == "doing" {
-        Some(
-            crate::services::local_today(now)?
-                .format("%Y-%m-%d")
-                .to_string(),
-        )
-    } else {
-        None
-    };
-    crate::repo::tasks::set_status(conn, id, status, done, now, start_date.as_deref())
-        .map_err(|e| e.to_string())?;
+    crate::repo::tasks::set_status(conn, id, status, done, now).map_err(|e| e.to_string())?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -108,14 +112,6 @@ mod tests {
     use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
-
-    fn local_date(now: &str) -> String {
-        chrono::DateTime::parse_from_rfc3339(now)
-            .unwrap()
-            .with_timezone(&chrono::Local)
-            .format("%Y-%m-%d")
-            .to_string()
-    }
 
     fn category(c: &Connection, name: &str) -> String {
         crate::repo::categories::list(c)
@@ -263,18 +259,18 @@ mod tests {
     }
 
     #[test]
-    fn a_due_date_in_the_payload_cannot_skip_the_reschedule_record() {
+    fn a_finish_date_in_the_payload_cannot_skip_the_reschedule_record() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET due_date = '2026-10-25' WHERE id = 't1'",
+            "UPDATE tasks SET expected_finish_date = '2026-10-25' WHERE id = 't1'",
             [],
         )
         .unwrap();
-        // Due dates only move through set_due, which writes the delay record.
-        let patch: TaskPatch = serde_json::from_str(r#"{"dueDate":"2026-12-01"}"#).unwrap();
+        // A finish date only moves through set_expected_finish, which writes the record.
+        let patch: TaskPatch = serde_json::from_str(r#"{"expectedFinishDate":"2026-12-01"}"#).unwrap();
         let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
-        assert_eq!(t.due_date.as_deref(), Some("2026-10-25"));
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-25"));
     }
 
     #[test]
@@ -297,20 +293,43 @@ mod tests {
 
         let back = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
         assert!(back.in_week);
-        let done_at: Option<String> = c
-            .query_row("SELECT done_at FROM tasks WHERE id='t1'", [], |r| r.get(0))
+        let finished_at: Option<String> = c
+            .query_row(
+                "SELECT actual_finish_at FROM tasks WHERE id='t1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert!(done_at.is_none());
+        assert!(finished_at.is_none());
     }
 
     #[test]
-    fn manual_doing_backfills_start_date() {
+    fn manual_doing_stamps_the_actual_start_without_touching_the_plan() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET expected_start_date = '2026-10-22' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
 
         let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
 
-        assert_eq!(t.start_date.as_deref(), Some(local_date(NOW).as_str()));
+        assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
+        let earlier = "2026-10-21T08:00:00Z";
+        let again = tasks::set_status(&c, "t1", "todo", earlier).unwrap();
+        assert_eq!(again.actual_start_at.as_deref(), Some(NOW));
+    }
+
+    #[test]
+    fn finishing_stamps_the_actual_finish() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        assert_eq!(t.actual_finish_at.as_deref(), Some(NOW));
     }
 
     #[test]

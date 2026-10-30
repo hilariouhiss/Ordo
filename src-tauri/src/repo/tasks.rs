@@ -24,9 +24,9 @@ pub fn insert(
 ) -> rusqlite::Result<()> {
     // New tasks own their days; switching one to shared is an explicit edit.
     conn.execute(
-        "INSERT INTO tasks (id, title, project_id, owner_id, priority, due_date, effort_minutes,
-                            status, in_week, carry_count, sort_order, created_at, updated_at,
-                            time_exclusive)
+        "INSERT INTO tasks (id, title, project_id, owner_id, priority, expected_finish_date,
+                            effort_minutes, status, in_week, carry_count, sort_order, created_at,
+                            updated_at, time_exclusive)
          VALUES (?1, ?2, ?3,
                  COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
                  COALESCE(?5, 'normal'), ?6, COALESCE(?7, 480),
@@ -38,7 +38,7 @@ pub fn insert(
             fields.project_id.as_deref(),
             fields.owner_id.as_deref(),
             fields.priority.as_deref(),
-            fields.due_date.as_deref(),
+            fields.expected_finish_date.as_deref(),
             fields.effort_minutes,
             now
         ],
@@ -72,7 +72,7 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
          WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
            AND status <> 'done'
          ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
-                  due_date IS NULL, due_date, created_at",
+                  expected_finish_date IS NULL, expected_finish_date, created_at",
     )?;
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))?
@@ -82,7 +82,8 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let mut task_stmt = conn.prepare_cached(
-        "SELECT id, title, project_id, category_id, owner_id, start_date, due_date, due_time, status,
+        "SELECT id, title, project_id, category_id, owner_id, expected_start_date,
+                expected_finish_date, expected_finish_time, started_at, actual_finish_at, status,
                 in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
                 note, archived_at, canceled_at,
                 created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
@@ -96,29 +97,31 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
             project_id: r.get(2)?,
             category_id: r.get(3)?,
             owner_id: r.get(4)?,
-            start_date: r.get(5)?,
-            due_date: r.get(6)?,
-            due_time: r.get(7)?,
-            status: r.get(8)?,
-            in_week: r.get::<_, i64>(9)? == 1,
-            carry_count: r.get(10)?,
-            suspended_until: r.get(11)?,
-            suspended: r.get::<_, i64>(12)? == 1,
-            suspended_at: r.get(13)?,
-            suspend_reason: r.get(14)?,
-            note: r.get(15)?,
-            archived_at: r.get(16)?,
-            canceled_at: r.get(17)?,
+            expected_start_date: r.get(5)?,
+            expected_finish_date: r.get(6)?,
+            expected_finish_time: r.get(7)?,
+            actual_start_at: r.get(8)?,
+            actual_finish_at: r.get(9)?,
+            status: r.get(10)?,
+            in_week: r.get::<_, i64>(11)? == 1,
+            carry_count: r.get(12)?,
+            suspended_until: r.get(13)?,
+            suspended: r.get::<_, i64>(14)? == 1,
+            suspended_at: r.get(15)?,
+            suspend_reason: r.get(16)?,
+            note: r.get(17)?,
+            archived_at: r.get(18)?,
+            canceled_at: r.get(19)?,
             steps: vec![],
             tags: vec![],
             delays: vec![],
-            created_at: r.get(18)?,
-            updated_at: r.get(19)?,
-            sort_order: r.get(20)?,
-            effort_minutes: r.get(21)?,
-            priority: r.get(22)?,
-            exclusive: r.get::<_, i64>(23)? == 1,
-            project_name: r.get(24)?,
+            created_at: r.get(20)?,
+            updated_at: r.get(21)?,
+            sort_order: r.get(22)?,
+            effort_minutes: r.get(23)?,
+            priority: r.get(24)?,
+            exclusive: r.get::<_, i64>(25)? == 1,
+            project_name: r.get(26)?,
         })
     })?;
 
@@ -181,7 +184,6 @@ pub fn set_status(
     status: &str,
     leave_week: bool,
     now: &str,
-    start_date: Option<&str>,
 ) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE tasks SET status = ?1,
@@ -190,11 +192,11 @@ pub fn set_status(
             suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
             suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
             suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
-            start_date = CASE WHEN ?1 = 'doing' THEN COALESCE(start_date, ?5) ELSE start_date END,
-            done_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
+            started_at = CASE WHEN ?1 = 'doing' THEN COALESCE(started_at, ?3) ELSE started_at END,
+            actual_finish_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
             updated_at = ?3
          WHERE id = ?4",
-        params![status, leave_week as i64, now, id, start_date],
+        params![status, leave_week as i64, now, id],
     )?;
     Ok(())
 }
@@ -231,7 +233,7 @@ pub fn apply_patch(
     push(&mut cols, &mut vals, "project_id", &patch.project_id);
     push(&mut cols, &mut vals, "category_id", &patch.category_id);
     push(&mut cols, &mut vals, "owner_id", &patch.owner_id);
-    push(&mut cols, &mut vals, "start_date", &patch.start_date);
+    push(&mut cols, &mut vals, "expected_start_date", &patch.expected_start_date);
     push(&mut cols, &mut vals, "note", &patch.note);
     if let Some(effort) = patch.effort_minutes {
         cols.push("effort_minutes");
@@ -299,7 +301,7 @@ pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks
          WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL AND archived_at IS NULL
-         ORDER BY due_date IS NULL, due_date, created_at",
+         ORDER BY expected_finish_date IS NULL, expected_finish_date, created_at",
     )?;
     let ids: Vec<String> = stmt
         .query_map([project_id], |r| r.get(0))?
@@ -320,7 +322,7 @@ pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
               suspended = 0, suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL,
               sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
               status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
-              done_at = CASE WHEN status = 'done' THEN NULL ELSE done_at END,
+              actual_finish_at = CASE WHEN status = 'done' THEN NULL ELSE actual_finish_at END,
               updated_at = ?1
          WHERE id = ?2",
         params![now, id],
@@ -344,13 +346,17 @@ pub fn ordered_rows(conn: &Connection) -> rusqlite::Result<Vec<(String, i64)>> {
 /// Writes only the given order values, in one transaction, so the order stays dense.
 pub fn write_orders(conn: &Connection, orders: &[(String, i64)]) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
-    {
-        let mut stmt = tx.prepare_cached("UPDATE tasks SET sort_order = ?1 WHERE id = ?2")?;
-        for (id, order) in orders {
-            stmt.execute(params![order, id])?;
-        }
-    }
+    write_orders_in(&tx, orders)?;
     tx.commit()
+}
+
+/// The same write without opening a transaction, for a caller that already holds one.
+pub fn write_orders_in(conn: &Connection, orders: &[(String, i64)]) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare_cached("UPDATE tasks SET sort_order = ?1 WHERE id = ?2")?;
+    for (id, order) in orders {
+        stmt.execute(params![order, id])?;
+    }
+    Ok(())
 }
 
 fn list_where(

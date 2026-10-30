@@ -39,7 +39,7 @@ describe("deskVM", () => {
     vi.mocked(listWeek).mockResolvedValue([
       task({ id: "a", effortMinutes: 240 }),
       task({ id: "b", effortMinutes: 240 }),
-      task({ id: "c", startDate: "2026-10-22" }),
+      task({ id: "c", expectedStartDate: "2026-10-22" }),
     ]);
 
     const vm = createDeskVM();

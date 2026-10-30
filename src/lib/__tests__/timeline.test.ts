@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 import { timelineLayout, type TimelineTask } from "../timeline";
 
-function t(id: string, startDate: string | null, dueDate: string | null): TimelineTask {
-  return { id, title: id, startDate, dueDate, categoryId: null, status: "todo" };
+function t(
+  id: string,
+  expectedStartDate: string | null,
+  expectedFinishDate: string | null,
+): TimelineTask {
+  return {
+    id,
+    title: id,
+    expectedStartDate,
+    expectedFinishDate,
+    categoryId: null,
+    status: "todo",
+  };
 }
 
 const range = { start: "2026-10-06", end: "2026-11-17" };

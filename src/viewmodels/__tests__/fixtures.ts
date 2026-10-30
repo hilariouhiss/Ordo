@@ -18,6 +18,7 @@ export const defaultSettings: Settings = {
   deskX: null,
   deskY: null,
   tasksGroupBy: "project",
+  weekShowEmptyDays: true,
 };
 
 export function task(over: Partial<Task> = {}): Task {
@@ -28,9 +29,11 @@ export function task(over: Partial<Task> = {}): Task {
     projectName: null,
     categoryId: null,
     ownerId: null,
-    startDate: null,
-    dueDate: null,
-    dueTime: null,
+    expectedStartDate: null,
+    expectedFinishDate: null,
+    expectedFinishTime: null,
+    actualStartAt: null,
+    actualFinishAt: null,
     status: "todo",
     inWeek: true,
     carryCount: 0,
