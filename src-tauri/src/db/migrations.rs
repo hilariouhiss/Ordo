@@ -404,27 +404,70 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         // actual pair is stamped when the work really happens. Every rename is guarded so a
         // crash mid-step replays cleanly; SQLite rewrites the indexes with the column.
         let tx = conn.unchecked_transaction()?;
-        for (old, new) in [
-            ("start_date", "expected_start_date"),
-            ("due_date", "expected_finish_date"),
-            ("due_time", "expected_finish_time"),
-            ("done_at", "actual_finish_at"),
-        ] {
-            if has_task_column(&tx, old)? && !has_task_column(&tx, new)? {
-                tx.execute_batch(&format!("ALTER TABLE tasks RENAME COLUMN {old} TO {new}"))?;
-            }
-        }
-        if !has_task_column(&tx, "started_at")? {
-            tx.execute_batch("ALTER TABLE tasks ADD COLUMN started_at TEXT")?;
-        }
-        tx.execute_batch(
-            "DROP INDEX IF EXISTS idx_tasks_due;
-             CREATE INDEX IF NOT EXISTS idx_tasks_finish ON tasks(expected_finish_date);",
-        )?;
+        rename_time_columns(&tx)?;
         tx.pragma_update(None, "user_version", 15)?;
         tx.commit()?;
+    } else {
+        // An older build spent version 15 on a different step, so a database can claim 15
+        // while still carrying the pre-rename columns. Running the same guarded renames
+        // again is free when they already happened and repairs the ones that did not.
+        let tx = conn.unchecked_transaction()?;
+        if rename_time_columns(&tx)? {
+            tx.commit()?;
+        }
     }
     Ok(())
+}
+
+/// Moves `tasks` onto the four-time shape, dropping a stray `ai_fill` left by an older
+/// v15. Returns whether anything actually changed, so the self-healing pass can skip a
+/// needless commit. Callers own the transaction.
+fn rename_time_columns(tx: &Connection) -> rusqlite::Result<bool> {
+    let mut changed = false;
+    for (old, new) in [
+        ("start_date", "expected_start_date"),
+        ("due_date", "expected_finish_date"),
+        ("due_time", "expected_finish_time"),
+        ("done_at", "actual_finish_at"),
+    ] {
+        if has_task_column(tx, old)? && !has_task_column(tx, new)? {
+            tx.execute_batch(&format!("ALTER TABLE tasks RENAME COLUMN {old} TO {new}"))?;
+            changed = true;
+        }
+    }
+    if !has_task_column(tx, "started_at")? {
+        tx.execute_batch("ALTER TABLE tasks ADD COLUMN started_at TEXT")?;
+        changed = true;
+    }
+    // That stray column belonged to a step this build never shipped; keep exports to the
+    // shape the code reads.
+    if has_task_column(tx, "ai_fill")? {
+        tx.execute_batch("ALTER TABLE tasks DROP COLUMN ai_fill")?;
+        changed = true;
+    }
+    if has_task_column(tx, "expected_finish_date")? {
+        let has_finish_index: bool = tx.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_finish'",
+            [],
+            |r| r.get::<_, i64>(0).map(|n| n > 0),
+        )?;
+        if !has_finish_index {
+            tx.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_finish ON tasks(expected_finish_date);",
+            )?;
+            changed = true;
+        }
+    }
+    let has_due_index: bool = tx.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_due'",
+        [],
+        |r| r.get::<_, i64>(0).map(|n| n > 0),
+    )?;
+    if has_due_index {
+        tx.execute_batch("DROP INDEX IF EXISTS idx_tasks_due")?;
+        changed = true;
+    }
+    Ok(changed)
 }
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
@@ -1176,5 +1219,94 @@ mod tests {
             )
             .unwrap();
         assert_eq!(finish, "2026-10-23");
+    }
+
+    #[test]
+    fn repairs_a_database_that_claims_v15_with_the_old_task_columns() {
+        // A build that shipped version 15 as an AI-fill step left databases stamped 15
+        // but still on the pre-rename columns. The self-healing pass has to notice.
+        let c = db::open_in_memory().unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, expected_start_date, expected_finish_date,
+                                expected_finish_time, actual_finish_at, created_at, updated_at)
+             VALUES ('a', '旧事', '2026-10-19', '2026-10-23', '17:30',
+                     '2026-10-23T09:00:00Z', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute_batch(
+            "ALTER TABLE tasks RENAME COLUMN expected_start_date TO start_date;
+             ALTER TABLE tasks RENAME COLUMN expected_finish_date TO due_date;
+             ALTER TABLE tasks RENAME COLUMN expected_finish_time TO due_time;
+             ALTER TABLE tasks RENAME COLUMN actual_finish_at TO done_at;
+             ALTER TABLE tasks DROP COLUMN started_at;
+             ALTER TABLE tasks ADD COLUMN ai_fill TEXT;
+             DROP INDEX IF EXISTS idx_tasks_finish;
+             CREATE INDEX idx_tasks_due ON tasks(due_date);",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 15).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        for column in ["start_date", "due_date", "due_time", "done_at", "ai_fill"] {
+            assert!(
+                !has_task_column(&c, column).unwrap(),
+                "{column} should be gone"
+            );
+        }
+        let (start, finish, time, finished): (String, String, String, String) = c
+            .query_row(
+                "SELECT expected_start_date, expected_finish_date, expected_finish_time,
+                        actual_finish_at
+                 FROM tasks WHERE id = 'a'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(start, "2026-10-19");
+        assert_eq!(finish, "2026-10-23");
+        assert_eq!(time, "17:30");
+        assert_eq!(finished, "2026-10-23T09:00:00Z");
+        assert!(has_task_column(&c, "started_at").unwrap());
+
+        let indexes: Vec<String> = c
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(indexes.iter().any(|name| name == "idx_tasks_finish"));
+        assert!(!indexes.iter().any(|name| name == "idx_tasks_due"));
+
+        // Running it again is a no-op, not a second rename.
+        migrate(&c).unwrap();
+        let count: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn a_healthy_v15_database_is_left_untouched() {
+        let c = db::open_in_memory().unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, expected_start_date, created_at, updated_at)
+             VALUES ('a', '新事', '2026-10-19', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let start: String = c
+            .query_row("SELECT expected_start_date FROM tasks WHERE id = 'a'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(start, "2026-10-19");
     }
 }
