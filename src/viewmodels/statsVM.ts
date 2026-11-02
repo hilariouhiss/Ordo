@@ -177,6 +177,12 @@ export function createStatsVM() {
   /** Entry point for the page: refresh "today" and load the current window. */
   async function refresh(): Promise<void> {
     state.today = todayIso();
+    // A preset is anchored on today, so the app left open overnight must move it; a
+    // custom window is the user's own dates and stays put.
+    if (state.preset !== "custom") {
+      const wanted = presetRange(state.preset);
+      apply(normalize(wanted.from, wanted.to));
+    }
     try {
       await load();
     } catch (e) {

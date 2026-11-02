@@ -1,4 +1,4 @@
-import { addDays, shortDate, weekdayOf } from "./dates";
+import { addDays, weekdayOf } from "./dates";
 import type { DayStats, StatsSlice } from "../model/types";
 
 const DAY = 86_400_000;
@@ -94,23 +94,10 @@ export function bucketize(
   return buckets;
 }
 
-/** `M/D` for a day or week bucket; `M月` never appears here because the view formats months. */
-export function bucketLabel(
-  bucket: StatsBucket,
-  granularity: Granularity,
-  monthLabel: string,
-): string {
-  return granularity === "month" ? monthLabel : shortDate(bucket.key);
-}
-
 /** At most `max` ticks, always including the first column. */
 export function labelStride(count: number, max = 8): number {
   if (count <= 0) return 1;
   return Math.max(1, Math.ceil(count / max));
-}
-
-export function peakOf(values: number[]): number {
-  return values.reduce((max, value) => Math.max(max, value), 0);
 }
 
 /**

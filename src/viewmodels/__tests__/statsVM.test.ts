@@ -48,6 +48,32 @@ describe("statsVM", () => {
     expect(vm.granularity.value).toBe("day");
   });
 
+  it("moves a preset window to today when the page is reopened", async () => {
+    vi.mocked(statsOverview).mockResolvedValue(overview());
+    const vm = createStatsVM();
+    await vm.refresh();
+    // Stand in for an app left open overnight: the window still ends yesterday.
+    vm.state.today = addDays(todayIso(), -1);
+    vm.state.from = addDays(todayIso(), -30);
+    vm.state.to = addDays(todayIso(), -1);
+
+    await vm.refresh();
+
+    const today = todayIso();
+    expect(statsOverview).toHaveBeenLastCalledWith(addDays(today, -29), today);
+    expect(vm.state.to).toBe(today);
+  });
+
+  it("keeps a custom window where the user put it", async () => {
+    vi.mocked(statsOverview).mockResolvedValue(overview());
+    const vm = createStatsVM();
+    await vm.setCustom("2026-10-01", "2026-10-20");
+
+    await vm.refresh();
+
+    expect(statsOverview).toHaveBeenLastCalledWith("2026-10-01", "2026-10-20");
+  });
+
   it("counts quiet days so the trend keeps its scale", async () => {
     vi.mocked(statsOverview).mockResolvedValue(
       overview({ completed: 3, daily: [{ date: "2026-10-05", completed: 3, created: 0 }] }),

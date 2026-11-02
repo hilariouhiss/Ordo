@@ -110,10 +110,16 @@ function warningText(target: ShortcutTarget, stored: string): string {
 
 async function saveKey(): Promise<void> {
   if (!keyDraft.value.trim()) return;
-  await ipc.setAiKey(keyDraft.value.trim());
-  keyDraft.value = "";
-  aiStatus.value = { kind: "saved" };
-  hasKey.value = true;
+  // The Windows credential store can refuse (policy, locked vault); the button must say so
+  // instead of looking dead.
+  try {
+    await ipc.setAiKey(keyDraft.value.trim());
+    keyDraft.value = "";
+    aiStatus.value = { kind: "saved" };
+    hasKey.value = true;
+  } catch (e) {
+    aiStatus.value = { kind: "failed", error: String(e) };
+  }
 }
 
 async function clearKey(): Promise<void> {
