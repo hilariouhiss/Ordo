@@ -84,17 +84,45 @@ pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Writes `dir/ordo-<stamp>.db` unless that name is already there, and says whether
-/// it wrote it. Pruning stays with the caller: the daily job only prunes after a write.
+/// Writes `dir/ordo-<stamp>.db` unless a usable one is already there, and says whether
+/// it wrote it. A file left behind by a `VACUUM` cut short is replaced, not trusted.
+/// Pruning stays with the caller: the daily job only prunes after a write.
 fn write_backup(conn: &Connection, dir: &Path, name: String) -> Result<(PathBuf, bool), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
-    if path.exists() {
+    if readable(&path) {
         return Ok((path, false));
     }
-    conn.execute("VACUUM INTO ?1", [path.to_string_lossy().to_string()])
-        .map_err(|e| e.to_string())?;
+    // `VACUUM INTO` writes the target itself, so a crash mid-write leaves a truncated file
+    // wearing the final name; build it beside and rename only once it is complete.
+    let temp = path.with_extension("db.tmp");
+    let _ = std::fs::remove_file(&temp);
+    let result = conn
+        .execute("VACUUM INTO ?1", [temp.to_string_lossy().to_string()])
+        .map_err(|e| e.to_string());
+    if let Err(e) = result {
+        // The name still holds the old truncated file; the next tick retries because
+        // `readable` rejects it, and a later success replaces it through the rename.
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    std::fs::rename(&temp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        e.to_string()
+    })?;
     Ok((path, true))
+}
+
+/// Whether this copy opens as a database, so a half-written one is not mistaken for a backup.
+/// Read-only: checking must not drop a write-ahead log beside the copies.
+fn readable(path: &Path) -> bool {
+    let sized = std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false);
+    sized
+        && Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .and_then(|conn| conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)))
+            .is_ok()
 }
 
 pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, String> {
@@ -149,6 +177,7 @@ pub fn backup_snapshot(conn: &Connection, dir: &Path) -> Result<PathBuf, String>
 mod tests {
     use crate::db;
     use crate::services::{export, week};
+    use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
 
@@ -215,13 +244,55 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ordo-daily-skip-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        std::fs::write(dir.join(format!("ordo-{today}.db")), b"today").unwrap();
+        // A readable copy of today means the job is done; a stray byte string would be
+        // a failed write from an older build and must not count.
+        let first = export::backup_today(&c, &dir).unwrap().unwrap();
+        assert!(first.ends_with(format!("ordo-{today}.db")));
         std::fs::write(dir.join("ordo-2000-01-01.db"), b"old").unwrap();
 
         let made = export::backup_daily(&c, &dir).unwrap();
 
         assert!(made.is_none());
         assert!(dir.join("ordo-2000-01-01.db").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_truncated_backup_is_replaced_instead_of_counted() {
+        let c = db::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-daily-cut-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let path = dir.join(format!("ordo-{today}.db"));
+        std::fs::write(&path, b"half a vacuum").unwrap();
+
+        let made = export::backup_today(&c, &dir).unwrap();
+
+        assert_eq!(made.as_deref(), Some(path.as_path()), "the cut copy is rewritten");
+        assert!(
+            Connection::open(&path)
+                .and_then(|conn| conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)))
+                .is_ok(),
+            "the replaced file must be a real database"
+        );
+        assert!(
+            !path.with_extension("db.tmp").exists(),
+            "no temporary file survives the write"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_unwritable_backup_directory_reports_and_keeps_no_temp() {
+        let c = db::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-daily-fail-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        // A directory wearing the backup's name makes the final rename fail.
+        std::fs::create_dir_all(dir.join(format!("ordo-{today}.db"))).unwrap();
+
+        assert!(export::backup_today(&c, &dir).is_err());
+        assert!(!dir.join(format!("ordo-{today}.db.tmp")).exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
