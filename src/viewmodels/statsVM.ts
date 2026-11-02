@@ -3,7 +3,6 @@ import { addDays, todayIso } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import {
-  breakdownRows,
   bucketize,
   busiestDay,
   daysBetween,
@@ -23,8 +22,6 @@ export const STATS_PRESETS: StatsPreset[] = ["30d", "12w", "year", "custom"];
 
 /** A year and a day, matching the service's own ceiling. */
 const MAX_RANGE_DAYS = 366;
-/** How many ranks the breakdown charts show before merging the tail. */
-const BREAKDOWN_LIMIT = 5;
 
 /** Stands in before the first payload so the view never juggles nulls. */
 function emptyOverview(): StatsOverview {
@@ -81,8 +78,8 @@ export function createStatsVM() {
   const compactHeatmap = computed(() => heatmap.value.weeks.length <= 14);
   const weekday = computed(() => weekdayTotals(data.value.daily));
   const busiest = computed(() => busiestDay(data.value.daily));
-  const projects = computed(() => breakdownRows(data.value.byProject, BREAKDOWN_LIMIT));
-  const categories = computed(() => breakdownRows(data.value.byCategory, BREAKDOWN_LIMIT));
+  const projects = computed(() => data.value.byProject);
+  const categories = computed(() => data.value.byCategory);
 
   const rate = computed(() => onTimeRate(data.value.onTime, data.value.withDue));
   const previousRate = computed(() =>
