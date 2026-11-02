@@ -1,14 +1,17 @@
 import { createRouter, createWebHashHistory } from "vue-router";
-import ArchiveView from "./views/ArchiveView.vue";
-import CategoriesView from "./views/CategoriesView.vue";
-import PeopleView from "./views/PeopleView.vue";
-import ProjectView from "./views/ProjectView.vue";
-import ProjectsView from "./views/ProjectsView.vue";
-import StatisticsView from "./views/StatisticsView.vue";
-import TagsView from "./views/TagsView.vue";
-import TemplatesView from "./views/TemplatesView.vue";
-import TasksView from "./views/TasksView.vue";
-import WeekView from "./views/WeekView.vue";
+
+// Views load on first visit: the shell only ever shows one page, so keeping them
+// out of the entry chunk makes the first paint smaller and faster.
+const WeekView = () => import("./views/WeekView.vue");
+const TasksView = () => import("./views/TasksView.vue");
+const TemplatesView = () => import("./views/TemplatesView.vue");
+const ProjectsView = () => import("./views/ProjectsView.vue");
+const ProjectView = () => import("./views/ProjectView.vue");
+const CategoriesView = () => import("./views/CategoriesView.vue");
+const TagsView = () => import("./views/TagsView.vue");
+const PeopleView = () => import("./views/PeopleView.vue");
+const StatisticsView = () => import("./views/StatisticsView.vue");
+const ArchiveView = () => import("./views/ArchiveView.vue");
 
 export const router = createRouter({
   history: createWebHashHistory(),
