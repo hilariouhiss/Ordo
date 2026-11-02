@@ -9,6 +9,11 @@ pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
     "WHERE p.id = tasks.project_id AND p.archived_at IS NULL))"
 );
 
+/// Bringing a parked task back always means the same five columns. Kept in one place so a
+/// new suspension field cannot be forgotten by one of the paths that resumes a task.
+pub(crate) const UNPARK: &str =
+    "in_week = 1, suspended = 0, suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL";
+
 /// Archive lists keep a task inside its archived project; restoring the project comes first.
 const LIVE_PROJECT: &str = concat!(
     "(project_id IS NULL OR NOT EXISTS (SELECT 1 FROM projects p ",
@@ -61,11 +66,6 @@ pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
     dtos(conn, &list_week_ids(conn)?)
 }
 
-/// Loads the full row and its children for each id, keeping the given order.
-pub fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>> {
-    ids.iter().map(|id| dto(conn, id)).collect()
-}
-
 pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM tasks
@@ -80,99 +80,170 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
     dtos(conn, &ids)
 }
 
+const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expected_start_date,
+            expected_finish_date, expected_finish_time, started_at, actual_finish_at, status,
+            in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
+            note, archived_at, canceled_at,
+            created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
+            (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL)";
+
+fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
+    Ok(TaskDto {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        project_id: row.get(2)?,
+        category_id: row.get(3)?,
+        owner_id: row.get(4)?,
+        expected_start_date: row.get(5)?,
+        expected_finish_date: row.get(6)?,
+        expected_finish_time: row.get(7)?,
+        actual_start_at: row.get(8)?,
+        actual_finish_at: row.get(9)?,
+        status: row.get(10)?,
+        in_week: row.get::<_, i64>(11)? == 1,
+        carry_count: row.get(12)?,
+        suspended_until: row.get(13)?,
+        suspended: row.get::<_, i64>(14)? == 1,
+        suspended_at: row.get(15)?,
+        suspend_reason: row.get(16)?,
+        note: row.get(17)?,
+        archived_at: row.get(18)?,
+        canceled_at: row.get(19)?,
+        steps: vec![],
+        tags: vec![],
+        delays: vec![],
+        created_at: row.get(20)?,
+        updated_at: row.get(21)?,
+        sort_order: row.get(22)?,
+        effort_minutes: row.get(23)?,
+        priority: row.get(24)?,
+        exclusive: row.get::<_, i64>(25)? == 1,
+        project_name: row.get(26)?,
+    })
+}
+
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
-    let mut task_stmt = conn.prepare_cached(
-        "SELECT id, title, project_id, category_id, owner_id, expected_start_date,
-                expected_finish_date, expected_finish_time, started_at, actual_finish_at, status,
-                in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
-                note, archived_at, canceled_at,
-                created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
-                (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL)
-         FROM tasks WHERE id = ?1",
-    )?;
-    let mut task = task_stmt.query_row([id], |r| {
-        Ok(TaskDto {
-            id: r.get(0)?,
-            title: r.get(1)?,
-            project_id: r.get(2)?,
-            category_id: r.get(3)?,
-            owner_id: r.get(4)?,
-            expected_start_date: r.get(5)?,
-            expected_finish_date: r.get(6)?,
-            expected_finish_time: r.get(7)?,
-            actual_start_at: r.get(8)?,
-            actual_finish_at: r.get(9)?,
-            status: r.get(10)?,
-            in_week: r.get::<_, i64>(11)? == 1,
-            carry_count: r.get(12)?,
-            suspended_until: r.get(13)?,
-            suspended: r.get::<_, i64>(14)? == 1,
-            suspended_at: r.get(15)?,
-            suspend_reason: r.get(16)?,
-            note: r.get(17)?,
-            archived_at: r.get(18)?,
-            canceled_at: r.get(19)?,
-            steps: vec![],
-            tags: vec![],
-            delays: vec![],
-            created_at: r.get(20)?,
-            updated_at: r.get(21)?,
-            sort_order: r.get(22)?,
-            effort_minutes: r.get(23)?,
-            priority: r.get(24)?,
-            exclusive: r.get::<_, i64>(25)? == 1,
-            project_name: r.get(26)?,
+    let mut task_stmt =
+        conn.prepare_cached(&format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"))?;
+    let mut task = task_stmt.query_row([id], read_task)?;
+    let ids = [id.to_owned()];
+    attach_children(conn, std::slice::from_mut(&mut task), &ids)?;
+    Ok(task)
+}
+
+/// How many ids one statement may carry. SQLite's own ceiling is 999 on older builds and
+/// 32766 since 3.32; staying well under both keeps a huge ledger from failing outright.
+const LOAD_CHUNK: usize = 400;
+
+/// Loads the full row and its children for each id, keeping the given order. The child
+/// tables are read in one query each, so a long list costs a handful of statements
+/// instead of four per task.
+pub fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>> {
+    let mut tasks = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(LOAD_CHUNK) {
+        tasks.extend(load_chunk(conn, chunk)?);
+    }
+    Ok(tasks)
+}
+
+fn load_chunk(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>> {
+    let placeholders = vec!["?"; ids.len()].join(",");
+    // A known list of ids, so the rows are keyed by id and put back in the asked order.
+    let sql = format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id IN ({placeholders})");
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows: std::collections::HashMap<String, TaskDto> = std::collections::HashMap::new();
+    let loaded = stmt.query_map(rusqlite::params_from_iter(ids), read_task)?;
+    for task in loaded {
+        let task = task?;
+        rows.insert(task.id.clone(), task);
+    }
+    let mut tasks: Vec<TaskDto> = ids.iter().filter_map(|id| rows.remove(id)).collect();
+    if tasks.len() != ids.len() {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    attach_children(conn, &mut tasks, ids)?;
+    Ok(tasks)
+}
+
+/// Fills steps, tags and delays for every task in one query per table.
+fn attach_children(
+    conn: &Connection,
+    tasks: &mut [TaskDto],
+    ids: &[String],
+) -> rusqlite::Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = vec!["?"; ids.len()].join(",");
+    // Keyed by owned id, so the map borrows nothing from the tasks it fills.
+    let index: std::collections::HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(position, id)| (id.as_str(), position))
+        .collect();
+
+    let mut steps = conn.prepare(&format!(
+        "SELECT id, task_id, title, sort_order, done FROM steps
+         WHERE task_id IN ({placeholders}) AND deleted_at IS NULL ORDER BY task_id, sort_order"
+    ))?;
+    let rows = steps.query_map(rusqlite::params_from_iter(ids), |row| {
+        Ok(StepDto {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            title: row.get(2)?,
+            sort_order: row.get(3)?,
+            done: row.get::<_, i64>(4)? == 1,
         })
     })?;
+    for row in rows {
+        let step = row?;
+        if let Some(&position) = index.get(step.task_id.as_str()) {
+            tasks[position].steps.push(step);
+        }
+    }
 
-    let mut steps = conn.prepare_cached(
-        "SELECT id, task_id, title, sort_order, done FROM steps
-         WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY sort_order",
-    )?;
-    task.steps = steps
-        .query_map([id], |r| {
-            Ok(StepDto {
-                id: r.get(0)?,
-                task_id: r.get(1)?,
-                title: r.get(2)?,
-                sort_order: r.get(3)?,
-                done: r.get::<_, i64>(4)? == 1,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut tags = conn.prepare(&format!(
+        "SELECT tt.task_id, t.id, t.name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id
+         WHERE tt.task_id IN ({placeholders}) AND t.deleted_at IS NULL ORDER BY tt.task_id, t.name"
+    ))?;
+    let rows = tags.query_map(rusqlite::params_from_iter(ids), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            TagDto {
+                id: row.get(1)?,
+                name: row.get(2)?,
+            },
+        ))
+    })?;
+    for row in rows {
+        let (task_id, tag) = row?;
+        if let Some(&position) = index.get(task_id.as_str()) {
+            tasks[position].tags.push(tag);
+        }
+    }
 
-    let mut tags = conn.prepare_cached(
-        "SELECT t.id, t.name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id
-         WHERE tt.task_id = ?1 AND t.deleted_at IS NULL ORDER BY t.name",
-    )?;
-    task.tags = tags
-        .query_map([id], |r| {
-            Ok(TagDto {
-                id: r.get(0)?,
-                name: r.get(1)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    let mut delays = conn.prepare_cached(
+    let mut delays = conn.prepare(&format!(
         "SELECT id, task_id, kind, old_due, new_due, reason, created_at FROM delays
-         WHERE task_id = ?1 ORDER BY created_at",
-    )?;
-    task.delays = delays
-        .query_map([id], |r| {
-            Ok(DelayDto {
-                id: r.get(0)?,
-                task_id: r.get(1)?,
-                kind: r.get(2)?,
-                old_due: r.get(3)?,
-                new_due: r.get(4)?,
-                reason: r.get(5)?,
-                created_at: r.get(6)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    Ok(task)
+         WHERE task_id IN ({placeholders}) ORDER BY task_id, created_at"
+    ))?;
+    let rows = delays.query_map(rusqlite::params_from_iter(ids), |row| {
+        Ok(DelayDto {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            kind: row.get(2)?,
+            old_due: row.get(3)?,
+            new_due: row.get(4)?,
+            reason: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    })?;
+    for row in rows {
+        let delay = row?;
+        if let Some(&position) = index.get(delay.task_id.as_str()) {
+            tasks[position].delays.push(delay);
+        }
+    }
+    Ok(())
 }
 pub fn stored_status(conn: &Connection, id: &str) -> rusqlite::Result<String> {
     conn.query_row("SELECT status FROM tasks WHERE id = ?1", [id], |r| r.get(0))
@@ -185,6 +256,8 @@ pub fn set_status(
     leave_week: bool,
     now: &str,
 ) -> rusqlite::Result<()> {
+    // A done task clears the four parked columns conditionally, so they are spelled out
+    // here rather than through `UNPARK`; keep the two in step.
     conn.execute(
         "UPDATE tasks SET status = ?1,
             in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
@@ -318,13 +391,14 @@ pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 
 pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, in_week = 1,
-              suspended = 0, suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL,
-              sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
-              status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
-              actual_finish_at = CASE WHEN status = 'done' THEN NULL ELSE actual_finish_at END,
-              updated_at = ?1
-         WHERE id = ?2",
+        &format!(
+            "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, {UNPARK},
+                  sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
+                  status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
+                  actual_finish_at = CASE WHEN status = 'done' THEN NULL ELSE actual_finish_at END,
+                  updated_at = ?1
+             WHERE id = ?2"
+        ),
         params![now, id],
     )?;
     Ok(())
@@ -397,4 +471,79 @@ pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec
         "status = 'done' AND canceled_at IS NULL AND archived_at IS NULL",
         query,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn a_batch_load_keeps_the_asked_order_and_its_children() {
+        let c = db::open_in_memory().unwrap();
+        for id in ["t1", "t2", "t3"] {
+            crate::services::week::capture(&c, id, NOW, id).unwrap();
+        }
+        crate::services::steps::add(&c, "t2", "收集", NOW).unwrap();
+        crate::services::deliverables::add_note(&c, "t3", "等回复", NOW).unwrap();
+        c.execute(
+            "INSERT INTO tags (id, name, created_at) VALUES ('g1', 'fix', ?1)",
+            [NOW],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO task_tags (task_id, tag_id) VALUES ('t1', 'g1')",
+            [],
+        )
+        .unwrap();
+
+        let ids = vec!["t3".to_string(), "t1".to_string(), "t2".to_string()];
+        let tasks = dtos(&c, &ids).unwrap();
+
+        let loaded: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(loaded, vec!["t3", "t1", "t2"]);
+        assert_eq!(tasks[0].delays.len(), 1);
+        assert_eq!(tasks[1].tags[0].name, "fix");
+        assert_eq!(tasks[2].steps[0].title, "收集");
+        // Each task must get only its own children, not the neighbouring ones.
+        assert!(tasks[0].steps.is_empty() && tasks[0].tags.is_empty());
+        assert!(tasks[1].steps.is_empty() && tasks[1].delays.is_empty());
+        assert!(tasks[2].tags.is_empty() && tasks[2].delays.is_empty());
+    }
+
+    #[test]
+    fn a_batch_load_of_nothing_is_empty() {
+        let c = db::open_in_memory().unwrap();
+        assert!(dtos(&c, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_batch_larger_than_one_statement_still_loads_in_order() {
+        let c = db::open_in_memory().unwrap();
+        let ids: Vec<String> = (0..LOAD_CHUNK + 5).map(|n| format!("t{n:04}")).collect();
+        for id in &ids {
+            crate::services::week::capture(&c, id, NOW, id).unwrap();
+        }
+        let step = crate::services::steps::add(&c, &ids[LOAD_CHUNK + 4], "最后一步", NOW).unwrap();
+        assert_eq!(step.steps.len(), 1);
+
+        let tasks = dtos(&c, &ids).unwrap();
+
+        let loaded: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(loaded, ids.iter().map(String::as_str).collect::<Vec<_>>());
+        // The children of a task in the second chunk must come back too.
+        assert_eq!(tasks[LOAD_CHUNK + 4].steps.len(), 1);
+    }
+
+    #[test]
+    fn a_batch_load_reports_a_missing_id() {
+        let c = db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "一", NOW, "t1").unwrap();
+        let ids = vec!["t1".to_string(), "gone".to_string()];
+
+        // A caller asking for a row that vanished must see an error, not a short list.
+        assert!(dtos(&c, &ids).is_err());
+    }
 }
