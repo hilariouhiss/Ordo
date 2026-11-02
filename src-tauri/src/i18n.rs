@@ -145,16 +145,27 @@ pub fn database_open_failed(lang: Lang, error: &str, data_dir: &str) -> (String,
     }
 }
 
-pub fn recovery_notice(lang: Lang, restored: &str, kept: &str) -> (String, String) {
-    match lang {
-        Lang::Zh => (
+/// `kept` is the set-aside broken file, absent when the ledger itself was missing.
+pub fn recovery_notice(lang: Lang, restored: &str, kept: Option<String>) -> (String, String) {
+    match (lang, kept) {
+        (Lang::Zh, Some(kept)) => (
             "已从备份恢复数据库".into(),
             format!("用的是 {restored}。坏文件存为 {kept}，没有删任何东西。"),
         ),
-        Lang::En => (
+        (Lang::Zh, None) => (
+            "已从备份恢复数据库".into(),
+            format!("数据库文件不见了，用 {restored} 恢复。没有删任何东西。"),
+        ),
+        (Lang::En, Some(kept)) => (
             "Database restored from backup".into(),
             format!(
                 "Restored from {restored}. The broken file was kept as {kept}; nothing was deleted."
+            ),
+        ),
+        (Lang::En, None) => (
+            "Database restored from backup".into(),
+            format!(
+                "The database file was missing, so it was restored from {restored}; nothing was deleted."
             ),
         ),
     }
@@ -215,14 +226,25 @@ mod tests {
 
     #[test]
     fn recovery_notice_keeps_both_paths() {
-        let (title, body) = recovery_notice(Lang::En, "backup.db", "broken.db");
+        let (title, body) = recovery_notice(Lang::En, "backup.db", Some("broken.db".into()));
         assert_eq!(title, "Database restored from backup");
         assert!(body.contains("backup.db"));
         assert!(body.contains("broken.db"));
-        let (title, body) = recovery_notice(Lang::Zh, "备份.db", "坏文件.db");
+        let (title, body) = recovery_notice(Lang::Zh, "备份.db", Some("坏文件.db".into()));
         assert_eq!(title, "已从备份恢复数据库");
         assert!(body.contains("备份.db"));
         assert!(body.contains("坏文件.db"));
+    }
+
+    #[test]
+    fn recovery_notice_names_a_missing_file() {
+        let (title, body) = recovery_notice(Lang::En, "backup.db", None);
+        assert_eq!(title, "Database restored from backup");
+        assert!(body.contains("backup.db"));
+        assert!(body.contains("missing"), "{body}");
+        let (_, body) = recovery_notice(Lang::Zh, "备份.db", None);
+        assert!(body.contains("备份.db"));
+        assert!(body.contains("不见了"), "{body}");
     }
 
     #[test]

@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 /// What a recovery did, so the caller can tell the user about it.
 pub struct Recovery {
     pub restored_from: PathBuf,
-    pub broken_file_kept_at: PathBuf,
+    /// The broken file kept beside the ledger; absent when there was no file to keep.
+    pub broken_file_kept_at: Option<PathBuf>,
 }
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -23,6 +24,18 @@ pub fn open_with_recovery(
     path: &Path,
     backups: &Path,
 ) -> Result<(Connection, Option<Recovery>), String> {
+    // A ledger that is gone while dated copies sit beside it is a lost file, not a first
+    // run: starting an empty one would let the daily backup prune the copies within a month.
+    if !path.exists() && !backups_newest_first(backups).is_empty() {
+        return match recover(path, backups) {
+            Ok((conn, recovery)) => Ok((conn, Some(recovery))),
+            Err(e) => {
+                // Nothing usable was restored; leave no half-copied file behind.
+                let _ = std::fs::remove_file(path);
+                Err(format!("missing_db; {e}"))
+            }
+        };
+    }
     // SQLite opens a zero-byte file as a fresh database, so a truncated ledger would be
     // silently re-created empty. Treat it like a broken file and restore a backup.
     if is_empty_file(path) {
@@ -37,7 +50,7 @@ pub fn open_with_recovery(
     }
     if let Some(version) = read_version(path) {
         if version > 0 && version != migrations::LATEST {
-            backup_before_migration(path, backups, version);
+            backup_before_migration(path, backups, version)?;
         }
     }
     match open(path) {
@@ -49,13 +62,53 @@ pub fn open_with_recovery(
     }
 }
 
-/// Copies the database aside when a schema upgrade is about to rewrite it.
-pub fn backup_before_migration(path: &Path, backups: &Path, from_version: i64) {
+/// Copies the database aside when a schema upgrade is about to rewrite it. Migrations only
+/// go forward, so a copy that cannot be written stops the upgrade instead of letting it run
+/// unprotected.
+pub fn backup_before_migration(
+    path: &Path,
+    backups: &Path,
+    from_version: i64,
+) -> Result<(), String> {
     let dest = backups.join(format!("pre-migration-v{from_version}.db"));
-    if !path.exists() || dest.exists() || std::fs::create_dir_all(backups).is_err() {
-        return;
+    if !path.exists() {
+        return Ok(());
     }
-    let _ = std::fs::copy(path, dest);
+    if opens(&dest) {
+        return Ok(());
+    }
+    // A copy cut short keeps the name but is worthless; the rename below needs it gone.
+    if dest.exists() {
+        std::fs::remove_file(&dest).map_err(|e| format!("pre_migration_backup_failed: {e}"))?;
+    }
+    std::fs::create_dir_all(backups).map_err(|e| format!("pre_migration_backup_failed: {e}"))?;
+    copy_to(path, &dest).map_err(|e| format!("pre_migration_backup_failed: {e}"))
+}
+
+/// Whether this path is a database SQLite can read; a copy cut off mid-write is not.
+fn opens(path: &Path) -> bool {
+    let sized = std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false);
+    sized
+        && Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .and_then(|conn| conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)))
+            .is_ok()
+}
+
+/// Copies through a temporary name, so a crash leaves no file wearing the final name.
+fn copy_to(from: &Path, to: &Path) -> std::io::Result<()> {
+    let temp = PathBuf::from(format!("{}.tmp", to.display()));
+    let _ = std::fs::remove_file(&temp);
+    if let Err(e) = std::fs::copy(from, &temp) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    let renamed = std::fs::rename(&temp, to);
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    renamed
 }
 
 fn is_empty_file(path: &Path) -> bool {
@@ -82,7 +135,9 @@ fn read_version(path: &Path) -> Option<i64> {
 fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String> {
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let kept_at = path.with_extension(format!("db.corrupt-{stamp}"));
-    if path.exists() {
+    // Read before restoring: the restore recreates the path, so afterwards it always exists.
+    let had_file = path.exists();
+    if had_file {
         std::fs::copy(path, &kept_at).map_err(|e| format!("corrupt_copy_failed: {e}"))?;
     }
     // The broken file's write-ahead log can hold its newest committed rows, and
@@ -99,6 +154,7 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
     if candidates.is_empty() {
         return Err("no_backup_to_restore".into());
     }
+    let kept = had_file.then_some(kept_at);
     let mut last = String::new();
     for candidate in candidates {
         if let Err(e) = std::fs::copy(&candidate, path) {
@@ -117,7 +173,7 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
                     conn,
                     Recovery {
                         restored_from: candidate,
-                        broken_file_kept_at: kept_at,
+                        broken_file_kept_at: kept,
                     },
                 ));
             }
@@ -267,7 +323,46 @@ mod tests {
         assert!(recovery.restored_from.ends_with("ordo-2026-10-20.db"));
         assert_eq!(corrupt_copies(&dir), 1);
         // The copy must be the broken bytes, not the restored database.
-        assert_eq!(std::fs::read(&recovery.broken_file_kept_at).unwrap(), BROKEN);
+        let kept = recovery.broken_file_kept_at.expect("the broken file was kept");
+        assert_eq!(std::fs::read(&kept).unwrap(), BROKEN);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn restores_a_backup_when_the_ledger_file_is_gone() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        seed(&path);
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::copy(&path, backups.join("ordo-2026-10-20.db")).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        // No ledger beside a dated copy is a lost file, not a first run: opening a fresh
+        // database here would let the next daily backup prune the only copy away.
+        let (c, recovery) = open_with_recovery(&path, &backups).unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        let recovery = recovery.expect("a recovery was reported");
+        assert!(recovery.restored_from.ends_with("ordo-2026-10-20.db"));
+        assert!(recovery.broken_file_kept_at.is_none(), "nothing to keep");
+        assert_eq!(corrupt_copies(&dir), 0, "no phantom corrupt copy");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_ledger_without_usable_backups_reports_and_leaves_no_file() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::write(backups.join("ordo-2026-10-20.db"), BROKEN).unwrap();
+
+        let err = open_with_recovery(&path, &backups).err().unwrap();
+        assert!(err.starts_with("missing_db;"), "{err}");
+        assert!(!path.exists(), "a failed restore must not leave a stray file");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -373,6 +468,52 @@ mod tests {
         assert!(copy.exists());
         // The copy must predate the upgrade.
         let old = Connection::open(&copy).unwrap();
+        let version: i64 = old
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_pre_migration_copy_stops_the_upgrade() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        {
+            let c = open(&path).unwrap();
+            c.pragma_update(None, "user_version", 1).unwrap();
+        }
+        // A directory wearing the copy's name makes every write into it fail.
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(backups.join("pre-migration-v1.db")).unwrap();
+
+        let err = open_with_recovery(&path, &backups).err().unwrap();
+        assert!(err.starts_with("pre_migration_backup_failed"), "{err}");
+        // The schema must still be the old one: no upgrade ran without its safety copy.
+        let version: i64 = Connection::open(&path)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_truncated_pre_migration_copy_is_replaced() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        {
+            let c = open(&path).unwrap();
+            c.pragma_update(None, "user_version", 1).unwrap();
+        }
+        // A copy cut off mid-write keeps the name but says nothing about the old schema.
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::write(backups.join("pre-migration-v1.db"), b"half").unwrap();
+
+        open_with_recovery(&path, &backups).unwrap();
+
+        let old = Connection::open(backups.join("pre-migration-v1.db")).unwrap();
         let version: i64 = old
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();

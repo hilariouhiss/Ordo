@@ -444,7 +444,10 @@ pub fn run() {
           let (title, body) = crate::i18n::recovery_notice(
               lang,
               &recovery.restored_from.display().to_string(),
-              &recovery.broken_file_kept_at.display().to_string(),
+              recovery
+                  .broken_file_kept_at
+                  .as_ref()
+                  .map(|kept| kept.display().to_string()),
           );
           let _ = app.notification().builder().title(title).body(body).show();
       }

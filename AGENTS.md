@@ -115,7 +115,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 - API key 只进 Windows 凭据管理器（service `ordo`，account `deepseek`），不进设置表、导出 JSON、备份或日志；不要把它写进 `.env` 或测试夹具。
 - 唯一联网行为是 AI 补字段；保持“捕获立即落库，AI 异步补，失败静默”。前端不要 await AI 再保存。
 - CSP 在 `tauri.conf.json` 的 `connect-src` 只放行自身、Tauri IPC 和 `https://api.deepseek.com`；能力清单只开必要插件。新增插件要同时改 `lib.rs`、`capabilities/default.json` 和依赖清单，别开 shell/fs 通配。
-- 数据库损坏时启动流程会保留坏文件（`ordo.db.corrupt-*`）和 `-wal`，从最新可用备份恢复；不要让代码静默重建或删除。动这块先跑 `db/mod.rs` 的恢复测试。
+- 数据库损坏时启动流程会保留坏文件（`ordo.db.corrupt-*`）和 `-wal`，从最新可用备份恢复；文件整个缺失但备份还在时同样恢复。不要让代码静默重建或删除。备份与迁移副本都先写临时名再改名，残缺的那份不算数。动这块先跑 `db/mod.rs` 的恢复测试。
 - 真实数据库（`%APPDATA%\com.ordo.taskbook`）不要手工清理、重置或跑破坏性 SQL；要动先确认。测试用 `db::open_in_memory()` 或临时目录。
 - 主窗口关闭只是隐藏到托盘，退出走托盘菜单；首次关闭会提示一次。别把关闭改回直接退出。
 - 改全局快捷键失败时必须回滚旧键（`services/shortcut.rs`），不要留下半失效状态。
