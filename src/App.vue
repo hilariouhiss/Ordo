@@ -24,6 +24,7 @@ import { quickCreateVM } from "./viewmodels/quickCreateVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
+import { templatesVM } from "./viewmodels/templatesVM";
 import { weekVM } from "./viewmodels/weekVM";
 import { closeOverlays, windowModeVM } from "./viewmodels/windowModeVM";
 import WindowControls from "./views/components/WindowControls.vue";
@@ -130,7 +131,9 @@ function overlayOpen(): boolean {
     !!taskSheetVM.state.openId ||
     settingsVM.state.open ||
     passVM.state.open ||
-    projectsVM.state.settingsFor !== null
+    projectsVM.state.settingsFor !== null ||
+    templatesVM.state.ruleSheet !== null ||
+    templatesVM.state.templateSheet !== null
   );
 }
 

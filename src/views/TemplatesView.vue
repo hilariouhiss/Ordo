@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
 import { askConfirm, runWithNotice } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { formatEffort } from "../lib/effort";
@@ -13,10 +13,14 @@ import RuleSheet from "./overlays/RuleSheet.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 import TemplateSheet from "./overlays/TemplateSheet.vue";
 
-const ruleSheet = ref<TaskRule | "new" | null>(null);
-const templateSheet = ref<TaskTemplate | "new" | null>(null);
+// The open sheet lives in the viewmodel, so the app-wide Ctrl+N guard and closeOverlays
+// can see it; a local ref would be invisible to both.
+const ruleSheet = computed(() => vm.state.ruleSheet);
+const templateSheet = computed(() => vm.state.templateSheet);
 
 onMounted(() => void vm.load());
+// Leaving the page must not leave a sheet mounted over the next one.
+onUnmounted(() => vm.closeSheets());
 
 async function useTemplate(template: TaskTemplate): Promise<void> {
   await runWithNotice(() => vm.useTemplate(template));
@@ -54,7 +58,7 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
         <span class="text-[10.5px] font-medium tracking-wide text-base-content/40">
           {{ t("templates.rulesTitle") }}
         </span>
-        <button class="ml-auto text-[11px] text-primary" @click="ruleSheet = 'new'">
+        <button class="ml-auto text-[11px] text-primary" @click="vm.openRule('new')">
           {{ t("templates.addRule") }}
         </button>
       </div>
@@ -82,7 +86,7 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
             />
             <button
               class="text-[11px] text-base-content/45 hover:text-base-content"
-              @click="ruleSheet = rule"
+              @click="vm.openRule(rule)"
             >
               {{ t("common.edit") }}
             </button>
@@ -108,7 +112,7 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
         <span class="text-[10.5px] font-medium tracking-wide text-base-content/40">
           {{ t("templates.templatesTitle") }}
         </span>
-        <button class="ml-auto text-[11px] text-primary" @click="templateSheet = 'new'">
+        <button class="ml-auto text-[11px] text-primary" @click="vm.openTemplate('new')">
           {{ t("templates.addTemplate") }}
         </button>
       </div>
@@ -133,7 +137,7 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
             </button>
             <button
               class="text-[11px] text-base-content/45 hover:text-base-content"
-              @click="templateSheet = template"
+              @click="vm.openTemplate(template)"
             >
               {{ t("common.edit") }}
             </button>
@@ -158,14 +162,14 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
       <RuleSheet
         v-if="ruleSheet"
         :rule="ruleSheet === 'new' ? null : ruleSheet"
-        @close="ruleSheet = null"
+        @close="vm.state.ruleSheet = null"
       />
     </AnimatePresence>
     <AnimatePresence>
       <TemplateSheet
         v-if="templateSheet"
         :template="templateSheet === 'new' ? null : templateSheet"
-        @close="templateSheet = null"
+        @close="vm.state.templateSheet = null"
       />
     </AnimatePresence>
     <AnimatePresence>

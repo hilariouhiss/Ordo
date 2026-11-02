@@ -9,6 +9,10 @@ export function createTemplatesVM() {
     rules: [] as TaskRule[],
     templates: [] as TaskTemplate[],
     loading: false,
+    /** The sheet being edited; "new" opens an empty one. Overlay state lives here so the
+     * app-level shortcut guard and `closeOverlays` can see it. */
+    ruleSheet: null as TaskRule | "new" | null,
+    templateSheet: null as TaskTemplate | "new" | null,
   });
 
   async function load(): Promise<void> {
@@ -20,6 +24,19 @@ export function createTemplatesVM() {
     } finally {
       state.loading = false;
     }
+  }
+
+  function openRule(rule: TaskRule | "new"): void {
+    state.ruleSheet = rule;
+  }
+
+  function openTemplate(template: TaskTemplate | "new"): void {
+    state.templateSheet = template;
+  }
+
+  function closeSheets(): void {
+    state.ruleSheet = null;
+    state.templateSheet = null;
   }
 
   /** A new rule may already owe today's occurrence, so the week reloads too. */
@@ -59,6 +76,9 @@ export function createTemplatesVM() {
   return {
     state,
     load,
+    openRule,
+    openTemplate,
+    closeSheets,
     saveRule,
     toggleRule,
     removeRule,
