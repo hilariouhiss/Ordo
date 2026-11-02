@@ -37,11 +37,13 @@ pub fn set_expected_finish(
         if crate::services::week::week_start(finish) == crate::services::week::week_start(&today) {
             // A task already in the week keeps its slot; a finish-date edit must not move it.
             tx.execute(
-                "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
-                        suspended_at = NULL, suspend_reason = NULL,
-                        sort_order = CASE WHEN in_week = 1 THEN sort_order
-                                          ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks) END
-                 WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
+                &format!(
+                    "UPDATE tasks SET {},
+                            sort_order = CASE WHEN in_week = 1 THEN sort_order
+                                              ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks) END
+                     WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL AND status <> 'done'",
+                    crate::repo::tasks::UNPARK
+                ),
                 [task_id],
             )
             .map_err(|e| e.to_string())?;

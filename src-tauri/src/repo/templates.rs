@@ -52,14 +52,16 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<Option<TemplateDto>>
         .optional()
 }
 
-/// Expects a template the service already validated and normalized.
+/// Expects a template the service already validated and normalized. Row and steps land
+/// together, so a failed step write cannot leave a template with a truncated list.
 pub fn insert(
     conn: &Connection,
     id: &str,
     template: &TemplateInput,
     now: &str,
 ) -> rusqlite::Result<()> {
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT INTO task_templates (id, name, project_id, category_id, owner_id, priority,
                                      effort_minutes, time_exclusive, note, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, 'normal'), COALESCE(?7, 480), ?8, ?9, ?10, ?10)",
@@ -76,8 +78,8 @@ pub fn insert(
             now
         ],
     )?;
-    replace_steps(conn, id, &template.steps)?;
-    Ok(())
+    replace_steps(&tx, id, &template.steps)?;
+    tx.commit()
 }
 
 pub fn update(
@@ -86,7 +88,8 @@ pub fn update(
     template: &TemplateInput,
     now: &str,
 ) -> rusqlite::Result<usize> {
-    let changed = conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    let changed = tx.execute(
         "UPDATE task_templates SET name = ?1, project_id = ?2, category_id = ?3, owner_id = ?4,
                 priority = COALESCE(?5, priority), effort_minutes = COALESCE(?6, effort_minutes),
                 time_exclusive = ?7, note = ?8, updated_at = ?9
@@ -105,8 +108,9 @@ pub fn update(
         ],
     )?;
     if changed > 0 {
-        replace_steps(conn, id, &template.steps)?;
+        replace_steps(&tx, id, &template.steps)?;
     }
+    tx.commit()?;
     Ok(changed)
 }
 

@@ -25,6 +25,21 @@ pub fn capture_with_fields(
     now: &str,
     id: &str,
 ) -> Result<TaskDto, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    capture_rows(&tx, raw, fields, now, id)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    tasks::dto(conn, id).map_err(|e| e.to_string())
+}
+
+/// Validates a capture and inserts it, membership included. The caller owns the
+/// transaction, so a template can add its steps to the same one.
+pub(crate) fn capture_rows(
+    conn: &Connection,
+    raw: &str,
+    fields: &CaptureFields,
+    now: &str,
+    id: &str,
+) -> Result<(), String> {
     let title = raw.trim();
     if title.is_empty() {
         return Err("empty_title".into());
@@ -54,16 +69,13 @@ pub fn capture_with_fields(
             return Err("invalid_owner".into());
         }
     }
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     crate::services::projects::ensure_member(
-        &tx,
+        conn,
         fields.project_id.as_deref(),
         fields.owner_id.as_deref(),
         now,
     )?;
-    tasks::insert(&tx, id, title, fields, now).map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    tasks::dto(conn, id).map_err(|e| e.to_string())
+    tasks::insert(conn, id, title, fields, now).map_err(|e| e.to_string())
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<TaskDto>, String> {
@@ -211,10 +223,12 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
 
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     conn.execute(
-        "UPDATE tasks SET in_week = 1, suspended = 0, suspended_until = NULL,
-                suspended_at = NULL, suspend_reason = NULL, updated_at = ?1,
-                sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
-         WHERE id = ?2",
+        &format!(
+            "UPDATE tasks SET {}, updated_at = ?1,
+                    sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
+             WHERE id = ?2",
+            tasks::UNPARK
+        ),
         params![now, task_id],
     )
     .map_err(|e| e.to_string())?;
@@ -236,11 +250,12 @@ pub fn place(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let changed = tx
         .execute(
-            "UPDATE tasks SET expected_start_date = ?1, in_week = 1, suspended = 0,
-                    suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL,
-                    updated_at = ?2
-             WHERE id = ?3 AND canceled_at IS NULL AND archived_at IS NULL
-               AND deleted_at IS NULL AND status <> 'done'",
+            &format!(
+                "UPDATE tasks SET expected_start_date = ?1, {}, updated_at = ?2
+                 WHERE id = ?3 AND canceled_at IS NULL AND archived_at IS NULL
+                   AND deleted_at IS NULL AND status <> 'done'",
+                tasks::UNPARK
+            ),
             params![day, now, task_id],
         )
         .map_err(|e| e.to_string())?;

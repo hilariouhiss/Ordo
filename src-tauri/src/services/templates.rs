@@ -51,9 +51,11 @@ pub fn create_task(
         expected_finish_date: None,
         effort_minutes: Some(template.effort_minutes),
     };
-    week::capture_with_fields(conn, &template.name, &fields, now, task_id)?;
+    // One transaction: a failed step insert must not leave a task with half its flow.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    week::capture_rows(&tx, &template.name, &fields, now, task_id)?;
     // CaptureFields carries nothing for these three, so they land after the row exists.
-    conn.execute(
+    tx.execute(
         "UPDATE tasks SET category_id = ?1, time_exclusive = ?2, note = ?3, updated_at = ?4
          WHERE id = ?5",
         params![
@@ -67,7 +69,7 @@ pub fn create_task(
     .map_err(|e| e.to_string())?;
     for (index, title) in template.steps.iter().enumerate() {
         step_repo::insert(
-            conn,
+            &tx,
             &Uuid::new_v4().to_string(),
             task_id,
             title,
@@ -76,6 +78,7 @@ pub fn create_task(
         )
         .map_err(|e| e.to_string())?;
     }
+    tx.commit().map_err(|e| e.to_string())?;
     if template.steps.is_empty() {
         return tasks::dto(conn, task_id).map_err(|e| e.to_string());
     }
@@ -218,5 +221,56 @@ mod tests {
         draft.id = Some(template.id.clone());
         let saved = save(&c, &draft, NOW).unwrap();
         assert_eq!(saved.steps, vec!["只剩一步".to_string()]);
+    }
+
+    fn step_count(c: &rusqlite::Connection, template_id: &str) -> i64 {
+        c.query_row(
+            "SELECT COUNT(*) FROM template_steps WHERE template_id = ?1",
+            [template_id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_failed_step_write_keeps_the_old_step_list() {
+        let c = db::open_in_memory().unwrap();
+        let template = save(&c, &input("发布", vec!["一", "二"]), NOW).unwrap();
+        // Steps are replaced by delete-then-insert; a failure mid-way must not leave a gap.
+        c.execute_batch(
+            "CREATE TRIGGER fail_step BEFORE INSERT ON template_steps
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        let mut draft = input("发布", vec!["新的一步"]);
+        draft.id = Some(template.id.clone());
+        assert!(save(&c, &draft, NOW).is_err());
+
+        let steps = crate::repo::templates::get(&c, &template.id)
+            .unwrap()
+            .unwrap()
+            .steps;
+        assert_eq!(steps, vec!["一".to_string(), "二".to_string()]);
+        assert_eq!(step_count(&c, &template.id), 2);
+    }
+
+    #[test]
+    fn a_failed_step_write_creates_no_task() {
+        let c = db::open_in_memory().unwrap();
+        let template = save(&c, &input("发布", vec!["打标签", "发版"]), NOW).unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_task_step BEFORE INSERT ON steps
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        assert!(create_task(&c, &template.id, NOW, "t1").is_err());
+
+        // The task row must go with the steps it could not get.
+        let tasks: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tasks, 0);
     }
 }
