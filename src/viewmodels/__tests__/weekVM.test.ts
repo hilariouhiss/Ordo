@@ -16,7 +16,15 @@ vi.mock("../../model/ipc", () => ({
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { mondayOf, todayIso } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
-import { capture, listSuspended, listWeek, moveTask, placeTask, weekStats } from "../../model/ipc";
+import {
+  capture,
+  listSuspended,
+  listWeek,
+  markNotificationsSeen,
+  moveTask,
+  placeTask,
+  weekStats,
+} from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { appVM } from "../appVM";
 import { createWeekVM } from "../weekVM";
@@ -51,6 +59,23 @@ describe("weekVM", () => {
     const vm = createWeekVM();
     await vm.capture({ raw: "   ", title: "   ", fields: CAPTURE_DEFAULTS });
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("loading the week leaves the reminder count alone", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(markNotificationsSeen).mockResolvedValue(undefined);
+    const vm = createWeekVM();
+
+    await vm.load();
+    await vm.load();
+
+    // The page reloads on every capture and AI fill, even from other pages; only opening
+    // the week itself may clear the tray's unread count.
+    expect(vi.mocked(markNotificationsSeen)).not.toHaveBeenCalled();
+    await vm.markSeen();
+    expect(vi.mocked(markNotificationsSeen)).toHaveBeenCalledTimes(1);
   });
 
   it("shows a notice when the backend rejects the capture", async () => {

@@ -24,6 +24,7 @@ const {
   conflictCount,
   passNeeded,
   load,
+  markSeen,
   capture,
   resume,
   move,
@@ -173,12 +174,15 @@ function onWindowFocus(): void {
   if (draggingId.value) return;
   void appVM.load();
   void load();
+  void markSeen();
 }
 
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   window.addEventListener("focus", onWindowFocus);
   void load();
+  // Seeing this page is what clears the tray's unread count; other pages do not.
+  void markSeen();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);

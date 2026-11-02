@@ -70,10 +70,17 @@ export function createWeekVM() {
       state.tasks = tasks;
       state.suspended = suspended;
       state.stats = stats;
-      void markNotificationsSeen();
     } finally {
       state.loading = false;
     }
+  }
+
+  /**
+   * Looking at the week is what marks reminders read. Kept out of `load()` because the
+   * page reloads on every capture and AI fill, including while another page is open.
+   */
+  async function markSeen(): Promise<void> {
+    await markNotificationsSeen().catch(() => {});
   }
 
   let capturing = false;
@@ -137,6 +144,7 @@ export function createWeekVM() {
     conflictCount,
     passNeeded,
     load,
+    markSeen,
     capture,
     resume,
     move,
