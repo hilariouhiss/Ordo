@@ -40,8 +40,8 @@ ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍
 
 - `vp`（Vite+ CLI）需在 PATH；pnpm 12.14.0 由 `package.json` 的 `devEngines` 固定；Rust 不低于 `src-tauri/Cargo.toml` 的 `rust-version = "1.90"`。
 - `vp install` — 安装依赖；`prepare` 脚本执行 `vp config`，把 git hooks 接到 `.vite-hooks/`。
-- `pnpm tauri dev` — 完整桌面应用（启动 Vite :1420 + Rust）。改数据、托盘、提醒、IPC 都用它。
-- `vp dev` — 只跑前端，端口 1420；浏览器里没有 Tauri IPC，数据相关操作会失败。
+- `pnpm tauri dev` — 完整桌面应用（启动 Vite :15173 + Rust）。改数据、托盘、提醒、IPC 都用它。
+- `vp dev` — 只跑前端，端口 15173；浏览器里没有 Tauri IPC，数据相关操作会失败。
 - 运行时数据在 `%APPDATA%\com.ordo.taskbook`：`ordo.db`、`backups/`、`exports/`。旧版 `com.ordo.app` 目录首次启动会复制过来（旧目录保留）；测试不使用这个目录。
 
 ## 构建、测试与检查
