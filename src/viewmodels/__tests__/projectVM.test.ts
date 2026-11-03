@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../../model/ipc", () => ({
-  aiEnrich: vi.fn(),
+  aiEnrich: vi.fn().mockResolvedValue(undefined),
   capture: vi.fn(),
   getProjectSummary: vi.fn(),
   listProjectTasks: vi.fn(),

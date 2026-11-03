@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../../model/ipc", () => ({ capture: vi.fn(), aiEnrich: vi.fn(), bootstrap: vi.fn() }));
+vi.mock("../../model/ipc", () => ({
+  capture: vi.fn(),
+  aiEnrich: vi.fn().mockResolvedValue(undefined),
+  bootstrap: vi.fn(),
+}));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { capture } from "../../model/ipc";

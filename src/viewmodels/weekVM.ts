@@ -6,8 +6,6 @@ import { errorText, t } from "../lib/i18n";
 import { fillPlannedDays, groupPlannedDays, toPlanTask } from "../lib/plan";
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
-  aiEnrich,
-  capture as captureApi,
   listSuspended,
   listWeek,
   markNotificationsSeen,
@@ -18,6 +16,7 @@ import {
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
+import { saveCapture } from "./captureSave";
 
 export function createWeekVM() {
   const state = reactive({
@@ -91,9 +90,7 @@ export function createWeekVM() {
     if (!title) return;
     capturing = true;
     try {
-      const task = await captureApi(title, submission.fields, submission.newProjectName);
-      if (submission.newProjectName) void appVM.load().catch(() => {});
-      void aiEnrich(task.id);
+      await saveCapture(title, submission.fields, submission.newProjectName);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       await load();
     } catch (e) {

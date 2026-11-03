@@ -1,7 +1,6 @@
 import { reactive } from "vue";
-import { aiEnrich, capture } from "../model/ipc";
 import type { CaptureFields } from "../model/types";
-import { appVM } from "./appVM";
+import { saveCapture } from "./captureSave";
 
 export function createCaptureVM() {
   const state = reactive({
@@ -22,9 +21,7 @@ export function createCaptureVM() {
     if (!text) return false;
     state.saving = true;
     try {
-      const task = await capture(text, fields, newProjectName);
-      if (newProjectName) void appVM.load().catch(() => {});
-      void aiEnrich(task.id);
+      await saveCapture(text, fields, newProjectName);
       state.saved = true;
       setTimeout(() => {
         state.saved = false;
