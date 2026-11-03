@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>Ordo</title>
-  <rect x="32" y="32" width="960" height="960" rx="224" fill="#FCFBF9" stroke="#E6E2DA" stroke-width="6"/>
-  <circle cx="512" cy="462" r="190" fill="none" stroke="#2C2A26" stroke-width="118"/>
-  <rect x="320" y="736" width="384" height="52" rx="26" fill="#B07D5A"/>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#B07D5A"/>
+  <rect x="76" y="76" width="872" height="872" rx="188" fill="none" stroke="#FCFBF9" stroke-width="14"/>
+  <circle cx="512" cy="512" r="246" fill="none" stroke="#FCFBF9" stroke-width="114"/>
 </svg>
