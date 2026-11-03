@@ -104,6 +104,15 @@ pub fn soft_delete_and_detach(conn: &Connection, id: &str, now: &str) -> rusqlit
         "UPDATE project_members SET category_id = NULL WHERE category_id = ?1",
         [id],
     )?;
+    // Rules and templates are not deleted with the category; drop their dead link.
+    for table in ["task_rules", "task_templates"] {
+        tx.execute(
+            &format!(
+                "UPDATE {table} SET category_id = NULL, updated_at = ?1 WHERE category_id = ?2"
+            ),
+            rusqlite::params![now, id],
+        )?;
+    }
     soft_delete(&tx, id, now)?;
     tx.commit()
 }
@@ -114,6 +123,41 @@ mod tests {
     use crate::db;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn deleting_a_category_clears_rule_and_template_links() {
+        let c = db::open_in_memory().unwrap();
+        let software = list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|category| category.name == "软件")
+            .unwrap();
+        c.execute(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, category_id, created_at, updated_at)
+             VALUES ('r1', '开会', '1', '09:00', ?1, ?2, ?2)",
+            rusqlite::params![software.id, NOW],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO task_templates (id, name, category_id, created_at, updated_at)
+             VALUES ('p1', '发布', ?1, ?2, ?2)",
+            rusqlite::params![software.id, NOW],
+        )
+        .unwrap();
+
+        soft_delete_and_detach(&c, &software.id, NOW).unwrap();
+
+        for table in ["task_rules", "task_templates"] {
+            let left: Option<String> = c
+                .query_row(
+                    &format!("SELECT category_id FROM {table}"),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(left.is_none(), "{table} still points at the deleted category");
+        }
+    }
 
     #[test]
     fn deleting_a_category_detaches_its_tasks() {

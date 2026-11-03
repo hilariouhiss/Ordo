@@ -38,6 +38,17 @@ pub fn update_patch(
         crate::services::timing::sync_finish(conn, id, now)?;
     }
     route_owner(conn, id, patch, now)?;
+    // Moving a task or changing its owner must not leave an owner outside the project.
+    if patch.project_id.is_some() || patch.owner_id.is_some() {
+        let task = crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())?;
+        crate::services::projects::ensure_member(
+            conn,
+            task.project_id.as_deref(),
+            task.owner_id.as_deref(),
+            now,
+        )?;
+        return Ok(task);
+    }
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -173,6 +184,31 @@ mod tests {
         };
         let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
         assert!(t.project_id.is_none());
+    }
+
+    #[test]
+    fn moving_a_task_to_another_project_keeps_the_owner_a_member() {
+        let c = db::open_in_memory().unwrap();
+        let old = projects::create(&c, "旧项目", NOW).unwrap();
+        let new = projects::create(&c, "新项目", NOW).unwrap();
+        let li = projects::add_member(&c, &old.id, None, Some("老李"), NOW).unwrap();
+        let fields = CaptureFields {
+            project_id: Some(old.id.clone()),
+            owner_id: Some(li.id.clone()),
+            ..Default::default()
+        };
+        week::capture_with_fields(&c, "交底", &fields, NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            project_id: Some(Some(new.id.clone())),
+            ..Default::default()
+        };
+        tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert!(
+            crate::repo::projects::is_member(&c, &new.id, &li.id).unwrap(),
+            "the owner must be a member of the project that now holds the task"
+        );
     }
 
     #[test]

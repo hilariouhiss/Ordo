@@ -137,8 +137,9 @@ pub async fn restore_project(state: State<'_, AppState>, id: String) -> Result<(
 
 #[tauri::command]
 pub async fn delete_project(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::projects::delete(conn, &id)
+        crate::services::projects::delete(conn, &id, &now)
     })
     .await
 }

@@ -77,9 +77,16 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
     tx.commit()
 }
 
-pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+pub fn delete(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM tasks WHERE project_id = ?1", [id])?;
+    // A rule for the deleted project must stop creating tasks; the FK would only
+    // detach it and leave it enabled.
+    tx.execute(
+        "UPDATE task_rules SET deleted_at = ?1, updated_at = ?1
+         WHERE project_id = ?2 AND deleted_at IS NULL",
+        params![now, id],
+    )?;
     tx.execute("DELETE FROM projects WHERE id = ?1", [id])?;
     tx.commit()
 }
@@ -367,7 +374,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(delete(&c, "p1").is_err());
+        assert!(delete(&c, "p1", NOW).is_err());
 
         let tasks: i64 = c
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))

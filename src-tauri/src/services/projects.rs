@@ -123,7 +123,7 @@ pub fn delete_group(conn: &Connection, id: &str) -> Result<(), String> {
 }
 
 /// Only an archived project may be deleted, the same rule a task follows.
-pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete(conn: &Connection, id: &str, now: &str) -> Result<(), String> {
     let archived: Option<Option<String>> = conn
         .query_row(
             "SELECT archived_at FROM projects WHERE id = ?1 AND deleted_at IS NULL",
@@ -135,7 +135,7 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
     match archived {
         None => Ok(()),
         Some(None) => Err("project_not_archived".into()),
-        Some(Some(_)) => projects::delete(conn, id).map_err(|e| e.to_string()),
+        Some(Some(_)) => projects::delete(conn, id, now).map_err(|e| e.to_string()),
     }
 }
 
@@ -435,7 +435,7 @@ mod tests {
         c.execute("UPDATE tasks SET project_id = ?1 WHERE id='t1'", [&p.id])
             .unwrap();
 
-        crate::repo::projects::delete(&c, &p.id).unwrap();
+        crate::repo::projects::delete(&c, &p.id, NOW).unwrap();
         let left: i64 = c
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();
@@ -451,7 +451,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            projects::delete(&c, &p.id).unwrap_err(),
+            projects::delete(&c, &p.id, NOW).unwrap_err(),
             "project_not_archived"
         );
         let tasks: i64 = c
@@ -470,7 +470,7 @@ mod tests {
             .unwrap();
         crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
 
-        projects::delete(&c, &p.id).unwrap();
+        projects::delete(&c, &p.id, NOW).unwrap();
 
         let tasks: i64 = c
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
@@ -479,9 +479,35 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_project_removes_its_rules() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let rule = crate::services::rules::save(
+            &c,
+            &crate::dto::RuleInput {
+                title: "报销".into(),
+                weekdays: vec![1],
+                at: "09:00".into(),
+                project_id: Some(p.id.clone()),
+                ..Default::default()
+            },
+            NOW,
+        )
+        .unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+
+        projects::delete(&c, &p.id, NOW).unwrap();
+
+        assert!(
+            crate::repo::rules::get(&c, &rule.id).unwrap().is_none(),
+            "a deleted project's rules must stop firing"
+        );
+    }
+
+    #[test]
     fn deleting_a_missing_project_is_a_noop() {
         let c = db::open_in_memory().unwrap();
-        projects::delete(&c, "nope").unwrap();
+        projects::delete(&c, "nope", NOW).unwrap();
     }
 
     #[test]
