@@ -6,13 +6,19 @@ vi.mock("../../model/ipc", () => ({
   addStep: vi.fn(),
   updateTaskPatch: vi.fn(),
   deleteStep: vi.fn(),
-  setExpectedFinish: vi.fn(),
+  addDelayNote: vi.fn(),
 }));
 
-import { getTask, setExpectedFinish, toggleStep, updateTaskPatch } from "../../model/ipc";
+import { getTask, updateTaskPatch } from "../../model/ipc";
 import type { Task } from "../../model/types";
-import { createTaskSheetVM, diffTask, type TaskForm } from "../taskSheetVM";
-import { step, task } from "./fixtures";
+import {
+  createTaskSheetVM,
+  diffTask,
+  finishPreview,
+  formFinish,
+  type TaskForm,
+} from "../taskSheetVM";
+import { task } from "./fixtures";
 
 function formOf(t: Task): TaskForm {
   return {
@@ -21,7 +27,6 @@ function formOf(t: Task): TaskForm {
     categoryId: t.categoryId,
     ownerId: t.ownerId,
     expectedStartDate: t.expectedStartDate ?? "",
-    expectedFinishDate: t.expectedFinishDate ?? "",
     note: t.note ?? "",
     tags: t.tags.map((tag) => tag.name),
     effortMinutes: t.effortMinutes,
@@ -33,66 +38,40 @@ function formOf(t: Task): TaskForm {
 describe("taskSheetVM", () => {
   it("opens a task and toggles a step", async () => {
     vi.mocked(getTask).mockResolvedValue(task({ id: "t1", status: "todo" }));
-    vi.mocked(toggleStep).mockResolvedValue(
-      task({ id: "t1", status: "doing", steps: [step({ done: true })] }),
-    );
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
     expect(vm.state.task?.id).toBe("t1");
-
-    await vm.toggle("s1");
-    expect(vm.state.task?.status).toBe("doing");
-    expect(toggleStep).toHaveBeenCalledWith("s1");
   });
 
-  it("keeps an edit made in the same save as a finish-date change", async () => {
-    vi.mocked(getTask).mockResolvedValue(
-      task({ id: "t1", title: "旧", expectedFinishDate: "2026-10-25" }),
-    );
-    // the finish call refreshes the task; that refresh must not swallow what else was typed.
-    vi.mocked(setExpectedFinish).mockResolvedValue(
-      task({ id: "t1", title: "旧", expectedFinishDate: "2026-11-01" }),
-    );
-    vi.mocked(updateTaskPatch).mockResolvedValue(
-      task({ id: "t1", title: "新", expectedFinishDate: "2026-11-01" }),
-    );
+  it("sends an effort change through the patch", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1" }));
+    vi.mocked(updateTaskPatch).mockResolvedValue(task({ id: "t1", effortMinutes: 960 }));
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const form = formOf(task({ title: "旧" }));
-    const saved = await vm.saveForm({ ...form, title: "新", expectedFinishDate: "2026-11-01" });
+    const saved = await vm.saveForm({ ...formOf(task({ id: "t1" })), effortMinutes: 960 });
 
     expect(saved).toBe(true);
-    expect(setExpectedFinish).toHaveBeenCalledWith("t1", "2026-11-01", null);
-    expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
+    expect(updateTaskPatch).toHaveBeenCalledWith("t1", { effortMinutes: 960 });
   });
 
-  it("passes a reschedule reason when the finish date moves later", async () => {
+  it("never sends a finish date, because the backend derives it", async () => {
     vi.mocked(getTask).mockResolvedValue(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
-    vi.mocked(setExpectedFinish).mockResolvedValue(
-      task({ id: "t1", expectedFinishDate: "2026-11-01" }),
-    );
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const form = formOf(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
-    const saved = await vm.saveForm({ ...form, expectedFinishDate: "2026-11-01" }, "客户改期");
 
-    expect(saved).toBe(true);
-    expect(setExpectedFinish).toHaveBeenCalledWith("t1", "2026-11-01", "客户改期");
+    expect(diffTask(task({ id: "t1" }), formOf(task({ id: "t1" })))).toEqual({});
   });
 
   it("returns false and reports a failed save", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
-    vi.mocked(setExpectedFinish).mockRejectedValue("boom");
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1" }));
+    vi.mocked(updateTaskPatch).mockRejectedValue("boom");
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const saved = await vm.saveForm({
-      ...formOf(task({ id: "t1" })),
-      expectedFinishDate: "2026-11-01",
-    });
+    const saved = await vm.saveForm({ ...formOf(task({ id: "t1" })), title: "新" });
 
     expect(saved).toBe(false);
     expect(vm.state.error).toBe("boom");
@@ -113,11 +92,6 @@ describe("taskSheetVM", () => {
     expect(diffTask(t, { ...formOf(t), note: "" })).toEqual({ note: null });
   });
 
-  it("sends an effort change on its own", () => {
-    const t = task({ effortMinutes: 480 });
-    expect(diffTask(t, { ...formOf(t), effortMinutes: 960 })).toEqual({ effortMinutes: 960 });
-  });
-
   it("sends a priority change on its own", () => {
     const t = task({ priority: "normal" });
     expect(diffTask(t, { ...formOf(t), priority: "high" })).toEqual({ priority: "high" });
@@ -126,5 +100,44 @@ describe("taskSheetVM", () => {
   it("sends an exclusive change on its own", () => {
     const t = task({ exclusive: false });
     expect(diffTask(t, { ...formOf(t), exclusive: true })).toEqual({ exclusive: true });
+  });
+});
+
+describe("finishPreview", () => {
+  it("keeps the stored date until the start or the estimate changes", () => {
+    const t = task({ expectedFinishDate: "2026-10-23", effortMinutes: 480 });
+    expect(finishPreview(t, formOf(t))).toBe("2026-10-23");
+  });
+
+  it("moves with a new estimate", () => {
+    const t = task({ expectedFinishDate: "2026-10-21", effortMinutes: 480 });
+    const form = { ...formOf(t), effortMinutes: 960 };
+    expect(finishPreview(t, form)).toBe(formFinish(form));
+    expect(finishPreview(t, form)).not.toBe("2026-10-21");
+  });
+
+  it("falls back to the derived date when the task has none", () => {
+    const t = task({ expectedFinishDate: null });
+    expect(finishPreview(t, formOf(t))).toBe(formFinish(formOf(t)));
+  });
+});
+
+describe("formFinish", () => {
+  it("shows the working day the estimate needs", () => {
+    expect(formFinish({ ...formOf(task()), effortMinutes: 960 })).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("counts from a later expected start", () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    const form = {
+      ...formOf(task()),
+      expectedStartDate: `${year}-${month}-${day}`,
+      effortMinutes: 480,
+    };
+    // A same-day start leaves a single day of work on the anchor.
+    expect(formFinish(form)).toBe(`${year}-${month}-${day}`);
   });
 });

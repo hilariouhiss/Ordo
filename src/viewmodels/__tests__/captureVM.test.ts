@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../../model/ipc", () => ({ capture: vi.fn(), aiEnrich: vi.fn() }));
+vi.mock("../../model/ipc", () => ({ capture: vi.fn(), aiEnrich: vi.fn(), bootstrap: vi.fn() }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
 import { capture } from "../../model/ipc";
@@ -15,13 +15,25 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    await expect(vm.save("买螺丝", CAPTURE_DEFAULTS, hide)).resolves.toBe(true);
-    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS);
+    await expect(vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide)).resolves.toBe(true);
+    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS, null);
     expect(vm.state.saved).toBe(true);
     expect(hide).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(800);
     expect(hide).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("passes a pending project name to the backend", async () => {
+    vi.useFakeTimers();
+    vi.mocked(capture).mockResolvedValue(task({ id: "t1" }));
+    const vm = createCaptureVM();
+
+    await vm.save("买螺丝", CAPTURE_DEFAULTS, "华东客户", vi.fn());
+
+    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS, "华东客户");
+    vi.advanceTimersByTime(800);
     vi.useRealTimers();
   });
 
@@ -36,8 +48,8 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    const first = vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
-    const second = vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
+    const first = vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide);
+    const second = vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide);
     resolve(task({ id: "t1" }));
     const results = await Promise.all([first, second]);
 
@@ -53,7 +65,7 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    await vm.save("买螺丝", CAPTURE_DEFAULTS, hide);
+    await vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide);
     vm.state.draft = "下一个";
     vi.advanceTimersByTime(800);
 

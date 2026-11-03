@@ -5,6 +5,7 @@ import { errorText, t } from "../lib/i18n";
 import { projectSummaryLine } from "../lib/summary";
 import { aiEnrich, capture, getProjectSummary, listProjectTasks } from "../model/ipc";
 import type { ProjectSummary, Task } from "../model/types";
+import { appVM } from "./appVM";
 
 export function createProjectVM() {
   const state = reactive({
@@ -44,11 +45,12 @@ export function createProjectVM() {
     try {
       let task: Task;
       try {
-        task = await capture(title, submission.fields);
+        task = await capture(title, submission.fields, submission.newProjectName);
       } catch (e) {
         void askNotice(t("common.actionFailed"), errorText(e));
         return;
       }
+      if (submission.newProjectName) void appVM.load().catch(() => {});
       void aiEnrich(task.id);
       await load(projectId);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";

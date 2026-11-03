@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { CAPTURE_DEFAULTS, parseCapture, type CaptureContext, type CaptureField } from "../capture";
+import { CAPTURE_DEFAULTS, parseCapture, type CaptureContext } from "../capture";
 import type { CaptureFields } from "../../model/types";
 
 const ctx: CaptureContext = {
@@ -26,10 +26,6 @@ function fields(over: Partial<CaptureFields> = {}): CaptureFields {
   return { ...CAPTURE_DEFAULTS, ...over };
 }
 
-function due(raw: string): string | null {
-  return parse(raw).fields.expectedFinishDate;
-}
-
 function effort(raw: string): number {
   return parse(raw).fields.effortMinutes;
 }
@@ -44,30 +40,30 @@ describe("parseCapture", () => {
       title: "华东客户交付 老李 周五 高优 2天",
       fields: fields(),
       matched: [],
+      newProjectName: null,
     });
   });
 
-  it("reads all five symbols", () => {
-    expect(parse("#华东客户交付 @老李 !P1 ^下周一 ~1.5h 把方案发出去")).toEqual({
+  it("reads all four symbols", () => {
+    expect(parse("#华东客户交付 @老李 !P1 ~1.5h 把方案发出去")).toEqual({
       title: "把方案发出去",
       fields: fields({
         projectId: "p1",
         ownerId: "u1",
         priority: "high",
-        expectedFinishDate: "2026-10-26",
         effortMinutes: 90,
       }),
-      matched: ["projectId", "ownerId", "priority", "expectedFinishDate", "effortMinutes"],
+      matched: ["projectId", "ownerId", "priority", "effortMinutes"],
+      newProjectName: null,
     });
   });
 
   it("reads symbols at the end too", () => {
-    const parsed = parse("把方案发出去 #华东客户交付 @老李 !高 ^周五 ~2天");
+    const parsed = parse("把方案发出去 #华东客户交付 @老李 !高 ~2天");
     expect(parsed.title).toBe("把方案发出去");
     expect(parsed.fields.projectId).toBe("p1");
     expect(parsed.fields.ownerId).toBe("u1");
     expect(parsed.fields.priority).toBe("high");
-    expect(parsed.fields.expectedFinishDate).toBe("2026-10-23");
     expect(parsed.fields.effortMinutes).toBe(960);
   });
 
@@ -92,39 +88,27 @@ describe("parseCapture", () => {
   });
 
   it("lets the last valid token win and strips every valid token", () => {
-    const parsed = parse("#华东 #华东客户交付 !低 !高 ^明天 ^周五 ~1天 ~2天 发邮件");
+    const parsed = parse("#华东 #华东客户交付 !低 !高 ~1天 ~2天 发邮件");
     expect(parsed.title).toBe("发邮件");
     expect(parsed.fields.projectId).toBe("p1");
     expect(parsed.fields.priority).toBe("high");
-    expect(parsed.fields.expectedFinishDate).toBe("2026-10-23");
     expect(parsed.fields.effortMinutes).toBe(960);
   });
 
-  it("leaves unrecognized tokens in the title", () => {
-    const raw = "!foo ^foo ~foo #不存在 @不存在 发邮件";
+  it("leaves unrecognized symbols in the title", () => {
+    const raw = "!foo ~foo @不存在 发邮件";
     expect(parse(raw)).toEqual({
       title: raw,
       fields: fields(),
       matched: [],
+      newProjectName: null,
     });
   });
 
-  it("keeps invalid dates as text", () => {
-    expect(parse("^2/30 交底").fields.expectedFinishDate).toBeNull();
-    expect(parse("^2/30 交底").title).toBe("^2/30 交底");
-    expect(parse("^2026-02-30 交底").fields.expectedFinishDate).toBeNull();
-  });
-
-  it("strips the optional before/after suffix with the date token", () => {
-    expect(parse("^周五前 发邮件").title).toBe("发邮件");
-    expect(parse("^周五前 发邮件").fields.expectedFinishDate).toBe("2026-10-23");
-    expect(parse("^2026-11-20 前 发邮件").title).toBe("发邮件");
-  });
-
-  it("uses the base project until a project token overrides it", () => {
-    expect(parse("写方案", { projectId: "p2" }).fields.projectId).toBe("p2");
-    expect(parse("写方案", { projectId: "p2" }).matched).toEqual([]);
-    expect(parse("#华东客户交付 写方案", { projectId: "p2" }).fields.projectId).toBe("p1");
+  it("keeps a lone hash or a hash followed by a space as text", () => {
+    expect(parse("C# 课程 发邮件").newProjectName).toBeNull();
+    expect(parse("# 标题 发邮件").newProjectName).toBeNull();
+    expect(parse("# 标题 发邮件").title).toBe("# 标题 发邮件");
   });
 
   it("collapses whitespace after removing tokens", () => {
@@ -136,65 +120,47 @@ describe("parseCapture", () => {
   });
 
   it("orders matched fields consistently", () => {
-    const parsed = parse("~2天 @老李 #华东 !高 ^明天 发邮件");
-    expect(parsed.matched).toEqual([
-      "projectId",
-      "ownerId",
-      "priority",
-      "expectedFinishDate",
-      "effortMinutes",
-    ] satisfies CaptureField[]);
+    const parsed = parse("~2天 @老李 #华东 !高 发邮件");
+    expect(parsed.matched).toEqual(["projectId", "ownerId", "priority", "effortMinutes"]);
   });
 });
 
-describe("date tokens", () => {
-  it("reads relative days", () => {
-    expect(due("^今天")).toBe("2026-10-21");
-    expect(due("^明日")).toBe("2026-10-22");
-    expect(due("^后天")).toBe("2026-10-23");
-    expect(due("^大后天")).toBe("2026-10-24");
-    expect(due("^3天后")).toBe("2026-10-24");
-    expect(due("^3天内")).toBe("2026-10-24");
-    expect(due("^3天之后")).toBe("2026-10-24");
+describe("new project tokens", () => {
+  it("names a project that does not exist yet", () => {
+    const parsed = parse("写方案 #二期交付");
+
+    expect(parsed.newProjectName).toBe("二期交付");
+    expect(parsed.fields.projectId).toBeNull();
+    expect(parsed.title).toBe("写方案");
+    expect(parsed.matched).toEqual(["newProject"]);
   });
 
-  it("reads weekdays against a Monday week start", () => {
-    expect(due("^周五")).toBe("2026-10-23");
-    expect(due("^周一")).toBe("2026-10-26");
-    expect(due("^本周一")).toBe("2026-10-19");
-    expect(due("^下周一")).toBe("2026-10-26");
-    expect(due("^下周五")).toBe("2026-10-30");
-    expect(due("^周天")).toBe("2026-10-25");
-    expect(due("^周日")).toBe("2026-10-25");
+  it("takes only the word right after the hash", () => {
+    expect(parse("写方案 #新项目 明天发").newProjectName).toBe("新项目");
+    expect(parse("写方案 #新项目, 明天发").newProjectName).toBe("新项目");
+    expect(parse("写方案 #新项目，明天发").newProjectName).toBe("新项目");
+    // A known name that prefixes the token wins, the same as every other token.
+    expect(parse("写方案 #华东客户").newProjectName).toBeNull();
+    expect(parse("写方案 #华东客户").fields.projectId).toBe("p2");
   });
 
-  it("reads explicit dates with the current year", () => {
-    expect(due("^2026-11-20")).toBe("2026-11-20");
-    expect(due("^2026/11/20")).toBe("2026-11-20");
-    expect(due("^2026年11月20号")).toBe("2026-11-20");
-    expect(due("^11月20日")).toBe("2026-11-20");
-    expect(due("^11/20")).toBe("2026-11-20");
-  });
-});
-
-describe("year rollover", () => {
-  function parseAt(raw: string, today: string) {
-    return parseCapture(raw, { ...ctx, today });
-  }
-
-  it("rolls a month/day token into next year when it has passed", () => {
-    expect(parseAt("^1/5 发报表", "2026-12-30").fields.expectedFinishDate).toBe("2027-01-05");
-    expect(parseAt("^1月5日 发报表", "2026-12-30").fields.expectedFinishDate).toBe("2027-01-05");
+  it("lets a known project replace the pending one and the other way round", () => {
+    expect(parse("#新项目 #华东 写方案").newProjectName).toBeNull();
+    expect(parse("#新项目 #华东 写方案").fields.projectId).toBe("p2");
+    expect(parse("#华东 #新项目 写方案").newProjectName).toBe("新项目");
+    expect(parse("#华东 #新项目 写方案").fields.projectId).toBeNull();
   });
 
-  it("keeps a month/day token in this year when it is still ahead", () => {
-    expect(parseAt("^12/31 发报表", "2026-12-30").fields.expectedFinishDate).toBe("2026-12-31");
+  it("drops the base project of a project page when the line names a new one", () => {
+    const parsed = parse("写方案 #新的", { projectId: "p2" });
+    expect(parsed.fields.projectId).toBeNull();
+    expect(parsed.newProjectName).toBe("新的");
   });
 
-  it("does not invent an invalid date across a leap year", () => {
-    const parsed = parseAt("^2/29 发报表", "2027-03-01");
-    expect(parsed.fields.expectedFinishDate).toBeNull();
-    expect(parsed.title).toBe("^2/29 发报表");
+  it("ignores URL fragments", () => {
+    const parsed = parse("看 https://example.com/a#section 写方案");
+    expect(parsed.newProjectName).toBeNull();
+    expect(parsed.title).toBe("看 https://example.com/a#section 写方案");
   });
 });
 

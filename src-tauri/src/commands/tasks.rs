@@ -12,12 +12,20 @@ pub async fn capture(
     window: tauri::WebviewWindow,
     title: String,
     fields: Option<crate::dto::CaptureFields>,
+    new_project_name: Option<String>,
 ) -> Result<TaskDto, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_iso();
     let fields = fields.unwrap_or_default();
     let task = with_db(&state, move |conn| {
-        week::capture_with_fields(conn, &title, &fields, &now, &id)
+        week::capture_with_project(
+            conn,
+            &title,
+            &fields,
+            new_project_name.as_deref(),
+            &now,
+            &id,
+        )
     })
     .await?;
     if window.label() == "capture" {
@@ -166,26 +174,6 @@ pub async fn suspend_task(
     let now = now_iso();
     with_db(&state, move |conn| {
         crate::services::week::suspend(conn, &id, until.as_deref(), reason.as_deref(), &now)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn set_expected_finish(
-    state: State<'_, AppState>,
-    id: String,
-    new_finish: Option<String>,
-    reason: Option<String>,
-) -> Result<TaskDto, String> {
-    let now = now_iso();
-    with_db(&state, move |conn| {
-        crate::services::deliverables::set_expected_finish(
-            conn,
-            &id,
-            new_finish.as_deref(),
-            reason.as_deref(),
-            &now,
-        )
     })
     .await
 }

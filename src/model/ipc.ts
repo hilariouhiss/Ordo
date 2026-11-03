@@ -29,8 +29,12 @@ export function bootstrap(): Promise<Bootstrap> {
   return invoke<Bootstrap>("bootstrap");
 }
 
-export function capture(title: string, fields: CaptureFields): Promise<Task> {
-  return invoke<Task>("capture", { title, fields });
+export function capture(
+  title: string,
+  fields: CaptureFields,
+  newProjectName: string | null = null,
+): Promise<Task> {
+  return invoke<Task>("capture", { title, fields, newProjectName });
 }
 
 export function listWeek(): Promise<Task[]> {
@@ -112,13 +116,6 @@ export function suspendTask(
   reason: string | null,
 ): Promise<Task> {
   return invoke<Task>("suspend_task", { id, until, reason });
-}
-export function setExpectedFinish(
-  id: string,
-  newFinish: string | null,
-  reason: string | null,
-): Promise<Task> {
-  return invoke<Task>("set_expected_finish", { id, newFinish, reason });
 }
 
 export function addDelayNote(id: string, reason: string): Promise<Task> {

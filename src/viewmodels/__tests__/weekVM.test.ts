@@ -48,16 +48,17 @@ describe("weekVM", () => {
       raw: vm.state.draft,
       title: vm.state.draft,
       fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
     });
 
-    expect(capture).toHaveBeenCalledWith("周五前把软件方案评审发老李", CAPTURE_DEFAULTS);
+    expect(capture).toHaveBeenCalledWith("周五前把软件方案评审发老李", CAPTURE_DEFAULTS, null);
     expect(vm.state.tasks[0].id).toBe("t1");
     expect(vm.state.draft).toBe("");
   });
 
   it("ignores a blank draft", async () => {
     const vm = createWeekVM();
-    await vm.capture({ raw: "   ", title: "   ", fields: CAPTURE_DEFAULTS });
+    await vm.capture({ raw: "   ", title: "   ", fields: CAPTURE_DEFAULTS, newProjectName: null });
     expect(capture).not.toHaveBeenCalled();
   });
 
@@ -83,7 +84,12 @@ describe("weekVM", () => {
     const vm = createWeekVM();
     vm.state.draft = "交底";
 
-    await vm.capture({ raw: vm.state.draft, title: "交底", fields: CAPTURE_DEFAULTS });
+    await vm.capture({
+      raw: vm.state.draft,
+      title: "交底",
+      fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
+    });
 
     expect(dialogRequest.value?.kind).toBe("notice");
     expect(vm.state.draft).toBe("交底");
@@ -101,8 +107,18 @@ describe("weekVM", () => {
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
 
     const vm = createWeekVM();
-    const first = vm.capture({ raw: "交底", title: "交底", fields: CAPTURE_DEFAULTS });
-    const second = vm.capture({ raw: "交底", title: "交底", fields: CAPTURE_DEFAULTS });
+    const first = vm.capture({
+      raw: "交底",
+      title: "交底",
+      fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
+    });
+    const second = vm.capture({
+      raw: "交底",
+      title: "交底",
+      fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
+    });
     resolve(task({ id: "t1" }));
     await Promise.all([first, second]);
 
@@ -306,7 +322,12 @@ describe("weekVM pass entry", () => {
     await vm.load();
     expect(vm.passNeeded.value).toBe(false);
 
-    await vm.capture({ raw: "交底", title: "交底", fields: CAPTURE_DEFAULTS });
+    await vm.capture({
+      raw: "交底",
+      title: "交底",
+      fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
+    });
     expect(vm.passNeeded.value).toBe(true);
   });
 

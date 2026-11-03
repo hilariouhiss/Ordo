@@ -1,17 +1,21 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { CaptureField } from "../../lib/capture";
+import { shortDate, weekdayLabel } from "../../lib/dates";
 import { errorText, t } from "../../lib/i18n";
 import type { CaptureFields, Priority } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
 import ChipSelect from "./ChipSelect.vue";
-import DateField from "./DateField.vue";
 import EffortField from "./EffortField.vue";
 
 const props = defineProps<{
   fields: CaptureFields;
   matched: CaptureField[];
+  /** The working day the estimate needs; shown read-only next to the chips. */
+  finish: string;
+  /** A `#name` that will become a project when the line is saved. */
+  newProjectName: string | null;
 }>();
 const emit = defineEmits<{ edit: [patch: Partial<CaptureFields>] }>();
 const error = ref("");
@@ -51,6 +55,8 @@ const priorityOptions = computed(() => [
   { value: "low", label: t("task.priorityLow") },
 ]);
 
+const finishLabel = computed(() => `${shortDate(props.finish)} ${weekdayLabel(props.finish)}`);
+
 function controlClass(field: CaptureField): string {
   return props.matched.includes(field) ? "text-primary" : "text-base-content";
 }
@@ -65,10 +71,6 @@ function onOwner(value: string): void {
 
 function onPriority(value: string): void {
   emit("edit", { priority: value as Priority });
-}
-
-function onDue(value: string): void {
-  emit("edit", { expectedFinishDate: value || null });
 }
 
 /** Effort is minutes; the field commits on blur, so the capture box keeps focus. */
@@ -87,7 +89,7 @@ const effort = computed({
         :options="projectOptions"
         :label="t('task.project')"
         :create-placeholder="t('projects.placeholder')"
-        :class="controlClass('projectId')"
+        :class="newProjectName ? 'text-primary' : controlClass('projectId')"
         class="select select-xs max-w-[120px] rounded-md border-base-300 bg-base-100 pl-1! text-[10.5px]"
         @update:model-value="onProject"
         @create="onCreateProject"
@@ -119,20 +121,18 @@ const effort = computed({
     </label>
 
     <label class="flex items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{ t("task.expectedFinish") }}</span>
-      <DateField
-        :model-value="fields.expectedFinishDate ?? ''"
-        :class="controlClass('expectedFinishDate')"
-        class="input input-xs w-[112px] rounded-md border-base-300 text-[10.5px]"
-        @update:model-value="onDue"
-      />
-    </label>
-
-    <label class="flex items-center gap-1">
       <span class="shrink-0 text-base-content/40">{{ t("capture.effort") }}</span>
       <EffortField v-model="effort" compact :class="controlClass('effortMinutes')" />
     </label>
 
+    <span class="flex items-center gap-1 text-base-content/40">
+      {{ t("task.expectedFinish") }}
+      <span class="tabular-nums text-base-content/70">{{ finishLabel }}</span>
+    </span>
+
+    <p v-if="newProjectName" class="basis-full text-[10.5px] text-primary" aria-live="polite">
+      {{ t("capture.newProject", { name: newProjectName }) }}
+    </p>
     <p v-if="error" class="basis-full text-[10.5px] text-error">{{ error }}</p>
   </div>
 </template>

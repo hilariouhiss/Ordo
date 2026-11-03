@@ -18,23 +18,42 @@ function draftWithBase() {
 describe("captureDraftVM", () => {
   it("parses symbols and exposes a cleaned title", () => {
     const draft = createCaptureDraftVM(() => ctx);
-    draft.setRaw("^周五前 把方案发出去 #华东客户交付 @老李 !高 ~2天");
+    draft.setRaw("把方案发出去 #华东客户交付 @老李 !高 ~2天");
 
     expect(draft.title.value).toBe("把方案发出去");
     expect(draft.fields.value).toEqual({
       projectId: "p1",
       ownerId: "u1",
       priority: "high",
-      expectedFinishDate: "2026-10-23",
       effortMinutes: 960,
     });
-    expect(draft.matched.value).toEqual([
-      "projectId",
-      "ownerId",
-      "priority",
-      "expectedFinishDate",
-      "effortMinutes",
-    ]);
+    expect(draft.matched.value).toEqual(["projectId", "ownerId", "priority", "effortMinutes"]);
+  });
+
+  it("derives the finish from the estimate", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("写方案 ~1小时");
+    expect(draft.finish.value).toBe("2026-10-21");
+
+    draft.setRaw("写方案 ~2天");
+    expect(draft.finish.value).toBe("2026-10-22");
+  });
+
+  it("moves the finish with an edited estimate", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("写方案 ~1小时");
+    draft.edit({ effortMinutes: 1440 });
+
+    expect(draft.fields.value.effortMinutes).toBe(1440);
+    expect(draft.finish.value).toBe("2026-10-23");
+  });
+
+  it("never stores a finish, because it always follows the estimate", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("^周五 写方案");
+
+    expect(draft.fields.value).toEqual(CAPTURE_DEFAULTS);
+    expect(draft.title.value).toBe("^周五 写方案");
   });
 
   it("keeps a manual edit when more text is typed", () => {
@@ -42,10 +61,10 @@ describe("captureDraftVM", () => {
     draft.setRaw("写方案 #华东客户交付 @老李 !高");
     draft.edit({ ownerId: null });
 
-    draft.setRaw("写方案 #华东客户交付 @老李 !高 ^明天");
+    draft.setRaw("写方案 #华东客户交付 @老李 !高 ~3小时");
 
     expect(draft.fields.value.ownerId).toBeNull();
-    expect(draft.fields.value.expectedFinishDate).toBe("2026-10-22");
+    expect(draft.fields.value.effortMinutes).toBe(180);
     expect(draft.matched.value).not.toContain("ownerId");
   });
 
@@ -83,12 +102,31 @@ describe("captureDraftVM", () => {
     expect(draft.matched.value).toContain("projectId");
   });
 
+  it("exposes a pending project name and drops it on an explicit pick", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("写方案 #新项目");
+    expect(draft.newProjectName.value).toBe("新项目");
+    expect(draft.matched.value).toContain("newProject");
+
+    draft.edit({ projectId: null });
+    expect(draft.newProjectName.value).toBeNull();
+    expect(draft.matched.value).not.toContain("newProject");
+  });
+
+  it("drops the base project when the line names a new one", () => {
+    const draft = draftWithBase();
+    draft.setRaw("写方案 #新项目");
+
+    expect(draft.fields.value.projectId).toBeNull();
+    expect(draft.newProjectName.value).toBe("新项目");
+  });
+
   it("does not let a chip edit rewrite the cleaned title", () => {
     const draft = createCaptureDraftVM(() => ctx);
-    draft.setRaw("^周五前 发邮件");
-    draft.edit({ expectedFinishDate: "2026-12-31" });
+    draft.setRaw("发邮件 #华东客户交付");
+    draft.edit({ effortMinutes: 120 });
 
     expect(draft.title.value).toBe("发邮件");
-    expect(draft.fields.value.expectedFinishDate).toBe("2026-12-31");
+    expect(draft.fields.value.effortMinutes).toBe(120);
   });
 });

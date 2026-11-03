@@ -99,6 +99,8 @@ pub struct TaskDto {
     pub actual_start_at: Option<String>,
     /// RFC3339 UTC stamp of when the task was actually finished.
     pub actual_finish_at: Option<String>,
+    /// Minutes the work really took, filled in when the task is completed.
+    pub actual_effort_minutes: Option<i64>,
     pub status: String,
     pub in_week: bool,
     pub carry_count: i64,
@@ -252,8 +254,8 @@ pub struct StatsOverviewDto {
 }
 /// A task edit. An absent field keeps its value; an explicit `null` clears it.
 /// `title` and `tags` are not nullable, so absent keeps and a value replaces.
-/// No expected finish date: it only moves through `set_expected_finish`, which writes
-/// the reschedule record. The actual times are stamped by the status changes instead.
+/// No expected finish date: it is derived from the estimate. The actual times are
+/// stamped by the status changes instead.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPatch {
@@ -362,7 +364,8 @@ pub struct TemplateInput {
 }
 
 /// The fields a quick capture can carry. All optional: a missing field keeps the
-/// database default (owner "me", priority "normal", effort 480 minutes).
+/// database default (owner "me", priority "normal", effort 480 minutes). The expected
+/// finish is not here: it always follows the estimate.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureFields {
@@ -372,8 +375,6 @@ pub struct CaptureFields {
     pub owner_id: Option<String>,
     #[serde(default)]
     pub priority: Option<String>,
-    #[serde(default)]
-    pub expected_finish_date: Option<String>,
     #[serde(default)]
     pub effort_minutes: Option<i64>,
 }

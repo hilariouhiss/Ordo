@@ -13,6 +13,7 @@ pub mod status;
 pub mod templates;
 pub mod steps;
 pub mod tasks;
+pub mod timing;
 pub mod week;
 
 /// Rule and template config may keep pointing at a project archived after the

@@ -9,17 +9,42 @@ pub fn create(conn: &Connection, name: &str, now: &str) -> Result<ProjectDto, St
         return Err("empty_project_name".into());
     }
     let id = Uuid::new_v4().to_string();
+    // One transaction, so a failed member insert cannot leave a project with nobody in it.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    insert_with_me(&tx, &id, name, now)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    projects::dto(conn, &id).map_err(|e| e.to_string())
+}
+
+/// A capture's `#name` token when that project does not exist yet: an existing live
+/// project with the same name is reused, otherwise one is inserted with "me" as member.
+/// The caller already owns a transaction, so this adds the project to it.
+pub fn find_or_create(conn: &Connection, name: &str, now: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("empty_project_name".into());
+    }
+    if let Some(id) = projects::find_active_by_name(conn, name).map_err(|e| e.to_string())? {
+        return Ok(id);
+    }
+    let id = Uuid::new_v4().to_string();
+    insert_with_me(conn, &id, name, now)?;
+    Ok(id)
+}
+
+fn insert_with_me(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    now: &str,
+) -> Result<(), String> {
     let me = people::list(conn)
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|p| p.is_me)
         .ok_or("no_me")?;
-    // One transaction, so a failed member insert cannot leave a project with nobody in it.
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    projects::insert(&tx, &id, name, now).map_err(|e| e.to_string())?;
-    projects::add_member(&tx, &id, &me.id, now).map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    projects::dto(conn, &id).map_err(|e| e.to_string())
+    projects::insert(conn, id, name, now).map_err(|e| e.to_string())?;
+    projects::add_member(conn, id, &me.id, now).map_err(|e| e.to_string())
 }
 
 pub fn update(

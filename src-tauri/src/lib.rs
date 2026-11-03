@@ -332,7 +332,6 @@ pub fn run() {
       commands::tasks::resume_task,
       commands::tasks::start_task,
       commands::tasks::suspend_task,
-      commands::tasks::set_expected_finish,
       commands::tasks::add_delay_note,
       commands::tasks::list_project_tasks,
       commands::projects::list_projects,

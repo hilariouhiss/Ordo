@@ -103,6 +103,8 @@ export interface Task {
   actualStartAt: string | null;
   /** RFC3339 UTC stamp of when the task was actually finished. */
   actualFinishAt: string | null;
+  /** Minutes the work really took, filled in when the task is completed. */
+  actualEffortMinutes: number | null;
   status: Status;
   inWeek: boolean;
   carryCount: number;
@@ -260,12 +262,12 @@ export interface TaskPatch {
   exclusive?: boolean;
 }
 
-/** The five attributes a capture can carry, already resolved to ids and local dates. */
+/** The attributes a capture can carry, already resolved to ids. The expected finish
+ * is not one of them: it always follows the estimate. */
 export interface CaptureFields {
   projectId: string | null;
   ownerId: string | null;
   priority: Priority;
-  expectedFinishDate: string | null;
   effortMinutes: number;
 }
 export interface ArchiveTask {

@@ -17,7 +17,7 @@ const draft = createCaptureDraftVM(
   () => ({ today: todayIso(), projects: appVM.state.projects, people: appVM.state.people }),
   () => (props.projectId ? { projectId: props.projectId } : {}),
 );
-const { title, fields, matched } = draft;
+const { title, fields, matched, finish, newProjectName } = draft;
 
 const input = ref<HTMLInputElement | null>(null);
 let refreshedAt = 0;
@@ -39,7 +39,12 @@ function onEdit(patch: Partial<CaptureFields>): void {
 
 function submit(): void {
   if (!model.value.trim()) return;
-  emit("submit", { raw: model.value, title: title.value, fields: { ...fields.value } });
+  emit("submit", {
+    raw: model.value,
+    title: title.value,
+    fields: { ...fields.value },
+    newProjectName: newProjectName.value,
+  });
 }
 
 function onSubmit(event: KeyboardEvent): void {
@@ -64,6 +69,13 @@ defineExpose({ submit, focus: () => input.value?.focus() });
       />
       <span class="shrink-0 text-[10.5px] text-base-content/35">{{ t("capture.saveHint") }}</span>
     </div>
-    <CaptureChips v-if="model.trim()" :fields="fields" :matched="matched" @edit="onEdit" />
+    <CaptureChips
+      v-if="model.trim()"
+      :fields="fields"
+      :matched="matched"
+      :finish="finish"
+      :new-project-name="newProjectName"
+      @edit="onEdit"
+    />
   </div>
 </template>

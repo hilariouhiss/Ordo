@@ -13,16 +13,11 @@ pub struct Enrichment {
     #[serde(default)]
     pub owner_id: Option<String>,
     #[serde(default)]
-    pub expected_start_date: Option<String>,
-    #[serde(default)]
-    pub expected_finish_date: Option<String>,
-    #[serde(default)]
     pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct AiContext {
-    pub today: String,
     pub projects: Vec<(String, String)>,
     pub categories: Vec<(String, String)>,
     pub people: Vec<(String, String)>,
@@ -60,18 +55,10 @@ pub fn validate(raw: Enrichment, ctx: &AiContext) -> Enrichment {
             .filter(|candidate| list.iter().any(|(id, _)| id == *candidate))
             .cloned()
     };
-    let date = |value: &Option<String>| -> Option<String> {
-        value
-            .as_ref()
-            .filter(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").is_ok())
-            .cloned()
-    };
     Enrichment {
         project_id: known(&ctx.projects, &raw.project_id),
         category_id: known(&ctx.categories, &raw.category_id),
         owner_id: known(&ctx.people, &raw.owner_id),
-        expected_start_date: date(&raw.expected_start_date),
-        expected_finish_date: date(&raw.expected_finish_date),
         tags: raw
             .tags
             .iter()
@@ -101,7 +88,6 @@ mod tests {
 
     fn ctx() -> AiContext {
         AiContext {
-            today: "2026-10-20".into(),
             projects: vec![("p1".into(), "华东客户交付".into())],
             categories: vec![("c1".into(), "软件".into())],
             people: vec![("u1".into(), "老李".into())],
@@ -109,20 +95,17 @@ mod tests {
     }
 
     #[test]
-    fn validation_drops_unknown_ids_and_bad_dates() {
+    fn validation_drops_unknown_ids_and_blank_tags() {
         let raw = Enrichment {
             project_id: Some("nope".into()),
             category_id: Some("c1".into()),
             owner_id: Some("u1".into()),
-            expected_finish_date: Some("周五".into()),
             tags: vec![" fix ".into(), "".into()],
-            ..Default::default()
         };
         let out = validate(raw, &ctx());
         assert!(out.project_id.is_none());
         assert_eq!(out.category_id.as_deref(), Some("c1"));
         assert_eq!(out.owner_id.as_deref(), Some("u1"));
-        assert!(out.expected_finish_date.is_none());
         assert_eq!(out.tags, vec!["fix".to_string()]);
     }
 
@@ -140,13 +123,25 @@ mod tests {
     fn valid_response_is_validated() {
         let fake = Fake {
             replies: RefCell::new(vec![
-                r#"{"projectId":"p1","categoryId":"c1","ownerId":"nope","expectedFinishDate":"2026-11-20","tags":["交付"]}"#.into(),
+                r#"{"projectId":"p1","categoryId":"c1","ownerId":"nope","tags":["交付"]}"#.into(),
             ]),
             calls: Cell::new(0),
         };
         let out = enrich(&fake, &ctx(), "周五前把软件方案评审发老李").unwrap();
         assert_eq!(out.project_id.as_deref(), Some("p1"));
         assert!(out.owner_id.is_none());
-        assert_eq!(out.expected_finish_date.as_deref(), Some("2026-11-20"));
+        assert_eq!(out.tags, vec!["交付".to_string()]);
+    }
+
+    #[test]
+    fn dates_in_a_response_are_ignored() {
+        let fake = Fake {
+            replies: RefCell::new(vec![
+                r#"{"expectedStartDate":"2026-10-21","expectedFinishDate":"2026-10-23"}"#.into(),
+            ]),
+            calls: Cell::new(0),
+        };
+        let out = enrich(&fake, &ctx(), "交底").unwrap();
+        assert_eq!(out, Enrichment::default());
     }
 }

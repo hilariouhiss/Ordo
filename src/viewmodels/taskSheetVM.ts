@@ -1,10 +1,11 @@
 import { reactive } from "vue";
+import { finishForEffort, timingAnchor } from "../lib/timing";
+import { todayIso } from "../lib/dates";
 import {
   addDelayNote,
   addStep,
   deleteStep,
   getTask,
-  setExpectedFinish,
   setTaskStatus,
   toggleStep,
   updateTaskPatch,
@@ -18,7 +19,6 @@ export interface TaskForm {
   categoryId: string | null;
   ownerId: string | null;
   expectedStartDate: string;
-  expectedFinishDate: string;
   note: string;
   tags: string[];
   effortMinutes: number;
@@ -45,6 +45,27 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if (form.priority !== task.priority) patch.priority = form.priority;
   if (form.exclusive !== task.exclusive) patch.exclusive = form.exclusive;
   return patch;
+}
+
+/** The finish this form implies right now; the backend stores the same value on save. */
+export function formFinish(form: TaskForm): string {
+  return finishForEffort(
+    timingAnchor(todayIso(), form.expectedStartDate || null),
+    form.effortMinutes,
+  );
+}
+
+/**
+ * What the sheet shows. An untouched task keeps the date it already has, so a rule's
+ * occurrence date is not replaced by a preview; once the start or the estimate changes,
+ * the date moves with it.
+ */
+export function finishPreview(task: Task, form: TaskForm): string {
+  const untouched =
+    (form.expectedStartDate || null) === task.expectedStartDate &&
+    form.effortMinutes === task.effortMinutes;
+  if (untouched && task.expectedFinishDate) return task.expectedFinishDate;
+  return formFinish(form);
 }
 
 export function createTaskSheetVM() {
@@ -86,18 +107,14 @@ export function createTaskSheetVM() {
     state.task = await deleteStep(stepId);
   }
 
-  /// Saves the sheet: the expected finish through its own command, the rest as a patch.
-  async function saveForm(form: TaskForm, reason: string | null = null): Promise<boolean> {
+  /** Saves the sheet. The expected finish is not sent: the backend derives it. */
+  async function saveForm(form: TaskForm): Promise<boolean> {
     const task = state.task;
     const id = state.openId;
     if (!task || !id) return false;
     state.error = null;
     try {
-      // Diff first: the finish call replaces state.task before the patch is sent.
       const patch = diffTask(task, form);
-      if ((form.expectedFinishDate || null) !== task.expectedFinishDate) {
-        state.task = await setExpectedFinish(id, form.expectedFinishDate || null, reason);
-      }
       if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
       return true;
     } catch (e) {

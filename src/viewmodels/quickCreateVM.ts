@@ -3,6 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
 import { aiEnrich, capture } from "../model/ipc";
+import { appVM } from "./appVM";
 import { projectsVM } from "./projectsVM";
 
 export type QuickCreateMode = "task" | "project";
@@ -40,7 +41,8 @@ export function createQuickCreateVM() {
     state.busy = true;
     state.error = "";
     try {
-      const task = await capture(title, submission.fields);
+      const task = await capture(title, submission.fields, submission.newProjectName);
+      if (submission.newProjectName) void appVM.load().catch(() => {});
       void aiEnrich(task.id);
       // The main window's own capture skips the capture window's Rust event, so
       // send the same event the other lists already listen to.

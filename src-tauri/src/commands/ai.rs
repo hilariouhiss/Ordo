@@ -34,7 +34,7 @@ fn ai_settings(conn: &Connection) -> (bool, String, String) {
     (enabled, base_url, model)
 }
 
-fn context(conn: &Connection, today: &str) -> Result<AiContext, String> {
+fn context(conn: &Connection) -> Result<AiContext, String> {
     let projects = crate::repo::projects::list(conn)
         .map_err(|e| e.to_string())?
         .into_iter()
@@ -51,7 +51,6 @@ fn context(conn: &Connection, today: &str) -> Result<AiContext, String> {
         .map(|p| (p.id, p.name))
         .collect();
     Ok(AiContext {
-        today: today.to_string(),
         projects,
         categories,
         people,
@@ -80,16 +79,12 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
             project_id = COALESCE(project_id, ?1),
             category_id = COALESCE(category_id, ?2),
             owner_id = COALESCE(owner_id, ?3),
-            expected_start_date = COALESCE(expected_start_date, ?4),
-            expected_finish_date = COALESCE(expected_finish_date, ?5),
-            updated_at = ?6
-         WHERE id = ?7",
+            updated_at = ?4
+         WHERE id = ?5",
         params![
             enrichment.project_id,
             enrichment.category_id,
             enrichment.owner_id,
-            enrichment.expected_start_date,
-            enrichment.expected_finish_date,
             now,
             task_id
         ],
@@ -216,15 +211,12 @@ pub async fn ai_enrich(
         return Ok(());
     }
 
-    let today = crate::services::local_today(&now_iso())?
-        .format("%Y-%m-%d")
-        .to_string();
     let id = task_id.clone();
     let (title, ctx) = with_db(&state, move |conn| {
         let title: String = conn
             .query_row("SELECT title FROM tasks WHERE id = ?1", [&id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        Ok((title, context(conn, &today)?))
+        Ok((title, context(conn)?))
     })
     .await?;
 
@@ -382,16 +374,14 @@ mod tests {
         )
         .unwrap();
         let enrichment = Enrichment {
-            expected_finish_date: Some("2026-12-01".into()),
-            expected_start_date: Some("2026-10-22".into()),
             tags: vec!["fix".into()],
             ..Default::default()
         };
 
         let t = apply(&c, "t1", &enrichment, LATER).unwrap();
 
+        // The AI carries no dates, so whatever the capture derived stays untouched.
         assert_eq!(t.expected_finish_date.as_deref(), Some("2026-11-01"));
-        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
         assert_eq!(t.note.as_deref(), Some("用户写的"));
         assert_eq!(t.updated_at, LATER);
         let tags: Vec<String> = t.tags.into_iter().map(|tag| tag.name).collect();

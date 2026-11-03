@@ -25,6 +25,7 @@ pub fn insert(
     id: &str,
     title: &str,
     fields: &CaptureFields,
+    finish: &str,
     now: &str,
 ) -> rusqlite::Result<()> {
     // New tasks own their days; switching one to shared is an explicit edit.
@@ -43,7 +44,7 @@ pub fn insert(
             fields.project_id.as_deref(),
             fields.owner_id.as_deref(),
             fields.priority.as_deref(),
-            fields.expected_finish_date.as_deref(),
+            finish,
             fields.effort_minutes,
             now
         ],
@@ -81,7 +82,8 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
 }
 
 const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expected_start_date,
-            expected_finish_date, expected_finish_time, started_at, actual_finish_at, status,
+            expected_finish_date, expected_finish_time, started_at, actual_finish_at,
+            actual_effort_minutes, status,
             in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
             note, archived_at, canceled_at,
             created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
@@ -99,26 +101,27 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         expected_finish_time: row.get(7)?,
         actual_start_at: row.get(8)?,
         actual_finish_at: row.get(9)?,
-        status: row.get(10)?,
-        in_week: row.get::<_, i64>(11)? == 1,
-        carry_count: row.get(12)?,
-        suspended_until: row.get(13)?,
-        suspended: row.get::<_, i64>(14)? == 1,
-        suspended_at: row.get(15)?,
-        suspend_reason: row.get(16)?,
-        note: row.get(17)?,
-        archived_at: row.get(18)?,
-        canceled_at: row.get(19)?,
+        actual_effort_minutes: row.get(10)?,
+        status: row.get(11)?,
+        in_week: row.get::<_, i64>(12)? == 1,
+        carry_count: row.get(13)?,
+        suspended_until: row.get(14)?,
+        suspended: row.get::<_, i64>(15)? == 1,
+        suspended_at: row.get(16)?,
+        suspend_reason: row.get(17)?,
+        note: row.get(18)?,
+        archived_at: row.get(19)?,
+        canceled_at: row.get(20)?,
         steps: vec![],
         tags: vec![],
         delays: vec![],
-        created_at: row.get(20)?,
-        updated_at: row.get(21)?,
-        sort_order: row.get(22)?,
-        effort_minutes: row.get(23)?,
-        priority: row.get(24)?,
-        exclusive: row.get::<_, i64>(25)? == 1,
-        project_name: row.get(26)?,
+        created_at: row.get(21)?,
+        updated_at: row.get(22)?,
+        sort_order: row.get(23)?,
+        effort_minutes: row.get(24)?,
+        priority: row.get(25)?,
+        exclusive: row.get::<_, i64>(26)? == 1,
+        project_name: row.get(27)?,
     })
 }
 
@@ -258,6 +261,9 @@ pub fn set_status(
 ) -> rusqlite::Result<()> {
     // A done task clears the four parked columns conditionally, so they are spelled out
     // here rather than through `UNPARK`; keep the two in step.
+    // Completing records the actual effort: the wall-clock time between start and finish
+    // when the task was started, and the estimate when it never was. One minute is the
+    // floor, so a quick tick still counts.
     conn.execute(
         "UPDATE tasks SET status = ?1,
             in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
@@ -267,6 +273,12 @@ pub fn set_status(
             suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
             started_at = CASE WHEN ?1 = 'doing' THEN COALESCE(started_at, ?3) ELSE started_at END,
             actual_finish_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
+            actual_effort_minutes = CASE WHEN ?2 THEN
+                COALESCE(
+                    MIN(28800, MAX(1, CAST(ROUND((julianday(?3) - julianday(started_at)) * 1440.0)
+                                            AS INTEGER))),
+                    effort_minutes)
+                ELSE NULL END,
             updated_at = ?3
          WHERE id = ?4",
         params![status, leave_week as i64, now, id],

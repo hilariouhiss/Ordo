@@ -49,11 +49,13 @@ describe("projectVM", () => {
       raw: "交底",
       title: "交底",
       fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
     });
     const second = vm.captureInto("p1", {
       raw: "交底",
       title: "交底",
       fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
     });
     resolve(task({ id: "t1" }));
     await Promise.all([first, second]);
@@ -76,6 +78,7 @@ describe("projectVM", () => {
       raw: "交底",
       title: "交底",
       fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
     });
     vm.state.draft = "下一条";
     resolve(task({ id: "t1" }));
@@ -95,6 +98,7 @@ describe("projectVM", () => {
       raw: "交底",
       title: "交底",
       fields: CAPTURE_DEFAULTS,
+      newProjectName: null,
     });
 
     expect(vm.state.draft).toBe("");

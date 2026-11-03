@@ -21,6 +21,7 @@ const submission = {
   raw: "写方案 #项目",
   title: "写方案",
   fields: { ...CAPTURE_DEFAULTS, projectId: "p1" },
+  newProjectName: null,
 };
 
 const project: Project = {
@@ -61,7 +62,7 @@ describe("quickCreateVM", () => {
 
     await expect(vm.createTask(submission)).resolves.toBe(true);
 
-    expect(capture).toHaveBeenCalledWith("写方案", submission.fields);
+    expect(capture).toHaveBeenCalledWith("写方案", submission.fields, null);
     expect(aiEnrich).toHaveBeenCalledWith("t1");
     expect(emit).toHaveBeenCalledWith("capture:created", expect.objectContaining({ id: "t1" }));
     expect(vm.state.mode).toBeNull();

@@ -91,7 +91,8 @@ export function createWeekVM() {
     if (!title) return;
     capturing = true;
     try {
-      const task = await captureApi(title, submission.fields);
+      const task = await captureApi(title, submission.fields, submission.newProjectName);
+      if (submission.newProjectName) void appVM.load().catch(() => {});
       void aiEnrich(task.id);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       await load();

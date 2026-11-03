@@ -25,8 +25,29 @@ pub fn capture_with_fields(
     now: &str,
     id: &str,
 ) -> Result<TaskDto, String> {
+    capture_with_project(conn, raw, fields, None, now, id)
+}
+
+/// A capture whose `#project` token named a project that does not exist yet: the project
+/// is created (or an existing one with the same name reused) in the same transaction as
+/// the task, so a failed insert cannot leave an empty project behind.
+pub fn capture_with_project(
+    conn: &Connection,
+    raw: &str,
+    fields: &CaptureFields,
+    new_project_name: Option<&str>,
+    now: &str,
+    id: &str,
+) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    capture_rows(&tx, raw, fields, now, id)?;
+    let mut fields = fields.clone();
+    if fields.project_id.is_none() {
+        if let Some(name) = new_project_name.map(str::trim).filter(|name| !name.is_empty()) {
+            let project_id = crate::services::projects::find_or_create(&tx, name, now)?;
+            fields.project_id = Some(project_id);
+        }
+    }
+    capture_rows(&tx, raw, &fields, now, id)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
@@ -47,11 +68,6 @@ pub(crate) fn capture_rows(
     if let Some(priority) = fields.priority.as_deref() {
         if !crate::services::tasks::valid_priority(priority) {
             return Err("invalid_priority".into());
-        }
-    }
-    if let Some(finish) = fields.expected_finish_date.as_deref() {
-        if chrono::NaiveDate::parse_from_str(finish, "%Y-%m-%d").is_err() {
-            return Err("invalid_finish_date".into());
         }
     }
     if let Some(effort) = fields.effort_minutes {
@@ -75,7 +91,13 @@ pub(crate) fn capture_rows(
         fields.owner_id.as_deref(),
         now,
     )?;
-    tasks::insert(conn, id, title, fields, now).map_err(|e| e.to_string())
+    // The finish is never taken from the caller: it always follows the estimate, so the
+    // two stay consistent even when the estimate changes later.
+    let today = crate::services::local_today(now)?;
+    let anchor = crate::services::timing::anchor_for(today, None);
+    let finish = crate::services::timing::finish_for(anchor, fields.effort_minutes.unwrap_or(480));
+    let finish = finish.format("%Y-%m-%d").to_string();
+    tasks::insert(conn, id, title, fields, &finish, now).map_err(|e| e.to_string())
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<TaskDto>, String> {
@@ -235,9 +257,9 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
-/// Drops a task onto one day: it joins the week with that expected start and, when it
-/// was parked, stops being suspended. Order is a separate write, so a bad anchor cannot
-/// leave the date half-applied.
+/// Drops a task onto one day: it joins the week with that expected start, its finish
+/// follows the estimate from there, and when it was parked it stops being suspended.
+/// Order is a separate write, so a bad anchor cannot leave the date half-applied.
 pub fn place(
     conn: &Connection,
     task_id: &str,
@@ -245,7 +267,8 @@ pub fn place(
     before_id: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
-    NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| "invalid_start_date".to_string())?;
+    let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        .map_err(|_| "invalid_start_date".to_string())?;
     // One transaction: a bad anchor rolls the date back too, so a drop is all or nothing.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let changed = tx
@@ -264,7 +287,31 @@ pub fn place(
     }
     let orders = crate::services::tasks::order_changes(&tx, task_id, before_id)?;
     crate::repo::tasks::write_orders_in(&tx, &orders).map_err(|e| e.to_string())?;
+    // Dropping a task on a later day moves its finish with it.
+    tx.execute(
+        "UPDATE tasks SET expected_finish_date = ?1
+         WHERE id = ?2 AND rule_id IS NULL",
+        params![
+            crate::services::timing::finish_for(
+                crate::services::timing::workday_on_or_after(date),
+                effort_of(&tx, task_id)?,
+            )
+            .format("%Y-%m-%d")
+            .to_string(),
+            task_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())
+}
+
+fn effort_of(conn: &Connection, task_id: &str) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT effort_minutes FROM tasks WHERE id = ?1",
+        [task_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
@@ -355,7 +402,6 @@ mod tests {
             project_id: Some("p1".into()),
             owner_id: Some("u1".into()),
             priority: Some("high".into()),
-            expected_finish_date: Some("2026-11-20".into()),
             effort_minutes: Some(150),
         };
 
@@ -365,8 +411,12 @@ mod tests {
         assert_eq!(t.project_id.as_deref(), Some("p1"));
         assert_eq!(t.owner_id.as_deref(), Some("u1"));
         assert_eq!(t.priority, "high");
-        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-11-20"));
         assert_eq!(t.effort_minutes, 150);
+        assert_eq!(
+            t.expected_finish_date.as_deref(),
+            Some(local_date(NOW).as_str()),
+            "150 minutes still ends on the capture day"
+        );
     }
 
     #[test]
@@ -413,6 +463,67 @@ mod tests {
     }
 
     #[test]
+    fn a_new_project_token_creates_the_project_and_joins_it() {
+        let c = db::open_in_memory().unwrap();
+
+        let t = week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some(" 华东客户 "), NOW, "t1").unwrap();
+
+        let project = crate::repo::projects::find_active_by_name(&c, "华东客户").unwrap();
+        assert_eq!(t.project_id, project);
+        let member_count: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM project_members WHERE project_id = ?1",
+                [project.unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(member_count, 1, "the new project has me as its member");
+    }
+
+    #[test]
+    fn an_existing_project_name_is_reused_instead_of_duplicated() {
+        let c = db::open_in_memory().unwrap();
+        let existing = crate::services::projects::create(&c, "华东客户", NOW).unwrap();
+
+        let t = week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some("华东客户"), NOW, "t1").unwrap();
+
+        assert_eq!(t.project_id.as_deref(), Some(existing.id.as_str()));
+        let count: i64 = c.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn an_explicit_project_wins_over_the_new_name() {
+        let c = db::open_in_memory().unwrap();
+        seed_known(&c);
+        let fields = CaptureFields {
+            project_id: Some("p1".into()),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_project(&c, "写方案", &fields, Some("别的项目"), NOW, "t1").unwrap();
+
+        assert_eq!(t.project_id.as_deref(), Some("p1"));
+        assert!(crate::repo::projects::find_active_by_name(&c, "别的项目").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_failed_capture_does_not_leave_the_new_project_behind() {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_capture BEFORE INSERT ON tasks
+             WHEN NEW.id = 't1' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        assert!(
+            week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some("华东客户"), NOW, "t1")
+                .is_err()
+        );
+        assert!(crate::repo::projects::find_active_by_name(&c, "华东客户").unwrap().is_none());
+    }
+
+    #[test]
     fn capture_with_fields_rejects_bad_values_before_inserting() {
         let c = db::open_in_memory().unwrap();
         seed_known(&c);
@@ -424,13 +535,6 @@ mod tests {
                     ..Default::default()
                 },
                 "invalid_priority",
-            ),
-            (
-                CaptureFields {
-                    expected_finish_date: Some("周五".into()),
-                    ..Default::default()
-                },
-                "invalid_finish_date",
             ),
             (
                 CaptureFields {

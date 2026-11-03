@@ -34,6 +34,7 @@ export function task(over: Partial<Task> = {}): Task {
     expectedFinishTime: null,
     actualStartAt: null,
     actualFinishAt: null,
+    actualEffortMinutes: null,
     status: "todo",
     inWeek: true,
     carryCount: 0,

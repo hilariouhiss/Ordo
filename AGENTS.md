@@ -66,11 +66,11 @@ Rust 拥有数据和调度，WebView 只是界面。
 
 - `src-tauri/src/lib.rs`：组合根。插件、两个窗口（`main`/`capture`）、托盘、关窗隐藏、快捷键、启动自检/备份，以及 `invoke_handler!` 命令注册都在这里。桌面小窗是 `main` 窗口的一个形态，由前端 `windowModeVM` 驱动；Rust 只负责托盘事件、`window:open` / `widget:summon` 通知与 `set_window_rect`。
 - `src-tauri/src/commands/`：Tauri 命令，做参数校验和串接；新增命令必须同时加进 `lib.rs` 的 `generate_handler!`。命令名保持 snake_case，前端传参用 camelCase（`taskId` 对应 `task_id`）。
-- `src-tauri/src/services/`：业务规则（本周集合、过一遍、状态推导、统计、延期、归档、导出）。函数同步接收 `&Connection`，需要时间的传入 `now`/`today` 字符串以便测试。
+- `src-tauri/src/services/`：业务规则（本周集合、过一遍、状态推导、统计、延误、归档、导出、时间推算）。函数同步接收 `&Connection`，需要时间的传入 `now`/`today` 字符串以便测试。
 - `src-tauri/src/repo/`：可复用的 SQL 与事务；服务层也会写少量针对性查询。只有 Rust 侧碰数据库。
 - `src-tauri/src/db/`：连接 PRAGMA、迁移、损坏恢复。`migrations.rs` 用 `PRAGMA user_version` 做单向迁移。
 - `src-tauri/src/reminders/`：独立线程每 30 秒 tick，启动即跑一次；通知去重靠 `notifications` 表唯一键；补报最近 14 天。提醒不能交给前端定时器。
-- `src-tauri/src/ai/`：DeepSeek（OpenAI 兼容）请求、prompt、结果校验。`keyring` 保存 key；AI 默认关闭，没 key 不发请求。
+- `src-tauri/src/ai/`：DeepSeek（OpenAI 兼容）请求、prompt、结果校验。只补项目/分类/负责人/标签，不产生日期。`keyring` 保存 key；AI 默认关闭，没 key 不发请求。
 - `src-tauri/src/dto.rs` / `state.rs`：IPC DTO（serde `camelCase`）与 `AppState`/`with_db`（`spawn_blocking` 包住数据库锁）。
 - 前端：`src/model/ipc.ts` 是唯一调用 `invoke` 的地方；状态用 VM 的 `reactive`，不引入 Pinia；`types.ts` 镜像 Rust DTO；`viewmodels/` 是 Vue `reactive` + 动作的工厂，页面级单例在文件底部导出；`views/` 只做绑定；`lib/` 放日期、IME、主题、时间轴等工具。
 - `src/main.ts` 按窗口 label 只分 `capture` 与 main（挂 `App.vue`）；桌面小窗由 App 内嵌 `DeskView`，只有一个 `index.html`，不要新增构建入口。
@@ -87,10 +87,11 @@ Rust 拥有数据和调度，WebView 只是界面。
 - Rust：命令是 `async`，通过 `with_db` 访问库；repo 返回 `rusqlite::Result`，service 通常用 `Result<_, String>` 并 `map_err(|e| e.to_string())`。领域拒绝用短 snake_case 码（`empty_title`、`suspend_until_required`、`invalid_status`），测试会断言这些字符串。
 - 时间：日期是本地 `YYYY-MM-DD`，时间戳是 RFC3339 UTC；用 `todayIso()` / `chrono::Local` 算今天，别用 UTC 截断。周一为一周起点。
 - 输入：所有输入框的回车提交都要先过 `isImeEnter(event)`（`src/lib/keys.ts`），否则中文输入法选词会误提交。
-- 任务时间分四个字段：预计开始 `expected_start_date`、预计完成 `expected_finish_date`/`expected_finish_time` 只到日期（`expected_finish_time` 由周期规则写入，只读），实际开始 `started_at`、实际完成 `actual_finish_at` 是 RFC3339 UTC 时间戳，只在状态真正进入 doing / done 时写入。`TaskPatch` 里没有 expectedFinishDate；改预计完成必须走 `set_expected_finish`，否则不会写 `delays` 记录。对可空字段，patch 的“字段缺失”=保持原值，“显式 null”=清空。有步骤的任务状态由步骤推导；勾完最后一步会自动完成并移出本周。
+- 任务时间：预计开始 `expected_start_date`、预计完成 `expected_finish_date`/`expected_finish_time` 只到日期（`expected_finish_time` 由周期规则写入），实际开始 `started_at`、实际完成 `actual_finish_at`、实际耗时 `actual_effort_minutes` 在状态进入 doing / done 时写入。**预计完成不能手改**：它由 `services/timing.rs` 从「今天或预计开始（取晚者，滚到工作日）」按预计耗时推算（1 个工作日 = 480 分钟，跳过周末），`^日期` 记号已删除，`set_expected_finish` 命令也已删除。改预计耗时或预计开始会重算完成日；变晚时写 `delays` reschedule 记录。完成任务时 `actual_effort_minutes` 取 `started_at → actual_finish_at` 的实际分钟数（至少 1），没开始过则记预计耗时。`TaskPatch` 里没有 expectedFinishDate；对可空字段，patch 的“字段缺失”=保持原值，“显式 null”=清空。有步骤的任务状态由步骤推导；勾完最后一步会自动完成并移出本周。
 - 本周集合是显式的 `in_week` 布尔值，不要按日期重算；取消不进统计分母，挂起仍计入。
-- 本周顺序是 `tasks.sort_order`（手动拖拽），`list_week` 与 `pass_queue` 都按它排；`effort_minutes`（分钟，480 = 一人天）只喂给 `src/lib/schedule.ts` 按小时排计划日期——计划只显示、不落库、不写 `delays`、不触发提醒。
-- 本周页拖拽：同一天内只改 `sort_order`；拖到另一天或从挂起区拖入走 `place_task`，写 `expected_start_date`、清挂起、加入本周并按落点定序（挂起任务拖入即自动恢复）。设置 `week.show_empty_days`（默认开）让本周页补齐今天到周五没有安排的工作日，空白天可整块投放。
+- 本周顺序是 `tasks.sort_order`（手动拖拽），`list_week` 与 `pass_queue` 都按它排；`effort_minutes`（分钟，480 = 一人天）既喂给 `src/lib/schedule.ts` 按小时排计划日期，也决定预计完成日——计划日期只显示、不落库，预计完成日落库。
+- 本周页拖拽：同一天内只改 `sort_order`；拖到另一天或从挂起区拖入走 `place_task`，写 `expected_start_date`、按新起点重算预计完成、清挂起、加入本周并按落点定序（挂起任务拖入即自动恢复）。设置 `week.show_empty_days`（默认开）让本周页补齐今天到周五没有安排的工作日，空白天可整块投放。
+- 记一句：符号是 `#项目 @负责人 !高/中/低 ~预计耗时`；`^日期` 已移除。`#名字` 匹配不到已有项目时当作待建项目（名字取到空白/标点为止），保存时由 `capture_with_project` 在同一事务里新建（同名活跃项目则复用）并归入任务，任务插入失败则项目一起回滚。AI 补字段只填项目/分类/负责人/标签，**不猜日期**。
 - 新任务、新周期任务、新模板默认独占（`exclusive`）：独占任务只占其 effort 对应的小时位（480 分钟 = 8 个小时位），其他任务可补进剩下的小时；共享任务可并行；已有任务/规则/模板保持原标志，不做数据迁移。显式预计开始日期优先于手动队列。
 - UI：文案走 `src/lib/i18n.ts` 的 `t()`，不要在组件里硬编码中文/英文；Rust 运行时文案（托盘、通知）走 `src-tauri/src/i18n.rs`。用 daisyUI 的 `soft`/`soft-dark` 主题 token 和 Tailwind 类，不要写死颜色；图标用 `@lucide/vue` 并加 `aria-hidden`。界面日期显示用 `shortDate`（`11/20`）。
 - 界面先出图：新增、删除或改版界面的布局、层级、交互前，先画出静态稿（HTML/SVG 或截图）确认关键状态；纯文案、颜色、间距微调可直接改。
@@ -100,7 +101,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 ## 测试
 
 - TS 测试放在被测模块旁的 `__tests__/*.test.ts`。ViewModel 测试先用 `vi.mock("../../model/ipc", ...)`，再用 `createXVM()` 建实例；通用 `task()`/`step()`/`defaultSettings` 在 `src/viewmodels/__tests__/fixtures.ts`，不要另造一套。
-- Rust 测试直接写在源文件底部的 `#[cfg(test)] mod tests`，用 `db::open_in_memory()`，固定 `NOW` 字符串，文件操作放临时目录并在结尾清理。改动周界/日期/提醒逻辑时，补周一凌晨、跨年、14 天补报这类边界用例（现有测试在 `services/week.rs`、`reminders/rules.rs`）。
+- Rust 测试直接写在源文件底部的 `#[cfg(test)] mod tests`，用 `db::open_in_memory()`，固定 `NOW` 字符串，文件操作放临时目录并在结尾清理。改动周界/日期/提醒/排期逻辑时，补周一凌晨、跨年、14 天补报、跨周末推算这类边界用例（现有测试在 `services/week.rs`、`services/timing.rs`、`reminders/rules.rs`）。
 - 没有组件/E2E 测试；界面和托盘行为靠 README 的手工冒烟清单验收（发布前逐条走）。
 
 ## Git 与发布

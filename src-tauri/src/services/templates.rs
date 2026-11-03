@@ -48,7 +48,6 @@ pub fn create_task(
         project_id: template.project_id.clone(),
         owner_id: template.owner_id.clone(),
         priority: Some(template.priority.clone()),
-        expected_finish_date: None,
         effort_minutes: Some(template.effort_minutes),
     };
     // One transaction: a failed step insert must not leave a task with half its flow.

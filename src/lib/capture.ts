@@ -1,6 +1,4 @@
 import type { CaptureFields, Priority } from "../model/types";
-import { dateFromParts } from "./calendar";
-import { addDays, weekdayOf } from "./dates";
 import { parseEffortText, validEffort } from "./effort";
 
 export interface CaptureContext {
@@ -9,26 +7,31 @@ export interface CaptureContext {
   people: { id: string; name: string }[];
 }
 
-export type CaptureField = keyof CaptureFields;
+export type CaptureField = keyof CaptureFields | "newProject";
 
 export interface CaptureParse {
   /** The sentence with recognized symbol tokens removed. */
   title: string;
   fields: CaptureFields;
   matched: CaptureField[];
+  /**
+   * A `#name` that matches no project yet. Saving creates that project and files the
+   * task under it; anything after whitespace is not part of the name.
+   */
+  newProjectName: string | null;
 }
 
 export interface CaptureSubmission {
   raw: string;
   title: string;
   fields: CaptureFields;
+  newProjectName: string | null;
 }
 
 export const CAPTURE_DEFAULTS: CaptureFields = {
   projectId: null,
   ownerId: null,
   priority: "normal",
-  expectedFinishDate: null,
   effortMinutes: 480,
 };
 
@@ -36,11 +39,11 @@ const FIELD_ORDER: CaptureField[] = [
   "projectId",
   "ownerId",
   "priority",
-  "expectedFinishDate",
   "effortMinutes",
+  "newProject",
 ];
 
-const SYMBOLS = new Set(["#", "@", "!", "^", "~"]);
+const SYMBOLS = new Set(["#", "@", "!", "~"]);
 const ASCII_WORD = /[A-Za-z0-9_]/;
 
 interface PrefixMatch<T> {
@@ -49,9 +52,10 @@ interface PrefixMatch<T> {
 }
 
 /**
- * Reads the explicit token syntax only: #project @owner !priority ^date ~effort.
+ * Reads the explicit token syntax only: #project @owner !priority ~effort.
  * Bare names and dates are left as text, so a title can never be changed by
  * accident just because it contains a word that happens to be a project name.
+ * The expected finish is not a token: it follows the estimate.
  */
 export function parseCapture(
   raw: string,
@@ -62,14 +66,17 @@ export function parseCapture(
   const found: Partial<CaptureFields> = {};
   const matched = new Set<CaptureField>();
   const spans: { start: number; end: number }[] = [];
+  let newProjectName: string | null = null;
 
   for (let i = 0; i < raw.length; i++) {
     const symbol = raw[i];
     if (!SYMBOLS.has(symbol)) continue;
     // "C#" and "foo@bar" are text, not tokens. A CJK character before the
-    // symbol is fine, so "发给@老李" still works.
-    if (i > 0 && ASCII_WORD.test(raw[i - 1])) continue;
+    // symbol is fine, so "发给@老李" still works. A hash inside a URL is text too.
+    if (i > 0 && (ASCII_WORD.test(raw[i - 1]) || "/.-:".includes(raw[i - 1]))) continue;
     if (spans.some((span) => i >= span.start && i < span.end)) continue;
+    // "# name" with a space is a heading or plain text, never a token.
+    if (i + 1 < raw.length && /\s/.test(raw[i + 1])) continue;
 
     let valueStart = i + 1;
     while (valueStart < raw.length && /\s/.test(raw[valueStart])) valueStart++;
@@ -79,10 +86,22 @@ export function parseCapture(
 
     if (symbol === "#") {
       const match = matchName(text, ctx.projects);
-      if (!match) continue;
-      found.projectId = match.item.id;
-      matched.add("projectId");
-      end = valueStart + match.length;
+      if (match) {
+        found.projectId = match.item.id;
+        matched.add("projectId");
+        matched.delete("newProject");
+        newProjectName = null;
+        end = valueStart + match.length;
+      } else {
+        const name = matchNewProject(raw, valueStart);
+        if (!name) continue;
+        // The token cancels a base project: the sentence names one that is about to exist.
+        found.projectId = null;
+        newProjectName = name.text;
+        matched.delete("projectId");
+        matched.add("newProject");
+        end = name.end;
+      }
     } else if (symbol === "@") {
       const match = matchName(text, ctx.people);
       if (!match) continue;
@@ -94,12 +113,6 @@ export function parseCapture(
       if (!match) continue;
       found.priority = match.value;
       matched.add("priority");
-      end = valueStart + match.length;
-    } else if (symbol === "^") {
-      const match = matchDate(text, ctx.today);
-      if (!match) continue;
-      found.expectedFinishDate = match.value;
-      matched.add("expectedFinishDate");
       end = valueStart + match.length;
     } else {
       const match = matchEffort(text);
@@ -119,7 +132,22 @@ export function parseCapture(
     title,
     fields,
     matched: FIELD_ORDER.filter((field) => matched.has(field)),
+    newProjectName,
   };
+}
+
+/**
+ * The name of a project that does not exist yet. A bare `#` or a `#` followed by a
+ * space is text, and the name stops at the next symbol, whitespace or punctuation,
+ * so the rest of the sentence stays in the title.
+ */
+function matchNewProject(raw: string, valueStart: number): { text: string; end: number } | null {
+  const stop = /[\s#@!~，,。.;；:：!！?？、]/u;
+  let end = valueStart;
+  while (end < raw.length && !stop.test(raw[end])) end++;
+  const text = raw.slice(valueStart, end);
+  if (!text) return null;
+  return { text, end };
 }
 
 function stripTokens(raw: string, spans: { start: number; end: number }[]): string {
@@ -210,75 +238,6 @@ function matchPriority(text: string): PrefixMatch<Priority> | null {
   return null;
 }
 
-function matchDate(text: string, today: string): PrefixMatch<string> | null {
-  const match = matchDatePrefix(text, today);
-  if (!match) return null;
-  const suffix = /^\s*(?:之前|以前|前)/.exec(text.slice(match.length));
-  return suffix ? { value: match.value, length: match.length + suffix[0].length } : match;
-}
-
-function matchDatePrefix(text: string, today: string): PrefixMatch<string> | null {
-  for (const [pattern, resolve] of dateRules(today)) {
-    const match = pattern.exec(text);
-    if (!match) continue;
-    const value = resolve(match, today);
-    if (value) return { value, length: match[0].length };
-  }
-  return null;
-}
-
-function dateRules(
-  today: string,
-): [RegExp, (match: RegExpExecArray, today: string) => string | null][] {
-  const year = Number(today.slice(0, 4));
-  const fullDate = (match: RegExpExecArray): string | null =>
-    dateFromParts(Number(match[1]), Number(match[2]), Number(match[3]));
-  const monthDate = (match: RegExpExecArray, baseYear: number): string | null => {
-    const month = Number(match[1]);
-    const day = Number(match[2]);
-    const thisYear = dateFromParts(baseYear, month, day);
-    if (!thisYear) return null;
-    if (thisYear >= today) return thisYear;
-    return dateFromParts(baseYear + 1, month, day);
-  };
-  return [
-    [/^大后天/, (_m) => addDays(today, 3)],
-    [/^后天/, (_m) => addDays(today, 2)],
-    [/^(?:明天|明日)/, (_m) => addDays(today, 1)],
-    [/^(?:今天|今日)/, (_m) => today],
-    [
-      /^(\d{1,3}|[一二两三四五六七八九十])\s*(?:天|日)(?:之后|以后|后|以内|之内|内)/,
-      (match) => {
-        const days = parseCount(match[1]);
-        return days >= 1 && days <= 365 ? addDays(today, days) : null;
-      },
-    ],
-    [
-      /^(下下|下个|下|本|这)?(?:周|星期|礼拜)([一二三四五六日天])/,
-      (match) => dateFromWeekday(today, match[2], match[1]),
-    ],
-    [/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/, fullDate],
-    [/^(\d{4})年(\d{1,2})月(\d{1,2})[日号]?/, fullDate],
-    [/^(\d{1,2})月(\d{1,2})[日号]?/, (match) => monthDate(match, year)],
-    [/^(\d{1,2})\/(\d{1,2})(?!\d)/, (match) => monthDate(match, year)],
-  ];
-}
-
-function dateFromWeekday(today: string, day: string, prefix: string | undefined): string | null {
-  const target = "一二三四五六日天".indexOf(day);
-  if (target < 0) return null;
-  const targetIndex = target >= 6 ? 6 : target;
-  const current = weekdayOf(today);
-  const mondayOffset = (current + 6) % 7;
-  const monday = addDays(today, -mondayOffset);
-  let weeks = 0;
-  if (prefix === "下" || prefix === "下个") weeks = 1;
-  else if (prefix === "下下") weeks = 2;
-  let date = addDays(monday, weeks * 7 + targetIndex);
-  if (!prefix && date < today) date = addDays(date, 7);
-  return date;
-}
-
 const EFFORT_TOKEN =
   /^(\d{1,3}:\d{1,2}|\d+\s*小时\s*\d+\s*分|\d+(?:\.\d+)?\s*(?:个工作日|人天|人日|工作日|天|日|days|day|d|个?小时|h|hr|hours|分钟|分|minutes|minute|mins|min|m))/i;
 
@@ -293,25 +252,8 @@ function matchEffort(text: string): PrefixMatch<number> | null {
     if (total === null || !validEffort(total)) return null;
     return { value: total, length: match[0].length };
   }
-  const bare = /^(\d+)(?=\s|$|[#@!^~])/.exec(text);
+  const bare = /^(\d+)(?=\s|$|[#@!~])/.exec(text);
   if (!bare) return null;
   const total = Number(bare[1]);
   return validEffort(total) ? { value: total, length: bare[0].length } : null;
-}
-
-function parseCount(value: string): number {
-  const chinese: Record<string, number> = {
-    一: 1,
-    二: 2,
-    两: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-    六: 6,
-    七: 7,
-    八: 8,
-    九: 9,
-    十: 10,
-  };
-  return chinese[value] ?? Number(value);
 }

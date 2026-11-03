@@ -2,16 +2,17 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { localDate, shortDate, shortDateTime, todayIso } from "../../lib/dates";
+import { localDate, shortDate, shortDateTime, todayIso, weekdayLabel } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { currentStep } from "../../lib/steps";
+import { formatEffort } from "../../lib/effort";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
-import { taskSheetVM } from "../../viewmodels/taskSheetVM";
+import { finishPreview, taskSheetVM } from "../../viewmodels/taskSheetVM";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
 
@@ -32,7 +33,6 @@ const form = reactive({
   categoryId: null as string | null,
   ownerId: null as string | null,
   expectedStartDate: "",
-  expectedFinishDate: "",
   note: "",
   tags: [] as string[],
   effortMinutes: 480,
@@ -44,16 +44,19 @@ const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
 const noteDraft = ref("");
 const tagDraft = ref("");
-const rescheduleReason = ref("");
 
 const late = computed(() =>
   overdueDays(taskSheetVM.state.task?.expectedFinishDate ?? null, todayIso()),
 );
 const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0);
-const finishMovedLater = computed(() => {
-  const current = taskSheetVM.state.task?.expectedFinishDate;
-  return Boolean(current && form.expectedFinishDate && form.expectedFinishDate > current);
+/** The finish always follows the estimate; it is shown, never typed. */
+const expectedFinish = computed(() => {
+  const task = taskSheetVM.state.task;
+  return task ? finishPreview(task, form) : "";
 });
+const expectedFinishLabel = computed(
+  () => `${shortDate(expectedFinish.value)} ${weekdayLabel(expectedFinish.value)}`,
+);
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
@@ -77,14 +80,12 @@ watch(
     form.categoryId = task.categoryId;
     form.ownerId = task.ownerId;
     form.expectedStartDate = task.expectedStartDate ?? "";
-    form.expectedFinishDate = task.expectedFinishDate ?? "";
     form.note = task.note ?? "";
     form.tags = task.tags.map((tag) => tag.name);
     form.effortMinutes = task.effortMinutes;
     form.priority = task.priority;
     form.status = task.status;
     form.exclusive = task.exclusive;
-    rescheduleReason.value = "";
     await refreshCandidates(task.projectId);
   },
   { immediate: true },
@@ -105,8 +106,7 @@ async function save(): Promise<void> {
     if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
       await addMember(form.projectId, form.ownerId, null);
     }
-    const reason = finishMovedLater.value ? rescheduleReason.value.trim() || null : null;
-    if (await taskSheetVM.saveForm(form, reason)) taskSheetVM.close();
+    if (await taskSheetVM.saveForm(form)) taskSheetVM.close();
   } catch (e) {
     taskSheetVM.state.error = String(e);
   }
@@ -343,15 +343,17 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.expectedFinish") }}
-            <DateField
-              v-model="form.expectedFinishDate"
-              class="input input-sm mt-1 w-full rounded-lg border-base-300"
-            />
-            <span
-              v-if="taskSheetVM.state.task?.expectedFinishTime"
-              class="mt-1 block text-[10.5px] text-base-content/45"
-            >
-              {{ taskSheetVM.state.task.expectedFinishTime }}
+            <div class="mt-2 text-[12px] text-base-content/70">
+              {{ expectedFinishLabel }}
+              <span
+                v-if="taskSheetVM.state.task?.expectedFinishTime"
+                class="ml-1 text-[10.5px] text-base-content/45"
+              >
+                {{ taskSheetVM.state.task.expectedFinishTime }}
+              </span>
+            </div>
+            <span class="mt-1 block text-[10.5px] text-base-content/40">
+              {{ t("task.expectedFinishDerived") }}
             </span>
           </label>
           <label class="block text-[11px] text-base-content/45">
@@ -377,15 +379,17 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               }}
             </div>
           </div>
+          <div class="col-span-2">
+            {{ t("task.actualEffort") }}
+            <div class="mt-1 text-[12px] text-base-content/70">
+              {{
+                taskSheetVM.state.task?.actualEffortMinutes
+                  ? formatEffort(taskSheetVM.state.task.actualEffortMinutes)
+                  : t("common.none")
+              }}
+            </div>
+          </div>
         </div>
-
-        <label v-if="finishMovedLater" class="mt-2 block text-[11px] text-base-content/45">
-          {{ t("task.rescheduleReason") }}
-          <input
-            v-model="rescheduleReason"
-            class="input input-sm mt-1 w-full rounded-lg border-base-300"
-          />
-        </label>
 
         <div class="mt-3">
           <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">

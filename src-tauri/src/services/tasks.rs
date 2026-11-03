@@ -27,6 +27,10 @@ pub fn update_patch(
         }
     }
     crate::repo::tasks::apply_patch(conn, id, patch, now).map_err(|e| e.to_string())?;
+    // The expected finish is derived, never edited: a new estimate or a new start moves it.
+    if patch.effort_minutes.is_some() || patch.expected_start_date.is_some() {
+        crate::services::timing::sync_finish(conn, id, now)?;
+    }
     route_owner(conn, id, patch, now)?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
 }
@@ -330,6 +334,40 @@ mod tests {
         let t = tasks::set_status(&c, "t1", "done", NOW).unwrap();
 
         assert_eq!(t.actual_finish_at.as_deref(), Some(NOW));
+    }
+
+    #[test]
+    fn finishing_records_the_time_the_work_really_took() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        tasks::set_status(&c, "t1", "doing", NOW).unwrap();
+
+        let t = tasks::set_status(&c, "t1", "done", "2026-10-20T10:30:00Z").unwrap();
+
+        assert_eq!(t.actual_effort_minutes, Some(150));
+    }
+
+    #[test]
+    fn finishing_without_a_start_records_the_estimate() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = tasks::set_status(&c, "t1", "done", "2026-10-20T09:00:00Z").unwrap();
+
+        assert_eq!(t.actual_effort_minutes, Some(480));
+    }
+
+    #[test]
+    fn a_quick_finish_still_records_one_minute_and_reopening_clears_it() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        tasks::set_status(&c, "t1", "doing", NOW).unwrap();
+
+        let t = tasks::set_status(&c, "t1", "done", NOW).unwrap();
+        assert_eq!(t.actual_effort_minutes, Some(1));
+
+        let back = tasks::set_status(&c, "t1", "todo", NOW).unwrap();
+        assert!(back.actual_effort_minutes.is_none());
     }
 
     #[test]

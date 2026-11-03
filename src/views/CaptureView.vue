@@ -22,7 +22,7 @@ const draft = createCaptureDraftVM(() => ({
   projects: appVM.state.projects,
   people: appVM.state.people,
 }));
-const { title, fields, matched } = draft;
+const { title, fields, matched, finish, newProjectName } = draft;
 const error = ref("");
 watch(
   () => vm.state.draft,
@@ -57,7 +57,7 @@ async function openMain(): Promise<void> {
 async function submit(): Promise<void> {
   const raw = vm.state.draft;
   try {
-    const saved = await vm.save(title.value, fields.value, hide);
+    const saved = await vm.save(title.value, fields.value, newProjectName.value, hide);
     // A second Enter while the first save runs must not erase what was typed after it.
     if (saved && vm.state.draft === raw) vm.state.draft = "";
   } catch (e) {
@@ -176,6 +176,8 @@ onUnmounted(() => {
         v-if="vm.state.draft.trim()"
         :fields="fields"
         :matched="matched"
+        :finish="finish"
+        :new-project-name="newProjectName"
         @edit="onEdit"
       />
     </div>

@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 15;
+pub const LATEST: i64 = 16;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -415,6 +415,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         if rename_time_columns(&tx)? {
             tx.commit()?;
         }
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 16 {
+        // Completing a task records how long the work really took, next to the finish
+        // stamp. Old rows stay null until their next completion.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "actual_effort_minutes")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN actual_effort_minutes INTEGER",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 16)?;
+        tx.commit()?;
     }
     Ok(())
 }

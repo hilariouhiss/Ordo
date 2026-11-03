@@ -120,6 +120,19 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
 
 /// Whether the project exists at all, archived or not. Rule and template config
 /// may keep pointing at a project that was archived after the fact.
+/// The first live project carrying this name, so a repeat `#name` capture reuses it.
+pub fn find_active_by_name(conn: &Connection, name: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT id FROM projects
+         WHERE name = ?1 COLLATE NOCASE AND archived_at IS NULL AND deleted_at IS NULL
+         ORDER BY created_at
+         LIMIT 1",
+        [name],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
 pub fn exists_any(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT 1 FROM projects WHERE id = ?1 AND deleted_at IS NULL",
