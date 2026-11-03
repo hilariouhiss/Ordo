@@ -58,11 +58,16 @@ fn dump(conn: &Connection, table: &str) -> Result<Vec<Value>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The newest copies survive any age or clock check, so a wrong system clock can
+/// never wipe the backup history.
+const KEEP_AT_LEAST: usize = 7;
+
 pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
     let today = match chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d") {
         Ok(d) => d,
         Err(_) => return Ok(()),
     };
+    let mut dated: Vec<(chrono::NaiveDate, std::path::PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -77,6 +82,14 @@ pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
         let Ok(date) = chrono::NaiveDate::parse_from_str(date_text, "%Y-%m-%d") else {
             continue;
         };
+        dated.push((date, path));
+    }
+    // Newest first, so a forward clock jump spends the age budget on the old copies only.
+    dated.sort_by(|a, b| b.0.cmp(&a.0));
+    for (index, (date, path)) in dated.into_iter().enumerate() {
+        if index < KEEP_AT_LEAST {
+            continue;
+        }
         if (today - date).num_days() > keep_days {
             std::fs::remove_file(path)?;
         }
@@ -204,20 +217,44 @@ mod tests {
     fn old_backups_are_pruned() {
         let dir = std::env::temp_dir().join(format!("ordo-prune-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("ordo-2026-01-01.db"), b"old").unwrap();
-        std::fs::write(dir.join("ordo-2026-09-01.db"), b"old").unwrap();
-        std::fs::write(dir.join("ordo-2026-09-02T120000.db"), b"old").unwrap();
+        for day in 1..=8 {
+            std::fs::write(dir.join(format!("ordo-2026-01-{day:02}.db")), b"old").unwrap();
+        }
+        std::fs::write(dir.join("ordo-2026-01-01T120000.db"), b"old").unwrap();
         std::fs::write(dir.join("ordo-2026-10-19.db"), b"keep").unwrap();
         std::fs::write(dir.join("ordo-每天备份.db"), b"keep").unwrap();
         std::fs::write(dir.join("notes.txt"), b"keep").unwrap();
 
         export::prune(&dir, 30, "2026-10-20").unwrap();
+        // The newest seven survive; older files are still pruned.
         assert!(!dir.join("ordo-2026-01-01.db").exists());
-        assert!(!dir.join("ordo-2026-09-01.db").exists());
-        assert!(!dir.join("ordo-2026-09-02T120000.db").exists());
+        assert!(!dir.join("ordo-2026-01-01T120000.db").exists());
+        assert!(!dir.join("ordo-2026-01-02.db").exists());
+        assert!(dir.join("ordo-2026-01-03.db").exists());
+        assert!(dir.join("ordo-2026-01-08.db").exists());
         assert!(dir.join("ordo-2026-10-19.db").exists());
         assert!(dir.join("ordo-每天备份.db").exists());
         assert!(dir.join("notes.txt").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_forward_clock_keeps_a_week_of_copies() {
+        let dir = std::env::temp_dir().join(format!("ordo-prune-clock-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for day in 1..=10 {
+            std::fs::write(dir.join(format!("ordo-2026-01-{day:02}.db")), b"old").unwrap();
+        }
+
+        // Wrong system clock: every copy looks ancient, but the newest few must survive.
+        export::prune(&dir, 30, "2027-01-01").unwrap();
+
+        let left = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| name.starts_with("ordo-") && name.ends_with(".db"))
+            .count();
+        assert_eq!(left, 7, "a wrong clock must not wipe the backup history");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -226,15 +263,19 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         let dir = std::env::temp_dir().join(format!("ordo-daily-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("ordo-2000-01-01.db"), b"old").unwrap();
+        for day in 1..=8 {
+            std::fs::write(dir.join(format!("ordo-2000-01-{day:02}.db")), b"old").unwrap();
+        }
 
         let first = export::backup_daily(&c, &dir).unwrap();
         assert!(first.is_some());
         assert!(!dir.join("ordo-2000-01-01.db").exists());
+        assert!(!dir.join("ordo-2000-01-02.db").exists());
+        assert!(dir.join("ordo-2000-01-03.db").exists(), "the newest copies stay");
 
         let second = export::backup_daily(&c, &dir).unwrap();
         assert!(second.is_none());
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 7);
         std::fs::remove_dir_all(&dir).ok();
     }
 

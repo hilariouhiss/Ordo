@@ -104,6 +104,8 @@ fn copy_to(from: &Path, to: &Path) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&temp);
         return Err(e);
     }
+    // Windows refuses to rename onto an existing name; the copy replaces it.
+    let _ = std::fs::remove_file(to);
     let renamed = std::fs::rename(&temp, to);
     if renamed.is_err() {
         let _ = std::fs::remove_file(&temp);
@@ -235,11 +237,13 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
         }
         copy_entry(&entry.path(), &to.join(name.as_ref()))?;
     }
-    // The database trio goes last, so a half-copied directory has no ordo.db.
-    for name in DB_FILES {
+    // Side files first and ordo.db last, each through a temp name. A crash then
+    // leaves no ordo.db, so the next start copies again instead of opening a
+    // ledger whose write-ahead log never arrived.
+    for name in ["ordo.db-wal", "ordo.db-shm", "ordo.db"] {
         let from = from.join(name);
         if from.exists() {
-            std::fs::copy(&from, to.join(name))?;
+            copy_to(&from, &to.join(name))?;
         }
     }
     Ok(())
