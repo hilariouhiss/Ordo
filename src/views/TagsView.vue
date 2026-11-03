@@ -2,7 +2,7 @@
 import { Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ref } from "vue";
-import { runWithNotice } from "../lib/dialog";
+import { askConfirm, runWithNotice } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
@@ -15,8 +15,9 @@ async function add(): Promise<void> {
   if (await runWithNotice(() => metaVM.addTag(name.value))) name.value = "";
 }
 
-function remove(id: string): void {
-  void runWithNotice(() => metaVM.removeTag(id));
+async function remove(id: string, name: string): Promise<void> {
+  if (!(await askConfirm(t("tags.deleteTitle"), t("tags.deleteMessage", { name })))) return;
+  await runWithNotice(() => metaVM.removeTag(id));
 }
 
 function onKey(event: KeyboardEvent): void {
@@ -53,7 +54,7 @@ function onKey(event: KeyboardEvent): void {
           <button
             class="text-base-content/30 hover:text-error"
             :aria-label="t('tags.deleteAria')"
-            @click="remove(tag.id)"
+            @click="remove(tag.id, tag.name)"
           >
             <Trash :size="12" aria-hidden="true" />
           </button>

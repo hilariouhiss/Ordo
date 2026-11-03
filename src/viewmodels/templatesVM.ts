@@ -39,11 +39,22 @@ export function createTemplatesVM() {
     state.templateSheet = null;
   }
 
+  /** A reload that fails after a successful write must not make the save look failed. */
+  async function refreshAfterWrite(reloads: (() => Promise<unknown>)[]): Promise<void> {
+    for (const reload of reloads) {
+      try {
+        await reload();
+      } catch {
+        // The write landed; the next page load picks up the stale list.
+      }
+    }
+  }
+
   /** A new rule may already owe today's occurrence, so the week reloads too. */
-  async function saveRule(rule: RuleInput): Promise<void> {
-    await ipc.saveRule(rule);
-    await load();
-    await weekVM.load();
+  async function saveRule(rule: RuleInput): Promise<TaskRule> {
+    const saved = await ipc.saveRule(rule);
+    await refreshAfterWrite([load, weekVM.load]);
+    return saved;
   }
 
   async function toggleRule(rule: TaskRule): Promise<void> {
@@ -56,9 +67,10 @@ export function createTemplatesVM() {
     await load();
   }
 
-  async function saveTemplate(template: TemplateInput): Promise<void> {
-    await ipc.saveTemplate(template);
-    await load();
+  async function saveTemplate(template: TemplateInput): Promise<TaskTemplate> {
+    const saved = await ipc.saveTemplate(template);
+    await refreshAfterWrite([load]);
+    return saved;
   }
 
   async function removeTemplate(id: string): Promise<void> {

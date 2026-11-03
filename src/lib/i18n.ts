@@ -106,11 +106,13 @@ export const zh = {
   "categories.footer": "删除分类不会删任务，任务会变成未分类。",
 
   "tags.title": "标签",
-  "tags.hint": "删除只影响显示，任务本身不变",
+  "tags.hint": "删除标签会从所有任务上移除",
   "tags.empty": "还没有标签。在任务里输入新标签也会自动收进来。",
   "tags.deleteAria": "删除标签",
+  "tags.deleteTitle": "删除标签",
+  "tags.deleteMessage": "把「{name}」从所有任务上移除？不能撤销。",
   "tags.placeholder": "新增标签，回车保存",
-  "tags.footer": "删除标签只影响显示，已经打过的任务不受影响。",
+  "tags.footer": "删除标签会从所有任务上移除，不能撤销。",
 
   "people.title": "人员",
   "people.hint": "人名全局唯一，改名对所有任务生效",
@@ -341,7 +343,7 @@ export const zh = {
   "settings.weekStart": "周起点",
   "settings.monday": "周一",
   "settings.backupDaily": "每日自动备份",
-  "settings.backupKeep": "保留 {days} 天",
+  "settings.backupKeep": "保留 {days} 天，至少最近 7 份",
   "settings.backupNow": "立即备份",
   "settings.backupError": "上次备份失败：{error}",
   "settings.exportJson": "导出 JSON",
@@ -474,6 +476,9 @@ export const zh = {
   "error.empty_reason": "原因不能为空。",
   "error.no_me": "缺少「我」这个人。",
   "error.no_key": "还没填 API key。",
+  "error.ai_key_refused": "API key 被拒绝了，检查设置里的 key。",
+  "error.ai_rate_limited": "请求太频繁了，等一会儿再试。",
+  "error.ai_http_failed": "AI 服务返回了错误（HTTP {status}）。",
   "error.empty_response": "模型返回了空内容。",
   "error.invalid_language": "不支持这个语言。",
   "error.invalid_priority": "优先级只能是高、中、低。",
@@ -598,11 +603,13 @@ export const en: Record<MessageKey, string> = {
   "categories.footer": "Deleting a category keeps its tasks; they become uncategorized.",
 
   "tags.title": "Tags",
-  "tags.hint": "Deleting only hides the tag; tasks stay",
+  "tags.hint": "Deleting a tag removes it from every task",
   "tags.empty": "No tags yet. Typing a new tag on a task adds it here.",
   "tags.deleteAria": "Delete tag",
+  "tags.deleteTitle": "Delete tag",
+  "tags.deleteMessage": "Remove “{name}” from every task? This cannot be undone.",
   "tags.placeholder": "New tag, press Enter to save",
-  "tags.footer": "Deleting a tag only hides it; tagged tasks are untouched.",
+  "tags.footer": "Deleting a tag removes it from every task and cannot be undone.",
 
   "people.title": "People",
   "people.hint": "Names are global; renaming applies everywhere",
@@ -838,7 +845,7 @@ export const en: Record<MessageKey, string> = {
   "settings.weekStart": "Week starts",
   "settings.monday": "Monday",
   "settings.backupDaily": "Daily backup",
-  "settings.backupKeep": "Keep {days} days",
+  "settings.backupKeep": "Keep {days} days, at least the newest 7",
   "settings.backupNow": "Back up now",
   "settings.backupError": "Last backup failed: {error}",
   "settings.exportJson": "Export JSON",
@@ -974,6 +981,9 @@ export const en: Record<MessageKey, string> = {
   "error.empty_reason": "Reason can't be empty.",
   "error.no_me": 'The "me" person is missing.',
   "error.no_key": "No API key yet.",
+  "error.ai_key_refused": "The API key was refused.",
+  "error.ai_rate_limited": "Too many requests; wait a moment and try again.",
+  "error.ai_http_failed": "The AI service returned an error (HTTP {status}).",
   "error.empty_response": "The model returned nothing.",
   "error.invalid_language": "Unsupported language.",
   "error.invalid_priority": "Priority must be high, normal or low.",
@@ -1017,6 +1027,8 @@ const knownErrors = [
   "empty_title",
   "empty_step",
   "invalid_effort",
+  "steps_over_effort",
+  "steps_too_long",
   "invalid_status",
   "invalid_suspend_date",
   "suspend_until_past",
@@ -1061,6 +1073,13 @@ const knownErrors = [
 /** Maps the backend's short error codes; anything else is shown as-is. */
 export function errorText(error: unknown): string {
   const raw = typeof error === "string" ? error : error instanceof Error ? error.message : "";
+  // HTTP failures come as ai_http_<status>; turn the status into a sentence the user can act on.
+  const http = /^ai_http_(\d{3})$/.exec(raw);
+  if (http) {
+    if (http[1] === "401" || http[1] === "403") return t("error.ai_key_refused");
+    if (http[1] === "429") return t("error.ai_rate_limited");
+    return t("error.ai_http_failed", { status: http[1] });
+  }
   const code = knownErrors.find((candidate) => raw.includes(candidate));
   return code ? t(`error.${code}` as MessageKey) : raw;
 }

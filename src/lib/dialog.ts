@@ -17,6 +17,8 @@ export const dialogRequest = ref<DialogRequest | null>(null);
 let settle: ((answer: string | SuspendDraft | null) => void) | null = null;
 
 function ask(request: DialogRequest): Promise<string | SuspendDraft | null> {
+  // A second request must not overwrite the first resolver: that promise would never settle.
+  closeDialog(null);
   dialogRequest.value = request;
   return new Promise((resolve) => {
     settle = resolve;

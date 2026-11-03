@@ -74,4 +74,19 @@ describe("dialog", () => {
     await expect(runWithNotice(async () => undefined)).resolves.toBe(true);
     expect(dialogRequest.value).toBeNull();
   });
+
+  it("cancels the pending dialog when a second one arrives", async () => {
+    const first = askConfirm("删除任务", "不能撤销。");
+    const second = askNotice("提示", "保存失败。");
+
+    const answer = await Promise.race([
+      first,
+      new Promise((resolve) => setTimeout(() => resolve("still pending"), 50)),
+    ]);
+    expect(answer).toBe(false);
+    expect(dialogRequest.value?.kind).toBe("notice");
+
+    closeDialog(null);
+    await expect(second).resolves.toBeUndefined();
+  });
 });

@@ -224,8 +224,20 @@ async function save(): Promise<void> {
   }
 }
 
+/** Runs one sheet action; a failed write must stay visible instead of vanishing. */
+async function run(action: () => Promise<unknown>): Promise<boolean> {
+  taskSheetVM.state.error = null;
+  try {
+    await action();
+    return true;
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+    return false;
+  }
+}
+
 async function setStatus(status: Status): Promise<void> {
-  await taskSheetVM.setStatus(status);
+  if (!(await run(() => taskSheetVM.setStatus(status)))) return;
   form.status = status;
 }
 
@@ -259,14 +271,12 @@ async function archive(): Promise<void> {
 async function submitStep(): Promise<void> {
   const title = stepDraft.value.trim();
   if (!title) return;
-  await taskSheetVM.add(title);
-  stepDraft.value = "";
+  if (await run(() => taskSheetVM.add(title))) stepDraft.value = "";
 }
 
 async function saveNote(): Promise<void> {
   if (!noteDraft.value.trim()) return;
-  await taskSheetVM.addNote(noteDraft.value);
-  noteDraft.value = "";
+  if (await run(() => taskSheetVM.addNote(noteDraft.value))) noteDraft.value = "";
 }
 
 function onStepKey(event: KeyboardEvent): void {
@@ -370,7 +380,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <button
               class="size-4 shrink-0 rounded-full border-[1.5px]"
               :class="s.done ? 'border-success bg-success' : 'border-base-content/25'"
-              @click="taskSheetVM.toggle(s.id)"
+              @click="run(() => taskSheetVM.toggle(s.id))"
             ></button>
             <span
               class="min-w-0 flex-1 truncate text-[13px]"
@@ -428,7 +438,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <button
                 class="text-base-content/25"
                 :aria-label="t('task.deleteStepAria')"
-                @click="taskSheetVM.remove(s.id)"
+                @click="run(() => taskSheetVM.remove(s.id))"
               >
                 <X :size="13" aria-hidden="true" />
               </button>

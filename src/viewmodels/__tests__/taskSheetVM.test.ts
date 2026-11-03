@@ -46,6 +46,32 @@ describe("taskSheetVM", () => {
     expect(vm.state.task?.id).toBe("t1");
   });
 
+  it("ignores an open whose read lands after a newer one", async () => {
+    let resolveFirst!: (value: Task) => void;
+    let resolveSecond!: (value: Task) => void;
+    vi.mocked(getTask)
+      .mockReturnValueOnce(
+        new Promise<Task>((done) => {
+          resolveFirst = done;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<Task>((done) => {
+          resolveSecond = done;
+        }),
+      );
+
+    const vm = createTaskSheetVM();
+    const first = vm.open("t1");
+    const second = vm.open("t2");
+    resolveSecond(task({ id: "t2" }));
+    await second;
+    resolveFirst(task({ id: "t1" }));
+    await first;
+
+    expect(vm.state.task?.id).toBe("t2");
+  });
+
   it("pins a step's share and takes the refreshed task", async () => {
     vi.mocked(getTask).mockResolvedValue(task({ id: "t1" }));
     vi.mocked(setStepEffort).mockResolvedValue(

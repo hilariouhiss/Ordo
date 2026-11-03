@@ -82,6 +82,13 @@ let settleTimer: ReturnType<typeof setTimeout> | undefined;
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 let moveUnlisten: (() => void) | null = null;
 const unlisteners: Array<() => void> = [];
+let disposed = false;
+
+/** Keeps the unmount list safe when setup finishes after the component is gone. */
+function track(unlisten: () => void): void {
+  if (disposed) unlisten();
+  else unlisteners.push(unlisten);
+}
 
 let cachedWin: Window | null = null;
 function win(): Window {
@@ -428,36 +435,39 @@ function onWindowFocus(): void {
 }
 
 onMounted(async () => {
-  // Register the summon before the first awaits so a hotkey right after the
-  // window appears is not missed.
-  unlisteners.push(
+  // Register the summon and the focus handlers before the first await so nothing is missed.
+  window.addEventListener("blur", onWindowBlur);
+  window.addEventListener("focus", onWindowFocus);
+  track(
     await listen<boolean>("widget:summon", (event) => {
       void summonFromHotkey(event.payload === true);
     }),
   );
-  window.addEventListener("blur", onWindowBlur);
-  window.addEventListener("focus", onWindowFocus);
   const settings = await vm.loadConfig().catch(() => null);
+  if (disposed) return;
   savedPos =
     settings && settings.deskX !== null && settings.deskY !== null
       ? { x: settings.deskX, y: settings.deskY }
       : null;
-  unlisteners.push(
+  track(
     await listen("ai:enriched", () => {
       refresh();
     }),
   );
-  unlisteners.push(
+  track(
     await listen("capture:created", () => {
       refresh();
     }),
   );
   await vm.load();
+  if (disposed) return;
   lastLoadedAt = Date.now();
   if (props.active) await activate();
 });
 
 onUnmounted(() => {
+  disposed = true;
+  running = false;
   animRun += 1;
   summoned = null;
   clearTimeout(restoreTimer);

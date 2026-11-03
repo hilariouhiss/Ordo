@@ -87,6 +87,25 @@ describe("templatesVM", () => {
     expect(vi.mocked(ipc.listRules)).toHaveBeenCalled();
   });
 
+  it("keeps the save successful when the reload fails", async () => {
+    vi.mocked(ipc.listRules).mockRejectedValue("boom");
+    const vm = createTemplatesVM();
+
+    await expect(
+      vm.saveRule({
+        title: "报销",
+        weekdays: [4],
+        at: "09:00",
+        projectId: null,
+        categoryId: null,
+        ownerId: null,
+        priority: "normal",
+        effortMinutes: 480,
+        exclusive: false,
+      }),
+    ).resolves.toEqual(rule());
+  });
+
   it("flips a rule's switch", async () => {
     vi.mocked(ipc.setRuleEnabled).mockResolvedValue(rule({ enabled: false }));
     const vm = createTemplatesVM();

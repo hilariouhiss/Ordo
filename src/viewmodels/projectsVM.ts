@@ -39,7 +39,11 @@ export function createProjectsVM() {
     creating = true;
     try {
       const project = await createProject(name.trim());
-      await load();
+      try {
+        await load();
+      } catch {
+        // The project exists; a stale list is not a failed create.
+      }
       return project;
     } finally {
       creating = false;

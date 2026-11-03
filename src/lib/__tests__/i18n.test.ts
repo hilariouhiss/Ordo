@@ -36,4 +36,17 @@ describe("errorText", () => {
   it("passes unknown errors through", () => {
     expect(errorText("disk is full")).toBe("disk is full");
   });
+
+  it("translates the step-effort codes", () => {
+    expect(errorText("steps_over_effort")).toContain("预计耗时");
+    setLanguage("en");
+    expect(errorText("steps_over_effort")).toContain("estimate");
+    expect(errorText("steps_too_long")).toContain("60");
+  });
+
+  it("turns an AI HTTP failure into a sentence", () => {
+    setLanguage("en");
+    expect(errorText("ai_http_401")).toBe("The API key was refused.");
+    expect(errorText("ai_http_500")).toContain("500");
+  });
 });

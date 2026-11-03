@@ -74,6 +74,14 @@ describe("projectsVM", () => {
     expect(appVM.state.projects).toEqual([project]);
   });
 
+  it("returns the created project when the refresh fails", async () => {
+    vi.mocked(createProject).mockResolvedValue(created);
+    vi.mocked(listProjects).mockRejectedValue("boom");
+    const vm = createProjectsVM();
+
+    await expect(vm.create("项目")).resolves.toEqual(created);
+  });
+
   it("ignores a second create while the first is pending", async () => {
     let resolve!: (value: Project) => void;
     vi.mocked(createProject).mockReturnValue(

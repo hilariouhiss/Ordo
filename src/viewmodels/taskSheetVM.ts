@@ -83,11 +83,13 @@ export function createTaskSheetVM() {
     state.loading = true;
     state.error = null;
     try {
-      state.task = await getTask(id);
+      const task = await getTask(id);
+      // A later open owns the sheet; this reply must not replace its task.
+      if (state.openId === id) state.task = task;
     } catch (e) {
-      state.error = String(e);
+      if (state.openId === id) state.error = String(e);
     } finally {
-      state.loading = false;
+      if (state.openId === id) state.loading = false;
     }
   }
 
