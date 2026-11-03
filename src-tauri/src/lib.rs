@@ -68,7 +68,7 @@ fn ensure_capture(app: &tauri::AppHandle, reveal_when_loaded: bool) -> Option<ta
         "capture",
         tauri::WebviewUrl::App("index.html".into()),
     )
-    .title("ordo")
+    .title("Ordo")
     .inner_size(560.0, 96.0)
     .decorations(false)
     .always_on_top(true)
@@ -533,7 +533,7 @@ pub fn run() {
     })
     .run(tauri::generate_context!());
   if let Err(e) = result {
-    eprintln!("ordo 启动失败：{e}");
+    eprintln!("Ordo 启动失败：{e}");
     std::process::exit(1);
   }
 }

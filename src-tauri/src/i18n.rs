@@ -47,9 +47,9 @@ pub fn from_conn(conn: &Connection) -> Lang {
 
 pub fn tray_labels(lang: Lang) -> [&'static str; 6] {
     match lang {
-        Lang::Zh => ["打开 ordo", "本周", "过一遍", "桌面小窗", "设置", "退出"],
+        Lang::Zh => ["打开 Ordo", "本周", "过一遍", "桌面小窗", "设置", "退出"],
         Lang::En => [
-            "Open ordo",
+            "Open Ordo",
             "This week",
             "Weekly pass",
             "Week widget",
@@ -62,11 +62,11 @@ pub fn tray_labels(lang: Lang) -> [&'static str; 6] {
 pub fn tray_hint(lang: Lang) -> (&'static str, &'static str) {
     match lang {
         Lang::Zh => (
-            "ordo 还在托盘运行",
+            "Ordo 还在托盘运行",
             "点托盘图标就能叫回来，右键菜单可以退出。",
         ),
         Lang::En => (
-            "ordo is still running in the tray",
+            "Ordo is still running in the tray",
             "Click the tray icon to bring it back; Quit is in its menu.",
         ),
     }
@@ -87,8 +87,8 @@ pub fn reminder_headline(lang: Lang, kind: &str, due_today: bool, title: &str) -
 
 pub fn reminder_body(lang: Lang) -> &'static str {
     match lang {
-        Lang::Zh => "打开 ordo 查看",
-        Lang::En => "Open ordo to check",
+        Lang::Zh => "打开 Ordo 查看",
+        Lang::En => "Open Ordo to check",
     }
 }
 
@@ -101,8 +101,8 @@ pub fn more_reminders(lang: Lang, count: usize) -> String {
 
 pub fn tray_tooltip(lang: Lang, unread: i64) -> String {
     match lang {
-        Lang::Zh => format!("ordo · {unread} 条提醒"),
-        Lang::En => format!("ordo · {unread} unread"),
+        Lang::Zh => format!("Ordo · {unread} 条提醒"),
+        Lang::En => format!("Ordo · {unread} unread"),
     }
 }
 
@@ -118,11 +118,11 @@ pub fn system_lang() -> Lang {
 pub fn legacy_migration_failed(lang: Lang, error: &str, old_dir: &str) -> (String, String) {
     match lang {
         Lang::Zh => (
-            "ordo 迁移不了旧数据".into(),
+            "Ordo 迁移不了旧数据".into(),
             format!("旧数据迁移失败（{error}）。旧数据还在 {old_dir}，没有删。"),
         ),
         Lang::En => (
-            "ordo could not move your old data".into(),
+            "Ordo could not move your old data".into(),
             format!(
                 "Moving the old data failed ({error}). The old data is still at {old_dir}; nothing was deleted."
             ),
@@ -133,11 +133,11 @@ pub fn legacy_migration_failed(lang: Lang, error: &str, old_dir: &str) -> (Strin
 pub fn database_open_failed(lang: Lang, error: &str, data_dir: &str) -> (String, String) {
     match lang {
         Lang::Zh => (
-            "ordo 打不开数据库".into(),
+            "Ordo 打不开数据库".into(),
             format!("数据库打不开（{error}）。坏文件和备份都留在 {data_dir}，什么都没删。"),
         ),
         Lang::En => (
-            "ordo could not open its database".into(),
+            "Ordo could not open its database".into(),
             format!(
                 "The database did not open ({error}). The broken file and backups are still at {data_dir}; nothing was deleted."
             ),
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn tray_labels_switch_language() {
-        assert_eq!(tray_labels(Lang::Zh)[0], "打开 ordo");
+        assert_eq!(tray_labels(Lang::Zh)[0], "打开 Ordo");
         assert_eq!(tray_labels(Lang::Zh)[3], "桌面小窗");
         assert_eq!(tray_labels(Lang::Zh)[5], "退出");
         assert_eq!(tray_labels(Lang::En)[1], "This week");
@@ -221,7 +221,7 @@ mod tests {
         );
         assert_eq!(more_reminders(Lang::Zh, 2), "还有 2 条提醒");
         assert_eq!(more_reminders(Lang::En, 2), "2 more reminders");
-        assert_eq!(tray_tooltip(Lang::En, 2), "ordo · 2 unread");
+        assert_eq!(tray_tooltip(Lang::En, 2), "Ordo · 2 unread");
     }
 
     #[test]
@@ -272,12 +272,12 @@ mod tests {
     #[test]
     fn startup_failures_speak_both_languages() {
         let (title, body) = legacy_migration_failed(Lang::En, "boom", "C:\\old");
-        assert_eq!(title, "ordo could not move your old data");
+        assert_eq!(title, "Ordo could not move your old data");
         assert!(body.contains("boom") && body.contains("C:\\old"));
         assert!(body.contains("nothing was deleted"));
 
         let (title, body) = database_open_failed(Lang::Zh, "boom", "C:\\data");
-        assert_eq!(title, "ordo 打不开数据库");
+        assert_eq!(title, "Ordo 打不开数据库");
         assert!(body.contains("boom") && body.contains("C:\\data"));
         assert!(body.contains("什么都没删"));
     }

@@ -285,7 +285,7 @@ onUnmounted(() => {
             data-tauri-drag-region="deep"
             class="flex h-12 shrink-0 items-center gap-4 border-b border-base-300 bg-base-100 pl-6 select-none"
           >
-            <span class="text-[15px] font-semibold tracking-tight">ordo</span>
+            <span class="text-[15px] font-semibold tracking-tight">Ordo</span>
             <LayoutGroup>
               <nav role="tablist" class="app-nav tabs tabs-border tabs-sm">
                 <RouterLink

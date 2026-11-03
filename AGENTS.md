@@ -28,11 +28,11 @@ release. Add a tool name to select part of the graph. For example, run
 
 ---
 
-# ordo — 开发指南
+# Ordo — 开发指南
 
 ## 项目概览
 
-ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍、项目进度与时间轴、延期记录、归档与提醒，数据只在本机。技术栈是 Tauri 2.12 + Rust（2024 edition，最低 1.90）、Vue 3.6 RC + TypeScript、Vite+ 1.2（`vp`）、Tailwind 4 + daisyUI 5、SQLite（rusqlite bundled）。Windows 优先，界面支持中英文；未手动选择时跟随系统 UI 语言，设置里可切换。
+Ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍、项目进度与时间轴、延期记录、归档与提醒，数据只在本机。技术栈是 Tauri 2.12 + Rust（2024 edition，最低 1.90）、Vue 3.6 RC + TypeScript、Vite+ 1.2（`vp`）、Tailwind 4 + daisyUI 5、SQLite（rusqlite bundled）。Windows 优先，界面支持中英文；未手动选择时跟随系统 UI 语言，设置里可切换。
 
 顶层：`src/` 是 WebView 前端；`src-tauri/` 是 Rust 核心；`docs/superpowers/specs/` 是设计与架构意图，`docs/superpowers/plans/` 是实现计划（历史记录，不是当前文件清单）。
 
@@ -121,5 +121,5 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 主窗口关闭只是隐藏到托盘，退出走托盘菜单；首次关闭会提示一次。别把关闭改回直接退出。
 - 改全局快捷键失败时必须回滚旧键（`services/shortcut.rs`），不要留下半失效状态。
 - 主题：只有显式选了浅/深色才 `setTheme` 钉原生窗口；`setTheme` 会经 wry 把 WebView 的 `prefers-color-scheme` 一起钉住，所以“跟随系统”必须 `setTheme(null)` 后读 `theme()` 的系统值，不要用 `matchMedia`。
-- Windows 通知收进通知中心后再点，系统不会告诉 ordo 是哪一条；只有提示条还在屏幕上时点击才能定位任务。这是平台限制，不是待修 bug。
+- Windows 通知收进通知中心后再点，系统不会告诉 Ordo 是哪一条；只有提示条还在屏幕上时点击才能定位任务。这是平台限制，不是待修 bug。
 - `docs/superpowers/specs/2026-10-20-ordo-architecture.md` 是草案，和代码有出入（例如托盘在 `lib.rs`、主题在 `src/style.css`）；以源码为准。

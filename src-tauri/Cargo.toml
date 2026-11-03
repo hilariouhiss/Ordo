@@ -1,8 +1,8 @@
 [package]
 name = "ordo"
 version = "0.1.0"
-description = "ordo — personal task book"
-authors = ["ordo"]
+description = "Ordo — personal task book"
+authors = ["Ordo"]
 license = ""
 repository = ""
 edition = "2024"

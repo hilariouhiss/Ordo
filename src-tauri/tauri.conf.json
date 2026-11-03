@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "ordo",
+  "productName": "Ordo",
   "version": "0.1.0",
   "identifier": "com.ordo.taskbook",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ordo",
+        "title": "Ordo",
         "width": 1100,
         "height": 760,
         "minWidth": 900,

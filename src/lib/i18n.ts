@@ -469,7 +469,7 @@ export const zh = {
   "error.invalid_desk_pin": "小窗层级只能是置顶或置底。",
   "error.invalid_task_group_by": "分组方式不正确。",
   "error.invalid_ai_base_url": "AI 地址必须是 https://（本机服务可以用 http://）。",
-  "error.shortcut_rollback_failed": "新快捷键没生效，旧快捷键也没能恢复；重启 ordo 会再试一次。",
+  "error.shortcut_rollback_failed": "新快捷键没生效，旧快捷键也没能恢复；重启 Ordo 会再试一次。",
   "error.empty_rule_title": "周期任务得有个名字。",
   "error.invalid_weekday": "至少要选一个星期几。",
   "error.invalid_time": "时间格式不对，像 09:00 这样。",
@@ -692,7 +692,7 @@ export const en: Record<MessageKey, string> = {
   "desk.backToMain": "Back to the main window",
   "desk.expand": "Expand widget",
   "desk.toggle": "Switch to the week widget",
-  "desk.openTask": "Open “{title}” in ordo",
+  "desk.openTask": "Open “{title}” in Ordo",
   "desk.loadFailed": "Couldn't refresh. Try again later.",
   "desk.actionFailed": "That didn't work: {error}",
 
@@ -955,7 +955,7 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_task_group_by": "Unknown task grouping.",
   "error.invalid_ai_base_url": "The AI URL must be https:// (a local server may use http://).",
   "error.shortcut_rollback_failed":
-    "The new shortcut didn't take and the old one couldn't be restored; restarting ordo tries again.",
+    "The new shortcut didn't take and the old one couldn't be restored; restarting Ordo tries again.",
   "error.empty_rule_title": "A recurring task needs a name.",
   "error.invalid_weekday": "Pick at least one weekday.",
   "error.invalid_time": "That time isn't valid; write it like 09:00.",
