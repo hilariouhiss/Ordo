@@ -196,12 +196,20 @@ describe("weekVM plan", () => {
     expect(vm.planEnd.value).toBe("2026-10-20");
   });
 
-  it("keeps a spanning task under its start day and shows where it ends", async () => {
+  it("continues a spanning task on the days after it starts", async () => {
     const vm = await loadedWith([task({ id: "a", effortMinutes: 960 })]);
 
-    expect(vm.days.value).toHaveLength(1);
-    expect(vm.days.value[0].rows[0].spans).toBe(true);
-    expect(vm.days.value[0].rows[0].end).toBe("2026-10-21");
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
+    expect(vm.days.value[0].rows[0]).toMatchObject({
+      spans: true,
+      days: 2,
+      end: "2026-10-21",
+    });
+    expect(vm.days.value[1].rows).toEqual([]);
+    expect(vm.days.value[1].spans).toEqual([
+      expect.objectContaining({ day: 2, total: 2, hours: 8 }),
+    ]);
+    expect(vm.loads.value.get("2026-10-21")).toBe(8);
   });
 
   it("counts a finish after the due date, not one on it", async () => {
@@ -279,15 +287,18 @@ describe("weekVM plan", () => {
     expect(vm.days.value.every((day) => day.rows.length === 0)).toBe(true);
   });
 
-  it("leaves days covered by a spanning task out of the empty fill", async () => {
+  it("keeps the days a spanning task covers and fills the rest", async () => {
     appVM.state.settings = defaultSettings;
     const vm = await loadedWith([task({ id: "a", effortMinutes: 960 })]);
 
     expect(vm.days.value.map((day) => day.date)).toEqual([
       "2026-10-20",
+      "2026-10-21",
       "2026-10-22",
       "2026-10-23",
     ]);
+    expect(vm.days.value[1].rows).toEqual([]);
+    expect(vm.days.value[1].spans).toHaveLength(1);
   });
 
   it("places a dropped task on the day and reloads", async () => {

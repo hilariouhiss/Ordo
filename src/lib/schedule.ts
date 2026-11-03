@@ -138,6 +138,30 @@ export function planSchedule(tasks: PlanTask[], start: string): PlannedTask[] {
   });
 }
 
+export interface PlannedDayPart {
+  day: string;
+  hours: number;
+}
+
+/** The working days a planned row occupies, with the hours booked on each. */
+export function plannedDayParts(task: PlanTask, row: PlannedTask): PlannedDayPart[] {
+  const parts: PlannedDayPart[] = [];
+  let day = row.start;
+  let hour = row.startHour;
+  let left = needOf(task);
+
+  while (left > 0) {
+    const booked = Math.min(left, HOURS_PER_DAY - hour);
+    parts.push({ day, hours: booked });
+    left -= booked;
+    if (left > 0) {
+      day = nextWorkday(day);
+      hour = 0;
+    }
+  }
+  return parts;
+}
+
 /** Hours booked on each working day, summed over every planned task. */
 export function planLoads(tasks: PlanTask[], plan: PlannedTask[]): Map<string, number> {
   const rows = new Map(plan.map((row) => [row.id, row]));
@@ -146,17 +170,8 @@ export function planLoads(tasks: PlanTask[], plan: PlannedTask[]): Map<string, n
   for (const task of tasks) {
     const row = rows.get(task.id);
     if (!row) continue;
-    let day = row.start;
-    let hour = row.startHour;
-    let left = needOf(task);
-    while (left > 0) {
-      const booked = Math.min(left, HOURS_PER_DAY - hour);
-      loads.set(day, (loads.get(day) ?? 0) + booked);
-      left -= booked;
-      if (left > 0) {
-        day = nextWorkday(day);
-        hour = 0;
-      }
+    for (const part of plannedDayParts(task, row)) {
+      loads.set(part.day, (loads.get(part.day) ?? 0) + part.hours);
     }
   }
   return loads;

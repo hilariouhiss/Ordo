@@ -11,6 +11,7 @@ import { passVM } from "../viewmodels/passVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
+import TaskContinuation from "./components/TaskContinuation.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 import WeeklyPass from "./overlays/WeeklyPass.vue";
@@ -19,6 +20,7 @@ const {
   state,
   days,
   plan,
+  loads,
   planEnd,
   overloadDates,
   conflictCount,
@@ -206,6 +208,10 @@ watch(
   },
 );
 
+function dayLoad(date: string): number {
+  return loads.value.get(date) ?? 0;
+}
+
 function openTask(task: Task): void {
   void taskSheetVM.open(task.id);
 }
@@ -268,19 +274,35 @@ function refresh(): void {
           <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
             t("week.today")
           }}</span>
+          <span v-if="dayLoad(day.date)" class="ml-auto text-[10px] text-base-content/40">
+            {{ t("week.dayLoad", { hours: dayLoad(day.date) }) }}
+          </span>
           <span
             v-if="dragMoved && dropTarget?.day === day.date"
-            class="ml-auto text-[10px] text-primary"
+            class="text-[10px] text-primary"
+            :class="{ 'ml-auto': !dayLoad(day.date) }"
           >
             {{ t("week.dropDay") }}
           </span>
+        </div>
+        <div v-if="day.spans.length" class="mb-1.5 space-y-1.5">
+          <TaskContinuation
+            v-for="span in day.spans"
+            :key="span.task.id"
+            :task="span.task"
+            :day="span.day"
+            :total="span.total"
+            :hours="span.hours"
+            :end="span.end"
+            @open="openTask"
+          />
         </div>
         <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
           <TaskRow
             v-for="row in day.rows"
             :key="row.task.id"
             :task="row.task"
-            :plan="{ end: row.end, spans: row.spans, conflict: row.conflict }"
+            :plan="{ end: row.end, spans: row.spans, days: row.days, conflict: row.conflict }"
             :drop-line="
               dragMoved &&
               dropTarget?.day === day.date &&
@@ -310,7 +332,7 @@ function refresh(): void {
           </TaskRow>
         </AnimatePresence>
         <div
-          v-if="!day.rows.length"
+          v-if="!day.rows.length && (dragMoved || !day.spans.length)"
           class="mt-0.5 flex h-9 items-center justify-center rounded-xl border border-dashed text-[10.5px]"
           :class="
             dragMoved && dropTarget?.day === day.date

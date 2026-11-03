@@ -50,6 +50,16 @@ describe("deskVM", () => {
     expect(vm.count.value).toBe(3);
   });
 
+  it("keeps a spanning task on its start day only", async () => {
+    vi.mocked(listWeek).mockResolvedValue([task({ id: "a", effortMinutes: 960 })]);
+
+    const vm = createDeskVM();
+    await vm.load();
+
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20"]);
+    expect(vm.days.value[0].rows[0].spans).toBe(true);
+  });
+
   it("keeps the previous list when a refresh fails", async () => {
     vi.mocked(listWeek)
       .mockResolvedValueOnce([task({ id: "a" })])

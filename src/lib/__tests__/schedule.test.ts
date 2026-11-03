@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { LOAD_WARN_HOURS, planLoads, planSchedule, type PlanTask } from "../schedule";
+import {
+  LOAD_WARN_HOURS,
+  planLoads,
+  planSchedule,
+  plannedDayParts,
+  type PlanTask,
+} from "../schedule";
 
 const TODAY = "2026-10-20";
 
@@ -186,6 +192,35 @@ describe("planSchedule", () => {
       [TODAY, TODAY],
       [TODAY, TODAY],
     ]);
+  });
+});
+
+describe("plannedDayParts", () => {
+  it("splits a two-day task over the weekend", () => {
+    const tasks = [t("a", 2)];
+    const plan = planSchedule(tasks, "2026-10-23");
+
+    expect(plannedDayParts(tasks[0], plan[0])).toEqual([
+      { day: "2026-10-23", hours: 8 },
+      { day: "2026-10-26", hours: 8 },
+    ]);
+  });
+
+  it("uses the free hours left on the first day", () => {
+    const tasks = [t("x", 0.5, { exclusive: true }), t("s", 1)];
+    const plan = planSchedule(tasks, TODAY);
+
+    expect(plannedDayParts(tasks[1], plan[1])).toEqual([
+      { day: TODAY, hours: 4 },
+      { day: "2026-10-21", hours: 4 },
+    ]);
+  });
+
+  it("gives a whole day to a task that starts in the morning", () => {
+    const tasks = [t("a", 1)];
+    const plan = planSchedule(tasks, TODAY);
+
+    expect(plannedDayParts(tasks[0], plan[0])).toEqual([{ day: TODAY, hours: 8 }]);
   });
 });
 

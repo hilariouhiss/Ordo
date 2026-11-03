@@ -25,7 +25,10 @@ export function createDeskVM() {
   });
 
   const plan = computed(() => planSchedule(state.tasks.map(toPlanTask), todayIso()));
-  const days = computed(() => groupPlannedDays(state.tasks, plan.value, todayIso()));
+  // The widget only has room for cards; days covered only by a span stay on the start day.
+  const days = computed(() =>
+    groupPlannedDays(state.tasks, plan.value, todayIso()).filter((day) => day.rows.length > 0),
+  );
   const count = computed(() => state.tasks.length);
 
   async function load(): Promise<void> {

@@ -140,6 +140,7 @@ export function createWeekVM() {
     state,
     plan,
     days,
+    loads,
     planEnd,
     overloadDates,
     conflictCount,

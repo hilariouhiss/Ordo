@@ -19,7 +19,7 @@ import StatusDot from "./StatusDot.vue";
 const props = withDefaults(
   defineProps<{
     task: Task;
-    plan?: { end: string; spans: boolean; conflict: boolean };
+    plan?: { end: string; spans: boolean; days: number; conflict: boolean };
     dropLine?: boolean;
     showProject?: boolean;
     draggable?: boolean;
@@ -207,7 +207,7 @@ async function suspend(): Promise<void> {
             {{ t("task.shared") }}
           </span>
           <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
-            {{ t("task.plannedEnd", { date: shortDate(plan.end) }) }}
+            {{ t("task.spanEnd", { days: plan.days, date: shortDate(plan.end) }) }}
           </span>
           <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
             {{ t("task.carry", { count: task.carryCount }) }}

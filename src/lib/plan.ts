@@ -1,12 +1,24 @@
 import type { Task } from "../model/types";
 import { weekdayLabel } from "./dates";
-import type { PlanTask, PlannedTask } from "./schedule";
+import { plannedDayParts, type PlanTask, type PlannedTask } from "./schedule";
 
 export interface PlannedRow {
   task: Task;
   end: string;
   spans: boolean;
+  /** Working days the task covers; 1 for a single-day task. */
+  days: number;
   conflict: boolean;
+}
+
+/** A later day of a multi-day task: the full card stays on the start day. */
+export interface PlannedSpan {
+  task: Task;
+  end: string;
+  /** Which day of the span this is; 2 is the first continuation. */
+  day: number;
+  total: number;
+  hours: number;
 }
 
 export interface PlannedDay {
@@ -14,6 +26,7 @@ export interface PlannedDay {
   weekday: string;
   isToday: boolean;
   rows: PlannedRow[];
+  spans: PlannedSpan[];
 }
 
 export function toPlanTask(task: Task): PlanTask {
@@ -26,30 +39,48 @@ export function toPlanTask(task: Task): PlanTask {
   };
 }
 
-/** Groups a list by the day the planner starts it; order inside a day is kept. */
+function plannedDay(date: string, today: string): PlannedDay {
+  return { date, weekday: weekdayLabel(date), isToday: date === today, rows: [], spans: [] };
+}
+
+/** Groups a list by the day the planner starts it; later days of a span get continuation entries. */
 export function groupPlannedDays(tasks: Task[], plan: PlannedTask[], today: string): PlannedDay[] {
   const planned = new Map(plan.map((row) => [row.id, row]));
+  const planTasks = new Map(tasks.map((task) => [task.id, toPlanTask(task)]));
   const groups = new Map<string, PlannedDay>();
+  const groupFor = (date: string): PlannedDay => {
+    let group = groups.get(date);
+    if (!group) {
+      group = plannedDay(date, today);
+      groups.set(date, group);
+    }
+    return group;
+  };
+
   for (const task of tasks) {
     const row = planned.get(task.id);
-    if (!row) continue;
-    let group = groups.get(row.start);
-    if (!group) {
-      group = {
-        date: row.start,
-        weekday: weekdayLabel(row.start),
-        isToday: row.start === today,
-        rows: [],
-      };
-      groups.set(row.start, group);
-    }
-    group.rows.push({
+    const planTask = planTasks.get(task.id);
+    if (!row || !planTask) continue;
+    const parts = plannedDayParts(planTask, row);
+    groupFor(row.start).rows.push({
       task,
       end: row.end,
-      spans: row.end !== row.start,
+      spans: parts.length > 1,
+      days: parts.length,
       conflict: row.conflict,
     });
+    for (let index = 1; index < parts.length; index++) {
+      const part = parts[index];
+      groupFor(part.day).spans.push({
+        task,
+        end: row.end,
+        day: index + 1,
+        total: parts.length,
+        hours: part.hours,
+      });
+    }
   }
+
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -69,7 +100,7 @@ export function fillPlannedDays(
     if (groups.has(date)) continue;
     const busy = plan.some((row) => row.start <= date && date <= row.end);
     if (busy) continue;
-    groups.set(date, { date, weekday: weekdayLabel(date), isToday: date === today, rows: [] });
+    groups.set(date, plannedDay(date, today));
   }
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
