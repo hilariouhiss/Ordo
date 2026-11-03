@@ -294,6 +294,8 @@ function refresh(): void {
             :total="span.total"
             :hours="span.hours"
             :end="span.end"
+            :from="span.from"
+            :to="span.to"
             @open="openTask"
           />
         </div>

@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { X } from "@lucide/vue";
+import { RotateCcw, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { localDate, shortDate, shortDateTime, todayIso, weekdayLabel } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
-import { currentStep } from "../../lib/steps";
-import { formatEffort } from "../../lib/effort";
+import { allocateSteps, currentStep, formatStepClock, formatStepEffort } from "../../lib/steps";
+import { formatEffort, parseEffortText } from "../../lib/effort";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
-import type { Person, Priority, Status } from "../../model/types";
+import type { Person, Priority, Status, Step } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { finishPreview, taskSheetVM } from "../../viewmodels/taskSheetVM";
 import DateField from "../components/DateField.vue";
@@ -44,11 +44,113 @@ const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
 const noteDraft = ref("");
 const tagDraft = ref("");
+const titleInput = ref<HTMLTextAreaElement | null>(null);
+
+/** The title wraps, so the field grows with its lines instead of scrolling sideways. */
+function resizeTitle(): void {
+  const el = titleInput.value;
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + 2}px`;
+}
+
+function onTitleEnter(event: KeyboardEvent): void {
+  if (!isImeEnter(event)) event.preventDefault();
+}
+
+watch(
+  () => form.title,
+  () => void nextTick(resizeTitle),
+  { flush: "post" },
+);
 
 const late = computed(() =>
   overdueDays(taskSheetVM.state.task?.expectedFinishDate ?? null, todayIso()),
 );
 const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0);
+const steps = computed(() => taskSheetVM.state.task?.steps ?? []);
+const allocation = computed(() => allocateSteps(form.effortMinutes, steps.value));
+const allocatedMinutes = computed(() => allocation.value.allocated);
+const remainingMinutes = computed(() => form.effortMinutes - allocatedMinutes.value);
+const hasManualSteps = computed(() => steps.value.some((step) => step.effortMinutes != null));
+const minutesById = computed(
+  () => new Map(allocation.value.steps.map((row) => [row.id, row.minutes])),
+);
+const editingStepId = ref<string | null>(null);
+const stepEffortDraft = ref("");
+const stepEffortInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
+const raisedTo = ref<number | null>(null);
+
+function stepMinutes(stepId: string): number {
+  return minutesById.value.get(stepId) ?? 0;
+}
+
+function barWidth(minutes: number): string {
+  return allocatedMinutes.value > 0 ? `${(minutes / allocatedMinutes.value) * 100}%` : "0%";
+}
+
+function focusStepEffort(): void {
+  const input = Array.isArray(stepEffortInput.value)
+    ? stepEffortInput.value[0]
+    : stepEffortInput.value;
+  input?.focus();
+  input?.select();
+}
+
+function startStepEdit(step: Step): void {
+  editingStepId.value = step.id;
+  stepEffortDraft.value = formatStepClock(stepMinutes(step.id));
+  void nextTick(focusStepEffort);
+}
+
+function cancelStepEdit(): void {
+  editingStepId.value = null;
+  stepEffortDraft.value = "";
+}
+
+async function saveStepMinutes(step: Step, minutes: number | null): Promise<void> {
+  const before = taskSheetVM.state.task?.effortMinutes ?? 0;
+  try {
+    await taskSheetVM.setStepEffort(step.id, minutes);
+    const after = taskSheetVM.state.task?.effortMinutes ?? before;
+    if (after > before) {
+      raisedTo.value = after;
+      // Follow the raised estimate unless the user is already editing the field.
+      if (form.effortMinutes === before) form.effortMinutes = after;
+    }
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+  }
+}
+
+async function commitStepEdit(step: Step): Promise<void> {
+  if (editingStepId.value !== step.id) return;
+  const minutes = parseEffortText(stepEffortDraft.value);
+  const current = stepMinutes(step.id);
+  editingStepId.value = null;
+  stepEffortDraft.value = "";
+  if (minutes === null) return;
+  if (step.effortMinutes == null && minutes === current) return;
+  if (step.effortMinutes === minutes) return;
+  await saveStepMinutes(step, minutes);
+}
+
+function onStepEffortEnter(event: KeyboardEvent, step: Step): void {
+  if (isImeEnter(event)) return;
+  void commitStepEdit(step);
+}
+
+async function resetStepEffort(step: Step): Promise<void> {
+  await saveStepMinutes(step, null);
+}
+
+async function evenSteps(): Promise<void> {
+  try {
+    await taskSheetVM.evenSteps();
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+  }
+}
 /** The finish always follows the estimate; it is shown, never typed. */
 const expectedFinish = computed(() => {
   const task = taskSheetVM.state.task;
@@ -57,6 +159,15 @@ const expectedFinish = computed(() => {
 const expectedFinishLabel = computed(
   () => `${shortDate(expectedFinish.value)} ${weekdayLabel(expectedFinish.value)}`,
 );
+const hasActual = computed(() => {
+  const task = taskSheetVM.state.task;
+  return (
+    !!task &&
+    (task.actualStartAt !== null ||
+      task.actualFinishAt !== null ||
+      task.actualEffortMinutes !== null)
+  );
+});
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
@@ -75,6 +186,7 @@ watch(
       return;
     }
     seededFor = task.id;
+    raisedTo.value = null;
     form.title = task.title;
     form.projectId = task.projectId;
     form.categoryId = task.categoryId;
@@ -189,114 +301,208 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   >
     <motion.aside
       v-bind="sheetPanelMotion"
-      class="window-edge-panel h-full w-full max-w-[440px] overflow-y-auto bg-base-100 p-5 shadow-2xl"
+      class="window-edge-panel flex h-full w-full max-w-[440px] flex-col overflow-y-auto bg-base-100 p-5 shadow-2xl"
     >
-      <div class="flex items-start gap-2">
-        <h2 class="text-[17px] font-semibold leading-snug">{{ taskSheetVM.state.task?.title }}</h2>
-        <button
-          class="ml-auto text-base-content/30"
-          :aria-label="t('common.close')"
-          @click="taskSheetVM.close()"
-        >
-          <X :size="15" aria-hidden="true" />
-        </button>
-      </div>
-
-      <p v-if="taskSheetVM.state.error" class="mt-2 text-[12px] text-error">
+      <p v-if="taskSheetVM.state.error" class="mb-1 text-[11px] text-error">
         {{ errorText(taskSheetVM.state.error) }}
       </p>
 
       <template v-if="taskSheetVM.state.task">
-        <label class="mt-4 block text-[11px] text-base-content/45">{{ t("task.title") }}</label>
-        <input v-model="form.title" class="input input-sm mt-1 w-full rounded-lg border-base-300" />
-
-        <div v-if="!hasSteps" class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
-            {{ t("task.status") }}
-          </div>
-          <div class="mt-1.5 flex gap-1.5">
-            <button
-              v-for="option in statusOptions"
-              :key="option.value"
-              class="btn btn-xs rounded-md border-base-300 font-normal"
-              :class="
-                form.status === option.value
-                  ? 'border-0 bg-primary text-primary-content'
-                  : 'bg-base-100'
-              "
-              @click="setStatus(option.value)"
-            >
-              {{ t(option.key) }}
-            </button>
-          </div>
+        <div class="flex items-start gap-2">
+          <textarea
+            ref="titleInput"
+            v-model="form.title"
+            rows="1"
+            class="min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-[17px] font-semibold leading-snug outline-none focus:border-primary/60"
+            :aria-label="t('task.title')"
+            @keydown.enter="onTitleEnter"
+          ></textarea>
+          <button
+            class="mt-2 shrink-0 text-base-content/30"
+            :aria-label="t('common.close')"
+            @click="taskSheetVM.close()"
+          >
+            <X :size="15" aria-hidden="true" />
+          </button>
         </div>
 
-        <div class="mt-4 text-[10.5px] font-medium tracking-wide text-base-content/40">
+        <label class="mt-2 block text-[11px] text-base-content/45">
+          {{ t("task.description") }}
+          <textarea
+            v-model="form.note"
+            class="mt-1 h-[72px] w-full resize-none rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-[12.5px] leading-5 outline-none placeholder:text-base-content/35 focus:border-primary/60"
+            rows="3"
+            :placeholder="t('task.descriptionPlaceholder')"
+          ></textarea>
+        </label>
+
+        <div v-if="!hasSteps" class="mt-2 flex items-center gap-1.5">
+          <span class="text-[11px] text-base-content/40">{{ t("task.status") }}</span>
+          <button
+            v-for="option in statusOptions"
+            :key="option.value"
+            class="btn btn-xs rounded-md border-base-300 font-normal"
+            :class="
+              form.status === option.value
+                ? 'border-0 bg-primary text-primary-content'
+                : 'bg-base-100'
+            "
+            @click="setStatus(option.value)"
+          >
+            {{ t(option.key) }}
+          </button>
+        </div>
+
+        <div
+          class="mt-3 text-[11px] font-medium tracking-wide text-base-content/40"
+          :title="t('task.stepsHint')"
+        >
           {{ t("task.steps") }}
         </div>
-        <AnimatePresence as="div" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
+        <AnimatePresence as="div" mode="popLayout" :initial="false" class="mt-1 space-y-0.5">
           <motion.div
             v-for="(s, i) in taskSheetVM.state.task.steps"
             :key="s.id"
             v-bind="listItemMotion"
             class="flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-base-200"
           >
-            <span class="w-3 text-[10px] text-base-content/30">{{ i + 1 }}</span>
+            <span class="w-3 text-[10.5px] text-base-content/30">{{ i + 1 }}</span>
             <button
               class="size-4 shrink-0 rounded-full border-[1.5px]"
               :class="s.done ? 'border-success bg-success' : 'border-base-content/25'"
               @click="taskSheetVM.toggle(s.id)"
             ></button>
-            <span class="text-[12.5px]" :class="{ 'text-base-content/40 line-through': s.done }">
+            <span
+              class="min-w-0 flex-1 truncate text-[13px]"
+              :class="{ 'text-base-content/40 line-through': s.done }"
+            >
               {{ s.title }}
             </span>
             <span
               v-if="currentStep(taskSheetVM.state.task.steps)?.id === s.id"
-              class="badge badge-ghost badge-xs text-primary"
+              class="badge badge-ghost badge-xs shrink-0 text-primary"
             >
               {{ t("task.current") }}
             </span>
-            <button
-              class="ml-auto text-base-content/25"
-              :aria-label="t('task.deleteStepAria')"
-              @click="taskSheetVM.remove(s.id)"
-            >
-              <X :size="13" aria-hidden="true" />
-            </button>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <input
+                v-if="editingStepId === s.id"
+                ref="stepEffortInput"
+                v-model="stepEffortDraft"
+                class="input input-xs w-14 rounded-md border-base-300 bg-base-100 px-1 text-center font-mono text-[11px] tabular-nums"
+                :aria-label="t('task.stepEffortAria', { title: s.title })"
+                @keydown.enter="onStepEffortEnter($event, s)"
+                @keydown.esc.prevent="cancelStepEdit"
+                @blur="commitStepEdit(s)"
+              />
+              <button
+                v-else
+                type="button"
+                class="border-b border-dotted border-base-content/30 pb-px font-mono text-[11px] tabular-nums"
+                :class="s.effortMinutes == null ? 'text-base-content/45' : 'text-base-content/70'"
+                :title="
+                  s.effortMinutes == null
+                    ? t('task.stepAutoHint')
+                    : formatStepEffort(stepMinutes(s.id))
+                "
+                :aria-label="t('task.stepEffortAria', { title: s.title })"
+                @click.stop="startStepEdit(s)"
+              >
+                {{ formatStepClock(stepMinutes(s.id)) }}
+                <span
+                  v-if="s.effortMinutes == null"
+                  class="ml-1 font-sans text-[8.5px] text-base-content/30"
+                  >{{ t("task.stepAuto") }}</span
+                >
+              </button>
+              <button
+                v-if="s.effortMinutes != null"
+                type="button"
+                class="text-base-content/25 hover:text-base-content/60"
+                :aria-label="t('task.stepResetAria', { title: s.title })"
+                :title="t('task.stepResetAria', { title: s.title })"
+                @click.stop="resetStepEffort(s)"
+              >
+                <RotateCcw :size="11" aria-hidden="true" />
+              </button>
+              <button
+                class="text-base-content/25"
+                :aria-label="t('task.deleteStepAria')"
+                @click="taskSheetVM.remove(s.id)"
+              >
+                <X :size="13" aria-hidden="true" />
+              </button>
+            </div>
           </motion.div>
         </AnimatePresence>
 
         <input
           v-model="stepDraft"
-          class="mt-1 w-full bg-transparent px-1 py-1.5 text-[12px] outline-none placeholder:text-base-content/35"
+          class="mt-1 w-full bg-transparent px-1 py-1.5 text-[12.5px] outline-none placeholder:text-base-content/35"
           :placeholder="t('task.stepPlaceholder')"
           @keydown.enter="onStepKey"
         />
 
-        <p class="mt-2 rounded-lg bg-success/10 px-3 py-2 text-[11px] text-success">
-          {{ t("task.stepsHint") }}
+        <div v-if="steps.length" class="mt-1">
+          <div
+            class="flex items-center gap-1.5 text-[11px]"
+            :class="remainingMinutes < 0 ? 'text-error' : 'text-base-content/45'"
+          >
+            <span>
+              {{
+                t("task.stepsAllocated", {
+                  allocated: formatStepEffort(allocatedMinutes),
+                  total: formatStepEffort(form.effortMinutes),
+                })
+              }}
+            </span>
+            <span v-if="remainingMinutes > 0">
+              · {{ t("task.stepsRemaining", { rest: formatStepEffort(remainingMinutes) }) }}
+            </span>
+            <span v-else-if="remainingMinutes < 0">
+              · {{ t("task.stepsOver", { over: formatStepEffort(-remainingMinutes) }) }}
+            </span>
+            <button v-if="hasManualSteps" class="ml-auto shrink-0 text-primary" @click="evenSteps">
+              {{ t("task.evenSteps") }}
+            </button>
+          </div>
+          <div
+            v-if="allocatedMinutes > 0"
+            class="mt-1 flex h-1 gap-0.5 overflow-hidden rounded-full"
+          >
+            <i
+              v-for="(row, index) in allocation.steps"
+              :key="row.id"
+              class="block h-1 rounded-full"
+              :class="steps[index]?.done ? 'bg-success/40' : 'bg-primary/25'"
+              :style="{ width: barWidth(row.minutes) }"
+            ></i>
+          </div>
+        </div>
+
+        <p v-if="raisedTo" class="mt-1 text-[10.5px] text-warning">
+          {{ t("task.stepsRaisedTotal", { total: formatStepEffort(raisedTo) }) }}
         </p>
 
-        <label class="mt-3 block text-[11px] text-base-content/45">
-          {{ t("task.project") }}
-          <select
-            v-model="form.projectId"
-            class="select select-sm mt-1 w-full rounded-lg border-base-300"
-            @change="onProjectChange"
-          >
-            <option :value="null">{{ t("task.noProject") }}</option>
-            <option v-for="project in appVM.state.projects" :key="project.id" :value="project.id">
-              {{ project.name }}
-            </option>
-          </select>
-        </label>
-
-        <div class="mt-2 grid grid-cols-2 gap-2">
+        <div class="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2">
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.project") }}
+            <select
+              v-model="form.projectId"
+              class="select select-sm mt-1 w-full rounded-md border-base-300"
+              @change="onProjectChange"
+            >
+              <option :value="null">{{ t("task.noProject") }}</option>
+              <option v-for="project in appVM.state.projects" :key="project.id" :value="project.id">
+                {{ project.name }}
+              </option>
+            </select>
+          </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.category") }}
             <select
               v-model="form.categoryId"
-              class="select select-sm mt-1 w-full rounded-lg border-base-300"
+              class="select select-sm mt-1 w-full rounded-md border-base-300"
             >
               <option :value="null">{{ t("common.uncategorized") }}</option>
               <option v-for="c in appVM.state.categories" :key="c.id" :value="c.id">
@@ -308,7 +514,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             {{ t("task.owner") }}
             <select
               v-model="form.ownerId"
-              class="select select-sm mt-1 w-full rounded-lg border-base-300"
+              class="select select-sm mt-1 w-full rounded-md border-base-300"
             >
               <option :value="null">{{ t("task.unassigned") }}</option>
               <option
@@ -326,7 +532,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             {{ t("task.priority") }}
             <select
               :value="form.priority"
-              class="select select-sm mt-1 w-full rounded-lg border-base-300"
+              class="select select-sm mt-1 w-full rounded-md border-base-300"
               @change="onPriorityChange"
             >
               <option value="high">{{ t("task.priorityHigh") }}</option>
@@ -338,22 +544,16 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             {{ t("task.expectedStart") }}
             <DateField
               v-model="form.expectedStartDate"
-              class="input input-sm mt-1 w-full rounded-lg border-base-300"
+              class="input input-sm mt-1 w-full rounded-md border-base-300"
             />
-          </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.expectedFinish") }}
-            <div class="mt-2 text-[12px] text-base-content/70">
-              {{ expectedFinishLabel }}
-              <span
-                v-if="taskSheetVM.state.task?.expectedFinishTime"
-                class="ml-1 text-[10.5px] text-base-content/45"
-              >
+            <span
+              class="mt-0.5 block text-[10.5px] leading-4 text-base-content/40"
+              :title="t('task.expectedFinishDerived')"
+            >
+              {{ t("task.expectedFinish") }} {{ expectedFinishLabel }}
+              <span v-if="taskSheetVM.state.task?.expectedFinishTime">
                 {{ taskSheetVM.state.task.expectedFinishTime }}
               </span>
-            </div>
-            <span class="mt-1 block text-[10.5px] text-base-content/40">
-              {{ t("task.expectedFinishDerived") }}
             </span>
           </label>
           <label class="block text-[11px] text-base-content/45">
@@ -364,90 +564,81 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </label>
         </div>
 
-        <div class="mt-2 grid grid-cols-2 gap-2 text-[11px] text-base-content/45">
-          <div>
+        <div
+          v-if="hasActual"
+          class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/45"
+        >
+          <span>
             {{ t("task.actualStart") }}
-            <div class="mt-1 text-[12px] text-base-content/70">
-              {{ shortDateTime(taskSheetVM.state.task?.actualStartAt ?? null) || t("common.none") }}
-            </div>
-          </div>
-          <div>
-            {{ t("task.actualFinish") }}
-            <div class="mt-1 text-[12px] text-base-content/70">
-              {{
-                shortDateTime(taskSheetVM.state.task?.actualFinishAt ?? null) || t("common.none")
-              }}
-            </div>
-          </div>
-          <div class="col-span-2">
-            {{ t("task.actualEffort") }}
-            <div class="mt-1 text-[12px] text-base-content/70">
-              {{
-                taskSheetVM.state.task?.actualEffortMinutes
-                  ? formatEffort(taskSheetVM.state.task.actualEffortMinutes)
-                  : t("common.none")
-              }}
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
-            {{ t("task.timeMode") }}
-          </div>
-          <div class="mt-1.5 flex items-center gap-1.5">
-            <button
-              v-for="option in timeOptions"
-              :key="String(option.value)"
-              class="btn btn-xs rounded-md border-base-300 font-normal"
-              :class="
-                form.exclusive === option.value
-                  ? 'border-0 bg-primary text-primary-content'
-                  : 'bg-base-100'
-              "
-              @click="form.exclusive = option.value"
-            >
-              {{ t(option.key) }}
-            </button>
-            <span class="ml-1 text-[10.5px] text-base-content/40">{{
-              t(form.exclusive ? "task.exclusiveHint" : "task.sharedHint")
+            <span class="text-base-content/70">{{
+              shortDateTime(taskSheetVM.state.task?.actualStartAt ?? null) || t("common.none")
             }}</span>
-          </div>
+          </span>
+          <span>
+            {{ t("task.actualFinish") }}
+            <span class="text-base-content/70">{{
+              shortDateTime(taskSheetVM.state.task?.actualFinishAt ?? null) || t("common.none")
+            }}</span>
+          </span>
+          <span>
+            {{ t("task.actualEffort") }}
+            <span class="text-base-content/70">{{
+              taskSheetVM.state.task?.actualEffortMinutes
+                ? formatEffort(taskSheetVM.state.task.actualEffortMinutes)
+                : t("common.none")
+            }}</span>
+          </span>
         </div>
 
-        <div class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
-            {{ t("task.tags") }}
-          </div>
-          <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <AnimatePresence mode="popLayout" :initial="false">
-              <motion.span
-                v-for="tag in form.tags"
-                :key="tag"
-                v-bind="listItemMotion"
-                class="badge badge-ghost badge-sm gap-1.5"
+        <div class="mt-3 flex flex-wrap items-center gap-1.5">
+          <span class="text-[11px] text-base-content/40">{{ t("task.timeMode") }}</span>
+          <button
+            v-for="option in timeOptions"
+            :key="String(option.value)"
+            class="btn btn-xs rounded-md border-base-300 font-normal"
+            :class="
+              form.exclusive === option.value
+                ? 'border-0 bg-primary text-primary-content'
+                : 'bg-base-100'
+            "
+            @click="form.exclusive = option.value"
+          >
+            {{ t(option.key) }}
+          </button>
+          <span class="text-[10.5px] text-base-content/40">{{
+            t(form.exclusive ? "task.exclusiveHint" : "task.sharedHint")
+          }}</span>
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-1.5">
+          <span class="text-[11px] text-base-content/40">{{ t("task.tags") }}</span>
+          <AnimatePresence mode="popLayout" :initial="false">
+            <motion.span
+              v-for="tag in form.tags"
+              :key="tag"
+              v-bind="listItemMotion"
+              class="badge badge-ghost badge-sm gap-1.5"
+            >
+              {{ tag }}
+              <button
+                class="text-base-content/30"
+                :aria-label="t('task.removeTagAria')"
+                @click="removeTag(tag)"
               >
-                {{ tag }}
-                <button
-                  class="text-base-content/30"
-                  :aria-label="t('task.removeTagAria')"
-                  @click="removeTag(tag)"
-                >
-                  <X :size="12" aria-hidden="true" />
-                </button>
-              </motion.span>
-            </AnimatePresence>
-            <input
-              v-model="tagDraft"
-              class="input input-xs w-24 rounded-md border-dashed border-base-300 bg-transparent"
-              :placeholder="t('task.addTag')"
-              @keydown.enter="onTagKey"
-            />
-          </div>
+                <X :size="12" aria-hidden="true" />
+              </button>
+            </motion.span>
+          </AnimatePresence>
+          <input
+            v-model="tagDraft"
+            class="input input-xs w-24 rounded-md border-dashed border-base-300 bg-transparent"
+            :placeholder="t('task.addTag')"
+            @keydown.enter="onTagKey"
+          />
         </div>
 
         <div v-if="taskSheetVM.state.task.delays.length" class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+          <div class="text-[11px] font-medium tracking-wide text-base-content/40">
             {{ t("task.delays") }}
           </div>
           <div
@@ -466,7 +657,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </div>
 
         <div v-if="late > 0 && taskSheetVM.state.task.status !== 'done'" class="mt-3">
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+          <div class="text-[11px] font-medium tracking-wide text-base-content/40">
             {{ t("task.overdueNote", { days: late }) }}
           </div>
           <div class="mt-1 flex items-center gap-1.5">
@@ -485,16 +676,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </div>
         </div>
 
-        <label class="mt-3 block text-[11px] text-base-content/45">
-          {{ t("common.note") }}
-          <textarea
-            v-model="form.note"
-            class="textarea textarea-sm mt-1 w-full rounded-lg border-base-300"
-            rows="2"
-          ></textarea>
-        </label>
-
-        <div class="mt-5 flex justify-end gap-2">
+        <div class="mt-4 flex justify-end gap-2">
           <button
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="archive"

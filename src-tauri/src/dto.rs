@@ -65,6 +65,8 @@ pub struct StepDto {
     pub title: String,
     pub sort_order: i64,
     pub done: bool,
+    /// Minutes set by hand; null splits the task's effort automatically.
+    pub effort_minutes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

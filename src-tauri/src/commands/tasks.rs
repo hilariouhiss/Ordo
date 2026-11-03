@@ -98,6 +98,31 @@ pub async fn delete_step(state: State<'_, AppState>, step_id: String) -> Result<
     })
     .await
 }
+
+#[tauri::command]
+pub async fn set_step_effort(
+    state: State<'_, AppState>,
+    step_id: String,
+    effort_minutes: Option<i64>,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::steps::set_effort(conn, &step_id, effort_minutes, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn reset_step_efforts(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::steps::reset_efforts(conn, &task_id, &now)
+    })
+    .await
+}
 #[tauri::command]
 pub async fn pass_queue(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
     with_db(&state, |conn| crate::services::week::pass_queue(conn)).await

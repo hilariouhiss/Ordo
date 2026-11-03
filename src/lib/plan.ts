@@ -19,6 +19,9 @@ export interface PlannedSpan {
   day: number;
   total: number;
   hours: number;
+  /** Effort-minute offset where this day starts, clamped to the task's effort. */
+  from: number;
+  to: number;
 }
 
 export interface PlannedDay {
@@ -69,6 +72,9 @@ export function groupPlannedDays(tasks: Task[], plan: PlannedTask[], today: stri
       days: parts.length,
       conflict: row.conflict,
     });
+    // Offsets are in effort minutes, not booked hours: the planner rounds the last
+    // day up to a whole hour, while the steps only cover the real estimate.
+    let offset = parts[0].hours * 60;
     for (let index = 1; index < parts.length; index++) {
       const part = parts[index];
       groupFor(part.day).spans.push({
@@ -77,7 +83,10 @@ export function groupPlannedDays(tasks: Task[], plan: PlannedTask[], today: stri
         day: index + 1,
         total: parts.length,
         hours: part.hours,
+        from: Math.min(offset, task.effortMinutes),
+        to: Math.min(offset + part.hours * 60, task.effortMinutes),
       });
+      offset += part.hours * 60;
     }
   }
 

@@ -74,6 +74,15 @@ export function deleteStep(stepId: string): Promise<Task> {
   return invoke<Task>("delete_step", { stepId });
 }
 
+/** Pins a step's share of the task's effort; null returns it to the automatic split. */
+export function setStepEffort(stepId: string, effortMinutes: number | null): Promise<Task> {
+  return invoke<Task>("set_step_effort", { stepId, effortMinutes });
+}
+
+export function resetStepEfforts(taskId: string): Promise<Task> {
+  return invoke<Task>("reset_step_efforts", { taskId });
+}
+
 export function passQueue(): Promise<Task[]> {
   return invoke<Task[]>("pass_queue");
 }

@@ -65,6 +65,7 @@ export function step(over: Partial<Step> = {}): Step {
     title: "一步",
     sortOrder: 0,
     done: false,
+    effortMinutes: null,
     ...over,
   };
 }

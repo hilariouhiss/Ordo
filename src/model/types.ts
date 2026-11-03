@@ -73,6 +73,8 @@ export interface Step {
   title: string;
   sortOrder: number;
   done: boolean;
+  /** Manually set minutes; null means an automatic share of the task's effort. */
+  effortMinutes: number | null;
 }
 
 export interface Delay {

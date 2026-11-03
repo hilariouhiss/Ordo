@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { shortDate } from "../../lib/dates";
 import { t } from "../../lib/i18n";
-import { stepLabel } from "../../lib/steps";
+import { formatStepClock, stepsInRange } from "../../lib/steps";
 import type { Task } from "../../model/types";
 import PriorityBadge from "./PriorityBadge.vue";
 
@@ -12,12 +12,17 @@ const props = defineProps<{
   total: number;
   hours: number;
   end: string;
+  /** Where this day starts and ends in the task's effort minutes. */
+  from: number;
+  to: number;
 }>();
 const emit = defineEmits<{ open: [Task] }>();
 
 const dayLabel = computed(() => t("task.spanDay", { day: props.day, total: props.total }));
 const hoursLabel = computed(() => t("week.dayLoad", { hours: props.hours }));
-const stepLine = computed(() => stepLabel(props.task.steps));
+const daySteps = computed(() =>
+  stepsInRange(props.task.effortMinutes, props.task.steps, props.from, props.to),
+);
 const aria = computed(() => t("week.spanOpenAria", { title: props.task.title }));
 const endLabel = computed(() =>
   props.day === props.total
@@ -61,8 +66,24 @@ function open(): void {
       <span class="badge badge-ghost badge-xs">{{ hoursLabel }}</span>
       <span class="ml-auto shrink-0 text-[10px] text-base-content/40">{{ endLabel }}</span>
     </div>
-    <p v-if="stepLine" class="truncate text-[10.5px] leading-4 text-base-content/45">
-      {{ stepLine }}
+    <p
+      v-if="daySteps.length"
+      class="flex flex-wrap items-center gap-x-1 text-[10.5px] leading-4 text-base-content/45"
+    >
+      <span class="text-base-content/35">{{ t("task.daySteps") }}</span>
+      <span
+        v-for="(slice, index) in daySteps"
+        :key="slice.step.id"
+        class="flex items-center gap-x-1"
+      >
+        <span v-if="index" class="text-base-content/25">·</span>
+        <span :class="{ 'text-base-content/35 line-through': slice.step.done }">{{
+          slice.step.title
+        }}</span>
+        <span class="font-mono text-[10px] text-base-content/35">{{
+          formatStepClock(slice.minutes)
+        }}</span>
+      </span>
     </p>
   </article>
 </template>

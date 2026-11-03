@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 16;
+pub const LATEST: i64 = 17;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -428,6 +428,17 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             )?;
         }
         tx.pragma_update(None, "user_version", 16)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 17 {
+        // Steps can pin their own share of the task's effort; null means automatic.
+        let tx = conn.unchecked_transaction()?;
+        if !has_column(&tx, "steps", "effort_minutes")? {
+            tx.execute_batch("ALTER TABLE steps ADD COLUMN effort_minutes INTEGER")?;
+        }
+        tx.pragma_update(None, "user_version", 17)?;
         tx.commit()?;
     }
     Ok(())
@@ -1322,5 +1333,18 @@ mod tests {
             })
             .unwrap();
         assert_eq!(start, "2026-10-19");
+    }
+
+    #[test]
+    fn steps_can_record_a_manual_effort() {
+        let c = db::open_in_memory().unwrap();
+        assert!(has_column(&c, "steps", "effort_minutes").unwrap());
+
+        // A crash after the ALTER but before the version bump must replay cleanly.
+        c.pragma_update(None, "user_version", 16).unwrap();
+        migrate(&c).unwrap();
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        assert!(has_column(&c, "steps", "effort_minutes").unwrap());
     }
 }

@@ -7,9 +7,11 @@ vi.mock("../../model/ipc", () => ({
   updateTaskPatch: vi.fn(),
   deleteStep: vi.fn(),
   addDelayNote: vi.fn(),
+  setStepEffort: vi.fn(),
+  resetStepEfforts: vi.fn(),
 }));
 
-import { getTask, updateTaskPatch } from "../../model/ipc";
+import { getTask, setStepEffort, updateTaskPatch } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import {
   createTaskSheetVM,
@@ -18,7 +20,7 @@ import {
   formFinish,
   type TaskForm,
 } from "../taskSheetVM";
-import { task } from "./fixtures";
+import { step, task } from "./fixtures";
 
 function formOf(t: Task): TaskForm {
   return {
@@ -42,6 +44,20 @@ describe("taskSheetVM", () => {
     const vm = createTaskSheetVM();
     await vm.open("t1");
     expect(vm.state.task?.id).toBe("t1");
+  });
+
+  it("pins a step's share and takes the refreshed task", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1" }));
+    vi.mocked(setStepEffort).mockResolvedValue(
+      task({ id: "t1", steps: [step({ id: "s1", effortMinutes: 90 })] }),
+    );
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    await vm.setStepEffort("s1", 90);
+
+    expect(setStepEffort).toHaveBeenCalledWith("s1", 90);
+    expect(vm.state.task?.steps[0].effortMinutes).toBe(90);
   });
 
   it("sends an effort change through the patch", async () => {

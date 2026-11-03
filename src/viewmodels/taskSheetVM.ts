@@ -6,6 +6,8 @@ import {
   addStep,
   deleteStep,
   getTask,
+  resetStepEfforts,
+  setStepEffort as setStepEffortApi,
   setTaskStatus,
   toggleStep,
   updateTaskPatch,
@@ -107,6 +109,15 @@ export function createTaskSheetVM() {
     state.task = await deleteStep(stepId);
   }
 
+  async function setStepEffort(stepId: string, minutes: number | null): Promise<void> {
+    state.task = await setStepEffortApi(stepId, minutes);
+  }
+
+  async function evenSteps(): Promise<void> {
+    if (!state.openId) return;
+    state.task = await resetStepEfforts(state.openId);
+  }
+
   /** Saves the sheet. The expected finish is not sent: the backend derives it. */
   async function saveForm(form: TaskForm): Promise<boolean> {
     const task = state.task;
@@ -133,7 +144,19 @@ export function createTaskSheetVM() {
     state.task = await setTaskStatus(state.openId, status);
   }
 
-  return { state, open, close, toggle, add, remove, saveForm, addNote, setStatus };
+  return {
+    state,
+    open,
+    close,
+    toggle,
+    add,
+    remove,
+    setStepEffort,
+    evenSteps,
+    saveForm,
+    addNote,
+    setStatus,
+  };
 }
 
 export const taskSheetVM = createTaskSheetVM();

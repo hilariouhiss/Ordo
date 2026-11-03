@@ -27,7 +27,7 @@ pub fn next_sort(conn: &Connection, task_id: &str) -> rusqlite::Result<i64> {
 
 pub fn list(conn: &Connection, task_id: &str) -> rusqlite::Result<Vec<StepDto>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, title, sort_order, done FROM steps
+        "SELECT id, task_id, title, sort_order, done, effort_minutes FROM steps
          WHERE task_id = ?1 AND deleted_at IS NULL ORDER BY sort_order",
     )?;
     let rows = stmt.query_map([task_id], |r| {
@@ -37,6 +37,7 @@ pub fn list(conn: &Connection, task_id: &str) -> rusqlite::Result<Vec<StepDto>> 
             title: r.get(2)?,
             sort_order: r.get(3)?,
             done: r.get::<_, i64>(4)? == 1,
+            effort_minutes: r.get(5)?,
         })
     })?;
     rows.collect()
@@ -44,7 +45,7 @@ pub fn list(conn: &Connection, task_id: &str) -> rusqlite::Result<Vec<StepDto>> 
 
 pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<StepDto> {
     conn.query_row(
-        "SELECT id, task_id, title, sort_order, done FROM steps
+        "SELECT id, task_id, title, sort_order, done, effort_minutes FROM steps
          WHERE id = ?1 AND deleted_at IS NULL",
         [id],
         |r| {
@@ -54,6 +55,7 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<StepDto> {
                 title: r.get(2)?,
                 sort_order: r.get(3)?,
                 done: r.get::<_, i64>(4)? == 1,
+                effort_minutes: r.get(5)?,
             })
         },
     )
@@ -70,6 +72,39 @@ pub fn last_live(conn: &Connection, task_id: &str) -> rusqlite::Result<Option<St
         |r| r.get(0),
     )
     .optional()
+}
+
+pub fn set_effort(
+    conn: &Connection,
+    id: &str,
+    minutes: Option<i64>,
+    now: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE steps SET effort_minutes = ?1, updated_at = ?2 WHERE id = ?3",
+        params![minutes, now, id],
+    )?;
+    Ok(())
+}
+
+/// The minutes pinned by hand across the task's live steps.
+pub fn manual_effort_sum(conn: &Connection, task_id: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(effort_minutes), 0) FROM steps
+         WHERE task_id = ?1 AND deleted_at IS NULL",
+        [task_id],
+        |r| r.get(0),
+    )
+}
+
+/// Returns every live step of the task to the automatic split.
+pub fn clear_efforts(conn: &Connection, task_id: &str, now: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE steps SET effort_minutes = NULL, updated_at = ?1
+         WHERE task_id = ?2 AND deleted_at IS NULL",
+        params![now, task_id],
+    )?;
+    Ok(())
 }
 
 pub fn set_done(conn: &Connection, id: &str, done: bool, now: &str) -> rusqlite::Result<()> {

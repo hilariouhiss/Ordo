@@ -186,7 +186,7 @@ fn attach_children(
         .collect();
 
     let mut steps = conn.prepare(&format!(
-        "SELECT id, task_id, title, sort_order, done FROM steps
+        "SELECT id, task_id, title, sort_order, done, effort_minutes FROM steps
          WHERE task_id IN ({placeholders}) AND deleted_at IS NULL ORDER BY task_id, sort_order"
     ))?;
     let rows = steps.query_map(rusqlite::params_from_iter(ids), |row| {
@@ -196,6 +196,7 @@ fn attach_children(
             title: row.get(2)?,
             sort_order: row.get(3)?,
             done: row.get::<_, i64>(4)? == 1,
+            effort_minutes: row.get(5)?,
         })
     })?;
     for row in rows {

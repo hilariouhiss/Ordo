@@ -20,6 +20,12 @@ pub fn update_patch(
         if !valid_effort(effort) {
             return Err("invalid_effort".into());
         }
+        // Manual step shares are a floor: lowering the estimate under them would
+        // leave the steps bigger than the task, so the sheet asks for a bigger number.
+        let manual = crate::repo::steps::manual_effort_sum(conn, id).map_err(|e| e.to_string())?;
+        if manual > effort {
+            return Err("steps_over_effort".into());
+        }
     }
     if let Some(priority) = patch.priority.as_deref() {
         if !valid_priority(priority) {

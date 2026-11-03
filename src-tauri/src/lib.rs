@@ -324,6 +324,8 @@ pub fn run() {
       commands::tasks::add_step,
       commands::tasks::toggle_step,
       commands::tasks::delete_step,
+      commands::tasks::set_step_effort,
+      commands::tasks::reset_step_efforts,
       commands::tasks::pass_queue,
       commands::tasks::pass_resolve,
       commands::tasks::mark_pass_done,

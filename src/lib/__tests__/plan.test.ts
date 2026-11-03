@@ -48,7 +48,7 @@ describe("groupPlannedDays", () => {
     expect(days[0].spans).toEqual([]);
     expect(days[1].rows).toEqual([]);
     expect(days[1].spans).toEqual([
-      { task: tasks[0], end: "2026-10-21", day: 2, total: 2, hours: 8 },
+      { task: tasks[0], end: "2026-10-21", day: 2, total: 2, hours: 8, from: 480, to: 960 },
     ]);
   });
 
@@ -59,6 +59,13 @@ describe("groupPlannedDays", () => {
 
     expect(days.map((entry) => entry.date)).toEqual([start, "2026-10-26"]);
     expect(days[1].spans[0]).toMatchObject({ day: 2, total: 2, hours: 8 });
+  });
+
+  it("clamps the last continuation to the real estimate", () => {
+    const tasks = [task("a", 500)];
+    const days = groupPlannedDays(tasks, planSchedule(tasks.map(toPlanTask), TODAY), TODAY);
+
+    expect(days[1].spans[0]).toMatchObject({ hours: 1, from: 480, to: 500 });
   });
 
   it("keeps a single-day task free of continuation entries", () => {
