@@ -76,7 +76,10 @@ describe("statsVM", () => {
 
   it("counts quiet days so the trend keeps its scale", async () => {
     vi.mocked(statsOverview).mockResolvedValue(
-      overview({ completed: 3, daily: [{ date: "2026-10-05", completed: 3, created: 0 }] }),
+      overview({
+        completed: 3,
+        daily: [{ date: addDays(todayIso(), -5), completed: 3, created: 0 }],
+      }),
     );
 
     const vm = createStatsVM();
