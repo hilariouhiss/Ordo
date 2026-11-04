@@ -4,10 +4,10 @@ import {
   isWeekend,
   localDate,
   mondayOf,
-  remainingWorkdays,
   shortDateTime,
   weekdayLabel,
   weekdayOf,
+  weekWorkdays,
 } from "../dates";
 import { setLanguage } from "../i18n";
 
@@ -65,24 +65,17 @@ describe("localDate", () => {
   });
 });
 
-describe("remainingWorkdays", () => {
-  it("lists today through Friday in the middle of the week", () => {
-    expect(remainingWorkdays("2026-10-20")).toEqual([
-      "2026-10-20",
-      "2026-10-21",
-      "2026-10-22",
-      "2026-10-23",
-    ]);
-  });
-
-  it("keeps only Friday on a Friday", () => {
-    expect(remainingWorkdays("2026-10-23")).toEqual(["2026-10-23"]);
+describe("weekWorkdays", () => {
+  it("lists Monday through Friday of the week the day belongs to", () => {
+    const monday = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
+    expect(weekWorkdays("2026-10-20")).toEqual(monday);
+    expect(weekWorkdays("2026-10-19")).toEqual(monday);
   });
 
   it("rolls the weekend to the next Monday through Friday", () => {
     const nextWeek = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"];
-    expect(remainingWorkdays("2026-10-24")).toEqual(nextWeek);
-    expect(remainingWorkdays("2026-10-25")).toEqual(nextWeek);
+    expect(weekWorkdays("2026-10-24")).toEqual(nextWeek);
+    expect(weekWorkdays("2026-10-25")).toEqual(nextWeek);
   });
 });
 

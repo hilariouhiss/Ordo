@@ -2,7 +2,7 @@
 import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { remainingWorkdays, shortDate, todayIso, weekdayLabel } from "../lib/dates";
+import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { t } from "../lib/i18n";
 import { fillPlannedDays } from "../lib/plan";
 import type { Task } from "../model/types";
@@ -56,7 +56,7 @@ const draggingSuspended = computed(
 const shownDays = computed(() => {
   if (days.value.length || !draggingSuspended.value) return days.value;
   const today = todayIso();
-  return fillPlannedDays(days.value, remainingWorkdays(today), plan.value, today);
+  return fillPlannedDays(days.value, weekWorkdays(today), plan.value, today);
 });
 
 function onHandleDown(event: PointerEvent, id: string): void {
@@ -141,7 +141,8 @@ function anchorFor(day: string, beforeId: string | null): string | null {
   if (beforeId) return beforeId;
   const index = shownDays.value.findIndex((entry) => entry.date === day);
   for (const later of shownDays.value.slice(index + 1)) {
-    const first = later.rows[0];
+    // Finished rows are read-only and cannot anchor a move.
+    const first = later.rows.find((row) => !row.history);
     if (first) return first.task.id;
   }
   return null;
@@ -267,12 +268,20 @@ function refresh(): void {
     </p>
 
     <div v-if="shownDays.length" ref="listEl" :class="{ 'select-none': draggingId }">
-      <section v-for="day in shownDays" :key="day.date" :data-day="day.date">
+      <section
+        v-for="day in shownDays"
+        :key="day.date"
+        :data-day="day.date"
+        :class="{ 'opacity-75': day.isPast }"
+      >
         <div class="flex items-center gap-2 px-1 pt-1.5 pb-1 text-[10.5px] text-base-content/40">
           <span class="font-medium">{{ day.weekday }}</span>
           <span>{{ shortDate(day.date) }}</span>
           <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
             t("week.today")
+          }}</span>
+          <span v-else-if="day.isPast" class="badge badge-ghost badge-xs">{{
+            t("week.past")
           }}</span>
           <span v-if="dayLoad(day.date)" class="ml-auto text-[10px] text-base-content/40">
             {{ t("week.dayLoad", { hours: dayLoad(day.date) }) }}
@@ -304,7 +313,16 @@ function refresh(): void {
             v-for="row in day.rows"
             :key="row.task.id"
             :task="row.task"
-            :plan="{ end: row.end, spans: row.spans, days: row.days, conflict: row.conflict }"
+            :readonly="row.history === true"
+            :plan="{
+              start: row.start,
+              end: row.end,
+              spans: row.spans,
+              days: row.days,
+              clamped: row.clamped,
+              conflict: row.conflict,
+            }"
+            :data-task-id="row.history ? undefined : row.task.id"
             :drop-line="
               dragMoved &&
               dropTarget?.day === day.date &&
@@ -312,11 +330,10 @@ function refresh(): void {
               draggingId !== row.task.id
             "
             :style="{ opacity: draggingId === row.task.id ? 0.4 : undefined }"
-            :data-task-id="row.task.id"
             @open="openTask"
             @changed="refresh"
           >
-            <template #leading>
+            <template v-if="!row.history" #leading>
               <button
                 class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
                 :aria-label="t('week.reorderAria', { title: row.task.title })"

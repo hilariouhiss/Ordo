@@ -67,15 +67,10 @@ export function shortDateTime(timestamp: string | null): string {
 }
 
 /**
- * The workdays left in the current week, starting from today. A weekend rolls to the
- * next Monday, so the list is never empty and never points at a past day.
+ * The workdays of the week the page shows: Monday to Friday. A weekend rolls forward to
+ * the next Monday, so the page never opens on a blank weekend.
  */
-export function remainingWorkdays(today: string): string[] {
-  const days: string[] = [];
-  let day = isWeekend(today) ? addDays(today, (8 - weekdayOf(today)) % 7) : today;
-  while (!isWeekend(day)) {
-    days.push(day);
-    day = addDays(day, 1);
-  }
-  return days;
+export function weekWorkdays(today: string): string[] {
+  const monday = isWeekend(today) ? addDays(today, (8 - weekdayOf(today)) % 7) : mondayOf(today);
+  return [0, 1, 2, 3, 4].map((offset) => addDays(monday, offset));
 }

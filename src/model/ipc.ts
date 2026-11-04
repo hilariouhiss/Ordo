@@ -104,6 +104,11 @@ export function weekStats(today: string): Promise<WeekStats> {
   return invoke<WeekStats>("week_stats", { today });
 }
 
+/** Tasks finished this week (or planned for it) that already left the week list. */
+export function listWeekDone(today: string): Promise<Task[]> {
+  return invoke<Task[]>("list_week_done", { today });
+}
+
 /** Completed / created / delayed work for one local date range. */
 export function statsOverview(from: string, to: string): Promise<StatsOverview> {
   return invoke<StatsOverview>("stats_overview", { from, to });

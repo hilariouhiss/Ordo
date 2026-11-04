@@ -2,7 +2,7 @@
 import { ChevronRight, Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
-import { shortDate, todayIso } from "../../lib/dates";
+import { shortDate, shortDateTime, todayIso } from "../../lib/dates";
 import { askNotice, askSuspend } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
@@ -19,12 +19,22 @@ import StatusDot from "./StatusDot.vue";
 const props = withDefaults(
   defineProps<{
     task: Task;
-    plan?: { end: string; spans: boolean; days: number; conflict: boolean };
+    plan?: {
+      start?: string;
+      end: string;
+      spans: boolean;
+      days: number;
+      /** The plan starts after this week, so the card sits on the week's last day. */
+      clamped?: boolean;
+      conflict: boolean;
+    };
     dropLine?: boolean;
     showProject?: boolean;
     draggable?: boolean;
+    /** A finished row in the past days: shown for the record, toggle off. */
+    readonly?: boolean;
   }>(),
-  { showProject: true, draggable: false },
+  { showProject: true, draggable: false, readonly: false },
 );
 const emit = defineEmits<{
   open: [Task];
@@ -149,7 +159,7 @@ async function suspend(): Promise<void> {
     <div class="flex items-start gap-2.5">
       <slot name="leading" />
       <button
-        v-if="!hasSteps"
+        v-if="!hasSteps && !readonly"
         class="mt-0.5 flex shrink-0 rounded-full disabled:opacity-60"
         :aria-label="doneLabel"
         :title="doneLabel"
@@ -158,7 +168,12 @@ async function suspend(): Promise<void> {
       >
         <StatusDot :status="task.status" :suspended="task.suspended" />
       </button>
-      <span v-else class="mt-0.5 shrink-0" :title="t('task.stepsHint')" @click.stop>
+      <span
+        v-else
+        class="mt-0.5 shrink-0"
+        :title="hasSteps ? t('task.stepsHint') : undefined"
+        @click.stop
+      >
         <StatusDot :status="task.status" :suspended="task.suspended" />
       </span>
       <div class="min-w-0 flex-1">
@@ -209,6 +224,9 @@ async function suspend(): Promise<void> {
           <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
             {{ t("task.spanEnd", { days: plan.days, date: shortDate(plan.end) }) }}
           </span>
+          <span v-if="plan?.clamped" class="badge badge-ghost badge-xs">
+            {{ t("task.laterStart", { date: shortDate(plan.start ?? null) }) }}
+          </span>
           <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
             {{ t("task.carry", { count: task.carryCount }) }}
           </span>
@@ -233,8 +251,11 @@ async function suspend(): Promise<void> {
             {{ t("task.notFit") }}
           </span>
           <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
+          <span v-if="task.actualFinishAt" class="text-right text-[11px] text-base-content/45">
+            {{ t("task.doneAt", { date: shortDateTime(task.actualFinishAt) }) }}
+          </span>
           <span
-            v-if="task.expectedFinishDate"
+            v-else-if="task.expectedFinishDate"
             class="text-right text-[11px]"
             :class="[
               overdue ? 'text-error' : 'text-base-content/45',

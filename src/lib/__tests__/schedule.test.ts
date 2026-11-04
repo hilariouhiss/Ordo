@@ -83,6 +83,39 @@ describe("planSchedule", () => {
     ]);
   });
 
+  it("honors a start date inside the week that has already passed", () => {
+    const plan = planSchedule(
+      [t("a", 1, { expectedStartDate: "2026-10-19" })],
+      TODAY,
+      "2026-10-19",
+    );
+    expect(plan[0].start).toBe("2026-10-19");
+  });
+
+  it("never plans before the week it shows", () => {
+    const plan = planSchedule(
+      [t("a", 1, { expectedStartDate: "2026-10-12" })],
+      TODAY,
+      "2026-10-19",
+    );
+    expect(plan[0].start).toBe("2026-10-19");
+  });
+
+  it("keeps a day from before today ahead of a later pin", () => {
+    const plan = planSchedule(
+      [
+        t("later", 1, { exclusive: true, expectedStartDate: "2026-10-20" }),
+        t("past", 2, { exclusive: true, expectedStartDate: "2026-10-19" }),
+      ],
+      TODAY,
+      "2026-10-19",
+    );
+    expect(plan.map((row) => [row.start, row.end])).toEqual([
+      ["2026-10-21", "2026-10-21"],
+      ["2026-10-19", "2026-10-20"],
+    ]);
+  });
+
   it("queues exclusive tasks after one another in list order", () => {
     expect(spans([t("x1", 1, { exclusive: true }), t("x2", 1, { exclusive: true })])).toEqual([
       [TODAY, TODAY],

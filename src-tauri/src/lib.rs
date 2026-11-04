@@ -331,6 +331,7 @@ pub fn run() {
       commands::tasks::mark_pass_done,
       commands::tasks::week_stats,
       commands::tasks::list_suspended,
+      commands::tasks::list_week_done,
       commands::tasks::resume_task,
       commands::tasks::start_task,
       commands::tasks::suspend_task,

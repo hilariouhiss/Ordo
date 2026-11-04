@@ -49,10 +49,10 @@ function needOf(task: PlanTask): number {
   return Math.max(1, Math.ceil(minutes / MINUTES_PER_HOUR));
 }
 
-function anchorOf(task: PlanTask, start: string): string {
-  return startWorkday(
-    task.expectedStartDate && task.expectedStartDate > start ? task.expectedStartDate : start,
-  );
+/** Where the plan begins: the task's own start date (never before the week), else today. */
+function anchorOf(task: PlanTask, start: string, weekStart: string): string {
+  const explicit = task.expectedStartDate;
+  return startWorkday(explicit ? (explicit > weekStart ? explicit : weekStart) : start);
 }
 
 /** The next hourly slot: the next hour, then the next working day's first hour. */
@@ -100,29 +100,37 @@ function endOf(start: Start, need: number): string {
 /**
  * Places exclusive tasks first and shared tasks around them. Exclusive tasks take
  * only the hours their effort needs, so other work can fill the rest of the day;
- * shared tasks never block each other. An explicit start date is honored before
- * the manual queue.
+ * shared tasks never block each other. Exclusive tasks claim days in plan order:
+ * the earlier start goes first, and an explicit start date beats the manual queue
+ * on the same day. `weekStart` lets a start before today still count.
  */
-export function planSchedule(tasks: PlanTask[], start: string): PlannedTask[] {
+export function planSchedule(
+  tasks: PlanTask[],
+  start: string,
+  weekStart: string = start,
+): PlannedTask[] {
   const planned = new Map<string, { slot: Start; end: string }>();
   const taken = new Map<string, number>();
-  const pinned = tasks
-    .filter((task) => task.exclusive && task.expectedStartDate && task.expectedStartDate >= start)
-    .sort((a, b) => (a.expectedStartDate as string).localeCompare(b.expectedStartDate as string));
-  const queued = tasks.filter(
-    (task) => task.exclusive && !(task.expectedStartDate && task.expectedStartDate >= start),
-  );
+  const ordered = tasks
+    .map((task, index) => ({ task, index, anchor: anchorOf(task, start, weekStart) }))
+    .filter((entry) => entry.task.exclusive)
+    .sort(
+      (a, b) =>
+        a.anchor.localeCompare(b.anchor) ||
+        (b.task.expectedStartDate ? 1 : 0) - (a.task.expectedStartDate ? 1 : 0) ||
+        a.index - b.index,
+    );
 
-  for (const task of [...pinned, ...queued]) {
+  for (const { task } of ordered) {
     const need = needOf(task);
-    const slot = firstFree(anchorOf(task, start), need, taken);
+    const slot = firstFree(anchorOf(task, start, weekStart), need, taken);
     reserve(taken, slot, need);
     planned.set(task.id, { slot, end: endOf(slot, need) });
   }
   for (const task of tasks) {
     if (task.exclusive) continue;
     const need = needOf(task);
-    const slot = firstFree(anchorOf(task, start), need, taken);
+    const slot = firstFree(anchorOf(task, start, weekStart), need, taken);
     planned.set(task.id, { slot, end: endOf(slot, need) });
   }
 

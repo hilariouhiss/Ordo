@@ -1,13 +1,14 @@
 import { computed, reactive } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
-import { mondayOf, remainingWorkdays, todayIso } from "../lib/dates";
+import { mondayOf, todayIso, weekWorkdays } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
-import { fillPlannedDays, groupPlannedDays, toPlanTask } from "../lib/plan";
+import { addDoneRows, fillPlannedDays, groupPlannedDays, toPlanTask } from "../lib/plan";
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
   listSuspended,
   listWeek,
+  listWeekDone,
   markNotificationsSeen,
   moveTask,
   placeTask,
@@ -21,14 +22,18 @@ import { saveCapture } from "./captureSave";
 export function createWeekVM() {
   const state = reactive({
     tasks: [] as Task[],
+    /** Finished this week; they left the week list but still show on the day they were done. */
+    done: [] as Task[],
     draft: "",
     loading: false,
     suspended: [] as Task[],
     stats: { added: 0, done: 0, delayed: 0 } as WeekStats,
   });
 
+  const week = computed(() => weekWorkdays(todayIso()));
   const planTasks = computed(() => state.tasks.map(toPlanTask));
-  const plan = computed(() => planSchedule(planTasks.value, todayIso()));
+  // The plan lays out the whole week, so a task's own start before today still counts.
+  const plan = computed(() => planSchedule(planTasks.value, todayIso(), week.value[0]));
   const loads = computed(() => planLoads(planTasks.value, plan.value));
   const overloadDates = computed(() =>
     [...loads.value.entries()]
@@ -37,20 +42,26 @@ export function createWeekVM() {
       .sort(),
   );
 
-  /** The planner hides untouched workdays; the setting fills the rest of this week back in. */
-  const days = computed(() => {
-    const today = todayIso();
-    const planned = groupPlannedDays(state.tasks, plan.value, today);
-    if (!appVM.state.settings?.weekShowEmptyDays) return planned;
-    return fillPlannedDays(planned, remainingWorkdays(today), plan.value, today);
-  });
-
   const planEnd = computed(() =>
     plan.value.reduce<string | null>(
       (latest, row) => (latest === null || row.end > latest ? row.end : latest),
       null,
     ),
   );
+
+  /**
+   * The whole week shows, Monday to Friday, including the days already gone. A plan that
+   * runs into next week is cut at the last workday, which also hosts the tasks whose
+   * start falls past it; finished tasks keep their day so the week reads as it happened.
+   */
+  const days = computed(() => {
+    const today = todayIso();
+    const dates = week.value;
+    const planned = groupPlannedDays(state.tasks, plan.value, today, dates[dates.length - 1]);
+    const withDone = addDoneRows(planned, state.done, dates, today);
+    if (!appVM.state.settings?.weekShowEmptyDays) return withDone;
+    return fillPlannedDays(withDone, dates, plan.value, today);
+  });
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {
     const last = appVM.state.settings?.lastPassWeek ?? "";
@@ -61,14 +72,16 @@ export function createWeekVM() {
     state.loading = true;
     try {
       const today = todayIso();
-      const [tasks, suspended, stats] = await Promise.all([
+      const [tasks, suspended, stats, done] = await Promise.all([
         listWeek(),
         listSuspended(),
         weekStats(today),
+        listWeekDone(today),
       ]);
       state.tasks = tasks;
       state.suspended = suspended;
       state.stats = stats;
+      state.done = done;
     } finally {
       state.loading = false;
     }

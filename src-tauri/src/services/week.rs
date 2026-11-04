@@ -226,6 +226,29 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
 }
 
 
+/// Tasks finished this week that already left the week list, so the page can still show
+/// them on the day they were done.
+pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String> {
+    let start = week_start(today);
+    let sql = format!(
+        "SELECT id FROM tasks
+         WHERE status = 'done'
+           AND ((actual_finish_at IS NOT NULL
+                 AND date(actual_finish_at, 'localtime') BETWEEN ?1 AND ?2)
+                OR (expected_start_date BETWEEN ?1 AND ?2))
+           AND {}
+         ORDER BY actual_finish_at, sort_order, id",
+        tasks::VISIBLE_TASK_FILTER
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let ids: Vec<String> = stmt
+        .query_map(params![start, today], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    tasks::dtos(conn, &ids).map_err(|e| e.to_string())
+}
+
 pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     let sql = format!(
         "SELECT id FROM tasks
@@ -941,6 +964,27 @@ mod tests {
         );
         let t = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert!(t.expected_start_date.is_none());
+    }
+
+    #[test]
+    fn list_done_keeps_this_weeks_finishes_only() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "本周完成", NOW, "t1").unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+        // Finished last week: the local day falls outside this week's Monday..today.
+        week::capture(&c, "上周完成", NOW, "t2").unwrap();
+        crate::services::tasks::set_status(&c, "t2", "done", "2026-10-12T00:00:00Z").unwrap();
+
+        let done = week::list_done(&c, "2026-10-20").unwrap();
+        let titles: Vec<&str> = done.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, vec!["本周完成"]);
+    }
+
+    #[test]
+    fn list_done_leaves_the_open_week_alone() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "还没做", NOW, "t1").unwrap();
+        assert!(week::list_done(&c, "2026-10-20").unwrap().is_empty());
     }
 
     #[test]

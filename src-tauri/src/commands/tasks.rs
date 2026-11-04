@@ -167,6 +167,17 @@ pub async fn week_stats(
 }
 
 #[tauri::command]
+pub async fn list_week_done(
+    state: State<'_, AppState>,
+    today: String,
+) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, move |conn| {
+        crate::services::week::list_done(conn, &today)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn list_suspended(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
     with_db(&state, |conn| crate::services::week::list_suspended(conn)).await
 }

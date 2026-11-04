@@ -6,6 +6,7 @@ vi.mock("../../model/ipc", () => ({
   capture: vi.fn(),
   listWeek: vi.fn(),
   listSuspended: vi.fn(),
+  listWeekDone: vi.fn().mockResolvedValue([]),
   weekStats: vi.fn(),
   resumeTask: vi.fn(),
   markNotificationsSeen: vi.fn(),
@@ -20,6 +21,7 @@ import {
   capture,
   listSuspended,
   listWeek,
+  listWeekDone,
   markNotificationsSeen,
   moveTask,
   placeTask,
@@ -274,17 +276,19 @@ describe("weekVM plan", () => {
     expect(vm.conflictCount.value).toBe(0);
   });
 
-  it("fills the rest of the workweek when the setting is on", async () => {
+  it("fills the whole workweek from Monday when the setting is on", async () => {
     appVM.state.settings = defaultSettings;
     const vm = await loadedWith([]);
 
     expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-10-19",
       "2026-10-20",
       "2026-10-21",
       "2026-10-22",
       "2026-10-23",
     ]);
     expect(vm.days.value.every((day) => day.rows.length === 0)).toBe(true);
+    expect(vm.days.value[0].isPast).toBe(true);
   });
 
   it("keeps the days a spanning task covers and fills the rest", async () => {
@@ -292,13 +296,14 @@ describe("weekVM plan", () => {
     const vm = await loadedWith([task({ id: "a", effortMinutes: 960 })]);
 
     expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-10-19",
       "2026-10-20",
       "2026-10-21",
       "2026-10-22",
       "2026-10-23",
     ]);
-    expect(vm.days.value[1].rows).toEqual([]);
-    expect(vm.days.value[1].spans).toHaveLength(1);
+    expect(vm.days.value[2].rows).toEqual([]);
+    expect(vm.days.value[2].spans).toHaveLength(1);
   });
 
   it("places a dropped task on the day and reloads", async () => {
@@ -312,6 +317,93 @@ describe("weekVM plan", () => {
 
     expect(placeTask).toHaveBeenCalledWith("t1", "2026-10-22", "t2");
     expect(vm.state.tasks[0].expectedStartDate).toBe("2026-10-22");
+  });
+});
+
+describe("weekVM plan across a week boundary", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Wednesday 11/4, the day the report came from.
+    vi.setSystemTime(new Date(2026, 10, 4, 9, 0, 0));
+    appVM.state.settings = defaultSettings;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    appVM.state.settings = null;
+  });
+
+  it("stops at this week and puts a next-week task on its last day", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "dcm204", expectedStartDate: "2026-11-05", exclusive: true }),
+      task({ id: "trip", expectedStartDate: "2026-11-10", effortMinutes: 1440, exclusive: true }),
+      task({ id: "dcm205", expectedStartDate: "2026-11-06", effortMinutes: 180, exclusive: true }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+    ]);
+    // The trip keeps a full row, so its circle still completes it; it reads last.
+    expect(vm.days.value[4].rows.map((row) => row.task.id)).toEqual(["dcm205", "trip"]);
+    expect(vm.days.value[4].rows[1]).toMatchObject({ start: "2026-11-10", clamped: true });
+  });
+
+  it("cuts a span that runs into next week at Friday", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "a", expectedStartDate: "2026-11-05", effortMinutes: 1440 }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+    ]);
+    expect(vm.days.value[3].rows[0]).toMatchObject({ spans: true, days: 3, clamped: false });
+    expect(vm.days.value[4].spans[0]).toMatchObject({ day: 2, total: 3 });
+  });
+
+  it("shows the past days and keeps finished work on the day it was done", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "trip", expectedStartDate: "2026-11-02", effortMinutes: 1440, exclusive: true }),
+    ]);
+    vi.mocked(listWeekDone).mockResolvedValueOnce([
+      task({
+        id: "done",
+        status: "done",
+        actualFinishAt: new Date(2026, 10, 2, 16, 37).toISOString(),
+      }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 1, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+    ]);
+    expect(vm.days.value[0].isPast).toBe(true);
+    // The task starts on its own day; the finished one reads below it and stays read-only.
+    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["trip", "done"]);
+    expect(vm.days.value[0].rows[1]).toMatchObject({ history: true });
+    expect(vm.days.value[1].spans[0]).toMatchObject({ day: 2, total: 3 });
   });
 });
 
