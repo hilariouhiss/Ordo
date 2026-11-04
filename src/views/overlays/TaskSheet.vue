@@ -284,6 +284,15 @@ function onStepKey(event: KeyboardEvent): void {
   void submitStep();
 }
 
+/** Step buttons: the sheet shows its own error, so the result is dropped. */
+function toggleStep(step: Step): void {
+  void run(() => taskSheetVM.toggle(step.id));
+}
+
+function removeStep(step: Step): void {
+  void run(() => taskSheetVM.remove(step.id));
+}
+
 function onNoteKey(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
   void saveNote();
@@ -380,7 +389,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <button
               class="size-4 shrink-0 rounded-full border-[1.5px]"
               :class="s.done ? 'border-success bg-success' : 'border-base-content/25'"
-              @click="run(() => taskSheetVM.toggle(s.id))"
+              @click="toggleStep(s)"
             ></button>
             <span
               class="min-w-0 flex-1 truncate text-[13px]"
@@ -438,7 +447,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <button
                 class="text-base-content/25"
                 :aria-label="t('task.deleteStepAria')"
-                @click="run(() => taskSheetVM.remove(s.id))"
+                @click="removeStep(s)"
               >
                 <X :size="13" aria-hidden="true" />
               </button>
