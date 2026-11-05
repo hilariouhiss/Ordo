@@ -50,6 +50,10 @@ const navItems = computed(
 
 const router = useRouter();
 const route = useRoute();
+/** The gantt week page fills the window, so the table has no dead space under it. */
+const ganttWeek = computed(
+  () => route.name === "week" && appVM.state.settings?.weekView === "gantt",
+);
 const direction = ref<1 | -1>(1);
 const pageMotions = computed(() => pageMotion(direction.value));
 /** The surface the window morph scales; windowModeVM writes its morph styles directly. */
@@ -335,10 +339,17 @@ onUnmounted(() => {
             </div>
           </header>
           <main class="min-h-0 flex-1 overflow-y-auto">
-            <div class="mx-auto max-w-[980px] px-6 py-5">
+            <div
+              class="mx-auto max-w-[980px] px-6 py-5"
+              :class="{ 'flex min-h-full flex-col': ganttWeek }"
+            >
               <RouterView v-slot="{ Component }">
                 <AnimatePresence mode="wait" :initial="false">
-                  <motion.div :key="route.fullPath" v-bind="pageMotions">
+                  <motion.div
+                    :key="route.fullPath"
+                    v-bind="pageMotions"
+                    :class="{ 'flex grow flex-col': ganttWeek }"
+                  >
                     <component :is="Component" />
                   </motion.div>
                 </AnimatePresence>

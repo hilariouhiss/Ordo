@@ -5,6 +5,7 @@ import type { ThemePref } from "../lib/theme";
 export type Status = "todo" | "doing" | "done";
 export type Priority = "high" | "normal" | "low";
 export type DeskPin = "top" | "bottom";
+export type WeekView = "list" | "gantt";
 
 export interface Person {
   id: string;
@@ -46,6 +47,7 @@ export interface Settings {
   deskY: number | null;
   tasksGroupBy: TaskGrouping;
   weekShowEmptyDays: boolean;
+  weekView: WeekView;
 }
 
 export interface ProjectMember {

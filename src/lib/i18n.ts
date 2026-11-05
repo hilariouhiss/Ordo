@@ -54,6 +54,10 @@ export const zh = {
   "week.stats": "本周完成 {done} · 新增 {added} · 延期 {delayed}",
   "week.reorderAria": "调整「{title}」的顺序，上下方向键移动",
   "week.dayLoad": "{hours} 小时",
+  "week.tooFull": "太满",
+  "week.ganttCaption": "任务 · 按顺序",
+  "week.ganttHint": "点条形开任务浮层 · 拖条形改开始日，上下拖改顺序",
+  "week.ganttBarAria": "「{title}」：点开任务浮层，拖动改开始日，上下拖改顺序",
   "week.dropDay": "拖到这里",
   "week.emptyDay": "没有安排",
 
@@ -330,6 +334,11 @@ export const zh = {
   "settings.deskControlsHint": "开启后小窗里可直接开始、挂起、完成；小窗挂起不填日期和原因。",
   "settings.weekShowEmptyDays": "本周页面显示未安排的星期",
   "settings.weekShowEmptyDaysHint": "开启后今天到本周五的空白天也列出来，可以把任务拖到某一天。",
+  "settings.weekView": "本周视图",
+  "settings.weekViewList": "列表",
+  "settings.weekViewGantt": "甘特图",
+  "settings.weekViewHint":
+    "列表按天堆任务卡片；甘特图一条任务一行、按天横排任务条，拖条形改开始日。",
   "settings.shortcut": "迷你窗口快捷键",
   "settings.deskShortcut": "桌面小窗快捷键",
   "settings.mainShortcut": "主窗口快捷键",
@@ -485,6 +494,7 @@ export const zh = {
   "error.invalid_owner": "负责人不存在或已删除。",
   "error.invalid_desk_pin": "小窗层级只能是置顶或置底。",
   "error.invalid_task_group_by": "分组方式不正确。",
+  "error.invalid_week_view": "本周视图只能是列表或甘特图。",
   "error.invalid_ai_base_url": "AI 地址必须是 https://（本机服务可以用 http://）。",
   "error.shortcut_rollback_failed": "新快捷键没生效，旧快捷键也没能恢复；重启 Ordo 会再试一次。",
   "error.empty_rule_title": "周期任务得有个名字。",
@@ -548,6 +558,12 @@ export const en: Record<MessageKey, string> = {
   "week.stats": "Done {done} · Added {added} · Delayed {delayed}",
   "week.reorderAria": 'Reorder "{title}" with the up and down arrow keys',
   "week.dayLoad": "{hours}h",
+  "week.tooFull": "Overloaded",
+  "week.ganttCaption": "Task · in order",
+  "week.ganttHint":
+    "Click a bar to open the task · drag it sideways for the start day, up or down to reorder",
+  "week.ganttBarAria":
+    "“{title}”: click to open the task, drag to change the start day, drag up or down to reorder",
   "week.dropDay": "Drop here",
   "week.emptyDay": "Nothing planned",
 
@@ -827,6 +843,11 @@ export const en: Record<MessageKey, string> = {
   "settings.deskControls": "Change status from the widget",
   "settings.deskControlsHint":
     "Start, park and complete tasks right in the widget; parking there skips the date and reason.",
+  "settings.weekView": "Week view",
+  "settings.weekViewList": "List",
+  "settings.weekViewGantt": "Gantt",
+  "settings.weekViewHint":
+    "The list stacks cards by day; the gantt gives each task one row and a bar across the days it covers. Drag a bar to change its start day.",
   "settings.weekShowEmptyDays": "Show unplanned weekdays",
   "settings.weekShowEmptyDaysHint":
     "List today through Friday even when the planner leaves a day empty, so a task can be dragged onto it.",
@@ -988,6 +1009,7 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_owner": "That person no longer exists.",
   "error.invalid_desk_pin": "The widget can only be on top or at the bottom.",
   "error.invalid_task_group_by": "Unknown task grouping.",
+  "error.invalid_week_view": "The week view is either list or gantt.",
   "error.invalid_ai_base_url": "The AI URL must be https:// (a local server may use http://).",
   "error.shortcut_rollback_failed":
     "The new shortcut didn't take and the old one couldn't be restored; restarting Ordo tries again.",
@@ -1053,6 +1075,7 @@ const knownErrors = [
   "invalid_owner",
   "invalid_desk_pin",
   "invalid_task_group_by",
+  "invalid_week_view",
   "invalid_ai_base_url",
   "shortcut_rollback_failed",
   "empty_rule_title",

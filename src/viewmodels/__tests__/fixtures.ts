@@ -19,6 +19,7 @@ export const defaultSettings: Settings = {
   deskY: null,
   tasksGroupBy: "project",
   weekShowEmptyDays: true,
+  weekView: "list",
 };
 
 export function task(over: Partial<Task> = {}): Task {

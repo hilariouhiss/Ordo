@@ -3,6 +3,7 @@ import type { Task } from "../../model/types";
 import {
   addDoneRows,
   fillPlannedDays,
+  groupLanes,
   groupPlannedDays,
   toPlanTask,
   type PlannedDay,
@@ -211,6 +212,62 @@ describe("addDoneRows", () => {
     const merged = addDoneRows(days, [finished], ["2026-10-19", "2026-10-20"], TODAY);
 
     expect(merged[0].rows.map((row) => row.task.id)).toEqual(["p", "d"]);
+  });
+});
+
+describe("groupLanes", () => {
+  const WEEK = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
+
+  it("gives each task one lane in manual order with the columns it covers", () => {
+    const tasks = [
+      task("b", 480, { sortOrder: 0, expectedStartDate: "2026-10-21" }),
+      task("a", 960, { sortOrder: 1 }),
+    ];
+    const days = groupPlannedDays(
+      tasks,
+      planSchedule(tasks.map(toPlanTask), TODAY),
+      TODAY,
+      "2026-10-23",
+    );
+    const lanes = groupLanes(days, WEEK);
+
+    expect(lanes.map((lane) => lane.task.id)).toEqual(["b", "a"]);
+    expect(lanes[0]).toMatchObject({ from: 2, to: 2 });
+    expect(lanes[1]).toMatchObject({ from: 1, to: 2 });
+    expect(lanes[1].row).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
+  });
+
+  it("keeps a finished task in its sort position", () => {
+    const open = task("open", 480, { sortOrder: 0 });
+    const days = groupPlannedDays(
+      [open],
+      planSchedule([toPlanTask(open)], TODAY),
+      TODAY,
+      "2026-10-23",
+    );
+    const finished = task("done", 480, {
+      sortOrder: 1,
+      status: "done",
+      expectedStartDate: "2026-10-21",
+      actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
+    });
+    const merged = groupLanes(addDoneRows(days, [finished], WEEK, TODAY), WEEK);
+
+    expect(merged.map((lane) => lane.task.id)).toEqual(["open", "done"]);
+    expect(merged[1]).toMatchObject({ from: 2, to: 2, row: { history: true } });
+  });
+
+  it("clips a task the week end clamps onto Friday", () => {
+    const tasks = [task("late", 1440, { sortOrder: 0, expectedStartDate: "2026-11-10" })];
+    const days = groupPlannedDays(
+      tasks,
+      planSchedule(tasks.map(toPlanTask), TODAY),
+      TODAY,
+      "2026-10-23",
+    );
+    const lanes = groupLanes(days, WEEK);
+
+    expect(lanes[0]).toMatchObject({ from: 4, to: 4, row: { clamped: true } });
   });
 });
 

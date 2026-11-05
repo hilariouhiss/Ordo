@@ -12,11 +12,14 @@ import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
 import TaskRow from "./components/TaskRow.vue";
+import WeekGantt from "./components/WeekGantt.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 import WeeklyPass from "./overlays/WeeklyPass.vue";
 
 const {
   state,
+  week,
+  lanes,
   days,
   plan,
   loads,
@@ -34,6 +37,7 @@ const {
 } = weekVM;
 const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
 const suspendedOpen = computed(() => state.suspended.length > 0);
+const ganttView = computed(() => appVM.state.settings?.weekView === "gantt");
 
 const listEl = ref<HTMLElement | null>(null);
 const draggingId = ref<string | null>(null);
@@ -54,6 +58,11 @@ const shownDays = computed(() => {
   if (days.value.length || !draggingSuspended.value) return days.value;
   const today = todayIso();
   return fillPlannedDays(days.value, weekWorkdays(today), plan.value, today);
+});
+/** Nothing to show: the list's empty days and the gantt's lanes are the two cases. */
+const emptyWeek = computed(() => {
+  if (state.loading || state.tasks.length) return false;
+  return ganttView.value ? !lanes.value.length : !shownDays.value.length;
 });
 /** The days each open task already shows on, so a drop inside them only reorders. */
 const plannedDays = computed(() => {
@@ -234,7 +243,7 @@ function refresh(): void {
 </script>
 
 <template>
-  <section class="space-y-2">
+  <section class="space-y-2" :class="{ 'flex grow flex-col': ganttView }">
     <div v-if="passNeeded" class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5">
       <span class="text-[12.5px]">{{ t("week.passNeeded") }}</span>
       <span class="text-[11px] text-base-content/45">{{
@@ -271,14 +280,18 @@ function refresh(): void {
       </span>
     </div>
 
-    <p
-      v-if="!state.tasks.length && !shownDays.length && !state.loading"
-      class="px-1 text-[13px] text-base-content/40"
-    >
+    <p v-if="emptyWeek" class="px-1 text-[13px] text-base-content/40">
       {{ t("week.empty") }}
     </p>
 
-    <div v-if="shownDays.length" ref="listEl" :class="{ 'select-none': draggingId }">
+    <WeekGantt
+      v-else-if="ganttView && lanes.length"
+      :lanes="lanes"
+      :dates="week"
+      @changed="refresh"
+    />
+
+    <div v-if="!ganttView && shownDays.length" ref="listEl" :class="{ 'select-none': draggingId }">
       <section
         v-for="day in shownDays"
         :key="day.date"
@@ -378,7 +391,7 @@ function refresh(): void {
           @open="openTask"
           @changed="refresh"
         >
-          <template #leading>
+          <template v-if="!ganttView" #leading>
             <button
               class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
               :aria-label="t('week.reorderAria', { title: task.title })"

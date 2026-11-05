@@ -48,6 +48,11 @@ pub async fn set_settings(
             return Err("invalid_task_group_by".into());
         }
     }
+    if let Some(view) = patch.week_view.as_deref() {
+        if !crate::repo::settings::valid_week_view(view) {
+            return Err("invalid_week_view".into());
+        }
+    }
     if let Some(url) = patch.ai_base_url.as_deref() {
         if !crate::repo::settings::valid_ai_base_url(url) {
             return Err("invalid_ai_base_url".into());
@@ -81,6 +86,7 @@ pub async fn set_settings(
                 "week.show_empty_days",
                 patch.week_show_empty_days.map(|v| v.to_string()),
             ),
+            ("week.view", patch.week_view),
         ];
         for (key, value) in sets {
             if let Some(value) = value {

@@ -6,6 +6,7 @@ import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
 import { recordShortcut } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion, panelSwapMotion } from "../../lib/motion";
 import type { ThemePref } from "../../lib/theme";
+import type { WeekView } from "../../model/types";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
@@ -20,6 +21,11 @@ const themeOptions: { value: ThemePref; key: MessageKey }[] = [
 const languageOptions: { value: Language; label: string }[] = [
   { value: "zh", label: "中文" },
   { value: "en", label: "English" },
+];
+
+const weekViewOptions: { value: WeekView; key: MessageKey }[] = [
+  { value: "list", key: "settings.weekViewList" },
+  { value: "gantt", key: "settings.weekViewGantt" },
 ];
 
 type AiStatus =
@@ -390,6 +396,27 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               </div>
               <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
                 {{ t("settings.weekShowEmptyDaysHint") }}
+              </p>
+              <div class="mt-3 flex items-center justify-between text-[12px]">
+                <span>{{ t("settings.weekView") }}</span>
+                <span class="flex gap-1.5">
+                  <button
+                    v-for="option in weekViewOptions"
+                    :key="option.value"
+                    class="btn btn-xs rounded-md border-base-300 font-normal"
+                    :class="
+                      settings.weekView === option.value
+                        ? 'border-0 bg-primary text-primary-content'
+                        : 'bg-base-100'
+                    "
+                    @click="vm.save({ weekView: option.value })"
+                  >
+                    {{ t(option.key) }}
+                  </button>
+                </span>
+              </div>
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.weekViewHint") }}
               </p>
               <div v-for="row in shortcutRows" :key="row.target" class="mt-3">
                 <div class="flex items-center justify-between text-[12px]">

@@ -55,6 +55,8 @@ pub struct SettingsDto {
     pub tasks_group_by: String,
     /// Whether the week page lists workdays the planner left empty.
     pub week_show_empty_days: bool,
+    /// The week page layout; "list" when unset.
+    pub week_view: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -407,4 +409,5 @@ pub struct SettingsPatch {
     pub desk_y: Option<i64>,
     pub tasks_group_by: Option<String>,
     pub week_show_empty_days: Option<bool>,
+    pub week_view: Option<String>,
 }

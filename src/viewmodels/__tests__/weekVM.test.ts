@@ -273,6 +273,40 @@ describe("weekVM plan", () => {
     expect(vm.conflictCount.value).toBe(0);
   });
 
+  it("gives the gantt one lane per task in manual order, finished ones included", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "a", sortOrder: 0 }),
+      task({ id: "c", sortOrder: 2 }),
+    ]);
+    vi.mocked(listWeekDone).mockResolvedValueOnce([
+      task({
+        id: "b",
+        sortOrder: 1,
+        status: "done",
+        expectedStartDate: "2026-10-21",
+        actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
+      }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 1, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.week.value).toEqual([
+      "2026-10-19",
+      "2026-10-20",
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+    ]);
+    expect(vm.lanes.value.map((lane) => lane.task.id)).toEqual(["a", "b", "c"]);
+    expect(vm.lanes.value.map((lane) => [lane.from, lane.to])).toEqual([
+      [1, 1],
+      [2, 2],
+      [1, 1],
+    ]);
+  });
+
   it("fills the whole workweek from Monday when the setting is on", async () => {
     appVM.state.settings = defaultSettings;
     const vm = await loadedWith([]);

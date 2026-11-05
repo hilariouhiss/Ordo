@@ -17,6 +17,15 @@ export interface PlannedRow {
   history?: boolean;
 }
 
+/** One task as the gantt draws it: a bar across the columns it covers. */
+export interface WeekLane {
+  task: Task;
+  row: PlannedRow;
+  /** 0-based column of the first and last week workday the bar covers. */
+  from: number;
+  to: number;
+}
+
 export interface PlannedDay {
   date: string;
   weekday: string;
@@ -102,6 +111,31 @@ export function groupPlannedDays(
   // A clamped row starts later than its day, so it reads after the day's own work.
   for (const group of groups.values()) group.rows.sort((a, b) => a.start.localeCompare(b.start));
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Folds the planned days back into one gantt lane per task: the columns it covers and the
+ * row it reads with. Manual order decides the lane order, finished ones included, so a
+ * done task stays where it was instead of moving to a separate group.
+ */
+export function groupLanes(days: PlannedDay[], dates: string[]): WeekLane[] {
+  const lanes = new Map<string, WeekLane>();
+  for (const day of days) {
+    const column = dates.indexOf(day.date);
+    if (column < 0) continue;
+    for (const row of day.rows) {
+      const lane = lanes.get(row.task.id);
+      if (!lane) {
+        lanes.set(row.task.id, { task: row.task, row, from: column, to: column });
+        continue;
+      }
+      lane.from = Math.min(lane.from, column);
+      lane.to = Math.max(lane.to, column);
+    }
+  }
+  return [...lanes.values()].sort(
+    (a, b) => a.task.sortOrder - b.task.sortOrder || a.task.id.localeCompare(b.task.id),
+  );
 }
 
 /**

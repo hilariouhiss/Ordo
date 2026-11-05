@@ -62,6 +62,10 @@ pub fn valid_desk_pin(value: &str) -> bool {
     matches!(value, "top" | "bottom")
 }
 
+pub fn valid_week_view(value: &str) -> bool {
+    matches!(value, "list" | "gantt")
+}
+
 pub fn valid_task_group_by(value: &str) -> bool {
     matches!(
         value,
@@ -153,6 +157,11 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .cloned()
             .unwrap_or_else(|| "project".into()),
         week_show_empty_days: flag(&map, "week.show_empty_days", true),
+        week_view: map
+            .get("week.view")
+            .filter(|value| valid_week_view(value))
+            .cloned()
+            .unwrap_or_else(|| "list".into()),
     })
 }
 
@@ -193,6 +202,21 @@ mod tests {
         assert_eq!(s.desk_shortcut, "Ctrl+Alt+D");
         assert_eq!(s.main_shortcut, "Ctrl+Alt+N");
         assert_eq!(s.main_shortcut_warning.as_deref(), Some("taken"));
+    }
+
+    #[test]
+    fn week_view_defaults_to_list_and_roundtrips() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert_eq!(dto(&c).unwrap().week_view, "list");
+
+        for value in ["list", "gantt"] {
+            assert!(valid_week_view(value));
+            set(&c, "week.view", value).unwrap();
+            assert_eq!(dto(&c).unwrap().week_view, value);
+        }
+
+        set(&c, "week.view", "board").unwrap();
+        assert_eq!(dto(&c).unwrap().week_view, "list");
     }
 
     #[test]
