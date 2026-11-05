@@ -1,0 +1,68 @@
+[
+  {
+    "today": "2026-10-21",
+    "start": null,
+    "effort": 60,
+    "finish": "2026-10-21"
+  },
+  {
+    "today": "2026-10-21",
+    "start": null,
+    "effort": 1,
+    "finish": "2026-10-21"
+  },
+  {
+    "today": "2026-10-21",
+    "start": null,
+    "effort": 480,
+    "finish": "2026-10-21"
+  },
+  {
+    "today": "2026-10-21",
+    "start": null,
+    "effort": 960,
+    "finish": "2026-10-22"
+  },
+  {
+    "today": "2026-10-21",
+    "start": null,
+    "effort": 1200,
+    "finish": "2026-10-23"
+  },
+  {
+    "today": "2026-10-23",
+    "start": null,
+    "effort": 960,
+    "finish": "2026-10-26"
+  },
+  {
+    "today": "2026-10-24",
+    "start": null,
+    "effort": 60,
+    "finish": "2026-10-26"
+  },
+  {
+    "today": "2026-10-21",
+    "start": "2026-10-19",
+    "effort": 960,
+    "finish": "2026-10-22"
+  },
+  {
+    "today": "2026-10-21",
+    "start": "2026-10-23",
+    "effort": 960,
+    "finish": "2026-10-26"
+  },
+  {
+    "today": "2026-10-21",
+    "start": "2026-10-24",
+    "effort": 60,
+    "finish": "2026-10-26"
+  },
+  {
+    "today": "2026-12-31",
+    "start": null,
+    "effort": 960,
+    "finish": "2027-01-01"
+  }
+]

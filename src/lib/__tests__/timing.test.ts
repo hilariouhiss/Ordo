@@ -1,5 +1,19 @@
+import cases from "./timing-cases.json";
 import { describe, expect, it } from "vite-plus/test";
 import { finishForEffort, timingAnchor, workdayOnOrAfter } from "../timing";
+
+/**
+ * The same examples run in `services/timing.rs`, so a change to the rule on one side
+ * fails a test instead of letting the preview and the stored date drift apart.
+ */
+describe("the shared finish-date examples", () => {
+  it("matches the table the backend tests use", () => {
+    for (const each of cases) {
+      const finish = finishForEffort(timingAnchor(each.today, each.start), each.effort);
+      expect(finish, JSON.stringify(each)).toBe(each.finish);
+    }
+  });
+});
 
 describe("workdayOnOrAfter", () => {
   it("keeps a weekday and rolls a weekend to Monday", () => {
