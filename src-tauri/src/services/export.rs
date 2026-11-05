@@ -30,7 +30,15 @@ pub fn to_json(conn: &Connection, path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    // Built beside and renamed once complete, so a crash cannot leave a cut-short file
+    // wearing the name of a finished export.
+    let temp = path.with_extension("json.tmp");
+    let _ = std::fs::remove_file(&temp);
+    std::fs::write(&temp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        e.to_string()
+    })
 }
 
 fn dump(conn: &Connection, table: &str) -> Result<Vec<Value>, String> {
@@ -210,6 +218,24 @@ mod tests {
         assert!(text.contains("\"settings\""));
         assert!(text.contains("\"priority\""));
         assert!(text.contains("交底"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_export_leaves_no_temp_file() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-export-fail-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A directory wearing the export's name makes the final rename fail.
+        let path = dir.join("export.json");
+        std::fs::create_dir_all(&path).unwrap();
+
+        assert!(export::to_json(&c, &path).is_err());
+        assert!(
+            !dir.join("export.json.tmp").exists(),
+            "a cut-short export must not leave its temporary file behind"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
