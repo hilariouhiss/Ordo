@@ -46,7 +46,10 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",
-        "sidebarImage": "installer/sidebar.bmp",
+        "installerHooks": "installer/pages.nsh",
+        "headerImage": "installer/header.bmp",
+        "uninstallerHeaderImage": "installer/header.bmp",
+        "installMode": "both",
         "languages": ["SimpChinese"],
         "displayLanguageSelector": false
       }
