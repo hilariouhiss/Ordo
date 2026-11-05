@@ -122,8 +122,12 @@ export function createWeekVM() {
   }
 
   async function resume(id: string): Promise<void> {
-    await resumeTask(id);
-    await load();
+    try {
+      await resumeTask(id);
+      await load();
+    } catch (e) {
+      void askNotice(t("common.actionFailed"), errorText(e));
+    }
   }
 
   async function move(taskId: string, beforeId: string | null): Promise<void> {

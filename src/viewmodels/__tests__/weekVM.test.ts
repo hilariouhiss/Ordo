@@ -25,6 +25,7 @@ import {
   markNotificationsSeen,
   moveTask,
   placeTask,
+  resumeTask,
   weekStats,
 } from "../../model/ipc";
 import type { Task } from "../../model/types";
@@ -347,6 +348,15 @@ describe("weekVM plan", () => {
 
     expect(placeTask).toHaveBeenCalledWith("t1", "2026-10-22", "t2");
     expect(vm.state.tasks[0].expectedStartDate).toBe("2026-10-22");
+  });
+
+  it("shows a notice when resuming a parked task fails", async () => {
+    vi.mocked(resumeTask).mockRejectedValueOnce("db_lock_poisoned");
+    const vm = createWeekVM();
+
+    await vm.resume("t1");
+
+    expect(dialogRequest.value?.kind).toBe("notice");
   });
 });
 
