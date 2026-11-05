@@ -46,6 +46,19 @@ pub fn write_finish(
     finish: NaiveDate,
     now: &str,
 ) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    write_finish_in(&tx, task_id, finish, now)?;
+    tx.commit().map_err(|e| e.to_string())
+}
+
+/// The same write on a connection that already holds a transaction, so a caller can
+/// keep its own writes and the delay record together.
+pub(crate) fn write_finish_in(
+    conn: &Connection,
+    task_id: &str,
+    finish: NaiveDate,
+    now: &str,
+) -> Result<(), String> {
     let finish = finish.format("%Y-%m-%d").to_string();
     let old: Option<String> = conn
         .query_row(
@@ -54,8 +67,7 @@ pub fn write_finish(
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    tx.execute(
+    conn.execute(
         "UPDATE tasks SET expected_finish_date = ?1, updated_at = ?2 WHERE id = ?3",
         params![finish, now, task_id],
     )
@@ -63,7 +75,7 @@ pub fn write_finish(
     if let Some(old) = old {
         if finish > old {
             crate::repo::delays::insert(
-                &tx,
+                conn,
                 &Uuid::new_v4().to_string(),
                 task_id,
                 "reschedule",
@@ -75,7 +87,7 @@ pub fn write_finish(
             .map_err(|e| e.to_string())?;
         }
     }
-    tx.commit().map_err(|e| e.to_string())
+    Ok(())
 }
 
 /// Rewrites the finish of a live task from its current start and estimate. Recurring
@@ -141,6 +153,33 @@ mod tests {
     fn weekends_are_skipped() {
         assert_eq!(finish_for(day("2026-10-23"), 960), day("2026-10-26"));
         assert_eq!(finish_for(day("2026-10-24"), 60), day("2026-10-26"));
+    }
+
+    /// The same examples run in `src/lib/__tests__/timing-cases.json`; both suites read
+    /// the one table, so the capture preview and the stored date cannot drift apart.
+    #[test]
+    fn the_shared_finish_examples_hold() {
+        #[derive(serde::Deserialize, Debug)]
+        struct Case {
+            today: String,
+            start: Option<String>,
+            effort: i64,
+            finish: String,
+        }
+
+        let raw = include_str!("../../../src/lib/__tests__/timing-cases.json");
+        let cases: Vec<Case> = serde_json::from_str(raw).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let anchor = anchor_for(day(&case.today), case.start.as_deref());
+            assert_eq!(
+                finish_for(anchor, case.effort)
+                    .format("%Y-%m-%d")
+                    .to_string(),
+                case.finish,
+                "{case:?}"
+            );
+        }
     }
 
     #[test]

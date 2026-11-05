@@ -290,7 +290,7 @@ pub fn place(
     before_id: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
-    let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+    NaiveDate::parse_from_str(day, "%Y-%m-%d")
         .map_err(|_| "invalid_start_date".to_string())?;
     // One transaction: a bad anchor rolls the date back too, so a drop is all or nothing.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -310,31 +310,22 @@ pub fn place(
     }
     let orders = crate::services::tasks::order_changes(&tx, task_id, before_id)?;
     crate::repo::tasks::write_orders_in(&tx, &orders).map_err(|e| e.to_string())?;
-    // Dropping a task on a later day moves its finish with it.
-    tx.execute(
-        "UPDATE tasks SET expected_finish_date = ?1
-         WHERE id = ?2 AND rule_id IS NULL",
-        params![
-            crate::services::timing::finish_for(
-                crate::services::timing::workday_on_or_after(date),
-                effort_of(&tx, task_id)?,
-            )
-            .format("%Y-%m-%d")
-            .to_string(),
-            task_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    // A drop moves the finish by the same rule a start edit uses, so dropping work on a
+    // later day records the reschedule the delay ledger exists for. A rule owns its
+    // occurrence's day, so those keep the date it was generated with.
+    let (rule_id, effort): (Option<String>, i64) = tx
+        .query_row(
+            "SELECT rule_id, effort_minutes FROM tasks WHERE id = ?1",
+            [task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    if rule_id.is_none() {
+        let anchor = crate::services::timing::anchor_for(local_today(now)?, Some(day));
+        let finish = crate::services::timing::finish_for(anchor, effort);
+        crate::services::timing::write_finish_in(&tx, task_id, finish, now)?;
+    }
     tx.commit().map_err(|e| e.to_string())
-}
-
-fn effort_of(conn: &Connection, task_id: &str) -> Result<i64, String> {
-    conn.query_row(
-        "SELECT effort_minutes FROM tasks WHERE id = ?1",
-        [task_id],
-        |row| row.get(0),
-    )
-    .map_err(|e| e.to_string())
 }
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
@@ -947,6 +938,63 @@ mod tests {
 
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t1"]);
+    }
+
+    #[test]
+    fn place_records_the_delay_it_causes() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        week::place(&c, "t1", "2026-10-22", None, NOW).unwrap();
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-22"));
+        assert_eq!(t.delays.len(), 1, "a drop that pushes work back is a reschedule");
+        assert_eq!(t.delays[0].kind, "reschedule");
+        assert_eq!(t.delays[0].old_due.as_deref(), Some("2026-10-20"));
+        assert_eq!(t.delays[0].new_due.as_deref(), Some("2026-10-22"));
+    }
+
+    #[test]
+    fn place_on_a_past_day_still_starts_from_today() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        week::place(&c, "t1", "2026-10-19", None, NOW).unwrap();
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-19"));
+        // The rule a start edit uses: work begins today, never in the past.
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-20"));
+        assert!(t.delays.is_empty(), "the finish did not move");
+    }
+
+    #[test]
+    fn place_keeps_a_recurring_occurrence_on_its_rule_day() {
+        use chrono::TimeZone;
+        let c = db::open_in_memory().unwrap();
+        let rule = crate::services::rules::save(
+            &c,
+            &crate::dto::RuleInput {
+                title: "报销".into(),
+                weekdays: vec![2],
+                at: "09:00".into(),
+                ..Default::default()
+            },
+            NOW,
+        )
+        .unwrap();
+        let at = chrono::Local.with_ymd_and_hms(2026, 10, 20, 10, 0, 0).unwrap();
+        crate::services::rules::materialize(&c, at).unwrap();
+        let id: String = c
+            .query_row("SELECT id FROM tasks WHERE rule_id = ?1", [&rule.id], |r| r.get(0))
+            .unwrap();
+        let before = crate::repo::tasks::dto(&c, &id).unwrap().expected_finish_date;
+
+        week::place(&c, &id, "2026-10-22", None, NOW).unwrap();
+
+        let t = crate::repo::tasks::dto(&c, &id).unwrap();
+        assert_eq!(t.expected_finish_date, before, "a rule owns the occurrence day");
     }
 
     #[test]
