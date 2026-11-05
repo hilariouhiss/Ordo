@@ -5,6 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { t } from "../lib/i18n";
 import { fillPlannedDays } from "../lib/plan";
+import { usePointerDrag } from "../lib/pointerDrag";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -40,12 +41,42 @@ const suspendedOpen = computed(() => state.suspended.length > 0);
 const ganttView = computed(() => appVM.state.settings?.weekView === "gantt");
 
 const listEl = ref<HTMLElement | null>(null);
-const draggingId = ref<string | null>(null);
-const dropTarget = ref<{ day: string; beforeId: string | null } | null>(null);
-const dragMoved = ref(false);
-let startY = 0;
-let pointerY = 0;
-let scrollFrame = 0;
+/** The list's drag: threshold, the day and row under the pointer, edge auto-scroll. */
+const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
+  targetOf: ({ y }) => {
+    const sections = listEl.value?.querySelectorAll<HTMLElement>("[data-day]");
+    if (!sections?.length) return null;
+    let section: HTMLElement | null = null;
+    for (const candidate of sections) {
+      if (y < candidate.getBoundingClientRect().bottom) {
+        section = candidate;
+        break;
+      }
+    }
+    const day = section?.dataset.day;
+    if (!section || !day) return null;
+    let beforeId: string | null = null;
+    for (const row of section.querySelectorAll<HTMLElement>("[data-task-id]")) {
+      const rect = row.getBoundingClientRect();
+      if (y < rect.top + rect.height / 2) {
+        beforeId = row.dataset.taskId ?? null;
+        break;
+      }
+    }
+    return { day, beforeId };
+  },
+  scroller: () => listEl.value?.closest("main") ?? null,
+  drop: (id, target) => {
+    // The anchor is read while the drag still counts as live: a suspended drag may have
+    // filled days that disappear again as soon as it ends.
+    const beforeId = anchorFor(target.day, target.beforeId);
+    if (plannedDays.value.get(id)?.has(target.day)) void move(id, beforeId);
+    else void place(id, target.day, beforeId);
+  },
+});
+const draggingId = drag.id;
+const dropTarget = drag.target;
+const dragMoved = drag.moved;
 
 const draggingSuspended = computed(
   () => draggingId.value !== null && state.suspended.some((task) => task.id === draggingId.value),
@@ -78,78 +109,10 @@ const plannedDays = computed(() => {
   return dates;
 });
 
-function onHandleDown(event: PointerEvent, id: string): void {
+/** The handle starts the drag; a right click does not. */
+function startDrag(event: PointerEvent, id: string): void {
   if (event.button !== 0) return;
-  draggingId.value = id;
-  dropTarget.value = null;
-  dragMoved.value = false;
-  startY = event.clientY;
-  pointerY = event.clientY;
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-}
-
-/** Finds the day under the pointer, then the row inside it to insert before. */
-function updateDropTarget(): void {
-  const sections = listEl.value?.querySelectorAll<HTMLElement>("[data-day]");
-  if (!sections?.length) return;
-  let section: HTMLElement | null = null;
-  for (const candidate of sections) {
-    const rect = candidate.getBoundingClientRect();
-    if (pointerY < rect.bottom) {
-      section = candidate;
-      break;
-    }
-  }
-  const day = section?.dataset.day;
-  if (!section || !day) {
-    dropTarget.value = null;
-    return;
-  }
-  let beforeId: string | null = null;
-  for (const row of section.querySelectorAll<HTMLElement>("[data-task-id]")) {
-    const rect = row.getBoundingClientRect();
-    if (pointerY < rect.top + rect.height / 2) {
-      beforeId = row.dataset.taskId ?? null;
-      break;
-    }
-  }
-  dropTarget.value = { day, beforeId };
-}
-
-/** Dragging to a window edge keeps scrolling, so rows that are off-screen stay reachable. */
-function autoScroll(): void {
-  if (!draggingId.value) {
-    scrollFrame = 0;
-    return;
-  }
-  const edge = 56;
-  const delta = pointerY < edge ? -12 : pointerY > window.innerHeight - edge ? 12 : 0;
-  const scroller = listEl.value?.closest<HTMLElement>("main");
-  if (!delta || !scroller) {
-    scrollFrame = 0;
-    return;
-  }
-  const before = scroller.scrollTop;
-  scroller.scrollBy(0, delta);
-  if (scroller.scrollTop !== before) updateDropTarget();
-  scrollFrame = requestAnimationFrame(autoScroll);
-}
-
-function onHandleMove(event: PointerEvent): void {
-  if (!draggingId.value) return;
-  pointerY = event.clientY;
-  if (!dragMoved.value && Math.abs(event.clientY - startY) < 4) return;
-  dragMoved.value = true;
-  updateDropTarget();
-  if (!scrollFrame) scrollFrame = requestAnimationFrame(autoScroll);
-}
-
-function endDrag(): void {
-  if (scrollFrame) cancelAnimationFrame(scrollFrame);
-  scrollFrame = 0;
-  draggingId.value = null;
-  dropTarget.value = null;
-  dragMoved.value = false;
+  drag.start(event, id);
 }
 
 /**
@@ -167,20 +130,6 @@ function anchorFor(day: string, beforeId: string | null): string | null {
   return null;
 }
 
-function onHandleUp(): void {
-  const id = draggingId.value;
-  const moved = dragMoved.value;
-  const target = dropTarget.value;
-  // The anchor is read while the drag is still live: a suspended drag may have filled
-  // days that disappear again as soon as the drag ends.
-  const beforeId = target ? anchorFor(target.day, target.beforeId) : null;
-  const onDay = id !== null && target !== null && plannedDays.value.get(id)?.has(target.day);
-  endDrag();
-  if (!id || !moved || !target) return;
-  if (onDay) void move(id, beforeId);
-  else void place(id, target.day, beforeId);
-}
-
 /** Keyboard reordering keeps focus on the same handle, even across a day boundary. */
 async function onMoveBy(taskId: string, delta: -1 | 1): Promise<void> {
   await moveBy(taskId, delta);
@@ -189,7 +138,7 @@ async function onMoveBy(taskId: string, delta: -1 | 1): Promise<void> {
 }
 
 function onKey(event: KeyboardEvent): void {
-  if (event.key === "Escape" && draggingId.value) endDrag();
+  if (event.key === "Escape") drag.cancel();
 }
 
 /** The tray window can stay open across midnight, so refresh today and the plan on return. */
@@ -348,10 +297,10 @@ function refresh(): void {
                 class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
                 :aria-label="t('week.reorderAria', { title: row.task.title })"
                 @click.stop
-                @pointerdown="onHandleDown($event, row.task.id)"
-                @pointermove="onHandleMove"
-                @pointerup="onHandleUp"
-                @pointercancel="endDrag"
+                @pointerdown="startDrag($event, row.task.id)"
+                @pointermove="drag.move"
+                @pointerup="drag.end"
+                @pointercancel="drag.cancel"
                 @keydown.up.prevent="onMoveBy(row.task.id, -1)"
                 @keydown.down.prevent="onMoveBy(row.task.id, 1)"
               >
@@ -396,10 +345,10 @@ function refresh(): void {
               class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
               :aria-label="t('week.reorderAria', { title: task.title })"
               @click.stop
-              @pointerdown="onHandleDown($event, task.id)"
-              @pointermove="onHandleMove"
-              @pointerup="onHandleUp"
-              @pointercancel="endDrag"
+              @pointerdown="startDrag($event, task.id)"
+              @pointermove="drag.move"
+              @pointerup="drag.end"
+              @pointercancel="drag.cancel"
             >
               <GripVertical :size="14" aria-hidden="true" />
             </button>

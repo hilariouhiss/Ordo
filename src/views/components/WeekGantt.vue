@@ -6,6 +6,7 @@ import { askNotice, askSuspend } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import type { WeekLane } from "../../lib/plan";
+import { usePointerDrag } from "../../lib/pointerDrag";
 import { canSuspendTask } from "../../lib/status";
 import type { Task } from "../../model/types";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
@@ -27,17 +28,44 @@ const overloads = weekVM.overloadDates;
 const busy = ref(false);
 const gridEl = ref<HTMLElement | null>(null);
 
-const draggingId = ref<string | null>(null);
-const dragMoved = ref(false);
-const dropColumn = ref<number | null>(null);
-const dropBefore = ref<string | null>(null);
-let startX = 0;
-let startY = 0;
-let pointerX = 0;
-let pointerY = 0;
-let frame = 0;
-/** A drag ends with a click; it must not open the sheet too. */
-let dragged = false;
+/** The gantt's drag: threshold, the column and lane under the pointer, edge auto-scroll. */
+const drag = usePointerDrag<{ column: number; before: string | null }>({
+  targetOf: ({ x, y }) => {
+    const grid = gridEl.value;
+    if (!grid) return null;
+    const box = grid.getBoundingClientRect();
+    const width = box.width / props.dates.length;
+    const column = Math.floor((x - box.left) / width);
+    let before: string | null = null;
+    for (const row of grid.querySelectorAll<HTMLElement>("[data-lane]")) {
+      const rect = row.getBoundingClientRect();
+      if (y < rect.top + rect.height / 2) {
+        before = row.dataset.lane ?? null;
+        break;
+      }
+    }
+    return { column: Math.min(props.dates.length - 1, Math.max(0, column)), before };
+  },
+  scroller: () => gridEl.value?.closest("main") ?? null,
+  drop: (id, target) => {
+    // A drag ends with a click; the sheet must not open too.
+    dragged.value = true;
+    window.setTimeout(() => (dragged.value = false), 0);
+    const lane = props.lanes.find((entry) => entry.task.id === id);
+    if (!lane) return;
+    const anchor = target.before && target.before !== id ? target.before : null;
+    const day = props.dates[target.column];
+    // Dropping on a day the task already covers only reorders, exactly like the list.
+    if (props.dates.slice(lane.from, lane.to + 1).includes(day)) void weekVM.move(id, anchor);
+    else void weekVM.place(id, day, anchor);
+  },
+});
+const draggingId = drag.id;
+const dragMoved = drag.moved;
+const dropColumn = computed(() => drag.target.value?.column ?? null);
+const dropBefore = computed(() => drag.target.value?.before ?? null);
+/** A drag that just ended must not be read as a click on the bar. */
+const dragged = ref(false);
 
 const isDone = (task: Task): boolean => task.status === "done";
 
@@ -82,8 +110,8 @@ const doneLabel = (task: Task): string =>
   t(isDone(task) ? "task.reopenAria" : "task.doneAria", { title: task.title });
 
 function openTask(task: Task): void {
-  if (dragged) {
-    dragged = false;
+  if (dragged.value) {
+    dragged.value = false;
     return;
   }
   // Selecting the title to copy it also ends with a click; that must not open the sheet.
@@ -137,94 +165,11 @@ async function suspend(task: Task): Promise<void> {
   }
 }
 
-/** The column under the pointer is the day to drop on; the row above it is the anchor. */
-function updateDropTarget(): void {
-  const grid = gridEl.value;
-  if (!grid) return;
-  const box = grid.getBoundingClientRect();
-  const width = box.width / props.dates.length;
-  const column = Math.floor((pointerX - box.left) / width);
-  dropColumn.value = Math.min(props.dates.length - 1, Math.max(0, column));
-  let before: string | null = null;
-  for (const row of grid.querySelectorAll<HTMLElement>("[data-lane]")) {
-    const rect = row.getBoundingClientRect();
-    if (pointerY < rect.top + rect.height / 2) {
-      before = row.dataset.lane ?? null;
-      break;
-    }
-  }
-  dropBefore.value = before;
-}
-
-/** Dragging to a window edge keeps scrolling, so rows far down stay reachable. */
-function autoScroll(): void {
-  if (!draggingId.value) {
-    frame = 0;
-    return;
-  }
-  const edge = 56;
-  const delta = pointerY < edge ? -12 : pointerY > window.innerHeight - edge ? 12 : 0;
-  const scroller = gridEl.value?.closest<HTMLElement>("main");
-  if (!delta || !scroller) {
-    frame = 0;
-    return;
-  }
-  const before = scroller.scrollTop;
-  scroller.scrollBy(0, delta);
-  if (scroller.scrollTop !== before) updateDropTarget();
-  frame = requestAnimationFrame(autoScroll);
-}
-
-function onPointerDown(event: PointerEvent, lane: WeekLane): void {
+/** The bar starts the drag; the row's own buttons and finished work do not. */
+function startDrag(event: PointerEvent, lane: WeekLane): void {
   if (event.button !== 0 || lane.row.history) return;
   if ((event.target as HTMLElement).closest("button")) return;
-  draggingId.value = lane.task.id;
-  dragMoved.value = false;
-  dropColumn.value = null;
-  dropBefore.value = null;
-  startX = event.clientX;
-  startY = event.clientY;
-  pointerX = event.clientX;
-  pointerY = event.clientY;
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-}
-
-function onPointerMove(event: PointerEvent): void {
-  if (!draggingId.value) return;
-  pointerX = event.clientX;
-  pointerY = event.clientY;
-  if (!dragMoved.value && Math.abs(pointerX - startX) < 4 && Math.abs(pointerY - startY) < 4)
-    return;
-  dragMoved.value = true;
-  updateDropTarget();
-  if (!frame) frame = requestAnimationFrame(autoScroll);
-}
-
-function endDrag(): void {
-  if (frame) cancelAnimationFrame(frame);
-  frame = 0;
-  draggingId.value = null;
-  dragMoved.value = false;
-  dropColumn.value = null;
-  dropBefore.value = null;
-}
-
-function onPointerUp(): void {
-  const id = draggingId.value;
-  const moved = dragMoved.value;
-  const column = dropColumn.value;
-  const before = dropBefore.value;
-  endDrag();
-  if (moved) setTimeout(() => (dragged = false), 0);
-  dragged = moved;
-  if (!id || !moved || column === null) return;
-  const lane = props.lanes.find((entry) => entry.task.id === id);
-  if (!lane) return;
-  const anchor = before && before !== id ? before : null;
-  const day = props.dates[column];
-  // Dropping on a day the task already covers only reorders, exactly like the list.
-  if (props.dates.slice(lane.from, lane.to + 1).includes(day)) void weekVM.move(id, anchor);
-  else void weekVM.place(id, day, anchor);
+  drag.start(event, lane.task.id);
 }
 </script>
 
@@ -303,10 +248,10 @@ function onPointerUp(): void {
             role="button"
             tabindex="0"
             :aria-label="t('week.ganttBarAria', { title: lane.task.title })"
-            @pointerdown="onPointerDown($event, lane)"
-            @pointermove="onPointerMove"
-            @pointerup="onPointerUp"
-            @pointercancel="endDrag"
+            @pointerdown="startDrag($event, lane)"
+            @pointermove="drag.move"
+            @pointerup="drag.end"
+            @pointercancel="drag.cancel"
             @click="openTask(lane.task)"
             @keydown.enter.prevent="openTask(lane.task)"
             @keydown.space.prevent="openTask(lane.task)"
