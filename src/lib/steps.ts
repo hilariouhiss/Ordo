@@ -56,34 +56,6 @@ export function allocateSteps(totalMinutes: number, steps: Step[]): StepAllocati
   };
 }
 
-export interface StepSlice {
-  step: Step;
-  minutes: number;
-}
-
-/** The step shares overlapping an effort-minute window; one day can touch two steps. */
-export function stepsInRange(
-  totalMinutes: number,
-  steps: Step[],
-  from: number,
-  to: number,
-): StepSlice[] {
-  const allocation = allocateSteps(totalMinutes, steps);
-  const byId = new Map(steps.map((step) => [step.id, step]));
-  const slices: StepSlice[] = [];
-  let cursor = 0;
-  for (const row of allocation.steps) {
-    const end = cursor + row.minutes;
-    const minutes = Math.min(end, to) - Math.max(cursor, from);
-    if (minutes > 0) {
-      const step = byId.get(row.id);
-      if (step) slices.push({ step, minutes });
-    }
-    cursor = end;
-  }
-  return slices;
-}
-
 /** A compact h:mm label for a step's share. */
 export function formatStepClock(minutes: number): string {
   const value = Math.max(0, Math.round(minutes));

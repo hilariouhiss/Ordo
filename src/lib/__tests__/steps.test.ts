@@ -7,7 +7,6 @@ import {
   formatStepEffort,
   stepLabel,
   stepsDone,
-  stepsInRange,
 } from "../steps";
 
 function step(id: string, done: boolean, effortMinutes: number | null = null): Step {
@@ -100,51 +99,6 @@ describe("formatStepClock", () => {
     expect(formatStepClock(160)).toBe("2:40");
     expect(formatStepClock(65)).toBe("1:05");
     expect(formatStepClock(0)).toBe("0:00");
-  });
-});
-
-describe("stepsInRange", () => {
-  it("splits a day across the steps that fall in it", () => {
-    const steps = [step("a", false), step("b", false), step("c", false)];
-
-    expect(stepsInRange(960, steps, 0, 480).map((slice) => [slice.step.id, slice.minutes])).toEqual(
-      [
-        ["a", 320],
-        ["b", 160],
-      ],
-    );
-    expect(
-      stepsInRange(960, steps, 480, 960).map((slice) => [slice.step.id, slice.minutes]),
-    ).toEqual([
-      ["b", 160],
-      ["c", 320],
-    ]);
-  });
-
-  it("uses the manual shares", () => {
-    const steps = [step("a", false), step("b", false, 240), step("c", false)];
-
-    expect(
-      stepsInRange(480, steps, 120, 480).map((slice) => [slice.step.id, slice.minutes]),
-    ).toEqual([
-      ["b", 240],
-      ["c", 120],
-    ]);
-  });
-
-  it("stops at an unallocated tail", () => {
-    const steps = [step("a", false, 60), step("b", false, 60)];
-
-    expect(stepsInRange(480, steps, 0, 480).map((slice) => [slice.step.id, slice.minutes])).toEqual(
-      [
-        ["a", 60],
-        ["b", 60],
-      ],
-    );
-  });
-
-  it("has nothing for a range without steps", () => {
-    expect(stepsInRange(480, [], 0, 120)).toEqual([]);
   });
 });
 

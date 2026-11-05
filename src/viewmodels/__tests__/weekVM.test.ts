@@ -198,7 +198,7 @@ describe("weekVM plan", () => {
     expect(vm.planEnd.value).toBe("2026-10-20");
   });
 
-  it("continues a spanning task on the days after it starts", async () => {
+  it("repeats a spanning task on every day it covers", async () => {
     const vm = await loadedWith([task({ id: "a", effortMinutes: 960 })]);
 
     expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
@@ -207,10 +207,7 @@ describe("weekVM plan", () => {
       days: 2,
       end: "2026-10-21",
     });
-    expect(vm.days.value[1].rows).toEqual([]);
-    expect(vm.days.value[1].spans).toEqual([
-      expect.objectContaining({ day: 2, total: 2, hours: 8 }),
-    ]);
+    expect(vm.days.value[1].rows).toEqual([vm.days.value[0].rows[0]]);
     expect(vm.loads.value.get("2026-10-21")).toBe(8);
   });
 
@@ -302,8 +299,7 @@ describe("weekVM plan", () => {
       "2026-10-22",
       "2026-10-23",
     ]);
-    expect(vm.days.value[2].rows).toEqual([]);
-    expect(vm.days.value[2].spans).toHaveLength(1);
+    expect(vm.days.value[2].rows[0].task.id).toBe("a");
   });
 
   it("places a dropped task on the day and reloads", async () => {
@@ -373,7 +369,7 @@ describe("weekVM plan across a week boundary", () => {
       "2026-11-06",
     ]);
     expect(vm.days.value[3].rows[0]).toMatchObject({ spans: true, days: 3, clamped: false });
-    expect(vm.days.value[4].spans[0]).toMatchObject({ day: 2, total: 3 });
+    expect(vm.days.value[4].rows[0].task.id).toBe("a");
   });
 
   it("shows the past days and keeps finished work on the day it was done", async () => {
@@ -403,7 +399,43 @@ describe("weekVM plan across a week boundary", () => {
     // The task starts on its own day; the finished one reads below it and stays read-only.
     expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["trip", "done"]);
     expect(vm.days.value[0].rows[1]).toMatchObject({ history: true });
-    expect(vm.days.value[1].spans[0]).toMatchObject({ day: 2, total: 3 });
+    expect(vm.days.value[1].rows[0].task.id).toBe("trip");
+  });
+
+  it("keeps a finished span on every day it covered", async () => {
+    vi.setSystemTime(new Date(2026, 10, 5, 9, 0, 0));
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listWeekDone).mockResolvedValueOnce([
+      task({
+        id: "span",
+        status: "done",
+        expectedStartDate: "2026-11-03",
+        effortMinutes: 1440,
+        actualFinishAt: new Date(2026, 10, 5, 16, 37).toISOString(),
+      }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 1, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.days.value.map((day) => day.date)).toEqual([
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+    ]);
+    for (const day of vm.days.value.slice(1, 4)) {
+      expect(day.rows).toHaveLength(1);
+      expect(day.rows[0]).toMatchObject({
+        task: { id: "span", status: "done" },
+        history: true,
+        spans: true,
+        days: 3,
+        end: "2026-11-05",
+      });
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import type { Task } from "../model/types";
 import { localDate, weekdayLabel } from "./dates";
-import { plannedDayParts, type PlanTask, type PlannedTask } from "./schedule";
+import { plannedDayParts, type PlanTask, type PlannedTask, type PlannedDayPart } from "./schedule";
 
 export interface PlannedRow {
   task: Task;
@@ -17,26 +17,12 @@ export interface PlannedRow {
   history?: boolean;
 }
 
-/** A later day of a multi-day task: the full card stays on the start day. */
-export interface PlannedSpan {
-  task: Task;
-  end: string;
-  /** Which day of the span this is; 2 is the first continuation. */
-  day: number;
-  total: number;
-  hours: number;
-  /** Effort-minute offset where this day starts, clamped to the task's effort. */
-  from: number;
-  to: number;
-}
-
 export interface PlannedDay {
   date: string;
   weekday: string;
   isToday: boolean;
   isPast: boolean;
   rows: PlannedRow[];
-  spans: PlannedSpan[];
 }
 
 export function toPlanTask(task: Task): PlanTask {
@@ -56,20 +42,35 @@ function plannedDay(date: string, today: string): PlannedDay {
     isToday: date === today,
     isPast: date < today,
     rows: [],
-    spans: [],
+  };
+}
+
+/** The row a task shows on any day of its plan; every covered day gets the same one. */
+function rowOf(task: Task, row: PlannedTask, parts: PlannedDayPart[], day: string): PlannedRow {
+  return {
+    task,
+    start: row.start,
+    end: row.end,
+    spans: parts.length > 1,
+    days: parts.length,
+    clamped: day !== row.start,
+    conflict: row.conflict,
   };
 }
 
 /**
- * Groups a list by the day the planner starts it; later days of a span get continuation
- * entries. `weekEnd` cuts the list at this week's last workday: a task the plan starts
- * later is clamped onto that day so it stays visible and can still be completed.
+ * Groups a list by the day the planner starts it. With `repeatSpans` (the week page) the
+ * task also lands on every later working day it covers; the desktop widget passes false
+ * because it has room for one card per task. `weekEnd` cuts the list at this week's last
+ * workday: a task the plan starts later is clamped onto that day so it stays visible and
+ * can still be completed.
  */
 export function groupPlannedDays(
   tasks: Task[],
   plan: PlannedTask[],
   today: string,
   weekEnd?: string,
+  repeatSpans = true,
 ): PlannedDay[] {
   const planned = new Map(plan.map((row) => [row.id, row]));
   const planTasks = new Map(tasks.map((task) => [task.id, toPlanTask(task)]));
@@ -89,31 +90,12 @@ export function groupPlannedDays(
     if (!row || !planTask) continue;
     const parts = plannedDayParts(planTask, row);
     const day = weekEnd !== undefined && row.start > weekEnd ? weekEnd : row.start;
-    groupFor(day).rows.push({
-      task,
-      start: row.start,
-      end: row.end,
-      spans: parts.length > 1,
-      days: parts.length,
-      clamped: day !== row.start,
-      conflict: row.conflict,
-    });
-    // Offsets are in effort minutes, not booked hours: the planner rounds the last
-    // day up to a whole hour, while the steps only cover the real estimate.
-    let offset = parts[0].hours * 60;
-    for (let index = 1; index < parts.length; index++) {
-      const part = parts[index];
+    const entry = rowOf(task, row, parts, day);
+    groupFor(day).rows.push(entry);
+    if (!repeatSpans) continue;
+    for (const part of parts.slice(1)) {
       if (weekEnd !== undefined && part.day > weekEnd) break;
-      groupFor(part.day).spans.push({
-        task,
-        end: row.end,
-        day: index + 1,
-        total: parts.length,
-        hours: part.hours,
-        from: Math.min(offset, task.effortMinutes),
-        to: Math.min(offset + part.hours * 60, task.effortMinutes),
-      });
-      offset += part.hours * 60;
+      groupFor(part.day).rows.push(entry);
     }
   }
 
@@ -144,8 +126,10 @@ export function fillPlannedDays(
 }
 
 /**
- * Puts finished tasks back on the day they were done — or, when that day is outside the
- * week, on the day they were planned for — so a past day still shows its work.
+ * Puts finished tasks back on the days they were planned for — or, when the plan has no
+ * day in this week, on the day they were done — so a past day still shows its work. A
+ * multi-day task keeps every day it covered; without a planned day there is no span to
+ * restore and the record stays on the finish day.
  */
 export function addDoneRows(
   days: PlannedDay[],
@@ -154,31 +138,53 @@ export function addDoneRows(
   today: string,
 ): PlannedDay[] {
   const groups = new Map(days.map((day) => [day.date, day]));
-  for (const task of done) {
-    const finished = task.actualFinishAt ? localDate(task.actualFinishAt) : null;
-    const planned = task.expectedStartDate;
-    const date =
-      finished && dates.includes(finished)
-        ? finished
-        : planned && dates.includes(planned)
-          ? planned
-          : null;
-    if (!date) continue;
+  const weekEnd = dates[dates.length - 1];
+  const groupFor = (date: string): PlannedDay => {
     let group = groups.get(date);
     if (!group) {
       group = plannedDay(date, today);
       groups.set(date, group);
     }
-    group.rows.push({
+    return group;
+  };
+
+  for (const task of done) {
+    const finished = task.actualFinishAt ? localDate(task.actualFinishAt) : null;
+    const planned = task.expectedStartDate;
+    // A plan that starts after the finish would put a finished task in the future.
+    const start =
+      planned && dates.includes(planned) && !(finished !== null && finished < planned)
+        ? planned
+        : finished !== null && dates.includes(finished)
+          ? finished
+          : null;
+    if (!start) continue;
+    const parts =
+      start === planned
+        ? plannedDayParts(toPlanTask(task), {
+            id: task.id,
+            start,
+            end: start,
+            startHour: 0,
+            conflict: false,
+          })
+        : [{ day: start }];
+    const end = parts[parts.length - 1].day;
+    const row: PlannedRow = {
       task,
-      start: date,
-      end: date,
-      spans: false,
-      days: 1,
+      start,
+      end,
+      spans: parts.length > 1,
+      days: parts.length,
       clamped: false,
       conflict: false,
       history: true,
-    });
+    };
+    groupFor(start).rows.push(row);
+    for (const part of parts.slice(1)) {
+      if (weekEnd !== undefined && part.day > weekEnd) break;
+      groupFor(part.day).rows.push(row);
+    }
   }
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }

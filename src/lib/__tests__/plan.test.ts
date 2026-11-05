@@ -21,7 +21,6 @@ function day(date: string, rows = 0): PlannedDay {
     weekday: date,
     isToday: date === TODAY,
     isPast: date < TODAY,
-    spans: [],
     rows: Array.from({ length: rows }, (_, index) => ({
       task: { id: `${date}-${index}` } as PlannedDay["rows"][number]["task"],
       start: date,
@@ -47,43 +46,53 @@ function task(id: string, effortMinutes = 480, extra: Partial<Task> = {}): Task 
 }
 
 describe("groupPlannedDays", () => {
-  it("adds a continuation entry for each later day of a span", () => {
+  it("puts the same row on every day a span covers", () => {
     const tasks = [task("a", 960)];
     const plan = planSchedule(tasks.map(toPlanTask), TODAY);
     const days = groupPlannedDays(tasks, plan, TODAY);
 
     expect(days.map((entry) => entry.date)).toEqual([TODAY, "2026-10-21"]);
     expect(days[0].rows[0]).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
-    expect(days[0].spans).toEqual([]);
-    expect(days[1].rows).toEqual([]);
-    expect(days[1].spans).toEqual([
-      { task: tasks[0], end: "2026-10-21", day: 2, total: 2, hours: 8, from: 480, to: 960 },
-    ]);
+    expect(days[1].rows).toEqual([days[0].rows[0]]);
   });
 
-  it("numbers the span days across a weekend", () => {
+  it("repeats the row across a weekend", () => {
     const tasks = [task("a", 960)];
     const start = "2026-10-23";
     const days = groupPlannedDays(tasks, planSchedule(tasks.map(toPlanTask), start), start);
 
     expect(days.map((entry) => entry.date)).toEqual([start, "2026-10-26"]);
-    expect(days[1].spans[0]).toMatchObject({ day: 2, total: 2, hours: 8 });
+    expect(days[1].rows[0].task.id).toBe("a");
   });
 
-  it("clamps the last continuation to the real estimate", () => {
+  it("repeats a task whose estimate overflows its day", () => {
     const tasks = [task("a", 500)];
     const days = groupPlannedDays(tasks, planSchedule(tasks.map(toPlanTask), TODAY), TODAY);
 
-    expect(days[1].spans[0]).toMatchObject({ hours: 1, from: 480, to: 500 });
+    expect(days.map((entry) => entry.date)).toEqual([TODAY, "2026-10-21"]);
+    expect(days[1].rows[0]).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
   });
 
-  it("keeps a single-day task free of continuation entries", () => {
+  it("keeps a single-day task on one day", () => {
     const tasks = [task("a")];
     const days = groupPlannedDays(tasks, planSchedule(tasks.map(toPlanTask), TODAY), TODAY);
 
     expect(days).toHaveLength(1);
     expect(days[0].rows[0]).toMatchObject({ spans: false, days: 1 });
-    expect(days[0].spans).toEqual([]);
+  });
+
+  it("keeps a span on its start day when the caller repeats nothing", () => {
+    const tasks = [task("a", 960)];
+    const days = groupPlannedDays(
+      tasks,
+      planSchedule(tasks.map(toPlanTask), TODAY),
+      TODAY,
+      undefined,
+      false,
+    );
+
+    expect(days.map((entry) => entry.date)).toEqual([TODAY]);
+    expect(days[0].rows[0]).toMatchObject({ spans: true, days: 2 });
   });
 
   it("clamps a task that starts after the week end onto that last day", () => {
@@ -97,7 +106,6 @@ describe("groupPlannedDays", () => {
 
     expect(days.map((entry) => entry.date)).toEqual(["2026-10-23"]);
     expect(days[0].rows[0]).toMatchObject({ start: "2026-11-10", clamped: true, spans: true });
-    expect(days[0].spans).toEqual([]);
   });
 
   it("cuts a span at the week end", () => {
@@ -110,15 +118,14 @@ describe("groupPlannedDays", () => {
     );
 
     expect(days.map((entry) => entry.date)).toEqual(["2026-10-22", "2026-10-23"]);
-    expect(days[1].spans[0]).toMatchObject({ day: 2, total: 3 });
+    expect(days[1].rows[0]).toMatchObject({ days: 3, end: "2026-10-26" });
   });
 
-  it("shows a continuation next to a task that starts that day", () => {
+  it("reads a repeated row before a task that starts that day", () => {
     const tasks = [task("a", 960), task("b", 480, { expectedStartDate: "2026-10-21" })];
     const days = groupPlannedDays(tasks, planSchedule(tasks.map(toPlanTask), TODAY), TODAY);
 
-    expect(days[1].rows.map((row) => row.task.id)).toEqual(["b"]);
-    expect(days[1].spans.map((span) => span.task.id)).toEqual(["a"]);
+    expect(days[1].rows.map((row) => row.task.id)).toEqual(["a", "b"]);
   });
 });
 
@@ -132,6 +139,49 @@ describe("addDoneRows", () => {
 
     expect(days.map((entry) => entry.date)).toEqual(["2026-10-21"]);
     expect(days[0].rows[0]).toMatchObject({ history: true, start: "2026-10-21" });
+  });
+
+  it("keeps every day a finished span covered", () => {
+    const finished = task("a", 1440, {
+      status: "done",
+      expectedStartDate: "2026-10-20",
+      actualFinishAt: stamp(22),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual(["2026-10-20", "2026-10-21", "2026-10-22"]);
+    for (const entry of days) {
+      expect(entry.rows).toHaveLength(1);
+      expect(entry.rows[0]).toMatchObject({
+        history: true,
+        spans: true,
+        days: 3,
+        end: "2026-10-22",
+      });
+    }
+  });
+
+  it("stops a finished span at this week's last workday", () => {
+    const finished = task("a", 1440, {
+      status: "done",
+      expectedStartDate: "2026-10-22",
+      actualFinishAt: stamp(23),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual(["2026-10-22", "2026-10-23"]);
+  });
+
+  it("keeps the finish day when the plan starts after it", () => {
+    const finished = task("a", 480, {
+      status: "done",
+      expectedStartDate: "2026-10-23",
+      actualFinishAt: stamp(21),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual(["2026-10-21"]);
+    expect(days[0].rows[0]).toMatchObject({ history: true, spans: false, days: 1 });
   });
 
   it("falls back to the planned day when the finish is outside the week", () => {

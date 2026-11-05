@@ -11,7 +11,6 @@ import { passVM } from "../viewmodels/passVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
-import TaskContinuation from "./components/TaskContinuation.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 import WeeklyPass from "./overlays/WeeklyPass.vue";
@@ -44,8 +43,6 @@ let startY = 0;
 let pointerY = 0;
 let scrollFrame = 0;
 
-/** The day the planner starts each in-week task on, so a drop inside it only reorders. */
-const plannedDay = computed(() => new Map(plan.value.map((row) => [row.id, row.start])));
 const draggingSuspended = computed(
   () => draggingId.value !== null && state.suspended.some((task) => task.id === draggingId.value),
 );
@@ -57,6 +54,19 @@ const shownDays = computed(() => {
   if (days.value.length || !draggingSuspended.value) return days.value;
   const today = todayIso();
   return fillPlannedDays(days.value, weekWorkdays(today), plan.value, today);
+});
+/** The days each open task already shows on, so a drop inside them only reorders. */
+const plannedDays = computed(() => {
+  const dates = new Map<string, Set<string>>();
+  for (const day of shownDays.value) {
+    for (const row of day.rows) {
+      if (row.history) continue;
+      const shown = dates.get(row.task.id) ?? new Set<string>();
+      shown.add(day.date);
+      dates.set(row.task.id, shown);
+    }
+  }
+  return dates;
 });
 
 function onHandleDown(event: PointerEvent, id: string): void {
@@ -155,9 +165,10 @@ function onHandleUp(): void {
   // The anchor is read while the drag is still live: a suspended drag may have filled
   // days that disappear again as soon as the drag ends.
   const beforeId = target ? anchorFor(target.day, target.beforeId) : null;
+  const onDay = id !== null && target !== null && plannedDays.value.get(id)?.has(target.day);
   endDrag();
   if (!id || !moved || !target) return;
-  if (plannedDay.value.get(id) === target.day) void move(id, beforeId);
+  if (onDay) void move(id, beforeId);
   else void place(id, target.day, beforeId);
 }
 
@@ -294,20 +305,6 @@ function refresh(): void {
             {{ t("week.dropDay") }}
           </span>
         </div>
-        <div v-if="day.spans.length" class="mb-1.5 space-y-1.5">
-          <TaskContinuation
-            v-for="span in day.spans"
-            :key="span.task.id"
-            :task="span.task"
-            :day="span.day"
-            :total="span.total"
-            :hours="span.hours"
-            :end="span.end"
-            :from="span.from"
-            :to="span.to"
-            @open="openTask"
-          />
-        </div>
         <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
           <TaskRow
             v-for="row in day.rows"
@@ -351,7 +348,7 @@ function refresh(): void {
           </TaskRow>
         </AnimatePresence>
         <div
-          v-if="!day.rows.length && (dragMoved || !day.spans.length)"
+          v-if="!day.rows.length"
           class="mt-0.5 flex h-9 items-center justify-center rounded-xl border border-dashed text-[10.5px]"
           :class="
             dragMoved && dropTarget?.day === day.date

@@ -25,9 +25,11 @@ export function createDeskVM() {
   });
 
   const plan = computed(() => planSchedule(state.tasks.map(toPlanTask), todayIso()));
-  // The widget only has room for cards; days covered only by a span stay on the start day.
+  // The widget has room for one card per task, so a span stays on its start day.
   const days = computed(() =>
-    groupPlannedDays(state.tasks, plan.value, todayIso()).filter((day) => day.rows.length > 0),
+    groupPlannedDays(state.tasks, plan.value, todayIso(), undefined, false).filter(
+      (day) => day.rows.length > 0,
+    ),
   );
   const count = computed(() => state.tasks.length);
 
