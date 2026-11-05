@@ -83,13 +83,15 @@ pub fn next_sort(conn: &Connection) -> rusqlite::Result<i64> {
 }
 
 pub fn reorder(conn: &Connection, ids: &[String], now: &str) -> rusqlite::Result<()> {
+    // One transaction: a failure part-way would leave two categories sharing a slot.
+    let tx = conn.unchecked_transaction()?;
     for (i, id) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE categories SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![i as i64, now, id],
         )?;
     }
-    Ok(())
+    tx.commit()
 }
 
 /// Soft-deletes a category and takes it off its tasks in one transaction.
@@ -200,5 +202,25 @@ mod tests {
             })
             .unwrap();
         assert_eq!(kept.as_deref(), Some(docs.id.as_str()));
+    }
+
+    #[test]
+    fn a_failed_reorder_leaves_the_stored_order_alone() {
+        let c = db::open_in_memory().unwrap();
+        let before: Vec<i64> = list(&c).unwrap().into_iter().map(|x| x.sort_order).collect();
+        let mut ids: Vec<String> = list(&c).unwrap().into_iter().map(|x| x.id).collect();
+        // The seed has several categories, so one row is written before the abort.
+        let second = ids[1].clone();
+        c.execute_batch(&format!(
+            "CREATE TRIGGER fail_reorder BEFORE UPDATE OF sort_order ON categories
+             WHEN OLD.id = '{second}' BEGIN SELECT RAISE(ABORT, 'boom'); END;"
+        ))
+        .unwrap();
+        ids.reverse();
+
+        assert!(reorder(&c, &ids, NOW).is_err());
+
+        let after: Vec<i64> = list(&c).unwrap().into_iter().map(|x| x.sort_order).collect();
+        assert_eq!(after, before, "a half-done reorder must roll back");
     }
 }
