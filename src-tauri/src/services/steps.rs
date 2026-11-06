@@ -83,8 +83,12 @@ pub(crate) fn recompute(conn: &Connection, task_id: &str, now: &str) -> Result<T
         .map(|s| s.done)
         .collect();
     let status = derive(&stored, &done_flags);
-    tasks::set_status(conn, task_id, status, status == "done", now)
-        .map_err(|e| e.to_string())?;
+    // Only a real status change writes the row: deleting a step of a finished task keeps
+    // it finished, and re-stamping there would move its recorded completion to today.
+    if status != stored {
+        tasks::set_status(conn, task_id, status, status == "done", now)
+            .map_err(|e| e.to_string())?;
+    }
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
@@ -187,5 +191,31 @@ mod tests {
         assert_eq!(task.effort_minutes, 600);
     }
 
+    #[test]
+    fn deleting_a_step_keeps_a_completed_tasks_recorded_finish() {
+        let c = with_task();
+        let done_at = "2026-10-20T09:30:00Z";
+        let later = "2026-10-21T08:00:00Z";
+        let t = add(&c, "t1", "第一步", NOW).unwrap();
+        let first = t.steps[0].id.clone();
+        let t = add(&c, "t1", "第二步", NOW).unwrap();
+        let second = t.steps[1].id.clone();
+        crate::services::week::start(&c, "t1", NOW).unwrap();
+        toggle(&c, &first, done_at).unwrap();
+        toggle(&c, &second, done_at).unwrap();
+        let before = tasks::dto(&c, "t1").unwrap();
+        assert_eq!(before.actual_finish_at.as_deref(), Some(done_at));
+        assert_eq!(before.actual_effort_minutes, Some(90));
+
+        let after = remove(&c, &first, later).unwrap();
+
+        assert_eq!(after.status, "done");
+        assert_eq!(
+            after.actual_finish_at.as_deref(),
+            Some(done_at),
+            "a step edit on a finished task must not move its completion"
+        );
+        assert_eq!(after.actual_effort_minutes, Some(90));
+    }
 }
 
