@@ -1,8 +1,6 @@
 use crate::dto::{CaptureFields, TaskDto, TemplateDto, TemplateInput};
-use crate::repo::steps as step_repo;
 use crate::repo::{tasks, templates};
-use crate::services::steps as step_service;
-use crate::services::week;
+use crate::services::{subtasks, week};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -36,7 +34,7 @@ pub fn remove(conn: &Connection, id: &str, now: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// One capture plus the template's steps, so owner routing and the week rules stay shared.
+/// One capture plus the template's subtasks, so owner routing and the week rules stay shared.
 pub fn create_task(
     conn: &Connection,
     template_id: &str,
@@ -50,7 +48,7 @@ pub fn create_task(
         priority: Some(template.priority.clone()),
         effort_minutes: Some(template.effort_minutes),
     };
-    // One transaction: a failed step insert must not leave a task with half its flow.
+    // One transaction: a failed subtask insert must not leave a task with half its flow.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     week::capture_rows(&tx, &template.name, &fields, now, task_id)?;
     // CaptureFields carries nothing for these three, so they land after the row exists.
@@ -66,22 +64,19 @@ pub fn create_task(
         ],
     )
     .map_err(|e| e.to_string())?;
-    for (index, title) in template.steps.iter().enumerate() {
-        step_repo::insert(
-            &tx,
-            &Uuid::new_v4().to_string(),
-            task_id,
-            title,
-            index as i64,
-            now,
-        )
-        .map_err(|e| e.to_string())?;
+    // The template's effort is the whole flow, so its subtasks split it.
+    let shares = subtasks::split_shares(
+        template.effort_minutes,
+        &vec![None; template.steps.len()],
+    );
+    for (title, minutes) in template.steps.iter().zip(shares) {
+        subtasks::insert_child(&tx, task_id, title, minutes, now)?;
+    }
+    if !template.steps.is_empty() {
+        subtasks::refresh(&tx, task_id, now)?;
     }
     tx.commit().map_err(|e| e.to_string())?;
-    if template.steps.is_empty() {
-        return tasks::dto(conn, task_id).map_err(|e| e.to_string());
-    }
-    step_service::recompute(conn, task_id, now)
+    tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
 fn load(conn: &Connection, id: &str) -> Result<TemplateDto, String> {
@@ -159,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn creating_from_a_template_copies_every_step_in_order() {
+    fn creating_from_a_template_adds_every_subtask_in_order() {
         let c = db::open_in_memory().unwrap();
         let category = crate::repo::categories::list(&c).unwrap()[0].id.clone();
         let mut draft = input("发布流程", vec!["打标签", "发版"]);
@@ -171,10 +166,11 @@ mod tests {
         let task = create_task(&c, &template.id, NOW, "t1").unwrap();
 
         assert_eq!(task.title, "发布流程");
-        let steps: Vec<&str> = task.steps.iter().map(|s| s.title.as_str()).collect();
-        assert_eq!(steps, vec!["打标签", "发版"]);
-        let order: Vec<i64> = task.steps.iter().map(|s| s.sort_order).collect();
-        assert_eq!(order, vec![0, 1]);
+        let titles: Vec<&str> = task.children.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["打标签", "发版"]);
+        // The template's effort is the whole flow, split across its subtasks.
+        let efforts: Vec<i64> = task.children.iter().map(|s| s.effort_minutes).collect();
+        assert_eq!(efforts, vec![480, 480]);
         assert_eq!(task.effort_minutes, 960);
         assert_eq!(task.category_id.as_deref(), Some(category.as_str()));
         assert_eq!(task.note.as_deref(), Some("周五发"));
@@ -187,7 +183,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         let template = save(&c, &input("打电话", vec![]), NOW).unwrap();
         let task = create_task(&c, &template.id, NOW, "t1").unwrap();
-        assert!(task.steps.is_empty());
+        assert!(task.children.is_empty());
     }
 
     #[test]
@@ -255,18 +251,19 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_step_write_creates_no_task() {
+    fn a_failed_subtask_write_creates_no_task() {
         let c = db::open_in_memory().unwrap();
         let template = save(&c, &input("发布", vec!["打标签", "发版"]), NOW).unwrap();
         c.execute_batch(
-            "CREATE TRIGGER fail_task_step BEFORE INSERT ON steps
+            "CREATE TRIGGER fail_task_child BEFORE INSERT ON tasks
+             WHEN NEW.parent_id IS NOT NULL
              BEGIN SELECT RAISE(ABORT, 'boom'); END;",
         )
         .unwrap();
 
         assert!(create_task(&c, &template.id, NOW, "t1").is_err());
 
-        // The task row must go with the steps it could not get.
+        // The task row must go with the subtasks it could not get.
         let tasks: i64 = c
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();

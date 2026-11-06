@@ -68,46 +68,29 @@ pub async fn update_task(
     .await
 }
 
+/// Adds a subtask and hands back the parent it now rolls up.
 #[tauri::command]
-pub async fn add_step(
+pub async fn add_subtask(
     state: State<'_, AppState>,
     task_id: String,
     title: String,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::steps::add(conn, &task_id, &title, &now)
+        crate::services::subtasks::add(conn, &task_id, &title, &now)
     })
     .await
 }
 
+/// Drops a subtask and hands back the refreshed parent.
 #[tauri::command]
-pub async fn toggle_step(state: State<'_, AppState>, step_id: String) -> Result<TaskDto, String> {
-    let now = now_iso();
-    with_db(&state, move |conn| {
-        crate::services::steps::toggle(conn, &step_id, &now)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn delete_step(state: State<'_, AppState>, step_id: String) -> Result<TaskDto, String> {
-    let now = now_iso();
-    with_db(&state, move |conn| {
-        crate::services::steps::remove(conn, &step_id, &now)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn set_step_effort(
+pub async fn delete_subtask(
     state: State<'_, AppState>,
-    step_id: String,
-    effort_minutes: Option<i64>,
+    subtask_id: String,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::steps::set_effort(conn, &step_id, effort_minutes, &now)
+        crate::services::subtasks::remove(conn, &subtask_id, &now)
     })
     .await
 }

@@ -53,7 +53,7 @@ pub fn capture_with_project(
 }
 
 /// Validates a capture and inserts it, membership included. The caller owns the
-/// transaction, so a template can add its steps to the same one.
+/// transaction, so a template can add its subtasks to the same one.
 pub(crate) fn capture_rows(
     conn: &Connection,
     raw: &str,
@@ -147,11 +147,8 @@ pub fn resolve(
             .map_err(|e| e.to_string())?;
         }
         PassAction::Done => {
-            // The task's status is derived from its steps, so finish them together with it.
-            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-            crate::repo::steps::complete_all(&tx, task_id, now).map_err(|e| e.to_string())?;
-            tasks::set_status(&tx, task_id, "done", true, now).map_err(|e| e.to_string())?;
-            tx.commit().map_err(|e| e.to_string())?;
+            // A subtask finishing rolls its parent up; a plain task just closes.
+            crate::services::tasks::set_status(conn, task_id, "done", now)?;
         }
         PassAction::Suspend => {
             return suspend(conn, task_id, suspend_until, suspend_reason, now);
@@ -185,7 +182,8 @@ pub fn suspend(
             return Err("suspend_until_past".into());
         }
     }
-    conn.execute(
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
         "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
                 suspend_reason = ?2, suspended_at = ?3, updated_at = ?4
          WHERE id = ?5",
@@ -198,6 +196,21 @@ pub fn suspend(
         ],
     )
     .map_err(|e| e.to_string())?;
+    // Parking an umbrella parks its work: otherwise the children stay on the week.
+    tx.execute(
+        "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
+                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4
+         WHERE parent_id = ?5 AND deleted_at IS NULL",
+        params![
+            until,
+            reason,
+            today.format("%Y-%m-%d").to_string(),
+            now,
+            task_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
@@ -223,6 +236,8 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
         done: count(
             "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done'
              AND actual_finish_at IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM tasks c
+                             WHERE c.parent_id = tasks.id AND c.deleted_at IS NULL)
              AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
         delayed: count(
@@ -269,6 +284,19 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
 }
 
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
+    // start() already holds a transaction; it owns the commit in that case.
+    if conn.is_autocommit() {
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        unpark(&tx, task_id, now)?;
+        tx.commit().map_err(|e| e.to_string())?;
+    } else {
+        unpark(conn, task_id, now)?;
+    }
+    tasks::dto(conn, task_id).map_err(|e| e.to_string())
+}
+
+/// Brings a parked task and its subtasks back together.
+fn unpark(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
     conn.execute(
         &format!(
             "UPDATE tasks SET {}, updated_at = ?1,
@@ -279,7 +307,15 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
         params![now, task_id],
     )
     .map_err(|e| e.to_string())?;
-    tasks::dto(conn, task_id).map_err(|e| e.to_string())
+    conn.execute(
+        &format!(
+            "UPDATE tasks SET {}, updated_at = ?1 WHERE parent_id = ?2",
+            tasks::UNPARK
+        ),
+        params![now, task_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Drops a task onto one day: it joins the week with that expected start, its finish
@@ -327,6 +363,7 @@ pub fn place(
         let finish = crate::services::timing::finish_for(anchor, effort);
         crate::services::timing::write_finish_in(&tx, task_id, finish, now)?;
     }
+    crate::services::subtasks::sync_parent(&tx, task_id, now)?;
     tx.commit().map_err(|e| e.to_string())
 }
 
@@ -724,24 +761,46 @@ mod tests {
     }
 
     #[test]
-    fn pass_done_completes_the_steps() {
+    fn pass_done_closes_a_subtask_and_rolls_up_its_parent() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
-        crate::services::steps::add(&c, "t1", "汇编初稿", NOW).unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
 
-        let t = week::resolve(&c, "t1", PassAction::Done, None, None, NOW).unwrap();
+        let done = week::resolve(&c, &child, PassAction::Done, None, None, NOW).unwrap();
+        assert_eq!(done.status, "done");
 
-        assert_eq!(t.status, "done");
-        assert!(!t.in_week);
-        assert!(t.steps.iter().all(|s| s.done));
+        // The umbrella follows its children and stays off the queue.
+        let umbrella = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(umbrella.status, "done");
+        assert!(!umbrella.in_week);
+        assert!(week::pass_queue(&c).unwrap().is_empty());
+    }
 
-        // Undoing a step reopens the task; redoing it completes it again.
-        let reopened = crate::services::steps::toggle(&c, &t.steps[0].id, NOW).unwrap();
-        assert_eq!(reopened.status, "doing");
-        let closed = crate::services::steps::toggle(&c, &t.steps[0].id, NOW).unwrap();
-        assert_eq!(closed.status, "done");
-        assert!(!closed.in_week);
+    #[test]
+    fn parking_an_umbrella_parks_its_children() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+
+        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+        assert!(week::list(&c).unwrap().is_empty());
+        // The work is parked with its umbrella, and only the work is listed.
+        let parked: Vec<String> = week::list_suspended(&c)
+            .unwrap()
+            .into_iter()
+            .map(|task| task.id)
+            .collect();
+        assert_eq!(parked, vec![child.clone()]);
+
+        week::resume(&c, "t1", NOW).unwrap();
+        let back: Vec<String> = week::list(&c)
+            .unwrap()
+            .into_iter()
+            .map(|task| task.id)
+            .collect();
+        assert_eq!(back, vec![child]);
     }
 
     #[test]

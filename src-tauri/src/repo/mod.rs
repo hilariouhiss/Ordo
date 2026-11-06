@@ -17,7 +17,6 @@ pub mod rules;
 pub mod search;
 pub mod settings;
 pub mod snoozes;
-pub mod steps;
 pub mod tags;
 pub mod templates;
 pub mod tasks;

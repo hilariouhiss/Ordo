@@ -624,7 +624,7 @@ fn insert_step_children(
 ) -> rusqlite::Result<()> {
     let parent = &rows[0];
     let manual: Vec<Option<i64>> = rows.iter().map(|row| row.effort_minutes).collect();
-    let shares = split_shares(parent.parent_effort, &manual);
+    let shares = crate::services::subtasks::split_shares(parent.parent_effort, &manual);
     let mut total = 0;
     for (row, share) in rows.iter().zip(shares) {
         total += share;
@@ -688,25 +688,6 @@ fn insert_step_children(
     Ok(())
 }
 
-/// Each step minutes: hand-set shares stay, the remainder splits across the automatic
-/// ones with the pennies going to the earliest, never less than one minute.
-fn split_shares(parent_effort: i64, manual: &[Option<i64>]) -> Vec<i64> {
-    let manual_total: i64 = manual.iter().flatten().sum();
-    let auto_count = manual.iter().filter(|share| share.is_none()).count() as i64;
-    let remaining = (parent_effort - manual_total).max(0);
-    let base = if auto_count > 0 { remaining / auto_count } else { 0 };
-    let mut extra = if auto_count > 0 { remaining % auto_count } else { 0 };
-    manual
-        .iter()
-        .map(|share| match share {
-            Some(minutes) => *minutes,
-            None => {
-                let minutes = base + if extra > 0 { extra -= 1; 1 } else { 0 };
-                minutes.max(1)
-            }
-        })
-        .collect()
-}
 
 /// Moves `tasks` onto the four-time shape, dropping a stray `ai_fill` left by an older
 /// v15. Returns whether anything actually changed, so the self-healing pass can skip a
@@ -1798,7 +1779,9 @@ mod tests {
     }
 
     #[test]
-    fn split_shares_gives_the_remainder_to_the_earliest() {
+    fn the_step_children_share_the_effort() {
+        use crate::services::subtasks::split_shares;
+
         assert_eq!(split_shares(480, &[None, None, None]), vec![160, 160, 160]);
         assert_eq!(split_shares(100, &[None, None, None]), vec![34, 33, 33]);
         assert_eq!(split_shares(480, &[Some(90), None, None]), vec![90, 195, 195]);

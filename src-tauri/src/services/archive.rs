@@ -1,6 +1,6 @@
 use crate::dto::{ArchiveDto, TaskDto};
 use crate::repo::{projects, tasks};
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 
 pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String> {
     Ok(ArchiveDto {
@@ -9,6 +9,33 @@ pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String
         canceled: tasks::list_canceled(conn, query).map_err(|e| e.to_string())?,
         done: tasks::list_done(conn, query).map_err(|e| e.to_string())?,
     })
+}
+
+/// Files a task, taking its subtasks with it: filing the umbrella files the work.
+pub fn archive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tasks::archive(&tx, id, now).map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE tasks SET archived_at = ?1, in_week = 0, updated_at = ?1
+         WHERE parent_id = ?2 AND deleted_at IS NULL",
+        params![now, id],
+    )
+    .map_err(|e| e.to_string())?;
+    crate::services::subtasks::sync_parent(&tx, id, now)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    tasks::dto(conn, id).map_err(|e| e.to_string())
+}
+
+/// The latest live subtask, which is the one a restored umbrella continues from.
+fn last_live_child(conn: &Connection, id: &str) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT id FROM tasks WHERE parent_id = ?1 AND deleted_at IS NULL
+         ORDER BY sort_order DESC LIMIT 1",
+        [id],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
 }
 
 pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
@@ -27,13 +54,21 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
     }
     let was_done = tasks::stored_status(&tx, id).map_err(|e| e.to_string())? == "done";
     tasks::restore(&tx, id, now).map_err(|e| e.to_string())?;
+    // The work comes back with the umbrella.
+    tx.execute(
+        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, updated_at = ?1,
+                in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
+         WHERE parent_id = ?2 AND deleted_at IS NULL",
+        params![now, id],
+    )
+    .map_err(|e| e.to_string())?;
     if was_done {
-        // Reopen the current step, so the stored status agrees with what the user sees.
-        if let Some(step_id) = crate::repo::steps::last_live(&tx, id).map_err(|e| e.to_string())? {
-            crate::repo::steps::set_done(&tx, &step_id, false, now).map_err(|e| e.to_string())?;
+        // Reopen the current subtask, so the derived status agrees with what the user sees.
+        if let Some(child) = last_live_child(&tx, id)? {
+            crate::services::tasks::set_status(&tx, &child, "doing", now)?;
         }
-        crate::services::steps::recompute(&tx, id, now)?;
     }
+    crate::services::subtasks::sync_parent(&tx, id, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
@@ -42,17 +77,23 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
 /// Status, actual times and a suspension stay as they were, so a finished task comes
 /// back finished and out of the week instead of turning into open work again.
 pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
-    let changed = conn
-        .execute(
-            "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let sql = "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
                     in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
-             WHERE id = ?2",
-            rusqlite::params![now, id],
-        )
+               WHERE ";
+    let changed = tx
+        .execute(&format!("{sql}id = ?2"), params![now, id])
         .map_err(|e| e.to_string())?;
     if changed == 0 {
         return Err("task_not_found".into());
     }
+    tx.execute(
+        &format!("{sql}parent_id = ?2 AND deleted_at IS NULL"),
+        params![now, id],
+    )
+    .map_err(|e| e.to_string())?;
+    crate::services::subtasks::sync_parent(&tx, id, now)?;
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -111,22 +152,53 @@ mod tests {
     }
 
     #[test]
-    fn delete_cascades_steps_and_delays() {
+    fn delete_cascades_subtasks_and_delays() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        crate::services::steps::add(&c, "t1", "一步", NOW).unwrap();
+        crate::services::subtasks::add(&c, "t1", "一步", NOW).unwrap();
         crate::services::deliverables::add_note(&c, "t1", "等回复", NOW).unwrap();
-        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+        archive::archive_task(&c, "t1", NOW).unwrap();
 
         archive::delete_task(&c, "t1").unwrap();
-        let steps: i64 = c
-            .query_row("SELECT COUNT(*) FROM steps WHERE task_id='t1'", [], |r| r.get(0))
+        let children: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE parent_id='t1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         let delays: i64 = c
             .query_row("SELECT COUNT(*) FROM delays WHERE task_id='t1'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(steps, 0);
+        assert_eq!(children, 0);
         assert_eq!(delays, 0);
+    }
+
+    #[test]
+    fn archiving_an_umbrella_files_its_children() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+
+        archive::archive_task(&c, "t1", NOW).unwrap();
+
+        let filed: Option<String> = c
+            .query_row("SELECT archived_at FROM tasks WHERE id = ?1", [&child], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(filed.is_some());
+        assert!(week::list(&c).unwrap().is_empty());
+
+        archive::unarchive_task(&c, "t1", NOW).unwrap();
+        let back: Option<String> = c
+            .query_row("SELECT archived_at FROM tasks WHERE id = ?1", [&child], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(back.is_none());
+        assert_eq!(week::list(&c).unwrap().len(), 1);
     }
 
     #[test]
@@ -408,29 +480,29 @@ mod tests {
     }
 
     #[test]
-    fn restoring_a_done_step_task_reopens_the_last_step() {
+    fn restoring_a_done_umbrella_reopens_its_last_subtask() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        let t = crate::services::steps::add(&c, "t1", "收集", NOW).unwrap();
-        let first = t.steps[0].id.clone();
-        let t = crate::services::steps::add(&c, "t1", "汇编", NOW).unwrap();
-        let last = t.steps[1].id.clone();
-        crate::services::steps::toggle(&c, &first, NOW).unwrap();
-        let done = crate::services::steps::toggle(&c, &last, NOW).unwrap();
+        let t = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let first = t.children[0].id.clone();
+        let t = crate::services::subtasks::add(&c, "t1", "汇编", NOW).unwrap();
+        let last = t.children[1].id.clone();
+        crate::services::tasks::set_status(&c, &first, "done", NOW).unwrap();
+        let done = crate::services::tasks::set_status(&c, &last, "done", NOW).unwrap();
         assert_eq!(done.status, "done");
-        assert!(!done.in_week);
 
-        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+        archive::archive_task(&c, "t1", NOW).unwrap();
         let restored = archive::restore_task(&c, "t1", NOW).unwrap();
 
         assert_eq!(restored.status, "doing");
         assert!(restored.in_week);
         assert!(restored.actual_finish_at.is_none());
         assert!(restored.actual_effort_minutes.is_none());
-        assert!(restored.steps[0].done);
-        assert!(!restored.steps[1].done);
+        assert!(restored.children[0].status == "done");
+        assert!(restored.children[1].status != "done");
 
-        let finished = crate::services::steps::toggle(&c, &restored.steps[1].id, NOW).unwrap();
+        let finished =
+            crate::services::tasks::set_status(&c, &restored.children[1].id, "done", NOW).unwrap();
         assert_eq!(finished.status, "done");
         assert!(!finished.in_week);
     }

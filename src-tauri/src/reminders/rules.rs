@@ -442,6 +442,24 @@ mod tests {
     }
 
     #[test]
+    fn an_umbrella_does_not_remind_on_its_childrens_day() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "交付", NOW, "t1").unwrap();
+        crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
+        for sql in [
+            "UPDATE tasks SET expected_finish_date = '2026-10-21' WHERE id = 't1'",
+            "UPDATE tasks SET expected_finish_date = '2026-10-21' WHERE parent_id = 't1'",
+        ] {
+            c.execute(sql, []).unwrap();
+        }
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+
+        assert_eq!(cands.len(), 1, "only the subtask carries the reminder");
+        assert_ne!(cands[0].task_id, "t1");
+    }
+
+    #[test]
     fn catch_up_skips_older_than_14_days() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-09-30");

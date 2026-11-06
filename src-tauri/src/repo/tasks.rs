@@ -1,12 +1,16 @@
-use crate::dto::{ArchiveTaskDto, CaptureFields, DelayDto, StepDto, TagDto, TaskDto};
+use crate::dto::{ArchiveTaskDto, CaptureFields, DelayDto, TagDto, TaskDto};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
-/// The week, the pass and reminders only see live tasks outside archived projects.
+/// The week, the pass and reminders only see live tasks outside archived projects. A task
+/// with live subtasks is an umbrella: its work is the children, so it is never planned or
+/// reminded on its own.
 pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
     "canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL ",
     "AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p ",
-    "WHERE p.id = tasks.project_id AND p.archived_at IS NULL))"
+    "WHERE p.id = tasks.project_id AND p.archived_at IS NULL)) ",
+    "AND NOT EXISTS (SELECT 1 FROM tasks c ",
+    "WHERE c.parent_id = tasks.id AND c.deleted_at IS NULL)"
 );
 
 /// Bringing a parked task back always means the same five columns. Kept in one place so a
@@ -69,7 +73,7 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
         conn,
         "SELECT id FROM tasks
          WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
-           AND status <> 'done'
+           AND status <> 'done' AND parent_id IS NULL
          ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
                   expected_finish_date IS NULL, expected_finish_date, created_at",
         &[],
@@ -82,7 +86,9 @@ const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expect
             in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
             note, archived_at, canceled_at,
             created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
-            (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL)";
+            parent_id,
+            (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL),
+            (SELECT title FROM tasks p WHERE p.id = tasks.parent_id)";
 
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
     Ok(TaskDto {
@@ -107,7 +113,7 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         note: row.get(18)?,
         archived_at: row.get(19)?,
         canceled_at: row.get(20)?,
-        steps: vec![],
+        children: vec![],
         tags: vec![],
         delays: vec![],
         created_at: row.get(21)?,
@@ -116,17 +122,18 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         effort_minutes: row.get(24)?,
         priority: row.get(25)?,
         exclusive: row.get::<_, i64>(26)? == 1,
-        project_name: row.get(27)?,
+        parent_id: row.get(27)?,
+        parent_title: row.get(29)?,
+        project_name: row.get(28)?,
     })
 }
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
-    let mut task_stmt =
-        conn.prepare_cached(&format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"))?;
-    let mut task = task_stmt.query_row([id], read_task)?;
     let ids = [id.to_owned()];
-    attach_children(conn, std::slice::from_mut(&mut task), &ids)?;
-    Ok(task)
+    let mut tasks = load_rows(conn, &ids)?;
+    attach_tags_delays(conn, &mut tasks, &ids)?;
+    attach_children(conn, &mut tasks, &ids)?;
+    tasks.pop().ok_or(rusqlite::Error::QueryReturnedNoRows)
 }
 
 /// How many ids one statement may carry. SQLite's own ceiling is 999 on older builds and
@@ -163,6 +170,20 @@ pub fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>>
 }
 
 fn load_chunk(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>> {
+    let mut tasks = load_rows(conn, ids)?;
+    if tasks.len() != ids.len() {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    attach_tags_delays(conn, &mut tasks, ids)?;
+    attach_children(conn, &mut tasks, ids)?;
+    Ok(tasks)
+}
+
+/// The plain rows for these ids, in the asked order, without their child tables.
+fn load_rows(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
     let placeholders = vec!["?"; ids.len()].join(",");
     // A known list of ids, so the rows are keyed by id and put back in the asked order.
     let sql = format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id IN ({placeholders})");
@@ -173,15 +194,10 @@ fn load_chunk(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto
         let task = task?;
         rows.insert(task.id.clone(), task);
     }
-    let mut tasks: Vec<TaskDto> = ids.iter().filter_map(|id| rows.remove(id)).collect();
-    if tasks.len() != ids.len() {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    }
-    attach_children(conn, &mut tasks, ids)?;
-    Ok(tasks)
+    Ok(ids.iter().filter_map(|id| rows.remove(id)).collect())
 }
 
-/// Fills steps, tags and delays for every task in one query per table.
+/// Fills each task's children in one query, with their tags and delays.
 fn attach_children(
     conn: &Connection,
     tasks: &mut [TaskDto],
@@ -198,26 +214,42 @@ fn attach_children(
         .map(|(position, id)| (id.as_str(), position))
         .collect();
 
-    let mut steps = conn.prepare(&format!(
-        "SELECT id, task_id, title, sort_order, done, effort_minutes FROM steps
-         WHERE task_id IN ({placeholders}) AND deleted_at IS NULL ORDER BY task_id, sort_order"
-    ))?;
-    let rows = steps.query_map(rusqlite::params_from_iter(ids), |row| {
-        Ok(StepDto {
-            id: row.get(0)?,
-            task_id: row.get(1)?,
-            title: row.get(2)?,
-            sort_order: row.get(3)?,
-            done: row.get::<_, i64>(4)? == 1,
-            effort_minutes: row.get(5)?,
-        })
-    })?;
-    for row in rows {
-        let step = row?;
-        if let Some(&position) = index.get(step.task_id.as_str()) {
-            tasks[position].steps.push(step);
+    // Children never carry children of their own: nesting stops at one level.
+    let child_ids: Vec<String> = {
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id FROM tasks WHERE parent_id IN ({placeholders}) AND deleted_at IS NULL
+             ORDER BY sort_order, id"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(ids), |row| row.get(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut children = load_rows(conn, &child_ids)?;
+    attach_tags_delays(conn, &mut children, &child_ids)?;
+    for child in children {
+        if let Some(parent) = child.parent_id.as_deref() {
+            if let Some(&position) = index.get(parent) {
+                tasks[position].children.push(child);
+            }
         }
     }
+    Ok(())
+}
+
+/// Fills the tag and delay lists in one query each, keyed back by task id.
+fn attach_tags_delays(
+    conn: &Connection,
+    tasks: &mut [TaskDto],
+    ids: &[String],
+) -> rusqlite::Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = vec!["?"; ids.len()].join(",");
+    let index: std::collections::HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(position, id)| (id.as_str(), position))
+        .collect();
 
     let mut tags = conn.prepare(&format!(
         "SELECT tt.task_id, t.id, t.name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id
@@ -420,7 +452,8 @@ pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec
     list_for(
         conn,
         "SELECT id FROM tasks
-         WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL AND archived_at IS NULL
+         WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
+           AND archived_at IS NULL AND parent_id IS NULL
          ORDER BY expected_finish_date IS NULL, expected_finish_date, created_at",
         &[&project_id],
     )
@@ -487,7 +520,7 @@ fn list_where(
     let pattern = query.map(crate::repo::like_pattern);
     let sql = format!(
         "SELECT id, title, archived_at, canceled_at FROM tasks
-         WHERE deleted_at IS NULL AND {} AND {LIVE_PROJECT}
+         WHERE deleted_at IS NULL AND parent_id IS NULL AND {} AND {LIVE_PROJECT}
            AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC
          LIMIT {ARCHIVE_LIMIT}",
@@ -533,7 +566,7 @@ mod tests {
         for id in ["t1", "t2", "t3"] {
             crate::services::week::capture(&c, id, NOW, id).unwrap();
         }
-        crate::services::steps::add(&c, "t2", "收集", NOW).unwrap();
+        crate::services::subtasks::add(&c, "t2", "收集", NOW).unwrap();
         crate::services::deliverables::add_note(&c, "t3", "等回复", NOW).unwrap();
         c.execute(
             "INSERT INTO tags (id, name, created_at) VALUES ('g1', 'fix', ?1)",
@@ -553,10 +586,10 @@ mod tests {
         assert_eq!(loaded, vec!["t3", "t1", "t2"]);
         assert_eq!(tasks[0].delays.len(), 1);
         assert_eq!(tasks[1].tags[0].name, "fix");
-        assert_eq!(tasks[2].steps[0].title, "收集");
+        assert_eq!(tasks[2].children[0].title, "收集");
         // Each task must get only its own children, not the neighbouring ones.
-        assert!(tasks[0].steps.is_empty() && tasks[0].tags.is_empty());
-        assert!(tasks[1].steps.is_empty() && tasks[1].delays.is_empty());
+        assert!(tasks[0].children.is_empty() && tasks[0].tags.is_empty());
+        assert!(tasks[1].children.is_empty() && tasks[1].delays.is_empty());
         assert!(tasks[2].tags.is_empty() && tasks[2].delays.is_empty());
     }
 
@@ -573,15 +606,16 @@ mod tests {
         for id in &ids {
             crate::services::week::capture(&c, id, NOW, id).unwrap();
         }
-        let step = crate::services::steps::add(&c, &ids[LOAD_CHUNK + 4], "最后一步", NOW).unwrap();
-        assert_eq!(step.steps.len(), 1);
+        let parent =
+            crate::services::subtasks::add(&c, &ids[LOAD_CHUNK + 4], "最后一步", NOW).unwrap();
+        assert_eq!(parent.children.len(), 1);
 
         let tasks = dtos(&c, &ids).unwrap();
 
         let loaded: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(loaded, ids.iter().map(String::as_str).collect::<Vec<_>>());
         // The children of a task in the second chunk must come back too.
-        assert_eq!(tasks[LOAD_CHUNK + 4].steps.len(), 1);
+        assert_eq!(tasks[LOAD_CHUNK + 4].children.len(), 1);
     }
 
     #[test]

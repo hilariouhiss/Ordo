@@ -58,12 +58,12 @@ pub fn update_patch(
         if !valid_effort(effort) {
             return Err("invalid_effort".into());
         }
-        // Manual step shares are a floor: lowering the estimate under them would
-        // leave the steps bigger than the task, so the sheet asks for a bigger number.
-        let manual = crate::repo::steps::manual_effort_sum(conn, id).map_err(|e| e.to_string())?;
-        if manual > effort {
-            return Err("steps_over_effort".into());
-        }
+    }
+
+    // A task with subtasks is an umbrella: its effort, dates and actual times come from the
+    // children, so a sheet that still sends them is told why they were refused.
+    if crate::services::subtasks::has_live_children(conn, id)? && touches_derived(&patch) {
+        return Err("parent_derived".into());
     }
 
     // One transaction: a refused actual time or a failed write must not leave the other
@@ -85,6 +85,7 @@ pub fn update_patch(
     }
     sync_actual_in(&tx, id, &patch, now)?;
     route_owner(&tx, id, &patch, now)?;
+    crate::services::subtasks::sync_parent(&tx, id, now)?;
     // Moving a task or changing its owner must not leave an owner outside the project.
     if patch.project_id.is_some() || patch.owner_id.is_some() {
         let task = crate::repo::tasks::dto(&tx, id).map_err(|e| e.to_string())?;
@@ -115,14 +116,14 @@ fn rule_owned(conn: &Connection, id: &str) -> Result<bool, String> {
     .map_err(|e| e.to_string())
 }
 
-fn has_open_steps(conn: &Connection, id: &str) -> Result<bool, String> {
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM steps
-                       WHERE task_id = ?1 AND deleted_at IS NULL AND done = 0)",
-        [id],
-        |row| row.get(0),
-    )
-    .map_err(|e| e.to_string())
+/// The patch fields a parent derives from its children instead of storing by hand.
+fn touches_derived(patch: &TaskPatch) -> bool {
+    patch.effort_minutes.is_some()
+        || patch.expected_start_date.is_some()
+        || patch.expected_finish_date.is_some()
+        || patch.actual_start_at.is_some()
+        || patch.actual_finish_at.is_some()
+        || patch.actual_effort_minutes.is_some()
 }
 
 /// Hands the actual times between finish and effort. The actual start is the anchor
@@ -140,19 +141,6 @@ fn sync_actual_in(
         && patch.actual_effort_minutes.is_none()
     {
         return Ok(());
-    }
-    // Steps own completion: ticking the last one stamps the finish and effort itself,
-    // so a hand-entered pair would only fight the derived status.
-    let setting_finish = patch
-        .actual_finish_at
-        .as_ref()
-        .is_some_and(|value| value.is_some());
-    let setting_effort = patch
-        .actual_effort_minutes
-        .as_ref()
-        .is_some_and(|value| value.is_some());
-    if (setting_finish || setting_effort) && has_open_steps(conn, id)? {
-        return Err("steps_open".into());
     }
     let (stored_start, stored_finish, stored_effort, status): (
         Option<String>,
@@ -331,8 +319,13 @@ pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Resul
     // The actual start and finish store this stamp verbatim, so reject a malformed one
     // before anything is written.
     crate::services::local_today(now)?;
+    // A parent's status is what its children add up to.
+    if crate::services::subtasks::has_live_children(conn, id)? {
+        return Err("parent_derived".into());
+    }
     let done = status == "done";
     crate::repo::tasks::set_status(conn, id, status, done, now).map_err(|e| e.to_string())?;
+    crate::services::subtasks::sync_parent(conn, id, now)?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -1166,37 +1159,27 @@ mod tests {
     }
 
     #[test]
-    fn an_actual_finish_with_open_steps_is_rejected() {
+    fn a_parent_takes_its_actual_times_from_its_children() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         start_task(&c);
-        crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
+        crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
 
-        let patch = TaskPatch {
-            actual_finish_at: Some(Some("2026-10-20T10:30:00Z".into())),
-            ..Default::default()
-        };
-        assert_eq!(
-            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
-            "steps_open"
-        );
-    }
-
-    #[test]
-    fn an_actual_effort_with_open_steps_is_rejected() {
-        let c = db::open_in_memory().unwrap();
-        week::capture(&c, "交底", NOW, "t1").unwrap();
-        start_task(&c);
-        crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
-
-        let patch = TaskPatch {
-            actual_effort_minutes: Some(Some(90)),
-            ..Default::default()
-        };
-        assert_eq!(
-            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
-            "steps_open"
-        );
+        for patch in [
+            TaskPatch {
+                actual_finish_at: Some(Some("2026-10-20T10:30:00Z".into())),
+                ..Default::default()
+            },
+            TaskPatch {
+                actual_effort_minutes: Some(Some(90)),
+                ..Default::default()
+            },
+        ] {
+            assert_eq!(
+                tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+                "parent_derived"
+            );
+        }
     }
 
     #[test]
@@ -1337,7 +1320,7 @@ mod tests {
     fn a_rejected_actual_finish_keeps_the_other_fields_untouched() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "原标题", NOW, "t1").unwrap();
-        crate::services::steps::add(&c, "t1", "收集", NOW).unwrap();
+        crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
 
         let patch = TaskPatch {
             title: Some("新标题".into()),
@@ -1346,7 +1329,7 @@ mod tests {
         };
         assert_eq!(
             tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
-            "steps_open"
+            "parent_derived"
         );
 
         let after = crate::repo::tasks::dto(&c, "t1").unwrap();

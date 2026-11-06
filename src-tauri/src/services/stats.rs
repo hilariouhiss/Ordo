@@ -16,7 +16,10 @@ const MAX_RANGE_DAYS: i64 = 366;
 /// its stamp, which is why only the latest completion of a task can be counted.
 const COMPLETED_FILTER: &str = concat!(
     "t.deleted_at IS NULL AND t.canceled_at IS NULL ",
-    "AND t.status = 'done' AND t.actual_finish_at IS NOT NULL"
+    "AND t.status = 'done' AND t.actual_finish_at IS NOT NULL ",
+    // A finished umbrella only adds its children up; counting it would count the work twice.
+    "AND NOT EXISTS (SELECT 1 FROM tasks c ",
+    "WHERE c.parent_id = t.id AND c.deleted_at IS NULL)"
 );
 
 struct RangeCounts {
@@ -379,6 +382,20 @@ mod tests {
             rusqlite::params![stamp, due, minutes, id],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn a_finished_umbrella_counts_its_children_once() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付资料", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        crate::services::tasks::set_status(&c, &child, "done", "2026-10-21T09:00:00Z").unwrap();
+
+        let s = stats::overview(&c, "2026-10-19", "2026-10-21").unwrap();
+
+        assert_eq!(s.completed, 1, "the umbrella is not a second completion");
+        assert_eq!(s.completed_minutes, 480);
     }
 
     #[test]

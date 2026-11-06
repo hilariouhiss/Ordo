@@ -67,18 +67,6 @@ pub struct SettingsDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StepDto {
-    pub id: String,
-    pub task_id: String,
-    pub title: String,
-    pub sort_order: i64,
-    pub done: bool,
-    /// Minutes set by hand; null splits the task's effort automatically.
-    pub effort_minutes: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DelayDto {
     pub id: String,
     pub task_id: String,
@@ -94,6 +82,10 @@ pub struct DelayDto {
 pub struct TaskDto {
     pub id: String,
     pub title: String,
+    /// Set on a subtask: the task this one belongs to.
+    pub parent_id: Option<String>,
+    /// Display title of the parent, so a subtask card can name its umbrella.
+    pub parent_title: Option<String>,
     pub project_id: Option<String>,
     /// Display name of the project, even when it is archived.
     pub project_name: Option<String>,
@@ -121,7 +113,9 @@ pub struct TaskDto {
     pub note: Option<String>,
     pub archived_at: Option<String>,
     pub canceled_at: Option<String>,
-    pub steps: Vec<StepDto>,
+    /// Live child tasks. A task with children is an umbrella: its own effort, dates and
+    /// status are derived from them. Children never carry children of their own.
+    pub children: Vec<TaskDto>,
     pub tags: Vec<TagDto>,
     pub delays: Vec<DelayDto>,
     pub created_at: String,

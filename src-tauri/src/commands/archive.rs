@@ -18,8 +18,7 @@ pub async fn list_archive(
 pub async fn archive_task(state: State<'_, AppState>, id: String) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::repo::tasks::archive(conn, &id, &now).map_err(|e| e.to_string())?;
-        crate::repo::tasks::dto(conn, &id).map_err(|e| e.to_string())
+        crate::services::archive::archive_task(conn, &id, &now)
     })
     .await
 }
