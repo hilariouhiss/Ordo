@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { formatEffort } from "../lib/effort";
@@ -97,6 +97,14 @@ const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
 const poolDraggingId = poolDrag.id;
 const poolTarget = poolDrag.target;
 const poolMoved = poolDrag.moved;
+/** The card under the pointer while dragging it out of the stack. */
+const poolGhost = reactive({ task: null as Task | null, x: 0, y: 0, over: false });
+const poolDropLabel = computed(() => {
+  const day = poolTarget.value?.day;
+  return day
+    ? t("week.dropTo", { date: shortDate(day), weekday: weekdayLabel(day) })
+    : t("week.dropBack");
+});
 /** The gantt column under the stacked card, when the card hovers a day of the week. */
 const poolColumn = computed(() => {
   const day = poolTarget.value?.day;
@@ -184,7 +192,7 @@ async function onMoveBy(taskId: string, delta: -1 | 1): Promise<void> {
 function onKey(event: KeyboardEvent): void {
   if (event.key !== "Escape") return;
   drag.cancel();
-  poolDrag.cancel();
+  cancelPoolDrag();
 }
 
 const DAY_TICK_MS = 60_000;
@@ -251,7 +259,34 @@ function openTask(task: Task): void {
 /** A stacked card drags from its body; a click without movement still opens the task. */
 function startPoolDrag(event: PointerEvent, task: Task): void {
   if (event.button !== 0) return;
+  // Holding a card must not start a text selection in the page behind it.
+  event.preventDefault();
+  poolGhost.task = task;
+  poolGhost.x = event.clientX;
+  poolGhost.y = event.clientY;
+  poolGhost.over = false;
   poolDrag.start(event, task.id);
+}
+
+/** The card follows the pointer; the target day puts a hint in its second line. */
+function movePoolDrag(event: PointerEvent): void {
+  poolDrag.move(event);
+  if (!poolDraggingId.value) return;
+  poolGhost.x = event.clientX;
+  poolGhost.y = event.clientY;
+  poolGhost.over = poolDrag.moved.value && poolTarget.value !== null;
+}
+
+function endPoolDrag(): void {
+  poolDrag.end();
+  poolGhost.task = null;
+  poolGhost.over = false;
+}
+
+function cancelPoolDrag(): void {
+  poolDrag.cancel();
+  poolGhost.task = null;
+  poolGhost.over = false;
 }
 
 function openLater(task: Task): void {
@@ -278,7 +313,10 @@ function refresh(): void {
 </script>
 
 <template>
-  <section class="space-y-2" :class="{ 'flex grow flex-col': ganttView }">
+  <section
+    class="space-y-2"
+    :class="{ 'flex grow flex-col': ganttView, 'select-none': draggingId }"
+  >
     <div v-if="passNeeded" class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5">
       <span class="text-[12.5px]">{{ t("week.passNeeded") }}</span>
       <span class="text-[11px] text-base-content/45">{{
@@ -328,7 +366,6 @@ function refresh(): void {
       :dates="week"
       :outside-moved="poolMoved"
       :outside-column="poolColumn"
-      :outside-before="poolTarget?.beforeId ?? null"
       @changed="refresh"
     />
 
@@ -468,16 +505,16 @@ function refresh(): void {
         <li
           v-for="(task, index) in laterTasks"
           :key="task.id"
-          class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-200 ease-out hover:-translate-y-[34px] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-0 after:content-[''] hover:after:h-9"
+          class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 select-none shadow-sm transition duration-200 ease-out hover:-translate-y-[34px] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-0 after:content-[''] hover:after:h-9"
           :style="{ marginLeft: index ? `${deckStep - DECK_CARD_W}px` : undefined }"
           :class="{ 'opacity-40': poolDraggingId === task.id }"
           role="button"
           tabindex="0"
           :aria-label="t('week.laterCardAria', { title: task.title })"
           @pointerdown="startPoolDrag($event, task)"
-          @pointermove="poolDrag.move"
-          @pointerup="poolDrag.end"
-          @pointercancel="poolDrag.cancel"
+          @pointermove="movePoolDrag"
+          @pointerup="endPoolDrag"
+          @pointercancel="cancelPoolDrag"
           @click="openLater(task)"
           @keydown.enter.prevent="openLater(task)"
         >
@@ -520,5 +557,26 @@ function refresh(): void {
     <AnimatePresence>
       <WeeklyPass v-if="passVM.state.open" />
     </AnimatePresence>
+
+    <div
+      v-if="poolGhost.task && poolMoved"
+      class="pointer-events-none fixed z-50 flex w-[260px] select-none flex-col justify-center gap-1 rounded-xl border bg-base-100 px-3 py-2 shadow-xl"
+      :class="poolGhost.over ? 'border-primary/60' : 'border-base-300 opacity-80'"
+      :style="{
+        transform: `translate3d(${poolGhost.x - 130}px, ${poolGhost.y - 40}px, 0)`,
+      }"
+      aria-hidden="true"
+    >
+      <span class="flex min-w-0 items-center gap-1.5">
+        <StatusDot :status="poolGhost.task.status" :suspended="poolGhost.task.suspended" />
+        <span class="truncate text-[13px]">{{ poolGhost.task.title }}</span>
+      </span>
+      <span
+        class="truncate text-[10.5px]"
+        :class="poolGhost.over ? 'text-primary' : 'text-base-content/45'"
+      >
+        {{ poolDropLabel }}
+      </span>
+    </div>
   </section>
 </template>

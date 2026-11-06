@@ -64,6 +64,8 @@ export const zh = {
   "week.laterHint": "拖到本周某天即可排期",
   "week.laterStarts": "{date} {weekday} 起",
   "week.laterCardAria": "「{title}」：点开任务浮层，拖到本周某天排期",
+  "week.dropTo": "松开 → {date} {weekday} 起",
+  "week.dropBack": "松开回到「本周之后」",
 
   "tasks.title": "任务",
   "tasks.count": "共 {count} 条",
@@ -588,6 +590,8 @@ export const en: Record<MessageKey, string> = {
   "week.laterHint": "Drag onto a day to plan it this week",
   "week.laterStarts": "Starts {date} {weekday}",
   "week.laterCardAria": '"{title}": open the task, or drag it onto a day to plan it this week',
+  "week.dropTo": "Release → starts {date} {weekday}",
+  "week.dropBack": "Release to put it back",
 
   "tasks.title": "Tasks",
   "tasks.count": "Total: {count}",

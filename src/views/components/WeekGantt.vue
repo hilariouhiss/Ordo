@@ -22,7 +22,6 @@ const props = defineProps<{
   /** A drag from the week's bottom stack, so the grid shows the same drop marks. */
   outsideMoved?: boolean;
   outsideColumn?: number | null;
-  outsideBefore?: string | null;
 }>();
 const emit = defineEmits<{ changed: [] }>();
 
@@ -56,7 +55,7 @@ const drag = usePointerDrag<{ column: number; before: string | null }>({
 const draggingId = drag.id;
 const dragMoved = computed(() => drag.moved.value || props.outsideMoved === true);
 const dropColumn = computed(() => drag.target.value?.column ?? props.outsideColumn ?? null);
-const dropBefore = computed(() => drag.target.value?.before ?? props.outsideBefore ?? null);
+const dropBefore = computed(() => drag.target.value?.before ?? null);
 /** A drag that just ended must not be read as a click on the bar. */
 const dragged = ref(false);
 
@@ -181,7 +180,7 @@ function startDrag(event: PointerEvent, lane: WeekLane): void {
     </div>
     <div class="grid grid-cols-5">
       <div
-        v-for="date in dates"
+        v-for="(date, index) in dates"
         :key="date"
         class="flex flex-col justify-center gap-0.5 border-l border-base-300/80 px-3 py-1 first:border-l-0"
         :class="{ 'bg-base-200/70': date < today, 'bg-primary/[0.07]': date === today }"
@@ -194,6 +193,11 @@ function startDrag(event: PointerEvent, lane: WeekLane): void {
           <span v-if="date === today" class="badge badge-soft badge-primary badge-xs">{{
             t("week.today")
           }}</span>
+          <span
+            v-if="dragMoved && dropColumn === index"
+            class="badge badge-soft badge-primary badge-xs"
+            >{{ t("week.dropDay") }}</span
+          >
         </span>
         <span class="flex items-center gap-1.5 text-[10px] text-base-content/40">
           <span v-if="date < today">{{ t("week.past") }}</span>
@@ -209,12 +213,14 @@ function startDrag(event: PointerEvent, lane: WeekLane): void {
       <!-- The day columns run to the bottom of the card, so a short week still reads as a table. -->
       <div class="pointer-events-none absolute inset-0 -z-10 grid grid-cols-5" aria-hidden="true">
         <div
-          v-for="date in dates"
+          v-for="(date, index) in dates"
           :key="date"
           class="border-l border-base-300/80 first:border-l-0"
           :class="{
             'bg-base-200/70': date < today,
-            'border-x border-primary/20 bg-primary/[0.055]': date === today,
+            'border-x border-primary/20 bg-primary/[0.055]': date === today && !dragMoved,
+            'border-x border-dashed border-primary/50 bg-primary/[0.07]':
+              dragMoved && dropColumn === index,
           }"
         ></div>
       </div>
@@ -229,12 +235,7 @@ function startDrag(event: PointerEvent, lane: WeekLane): void {
         }"
       >
         <div class="relative grid flex-1 grid-cols-5">
-          <div
-            v-for="(date, index) in dates"
-            :key="date"
-            class="row-start-1"
-            :class="{ 'bg-primary/[0.09]': dragMoved && dropColumn === index }"
-          ></div>
+          <div v-for="date in dates" :key="date" class="row-start-1"></div>
           <div
             class="relative z-10 row-start-1 my-auto flex h-[38px] items-center gap-[7px] overflow-hidden rounded-[10px] border px-2.5"
             :class="[barSkin(lane), { 'opacity-40': draggingId === lane.task.id }]"
