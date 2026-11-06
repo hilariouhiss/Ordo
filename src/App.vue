@@ -255,6 +255,9 @@ onMounted(async () => {
     await listen("capture:created", () => {
       void weekVM.load().catch(() => {});
       void tasksVM.load();
+      // The mini window can create a project with `#name`; its id has to reach the
+      // pickers here too, not just the task lists.
+      void appVM.load().catch(() => {});
     });
     await listen("ai:enriched", () => {
       void appVM.load();

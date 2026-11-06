@@ -10,6 +10,7 @@ import type { Priority, Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { tasksVM } from "../viewmodels/tasksVM";
+import { undoVM } from "../viewmodels/undoVM";
 import ChipSelect from "./components/ChipSelect.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
@@ -121,6 +122,13 @@ watch(
   () => taskSheetVM.state.openId,
   (open) => {
     if (!open) void tasksVM.load();
+  },
+);
+// The same reload the week, archive and project pages do, so undo is visible here too.
+watch(
+  () => undoVM.state.revision,
+  () => {
+    void tasksVM.load();
   },
 );
 
