@@ -160,6 +160,8 @@ function evenSteps(): void {
 }
 /** The earliest finish day a picked start allows; the date picker refuses earlier days. */
 const finishMin = computed(() => timingAnchor(todayIso(), form.expectedStartDate || null));
+/** A rule owns this task's day and time, so its estimate fields stay read-only. */
+const ruleOwned = computed(() => Boolean(taskSheetVM.state.task?.expectedFinishTime));
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
@@ -595,6 +597,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ t("task.expectedStart") }}
               <DateField
                 v-model="form.expectedStartDate"
+                :disabled="ruleOwned"
                 class="input input-sm mt-1 w-full rounded-md border-base-300"
                 @update:model-value="refreshFinishPreview"
               />
@@ -604,6 +607,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <div class="mt-1">
                 <EffortField
                   v-model="form.effortMinutes"
+                  :disabled="ruleOwned"
                   @update:model-value="refreshFinishPreview"
                 />
               </div>
@@ -611,7 +615,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <label class="block text-[11px] text-base-content/45">
               {{ t("task.expectedFinish") }}
               <span
-                v-if="taskSheetVM.state.task?.expectedFinishTime"
+                v-if="ruleOwned"
                 class="input input-sm mt-1 flex w-full items-center rounded-md border-base-300 bg-base-200/30 tabular-nums text-base-content/60"
               >
                 {{ shortDate(form.expectedFinishDate) || t("common.none") }} ·
@@ -625,13 +629,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 @update:model-value="onFinishPicked"
               />
             </label>
-            <p
-              v-if="taskSheetVM.state.task?.expectedFinishTime"
-              class="col-span-3 mt-1 text-[10.5px] leading-4 text-base-content/40"
-            >
-              {{ t("task.expectedFinishRuleHint") }}
-            </p>
-
             <div class="col-span-3 mt-2 h-px bg-base-300"></div>
 
             <label class="block text-[11px] text-base-content/45">

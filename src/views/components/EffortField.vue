@@ -11,7 +11,12 @@ import { isImeEnter } from "../../lib/keys";
 import ChipSelect from "./ChipSelect.vue";
 
 /** `optional` lets the field sit empty: 0 means "no value recorded". */
-const props = defineProps<{ compact?: boolean; optional?: boolean; label?: string }>();
+const props = defineProps<{
+  compact?: boolean;
+  optional?: boolean;
+  label?: string;
+  disabled?: boolean;
+}>();
 const model = defineModel<number>({ required: true });
 
 const root = ref<HTMLElement | null>(null);
@@ -122,7 +127,12 @@ function onEnter(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div ref="root" class="inline-flex items-center" @focusout="onFocusOut">
+  <div
+    ref="root"
+    class="inline-flex items-center"
+    :class="{ 'opacity-60': props.disabled }"
+    @focusout="onFocusOut"
+  >
     <input
       ref="inputEl"
       v-model="amount"
@@ -130,6 +140,7 @@ function onEnter(event: KeyboardEvent): void {
       inputmode="decimal"
       autocomplete="off"
       spellcheck="false"
+      :disabled="props.disabled"
       :aria-label="fieldLabel"
       :class="inputClass"
       @input="onInput"
@@ -140,6 +151,7 @@ function onEnter(event: KeyboardEvent): void {
       :model-value="unit"
       :options="unitOptions"
       :label="fieldLabel"
+      :disabled="props.disabled"
       :class="unitClass"
       style="padding-inline: 4px"
       @update:model-value="onUnit"

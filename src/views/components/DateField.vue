@@ -16,7 +16,7 @@ import { useAnchorPopup } from "../../lib/useAnchorPopup";
 
 defineOptions({ inheritAttrs: false });
 
-const props = defineProps<{ min?: string }>();
+const props = defineProps<{ min?: string; disabled?: boolean }>();
 const model = defineModel<string>({ required: true });
 const emit = defineEmits<{ enter: [] }>();
 const attrs = useAttrs();
@@ -177,7 +177,7 @@ defineExpose({ focus: () => inputEl.value?.focus() });
   <div
     ref="triggerRef"
     class="inline-flex min-w-0 items-center gap-1"
-    :class="rootClass"
+    :class="[rootClass, { 'opacity-60': props.disabled }]"
     :style="rootStyle"
     @click.self="inputEl?.focus()"
   >
@@ -189,6 +189,7 @@ defineExpose({ focus: () => inputEl.value?.focus() });
       inputmode="numeric"
       autocomplete="off"
       spellcheck="false"
+      :disabled="props.disabled"
       :placeholder="t('date.pick')"
       class="min-w-0 flex-1 bg-transparent p-0 text-inherit tabular-nums outline-none [font:inherit] placeholder:text-base-content/40"
       @pointerdown="onInputPointerDown"
@@ -197,7 +198,8 @@ defineExpose({ focus: () => inputEl.value?.focus() });
     />
     <button
       type="button"
-      class="shrink-0 cursor-pointer rounded-md p-0.5 text-base-content/40 hover:text-base-content/70"
+      :disabled="props.disabled"
+      class="shrink-0 cursor-pointer rounded-md p-0.5 text-base-content/40 hover:text-base-content/70 disabled:cursor-not-allowed"
       :aria-label="t('date.open')"
       :aria-haspopup="'dialog'"
       :aria-expanded="open"
