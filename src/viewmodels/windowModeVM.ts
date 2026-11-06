@@ -111,8 +111,9 @@ function serialized(task: () => Promise<void>): Promise<void> {
   const next = queue.then(task, task).catch((error) => {
     // Let the next request retry from wherever the window stopped instead of locking the UI.
     console.error(error);
-    stopMorph();
-    state.phase = "idle";
+    // A morph that failed halfway can leave neither surface usable (a hidden app with an
+    // inert card); put the current mode back on screen so its own buttons still work.
+    stateFor(state.mode);
   });
   queue = next;
   return next;
