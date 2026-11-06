@@ -118,7 +118,7 @@ async function save(): Promise<void> {
           <button
             type="button"
             class="text-base-content/25"
-            :aria-label="t('task.deleteStepAria')"
+            :aria-label="t('task.deleteSubtaskAria')"
             @click="removeStep(index)"
           >
             <X :size="13" aria-hidden="true" />

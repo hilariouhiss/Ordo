@@ -5,7 +5,6 @@ vi.mock("../../model/ipc", () => ({
   startTask: vi.fn(),
   suspendTask: vi.fn(),
   resumeTask: vi.fn(),
-  toggleStep: vi.fn(),
   updateTaskPatch: vi.fn(),
 }));
 vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
@@ -15,12 +14,11 @@ import {
   setTaskStatus,
   startTask,
   suspendTask,
-  toggleStep,
   updateTaskPatch,
 } from "../../model/ipc";
 import { undoVM } from "../undoVM";
 import { createTaskRowVM } from "../taskRowVM";
-import { step, task } from "./fixtures";
+import { task } from "./fixtures";
 
 describe("taskRowVM", () => {
   beforeEach(() => {
@@ -29,7 +27,6 @@ describe("taskRowVM", () => {
     vi.mocked(startTask).mockResolvedValue(task());
     vi.mocked(suspendTask).mockResolvedValue(task());
     vi.mocked(resumeTask).mockResolvedValue(task());
-    vi.mocked(toggleStep).mockResolvedValue(task());
     vi.mocked(updateTaskPatch).mockResolvedValue(task());
   });
 
@@ -112,15 +109,17 @@ describe("taskRowVM", () => {
     expect(updateTaskPatch).not.toHaveBeenCalled();
   });
 
-  it("undoes a step tick by ticking it again", async () => {
+  it("ticks a subtask through its own status", async () => {
     const vm = createTaskRowVM();
-    vi.mocked(toggleStep).mockResolvedValue(task());
+    const child = task({ id: "s1", title: "收集", parentId: "t1" });
+    vi.mocked(setTaskStatus).mockResolvedValue(task({ id: "s1", status: "done" }));
 
-    await vm.toggleStepDone(step({ id: "s1", title: "收集" }));
+    await vm.toggleSubtask(child);
 
-    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    expect(setTaskStatus).toHaveBeenLastCalledWith("s1", "done");
+    const [message, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    expect(String(message)).toContain("收集");
     await run();
-    expect(toggleStep).toHaveBeenCalledTimes(2);
-    expect(toggleStep).toHaveBeenLastCalledWith("s1");
+    expect(setTaskStatus).toHaveBeenLastCalledWith("s1", "todo");
   });
 });

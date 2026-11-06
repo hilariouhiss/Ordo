@@ -1,4 +1,4 @@
-import type { Settings, Step, Task } from "../../model/types";
+import type { Settings, Task } from "../../model/types";
 
 export const defaultSettings: Settings = {
   theme: "system",
@@ -29,6 +29,8 @@ export function task(over: Partial<Task> = {}): Task {
   return {
     id: "t1",
     title: "示例",
+    parentId: null,
+    parentTitle: null,
     projectId: null,
     projectName: null,
     categoryId: null,
@@ -55,21 +57,9 @@ export function task(over: Partial<Task> = {}): Task {
     effortMinutes: 480,
     priority: "normal",
     exclusive: false,
-    steps: [],
+    children: [],
     tags: [],
     delays: [],
-    ...over,
-  };
-}
-
-export function step(over: Partial<Step> = {}): Step {
-  return {
-    id: "s1",
-    taskId: "t1",
-    title: "一步",
-    sortOrder: 0,
-    done: false,
-    effortMinutes: null,
     ...over,
   };
 }

@@ -37,11 +37,11 @@ describe("errorText", () => {
     expect(errorText("disk is full")).toBe("disk is full");
   });
 
-  it("translates the step-effort codes", () => {
-    expect(errorText("steps_over_effort")).toContain("预计耗时");
+  it("translates the subtask codes", () => {
+    expect(errorText("empty_subtask_title")).toContain("子任务");
+    expect(errorText("parent_derived")).toContain("子任务");
     setLanguage("en");
-    expect(errorText("steps_over_effort")).toContain("estimate");
-    expect(errorText("steps_too_long")).toContain("60");
+    expect(errorText("nesting_too_deep")).toContain("subtask");
   });
 
   it("turns an AI HTTP failure into a sentence", () => {

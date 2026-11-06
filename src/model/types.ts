@@ -105,16 +105,6 @@ export interface ProjectGroup {
   name: string;
 }
 
-export interface Step {
-  id: string;
-  taskId: string;
-  title: string;
-  sortOrder: number;
-  done: boolean;
-  /** Manually set minutes; null means an automatic share of the task's effort. */
-  effortMinutes: number | null;
-}
-
 export interface Delay {
   id: string;
   taskId: string;
@@ -128,6 +118,10 @@ export interface Delay {
 export interface Task {
   id: string;
   title: string;
+  /** Set on a subtask: the task it belongs to. */
+  parentId: string | null;
+  /** Display title of the parent, so a subtask card names its umbrella. */
+  parentTitle: string | null;
   projectId: string | null;
   /** Display name of the project, even when it is archived. */
   projectName: string | null;
@@ -155,7 +149,8 @@ export interface Task {
   note: string | null;
   archivedAt: string | null;
   canceledAt: string | null;
-  steps: Step[];
+  /** Live child tasks; a task with children derives its effort, dates and status from them. */
+  children: Task[];
   tags: Tag[];
   delays: Delay[];
   createdAt: string;

@@ -16,7 +16,7 @@ vi.mock("../../model/ipc", () => ({
 }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
-import { mondayOf, todayIso } from "../../lib/dates";
+import { todayIso, weekWorkdays } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import {
   capture,
@@ -640,7 +640,8 @@ describe("weekVM pass entry", () => {
     vi.mocked(listWeek).mockResolvedValue([task({ id: "t1" })]);
     vi.mocked(listSuspended).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
-    appVM.state.settings = { ...defaultSettings, lastPassWeek: mondayOf(todayIso()) };
+    // The page shows the coming week on a weekend, so its Monday is the one to record.
+    appVM.state.settings = { ...defaultSettings, lastPassWeek: weekWorkdays(todayIso())[0] };
 
     const vm = createWeekVM();
     await vm.load();

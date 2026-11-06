@@ -23,7 +23,7 @@ import {
 import { applyDeskPin, readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
 import { errorText, t } from "../lib/i18n";
 import { canSuspendTask } from "../lib/status";
-import { stepLabel, stepsDone } from "../lib/steps";
+import { subtaskLabel, subtasksDone } from "../lib/subtasks";
 import { flatRect, prefersReducedMotion, tweenRect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
@@ -346,13 +346,13 @@ function back(): void {
   emit("back");
 }
 
-/** Mirrors TaskRow: a task with steps is completed by ticking its steps in the sheet. */
+/** Mirrors TaskRow: a task with subtasks is completed through them in the sheet. */
 function canStart(task: Task): boolean {
-  return task.steps.length === 0 && task.status === "todo";
+  return task.children.length === 0 && task.status === "todo";
 }
 
 function canComplete(task: Task): boolean {
-  return task.steps.length === 0 && task.status !== "done";
+  return task.children.length === 0 && task.status !== "done";
 }
 
 function startRow(task: Task): void {
@@ -590,18 +590,18 @@ watch(
                     t("task.carry", { count: row.task.carryCount })
                   }}</span>
                   <span
-                    v-if="row.task.steps.length"
+                    v-if="row.task.children.length"
                     class="shrink-0 text-[10px] text-base-content/40"
-                    >{{ stepsDone(row.task.steps) }}/{{ row.task.steps.length }}</span
+                    >{{ subtasksDone(row.task.children) }}/{{ row.task.children.length }}</span
                   >
                   <span v-if="row.spans" class="shrink-0 text-[10px] text-base-content/35"
                     >→ {{ shortDate(row.end) }}</span
                   >
                 </span>
                 <span
-                  v-if="stepLabel(row.task.steps)"
+                  v-if="subtaskLabel(row.task.children)"
                   class="truncate text-[10.5px] text-base-content/40"
-                  >{{ stepLabel(row.task.steps) }}</span
+                  >{{ subtaskLabel(row.task.children) }}</span
                 >
               </button>
               <div v-if="state.controls" class="mt-0.5 flex shrink-0 items-center gap-0.5">

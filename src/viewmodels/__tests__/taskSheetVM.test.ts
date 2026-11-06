@@ -2,83 +2,42 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../../model/ipc", () => ({
   getTask: vi.fn(),
-  toggleStep: vi.fn(),
-  addStep: vi.fn(),
   updateTaskPatch: vi.fn(),
-  deleteStep: vi.fn(),
   addDelayNote: vi.fn(),
-  setStepEffort: vi.fn(),
   setTaskStatus: vi.fn(),
 }));
 
-import {
-  addDelayNote,
-  addStep,
-  deleteStep,
-  getTask,
-  setStepEffort,
-  setTaskStatus,
-  toggleStep,
-  updateTaskPatch,
-} from "../../model/ipc";
-import type { Task } from "../../model/types";
-import {
-  createTaskSheetVM,
-  diffTask,
-  formFinish,
-  syncActualPreview,
-  type TaskForm,
-} from "../taskSheetVM";
-import { localDate, localTime, stampOfLocal } from "../../lib/dates";
-import { step, task } from "./fixtures";
-
-function formOf(t: Task): TaskForm {
-  return {
-    title: t.title,
-    projectId: t.projectId,
-    categoryId: t.categoryId,
-    ownerId: t.ownerId,
-    expectedStartDate: t.expectedStartDate ?? "",
-    expectedFinishDate: t.expectedFinishDate ?? "",
-    expectedFinishPicked: false,
-    note: t.note ?? "",
-    tags: t.tags.map((tag) => tag.name),
-    effortMinutes: t.effortMinutes,
-    priority: t.priority,
-    exclusive: t.exclusive,
-    status: t.status,
-    actualStartDate: t.actualStartAt ? localDate(t.actualStartAt) : "",
-    actualStartTime: localTime(t.actualStartAt) || "09:00",
-    actualFinishDate: t.actualFinishAt ? localDate(t.actualFinishAt) : "",
-    actualFinishTime: localTime(t.actualFinishAt) || "09:00",
-    actualEffortMinutes: t.actualEffortMinutes ?? 0,
-  };
-}
+import { addDelayNote, getTask, setTaskStatus, updateTaskPatch } from "../../model/ipc";
+import { isoOf, stampOfLocal } from "../../lib/dates";
+import { createTaskSheetVM, diffTask, formFinish, formOf, syncActualPreview } from "../taskSheetVM";
+import { task } from "./fixtures";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("taskSheetVM", () => {
-  it("opens a task and toggles a step", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", status: "todo" }));
+  it("opens a task and seeds its draft", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", title: "交底", status: "todo" }));
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
+
     expect(vm.state.task?.id).toBe("t1");
+    expect(vm.state.form?.title).toBe("交底");
   });
 
   it("ignores an open whose read lands after a newer one", async () => {
-    let resolveFirst!: (value: Task) => void;
-    let resolveSecond!: (value: Task) => void;
+    let resolveFirst!: (value: ReturnType<typeof task>) => void;
+    let resolveSecond!: (value: ReturnType<typeof task>) => void;
     vi.mocked(getTask)
       .mockReturnValueOnce(
-        new Promise<Task>((done) => {
+        new Promise((done) => {
           resolveFirst = done;
         }),
       )
       .mockReturnValueOnce(
-        new Promise<Task>((done) => {
+        new Promise((done) => {
           resolveSecond = done;
         }),
       );
@@ -92,6 +51,32 @@ describe("taskSheetVM", () => {
     await first;
 
     expect(vm.state.task?.id).toBe("t2");
+  });
+
+  it("keeps the parent draft across a subtask and refreshes its derived fields", async () => {
+    const parent = task({
+      id: "t1",
+      effortMinutes: 480,
+      children: [task({ id: "s1", parentId: "t1", title: "收集" })],
+    });
+    vi.mocked(getTask)
+      .mockResolvedValueOnce(parent)
+      .mockResolvedValueOnce(task({ id: "s1", parentId: "t1", title: "收集", parentTitle: "父" }))
+      .mockResolvedValueOnce(task({ ...parent, effortMinutes: 960 }));
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.state.form!.title = "改过的标题";
+
+    await vm.drill("s1");
+    expect(vm.state.form?.title).toBe("收集");
+    expect(vm.state.stack).toHaveLength(1);
+
+    await vm.back();
+    expect(vm.state.task?.id).toBe("t1");
+    expect(vm.state.form?.title).toBe("改过的标题");
+    expect(vm.state.form?.effortMinutes).toBe(960);
+    expect(vm.state.stack).toHaveLength(0);
   });
 
   it("sends a picked finish date and a cleared one", () => {
@@ -111,45 +96,23 @@ describe("taskSheetVM", () => {
     expect(diffTask(t, { ...formOf(t), expectedFinishDate: "2026-10-27" })).toEqual({});
   });
 
-  it("returns false and reports a failed save", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1" }));
-    vi.mocked(updateTaskPatch).mockRejectedValue("boom");
-
-    const vm = createTaskSheetVM();
-    await vm.open("t1");
-    const saved = await vm.saveSheet({
-      form: { ...formOf(task({ id: "t1" })), title: "新" },
-      steps: [],
-      note: "",
+  it("keeps a parent's derived fields out of the patch", () => {
+    const parent = task({
+      id: "t1",
+      effortMinutes: 480,
+      children: [task({ id: "s1", parentId: "t1" })],
     });
+    const form = {
+      ...formOf(parent),
+      title: "新",
+      effortMinutes: 60,
+      expectedFinishDate: "2026-12-01",
+      expectedFinishPicked: true,
+      actualFinishDate: "2026-10-20",
+      actualEffortMinutes: 30,
+    };
 
-    expect(saved).toBe(false);
-    expect(vm.state.error).toBe("boom");
-  });
-
-  it("sends only the fields the user changed", () => {
-    const t = task({ title: "旧", note: "旧备注", tags: [{ id: "g1", name: "fix" }] });
-    expect(diffTask(t, { ...formOf(t), title: "新" })).toEqual({ title: "新" });
-  });
-
-  it("sends nothing when the user changed nothing", () => {
-    const t = task({ note: "AI 填的备注", tags: [{ id: "g1", name: "fix" }] });
-    expect(diffTask(t, formOf(t))).toEqual({});
-  });
-
-  it("sends null when the user clears a field", () => {
-    const t = task({ note: "旧备注" });
-    expect(diffTask(t, { ...formOf(t), note: "" })).toEqual({ note: null });
-  });
-
-  it("sends a priority change on its own", () => {
-    const t = task({ priority: "normal" });
-    expect(diffTask(t, { ...formOf(t), priority: "high" })).toEqual({ priority: "high" });
-  });
-
-  it("sends an exclusive change on its own", () => {
-    const t = task({ exclusive: false });
-    expect(diffTask(t, { ...formOf(t), exclusive: true })).toEqual({ exclusive: true });
+    expect(diffTask(parent, form)).toEqual({ title: "新" });
   });
 });
 
@@ -250,81 +213,41 @@ describe("syncActualPreview", () => {
 });
 
 describe("saveSheet", () => {
-  it("writes the steps before the fields", async () => {
-    const original = task({ id: "t1", steps: [step({ id: "s1" })] });
+  it("sends the drafted status before the fields", async () => {
+    const original = task({ id: "t1", status: "todo" });
     vi.mocked(getTask).mockResolvedValue(original);
-    vi.mocked(toggleStep).mockResolvedValue(
-      task({ id: "t1", steps: [step({ id: "s1", done: true })] }),
-    );
+    vi.mocked(setTaskStatus).mockResolvedValue(task({ id: "t1", status: "done" }));
     vi.mocked(updateTaskPatch).mockResolvedValue(task({ id: "t1", title: "新" }));
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const saved = await vm.saveSheet({
-      form: { ...formOf(original), title: "新" },
-      steps: [step({ id: "s1", done: true })],
-      note: "",
-    });
+    vm.state.form!.title = "新";
+    vm.state.form!.status = "done";
+    const saved = await vm.saveSheet();
 
     expect(saved).toBe(true);
-    expect(toggleStep).toHaveBeenCalledWith("s1");
+    expect(setTaskStatus).toHaveBeenCalledWith("t1", "done");
     expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
-    expect(vi.mocked(toggleStep).mock.invocationCallOrder[0]).toBeLessThan(
+    expect(vi.mocked(setTaskStatus).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(updateTaskPatch).mock.invocationCallOrder[0],
     );
   });
 
-  it("adds a step the sheet created and pins its share", async () => {
-    const original = task({ id: "t1" });
-    vi.mocked(getTask).mockResolvedValue(original);
-    vi.mocked(addStep).mockResolvedValue(
-      task({ id: "t1", steps: [step({ id: "s9", title: "新步骤" })] }),
-    );
-    vi.mocked(setStepEffort).mockResolvedValue(
-      task({ id: "t1", steps: [step({ id: "s9", title: "新步骤", effortMinutes: 90 })] }),
-    );
-
-    const vm = createTaskSheetVM();
-    await vm.open("t1");
-    const saved = await vm.saveSheet({
-      form: formOf(original),
-      steps: [step({ id: "new-1", title: "新步骤", effortMinutes: 90 })],
-      note: "",
+  it("leaves the status of a task with subtasks to its children", async () => {
+    const parent = task({
+      id: "t1",
+      status: "doing",
+      children: [task({ id: "s1", parentId: "t1" })],
     });
-
-    expect(saved).toBe(true);
-    expect(addStep).toHaveBeenCalledWith("t1", "新步骤");
-    expect(setStepEffort).toHaveBeenCalledWith("s9", 90);
-  });
-
-  it("removes a step the sheet dropped", async () => {
-    const original = task({ id: "t1", steps: [step({ id: "s1" }), step({ id: "s2" })] });
-    vi.mocked(getTask).mockResolvedValue(original);
-    vi.mocked(deleteStep).mockResolvedValue(task({ id: "t1", steps: [step({ id: "s2" })] }));
+    vi.mocked(getTask).mockResolvedValue(parent);
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const saved = await vm.saveSheet({
-      form: formOf(original),
-      steps: [step({ id: "s2" })],
-      note: "",
-    });
+    vm.state.form!.status = "done";
+    await vm.saveSheet();
 
-    expect(saved).toBe(true);
-    expect(deleteStep).toHaveBeenCalledWith("s1");
-    expect(toggleStep).not.toHaveBeenCalled();
-  });
-
-  it("sends the drafted status when the task has no steps", async () => {
-    const original = task({ id: "t1" });
-    vi.mocked(getTask).mockResolvedValue(original);
-    vi.mocked(setTaskStatus).mockResolvedValue(task({ id: "t1", status: "done" }));
-
-    const vm = createTaskSheetVM();
-    await vm.open("t1");
-    await vm.saveSheet({ form: { ...formOf(original), status: "done" }, steps: [], note: "" });
-
-    expect(setTaskStatus).toHaveBeenCalledWith("t1", "done");
+    expect(setTaskStatus).not.toHaveBeenCalled();
+    expect(updateTaskPatch).not.toHaveBeenCalled();
   });
 
   it("records the overdue note with the save", async () => {
@@ -334,48 +257,39 @@ describe("saveSheet", () => {
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    await vm.saveSheet({ form: formOf(original), steps: [], note: "等客户回复" });
+    vm.state.note = "等客户回复";
+    await vm.saveSheet();
 
     expect(addDelayNote).toHaveBeenCalledWith("t1", "等客户回复");
   });
 
   it("writes nothing when the sheet was not touched", async () => {
-    const original = task({ id: "t1", steps: [step({ id: "s1", done: true })] });
+    const original = task({ id: "t1" });
     vi.mocked(getTask).mockResolvedValue(original);
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const saved = await vm.saveSheet({
-      form: formOf(original),
-      steps: [step({ id: "s1", done: true })],
-      note: "",
-    });
+    const saved = await vm.saveSheet();
 
     expect(saved).toBe(true);
     expect(updateTaskPatch).not.toHaveBeenCalled();
-    expect(toggleStep).not.toHaveBeenCalled();
-    expect(addStep).not.toHaveBeenCalled();
-    expect(deleteStep).not.toHaveBeenCalled();
     expect(setTaskStatus).not.toHaveBeenCalled();
     expect(addDelayNote).not.toHaveBeenCalled();
   });
 
-  it("stops at the first failure and keeps the draft", async () => {
-    const original = task({ id: "t1", steps: [step({ id: "s1" })] });
+  it("reports a failed save and keeps the draft", async () => {
+    const original = task({ id: "t1" });
     vi.mocked(getTask).mockResolvedValue(original);
-    vi.mocked(toggleStep).mockRejectedValue("boom");
+    vi.mocked(updateTaskPatch).mockRejectedValue("boom");
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
-    const saved = await vm.saveSheet({
-      form: { ...formOf(original), title: "新" },
-      steps: [step({ id: "s1", done: true })],
-      note: "",
-    });
+    vm.state.form!.title = "新";
+    const saved = await vm.saveSheet();
 
     expect(saved).toBe(false);
     expect(vm.state.error).toBe("boom");
-    expect(updateTaskPatch).not.toHaveBeenCalled();
+    expect(vm.state.form?.title).toBe("新");
   });
 });
 
@@ -385,16 +299,14 @@ describe("formFinish", () => {
   });
 
   it("counts from a later expected start", () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
-    const form = {
-      ...formOf(task()),
-      expectedStartDate: `${year}-${month}-${day}`,
-      effortMinutes: 480,
-    };
+    // A Monday a week out, so the assertion holds on any weekday the suite runs.
+    const start = new Date();
+    start.setDate(start.getDate() + 7);
+    while (start.getDay() !== 1) start.setDate(start.getDate() + 1);
+    const monday = isoOf(start);
+    const form = { ...formOf(task()), expectedStartDate: monday, effortMinutes: 480 };
+
     // A same-day start leaves a single day of work on the anchor.
-    expect(formFinish(form)).toBe(`${year}-${month}-${day}`);
+    expect(formFinish(form)).toBe(monday);
   });
 });

@@ -37,10 +37,10 @@ const emit = defineEmits<{
 
 const busy = ref(false);
 const isDone = computed(() => props.task.status === "done");
-const canComplete = computed(() => !props.readonly && !props.task.steps.length);
+const canComplete = computed(() => !props.readonly && !props.task.children.length);
 const canStart = computed(
   () =>
-    !props.task.steps.length &&
+    !props.task.children.length &&
     !isDone.value &&
     (props.task.status === "todo" || props.task.suspended),
 );
@@ -163,6 +163,13 @@ function reorder(delta: -1 | 1): void {
     <div class="flex min-w-0 items-center gap-1 text-[10px]">
       <span v-if="row.conflict" class="badge badge-soft badge-error badge-xs shrink-0">
         {{ t("task.notFit") }}
+      </span>
+      <span
+        v-if="task.parentTitle"
+        class="badge badge-soft badge-primary badge-xs max-w-20 shrink-0"
+        :title="t('task.parentTask', { title: task.parentTitle })"
+      >
+        <span class="min-w-0 truncate">{{ task.parentTitle }}</span>
       </span>
       <span
         v-if="task.projectName"

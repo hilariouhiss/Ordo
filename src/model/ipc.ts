@@ -68,21 +68,14 @@ export function placeTask(taskId: string, day: string, beforeId: string | null):
   return invoke<void>("place_task", { taskId, day, beforeId });
 }
 
-export function addStep(taskId: string, title: string): Promise<Task> {
-  return invoke<Task>("add_step", { taskId, title });
+/** Adds a subtask and hands back the parent it now rolls up. */
+export function addSubtask(taskId: string, title: string): Promise<Task> {
+  return invoke<Task>("add_subtask", { taskId, title });
 }
 
-export function toggleStep(stepId: string): Promise<Task> {
-  return invoke<Task>("toggle_step", { stepId });
-}
-
-export function deleteStep(stepId: string): Promise<Task> {
-  return invoke<Task>("delete_step", { stepId });
-}
-
-/** Pins a step's share of the task's effort; null returns it to the automatic split. */
-export function setStepEffort(stepId: string, effortMinutes: number | null): Promise<Task> {
-  return invoke<Task>("set_step_effort", { stepId, effortMinutes });
+/** Drops a subtask and hands back the refreshed parent. */
+export function deleteSubtask(subtaskId: string): Promise<Task> {
+  return invoke<Task>("delete_subtask", { subtaskId });
 }
 
 export function passQueue(): Promise<Task[]> {

@@ -1,13 +1,6 @@
-import {
-  resumeTask,
-  setTaskStatus,
-  startTask,
-  suspendTask,
-  toggleStep,
-  updateTaskPatch,
-} from "../model/ipc";
+import { resumeTask, setTaskStatus, startTask, suspendTask, updateTaskPatch } from "../model/ipc";
 import { t } from "../lib/i18n";
-import type { Step, Task } from "../model/types";
+import type { Task } from "../model/types";
 import { undoVM } from "./undoVM";
 
 export function createTaskRowVM() {
@@ -45,16 +38,18 @@ export function createTaskRowVM() {
     });
   }
 
-  function toggleStepDone(step: Step): Promise<Task> {
-    return toggleStep(step.id).then((updated) => {
-      undoVM.pushUndo(t("undo.step", { title: step.title }), async () => {
-        await toggleStep(step.id);
+  /** A subtask is a task: ticking it is a status change, and the parent rolls up. */
+  function toggleSubtask(child: Task): Promise<Task> {
+    const next = child.status === "done" ? "todo" : "done";
+    return setTaskStatus(child.id, next).then((updated) => {
+      undoVM.pushUndo(t("undo.subtask", { title: child.title }), async () => {
+        await setTaskStatus(child.id, child.status);
       });
       return updated;
     });
   }
 
-  return { start, suspend, toggleDone, toggleStepDone };
+  return { start, suspend, toggleDone, toggleSubtask };
 }
 
 export const taskRowVM = createTaskRowVM();

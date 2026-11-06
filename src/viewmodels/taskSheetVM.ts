@@ -2,17 +2,8 @@ import { reactive } from "vue";
 import { localDate, localTime, stampOfLocal, todayIso } from "../lib/dates";
 import { EFFORT_MAX_MINUTES } from "../lib/effort";
 import { finishForEffort, timingAnchor } from "../lib/timing";
-import {
-  addDelayNote,
-  addStep,
-  deleteStep,
-  getTask,
-  setStepEffort as setStepEffortApi,
-  setTaskStatus,
-  toggleStep,
-  updateTaskPatch,
-} from "../model/ipc";
-import type { Priority, Status, Step, Task, TaskPatch } from "../model/types";
+import { addDelayNote, getTask, setTaskStatus, updateTaskPatch } from "../model/ipc";
+import type { Priority, Status, Task, TaskPatch } from "../model/types";
 
 /** What the task sheet holds while it is open. Nothing here reaches the database before Save. */
 export interface TaskForm {
@@ -39,14 +30,50 @@ export interface TaskForm {
   actualEffortMinutes: number;
 }
 
-/** The fields the user actually changed, so a save cannot wipe the ones it did not touch. */
+/** A task as the sheet's draft: every stored field the editor shows. */
+export function formOf(task: Task): TaskForm {
+  return {
+    title: task.title,
+    projectId: task.projectId,
+    categoryId: task.categoryId,
+    ownerId: task.ownerId,
+    expectedStartDate: task.expectedStartDate ?? "",
+    expectedFinishDate: task.expectedFinishDate ?? "",
+    expectedFinishPicked: false,
+    note: task.note ?? "",
+    tags: task.tags.map((tag) => tag.name),
+    effortMinutes: task.effortMinutes,
+    priority: task.priority,
+    exclusive: task.exclusive,
+    status: task.status,
+    actualStartDate: task.actualStartAt ? localDate(task.actualStartAt) : "",
+    actualStartTime: localTime(task.actualStartAt) || "09:00",
+    actualFinishDate: task.actualFinishAt ? localDate(task.actualFinishAt) : "",
+    actualFinishTime: localTime(task.actualFinishAt) || "09:00",
+    actualEffortMinutes: task.actualEffortMinutes ?? 0,
+  };
+}
+
+/**
+ * The fields the user actually changed, so a save cannot wipe the ones it did not touch.
+ * A task with subtasks derives its effort, dates and actual times, so those stay out.
+ */
 export function diffTask(task: Task, form: TaskForm): TaskPatch {
+  const derived = task.children.length > 0;
   const patch: TaskPatch = {};
   const title = form.title.trim() || task.title;
   if (title !== task.title) patch.title = title;
   if (form.projectId !== task.projectId) patch.projectId = form.projectId;
   if (form.categoryId !== task.categoryId) patch.categoryId = form.categoryId;
   if (form.ownerId !== task.ownerId) patch.ownerId = form.ownerId;
+  if ((form.note || null) !== task.note) patch.note = form.note || null;
+  if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
+    patch.tags = form.tags;
+  }
+  if (form.priority !== task.priority) patch.priority = form.priority;
+  if (form.exclusive !== task.exclusive) patch.exclusive = form.exclusive;
+  if (derived) return patch;
+
   if ((form.expectedStartDate || null) !== task.expectedStartDate) {
     patch.expectedStartDate = form.expectedStartDate || null;
   }
@@ -55,13 +82,7 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if (form.expectedFinishPicked && (form.expectedFinishDate || null) !== task.expectedFinishDate) {
     patch.expectedFinishDate = form.expectedFinishDate || null;
   }
-  if ((form.note || null) !== task.note) patch.note = form.note || null;
-  if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
-    patch.tags = form.tags;
-  }
   if (form.effortMinutes !== task.effortMinutes) patch.effortMinutes = form.effortMinutes;
-  if (form.priority !== task.priority) patch.priority = form.priority;
-  if (form.exclusive !== task.exclusive) patch.exclusive = form.exclusive;
   const actualStart = stampOfLocal(form.actualStartDate, form.actualStartTime);
   if (!sameStamp(actualStart, task.actualStartAt)) patch.actualStartAt = actualStart;
   const actualFinish = stampOfLocal(form.actualFinishDate, form.actualFinishTime);
@@ -149,12 +170,10 @@ export function syncActualPreview(
   return null;
 }
 
-/** The whole sheet in one save: the steps, then the status, then the fields, then the note. */
-export interface SheetSave {
+/** One draft the sheet stepped away from: a subtask opens over its parent's unsaved edit. */
+interface ParkedDraft {
+  task: Task;
   form: TaskForm;
-  /** The steps as the sheet shows them; a step added here still carries a temp id. */
-  steps: Step[];
-  /** The overdue note typed in the sheet, still unsaved. */
   note: string;
 }
 
@@ -162,6 +181,12 @@ export function createTaskSheetVM() {
   const state = reactive({
     openId: null as string | null,
     task: null as Task | null,
+    /** The drafts of the tasks this subtask was opened from. */
+    stack: [] as ParkedDraft[],
+    /** The whole sheet in one draft: nothing reaches the database before Save. */
+    form: null as TaskForm | null,
+    /** The overdue note typed in the sheet, still unsaved. */
+    note: "",
     loading: false,
     error: null as string | null,
   });
@@ -173,7 +198,11 @@ export function createTaskSheetVM() {
     try {
       const task = await getTask(id);
       // A later open owns the sheet; this reply must not replace its task.
-      if (state.openId === id) state.task = task;
+      if (state.openId === id) {
+        state.task = task;
+        state.form = formOf(task);
+        state.note = "";
+      }
     } catch (e) {
       if (state.openId === id) state.error = String(e);
     } finally {
@@ -184,51 +213,82 @@ export function createTaskSheetVM() {
   function close(): void {
     state.openId = null;
     state.task = null;
+    state.form = null;
+    state.note = "";
+    state.stack = [];
   }
 
-  /** Applies the drafted step list to the stored one; every call hands back a fresh task. */
-  async function applySteps(taskId: string, draft: Step[]): Promise<void> {
-    let task = state.task;
-    if (!task) return;
-    const stored = task.steps;
-    const kept = new Set(draft.map((s) => s.id));
-    for (const s of stored) {
-      if (!kept.has(s.id)) task = await deleteStep(s.id);
+  /** Opens a subtask over this one, keeping the parent's unsaved draft for the way back. */
+  async function drill(childId: string): Promise<void> {
+    if (!state.task || !state.form) return;
+    state.stack.push({
+      task: state.task,
+      form: { ...state.form, tags: [...state.form.tags] },
+      note: state.note,
+    });
+    await open(childId);
+  }
+
+  /** Back to the task this one was opened from, with its draft and fresh derived fields. */
+  async function back(): Promise<void> {
+    const parked = state.stack.pop();
+    if (!parked) return;
+    state.openId = parked.task.id;
+    state.loading = true;
+    state.error = null;
+    try {
+      const fresh = await getTask(parked.task.id);
+      if (state.openId !== fresh.id) return;
+      state.task = fresh;
+      applyDerived(parked.form, fresh);
+      state.form = parked.form;
+      state.note = parked.note;
+    } catch (e) {
+      state.error = String(e);
+    } finally {
+      state.loading = false;
     }
-    for (const s of draft) {
-      if (stored.some((one) => one.id === s.id)) continue;
-      task = await addStep(taskId, s.title);
-      const added = task.steps[task.steps.length - 1];
-      if (s.effortMinutes != null) task = await setStepEffortApi(added.id, s.effortMinutes);
-      if (s.done) task = await toggleStep(added.id);
-    }
-    for (const s of draft) {
-      const current = task.steps.find((one) => one.id === s.id);
-      if (!current) continue;
-      if (s.effortMinutes !== current.effortMinutes) {
-        task = await setStepEffortApi(s.id, s.effortMinutes);
-      }
-      if (s.done !== current.done) task = await toggleStep(s.id);
+  }
+
+  /** Takes a fresh copy of the open task, keeping the draft's editable fields. */
+  function applyTask(task: Task): void {
+    if (!state.form) {
+      state.task = task;
+      return;
     }
     state.task = task;
+    applyDerived(state.form, task);
   }
 
-  async function saveSheet(input: SheetSave): Promise<boolean> {
+  /** The fields a task with subtasks takes from them, never from the draft. */
+  function applyDerived(form: TaskForm, task: Task): void {
+    form.expectedStartDate = task.expectedStartDate ?? "";
+    form.expectedFinishDate = task.expectedFinishDate ?? "";
+    form.expectedFinishPicked = false;
+    form.effortMinutes = task.effortMinutes;
+    form.status = task.status;
+    form.actualStartDate = task.actualStartAt ? localDate(task.actualStartAt) : "";
+    form.actualStartTime = localTime(task.actualStartAt) || "09:00";
+    form.actualFinishDate = task.actualFinishAt ? localDate(task.actualFinishAt) : "";
+    form.actualFinishTime = localTime(task.actualFinishAt) || "09:00";
+    form.actualEffortMinutes = task.actualEffortMinutes ?? 0;
+  }
+
+  async function saveSheet(): Promise<boolean> {
     const task = state.task;
+    const form = state.form;
     const id = state.openId;
-    if (!task || !id) return false;
+    if (!task || !form || !id) return false;
     state.error = null;
-    // Measured before the steps land: an untouched actual time must stay out of the patch,
-    // or it would erase what finishing a step just stamped.
-    const patch = diffTask(task, input.form);
+    // Measured before the status lands: an untouched actual time must stay out of the patch.
+    const patch = diffTask(task, form);
     try {
-      await applySteps(id, input.steps);
-      // Steps own the status once there are any.
-      if (input.steps.length === 0 && input.form.status !== state.task?.status) {
-        state.task = await setTaskStatus(id, input.form.status);
+      // A task with subtasks is an umbrella: its status comes from them.
+      if (!task.children.length && form.status !== task.status) {
+        state.task = await setTaskStatus(id, form.status);
       }
       if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
-      if (input.note.trim()) state.task = await addDelayNote(id, input.note.trim());
+      if (state.note.trim()) state.task = await addDelayNote(id, state.note.trim());
       // A sheet closed mid-save must not come back with a task nobody opened.
       if (state.openId !== id) state.task = null;
       return true;
@@ -238,7 +298,7 @@ export function createTaskSheetVM() {
     }
   }
 
-  return { state, open, close, saveSheet };
+  return { state, open, close, drill, back, applyTask, saveSheet };
 }
 
 export const taskSheetVM = createTaskSheetVM();
