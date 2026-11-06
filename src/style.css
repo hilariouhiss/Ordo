@@ -107,9 +107,9 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-/* The week's bottom stack: reading one card steps the rest of the pile back. */
-.week-later:has(.week-later-card:hover) .week-later-card:not(:hover) {
-  opacity: 0.45;
+/* The week's bottom stack: reading one card opens a gap after it and raises it. */
+.week-later li:hover + li {
+  margin-left: 8px !important;
 }
 
 /* The top nav slides a shared underline instead of daisyUI's static border. */

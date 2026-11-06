@@ -17,15 +17,6 @@ export interface PlannedRow {
   history?: boolean;
 }
 
-/** One task as the gantt draws it: a bar across the columns it covers. */
-export interface WeekLane {
-  task: Task;
-  row: PlannedRow;
-  /** 0-based column of the first and last week workday the bar covers. */
-  from: number;
-  to: number;
-}
-
 export interface PlannedDay {
   date: string;
   weekday: string;
@@ -113,29 +104,28 @@ export function groupPlannedDays(
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** The week split into the past days (a deck) and today onward (columns). */
+export interface WeekPanels {
+  /** Days before today, stacked as a deck with the latest day on top. */
+  deck: PlannedDay[];
+  /** Today and the days after it, one column each. */
+  columns: PlannedDay[];
+}
+
 /**
- * Folds the planned days back into one gantt lane per task: the columns it covers and the
- * row it reads with. Manual order decides the lane order, finished ones included, so a
- * done task stays where it was instead of moving to a separate group.
+ * The board's two halves. Days before today stack into the deck (latest on top); today
+ * and the days after it keep a column each. A date the planner left out still gets an
+ * empty panel, so it stays a drop target.
  */
-export function groupLanes(days: PlannedDay[], dates: string[]): WeekLane[] {
-  const lanes = new Map<string, WeekLane>();
-  for (const day of days) {
-    const column = dates.indexOf(day.date);
-    if (column < 0) continue;
-    for (const row of day.rows) {
-      const lane = lanes.get(row.task.id);
-      if (!lane) {
-        lanes.set(row.task.id, { task: row.task, row, from: column, to: column });
-        continue;
-      }
-      lane.from = Math.min(lane.from, column);
-      lane.to = Math.max(lane.to, column);
-    }
+export function weekPanels(days: PlannedDay[], dates: string[], today: string): WeekPanels {
+  const known = new Map(days.map((day) => [day.date, day]));
+  const deck: PlannedDay[] = [];
+  const columns: PlannedDay[] = [];
+  for (const date of dates) {
+    const panel = known.get(date) ?? plannedDay(date, today);
+    (date < today ? deck : columns).push(panel);
   }
-  return [...lanes.values()].sort(
-    (a, b) => a.task.sortOrder - b.task.sortOrder || a.task.id.localeCompare(b.task.id),
-  );
+  return { deck, columns };
 }
 
 /**

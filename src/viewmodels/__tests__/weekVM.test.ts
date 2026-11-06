@@ -279,7 +279,7 @@ describe("weekVM plan", () => {
     expect(vm.conflictCount.value).toBe(0);
   });
 
-  it("gives the gantt one lane per task in manual order, finished ones included", async () => {
+  it("puts each task on the day it starts, finished ones included", async () => {
     vi.mocked(listWeek).mockResolvedValue([
       task({ id: "a", sortOrder: 0 }),
       task({ id: "c", sortOrder: 2 }),
@@ -305,12 +305,9 @@ describe("weekVM plan", () => {
       "2026-10-22",
       "2026-10-23",
     ]);
-    expect(vm.lanes.value.map((lane) => lane.task.id)).toEqual(["a", "b", "c"]);
-    expect(vm.lanes.value.map((lane) => [lane.from, lane.to])).toEqual([
-      [1, 1],
-      [2, 2],
-      [1, 1],
-    ]);
+    const byDate = new Map(vm.days.value.map((day) => [day.date, day]));
+    expect(byDate.get("2026-10-20")?.rows.map((row) => row.task.id)).toEqual(["a", "c"]);
+    expect(byDate.get("2026-10-21")?.rows.map((row) => row.task.id)).toEqual(["b"]);
   });
 
   it("fills the whole workweek from Monday when the setting is on", async () => {
@@ -421,8 +418,7 @@ describe("weekVM plan across a week boundary", () => {
     ]);
     expect(vm.days.value[3].rows.map((row) => row.task.id)).toEqual(["dcm204"]);
     expect(vm.days.value[4].rows.map((row) => row.task.id)).toEqual(["dcm205"]);
-    // The trip is next week's work: no lane, no plan end, no load, no conflict count.
-    expect(vm.lanes.value.map((lane) => lane.task.id)).toEqual(["dcm204", "dcm205"]);
+    // The trip is next week's work: no plan end, no load, no conflict count.
     expect(vm.planEnd.value).toBe("2026-11-06");
     expect([...vm.loads.value.keys()]).not.toContain("2026-11-10");
     expect(vm.conflictCount.value).toBe(0);

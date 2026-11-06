@@ -3,13 +3,7 @@ import type { CaptureSubmission } from "../lib/capture";
 import { todayIso, weekWorkdays } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
-import {
-  addDoneRows,
-  fillPlannedDays,
-  groupLanes,
-  groupPlannedDays,
-  toPlanTask,
-} from "../lib/plan";
+import { addDoneRows, fillPlannedDays, groupPlannedDays, toPlanTask } from "../lib/plan";
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
   listSuspended,
@@ -92,8 +86,6 @@ export function createWeekVM() {
     if (!appVM.state.settings?.weekShowEmptyDays) return withDone;
     return fillPlannedDays(withDone, dates, plan.value, today.value);
   });
-  /** The gantt's rows: one lane per task, finished ones kept in their planned order. */
-  const lanes = computed(() => groupLanes(days.value, week.value));
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {
     const last = appVM.state.settings?.lastPassWeek ?? "";
@@ -198,7 +190,6 @@ export function createWeekVM() {
     laterTasks,
     plan,
     days,
-    lanes,
     loads,
     planEnd,
     overloadDates,

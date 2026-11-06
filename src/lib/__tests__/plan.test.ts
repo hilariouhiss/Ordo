@@ -3,9 +3,9 @@ import type { Task } from "../../model/types";
 import {
   addDoneRows,
   fillPlannedDays,
-  groupLanes,
   groupPlannedDays,
   toPlanTask,
+  weekPanels,
   type PlannedDay,
 } from "../plan";
 import { planSchedule, type PlannedTask } from "../schedule";
@@ -293,74 +293,45 @@ describe("addDoneRows", () => {
   });
 });
 
-describe("groupLanes", () => {
+describe("weekPanels", () => {
   const WEEK = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
 
-  it("gives each task one lane in manual order with the columns it covers", () => {
-    const tasks = [
-      task("b", 480, { sortOrder: 0, expectedStartDate: "2026-10-21" }),
-      task("a", 960, { sortOrder: 1 }),
-    ];
-    const days = groupPlannedDays(
-      tasks,
-      planSchedule(tasks.map(toPlanTask), TODAY),
-      TODAY,
-      "2026-10-23",
-    );
-    const lanes = groupLanes(days, WEEK);
+  it("keeps every day a column while none has passed", () => {
+    const panels = weekPanels([], WEEK, "2026-10-19");
 
-    expect(lanes.map((lane) => lane.task.id)).toEqual(["b", "a"]);
-    expect(lanes[0]).toMatchObject({ from: 2, to: 2 });
-    expect(lanes[1]).toMatchObject({ from: 1, to: 2 });
-    expect(lanes[1].row).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
+    expect(panels.deck).toEqual([]);
+    expect(panels.columns.map((panel) => panel.date)).toEqual(WEEK);
+    expect(panels.columns.every((panel) => panel.rows.length === 0)).toBe(true);
   });
 
-  it("keeps a finished task in its sort position", () => {
-    const open = task("open", 480, { sortOrder: 0 });
-    const days = groupPlannedDays(
-      [open],
-      planSchedule([toPlanTask(open)], TODAY),
-      TODAY,
-      "2026-10-23",
-    );
-    const finished = task("done", 480, {
-      sortOrder: 1,
-      status: "done",
-      expectedStartDate: "2026-10-21",
-      actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
-    });
-    const merged = groupLanes(addDoneRows(days, [finished], WEEK, TODAY), WEEK);
+  it("moves the days before today into the deck and leaves today onward as columns", () => {
+    const days = [day("2026-10-19", 1), day("2026-10-22", 2)];
+    const panels = weekPanels(days, WEEK, "2026-10-23");
 
-    expect(merged.map((lane) => lane.task.id)).toEqual(["open", "done"]);
-    expect(merged[1]).toMatchObject({ from: 2, to: 2, row: { history: true } });
+    expect(panels.deck.map((panel) => panel.date)).toEqual(WEEK.slice(0, 4));
+    // An existing group is reused, not rebuilt.
+    expect(panels.deck[0].rows).toHaveLength(1);
+    expect(panels.deck[3].rows).toHaveLength(2);
+    expect(panels.columns.map((panel) => panel.date)).toEqual(["2026-10-23"]);
   });
 
-  it("draws a finished bar over its actual workdays", () => {
-    const finished = task("done", 480, {
-      status: "done",
-      actualStartAt: new Date(2026, 9, 19, 15).toISOString(),
-      actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
-    });
-    const lanes = groupLanes(addDoneRows([], [finished], WEEK, TODAY), WEEK);
+  it("fills a day the planner left out with an empty panel", () => {
+    const panels = weekPanels([], WEEK, "2026-10-21");
 
-    expect(lanes[0]).toMatchObject({
-      from: 0,
-      to: 2,
-      row: { history: true, spans: true, days: 3 },
-    });
+    expect(panels.deck.map((panel) => panel.date)).toEqual(["2026-10-19", "2026-10-20"]);
+    expect(panels.columns.map((panel) => panel.date)).toEqual([
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+    ]);
+    expect(panels.deck.every((panel) => panel.rows.length === 0)).toBe(true);
   });
 
-  it("clips a task the week end clamps onto Friday", () => {
-    const tasks = [task("late", 1440, { sortOrder: 0, expectedStartDate: "2026-11-10" })];
-    const days = groupPlannedDays(
-      tasks,
-      planSchedule(tasks.map(toPlanTask), TODAY),
-      TODAY,
-      "2026-10-23",
-    );
-    const lanes = groupLanes(days, WEEK);
+  it("moves every day into the deck when the week is already behind", () => {
+    const panels = weekPanels([], WEEK, "2026-10-26");
 
-    expect(lanes[0]).toMatchObject({ from: 4, to: 4, row: { clamped: true } });
+    expect(panels.deck).toHaveLength(5);
+    expect(panels.columns).toHaveLength(0);
   });
 });
 

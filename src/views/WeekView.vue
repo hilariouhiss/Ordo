@@ -8,7 +8,7 @@ import { formatEffort } from "../lib/effort";
 import { t } from "../lib/i18n";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
-import { ganttDropAt, listDropAt } from "../lib/weekDrop";
+import { anchorFor, boardDropAt, listDropAt } from "../lib/weekDrop";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -16,7 +16,6 @@ import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
-import StatusDot from "./components/StatusDot.vue";
 import TaskRow from "./components/TaskRow.vue";
 import WeekGantt from "./components/WeekGantt.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
@@ -28,7 +27,6 @@ const {
   week,
   weekTasks,
   laterTasks,
-  lanes,
   days,
   plan,
   loads,
@@ -56,7 +54,7 @@ const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
   drop: (id, target) => {
     // The anchor is read while the drag still counts as live: a suspended drag may have
     // filled days that disappear again as soon as it ends.
-    const beforeId = anchorFor(target.day, target.beforeId);
+    const beforeId = anchorFor(shownDays.value, target.day, target.beforeId);
     if (plannedDays.value.get(id)?.has(target.day)) void move(id, beforeId);
     else void place(id, target.day, beforeId);
   },
@@ -72,26 +70,27 @@ const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
   // card lands exactly where a bar or a row would.
   targetOf: ({ x, y }) => {
     if (ganttView.value) {
-      const grid = document.querySelector<HTMLElement>("[data-gantt-grid]");
-      if (!grid) return null;
-      // The stack sits below the grid, so only a pointer inside it reads as a day.
-      const box = grid.getBoundingClientRect();
+      const board = document.querySelector<HTMLElement>("[data-gantt-board]");
+      if (!board) return null;
+      // The stack sits below the board, so only a pointer inside it reads as a day.
+      const box = board.getBoundingClientRect();
       if (y < box.top || y >= box.bottom) return null;
-      const drop = ganttDropAt(grid, x, y, week.value.length);
-      return drop ? { day: week.value[drop.column], beforeId: drop.before } : null;
+      return boardDropAt(board, x, y);
     }
     return listDropAt(listEl.value, y);
   },
   scroller: () =>
     (ganttView.value
-      ? document.querySelector<HTMLElement>("[data-gantt-grid]")
+      ? document.querySelector<HTMLElement>("[data-gantt-board]")
       : listEl.value
     )?.closest("main") ?? null,
   drop: (id, target) => {
     // A drag ends with a click; the sheet must not open too.
     poolDragged.value = true;
     window.setTimeout(() => (poolDragged.value = false), 0);
-    const beforeId = ganttView.value ? target.beforeId : anchorFor(target.day, target.beforeId);
+    const beforeId = ganttView.value
+      ? target.beforeId
+      : anchorFor(shownDays.value, target.day, target.beforeId);
     void place(id, target.day, beforeId);
   },
 });
@@ -105,12 +104,6 @@ const poolDropLabel = computed(() => {
   return day
     ? t("week.dropTo", { date: shortDate(day), weekday: weekdayLabel(day) })
     : t("week.dropBack");
-});
-/** The gantt column under the stacked card, when the card hovers a day of the week. */
-const poolColumn = computed(() => {
-  const day = poolTarget.value?.day;
-  const index = day ? week.value.indexOf(day) : -1;
-  return index >= 0 ? index : null;
 });
 /** The bottom stack fits the row: the gap between cards shrinks as tasks come in. */
 const deckEl = ref<HTMLElement | null>(null);
@@ -143,10 +136,10 @@ const shownDays = computed(() => {
   const today = todayIso();
   return fillPlannedDays(days.value, weekWorkdays(today), plan.value, today);
 });
-/** Nothing to show: the list's empty days and the gantt's lanes are the two cases. */
+/** Nothing to show: the list's empty days and the board's empty panels are the two cases. */
 const emptyWeek = computed(() => {
   if (state.loading || weekTasks.value.length) return false;
-  return ganttView.value ? !lanes.value.length : !shownDays.value.length;
+  return ganttView.value ? !days.value.some((day) => day.rows.length) : !shownDays.value.length;
 });
 /** The days each open task already shows on, so a drop inside them only reorders. */
 const plannedDays = computed(() => {
@@ -166,21 +159,6 @@ const plannedDays = computed(() => {
 function startDrag(event: PointerEvent, id: string): void {
   if (event.button !== 0) return;
   drag.start(event, id);
-}
-
-/**
- * The global anchor for a day-local drop: the first task of a later day when the drop
- * lands after the day's last row, so `move_task` leaves it at the bottom of that day.
- */
-function anchorFor(day: string, beforeId: string | null): string | null {
-  if (beforeId) return beforeId;
-  const index = shownDays.value.findIndex((entry) => entry.date === day);
-  for (const later of shownDays.value.slice(index + 1)) {
-    // Finished rows are read-only and cannot anchor a move.
-    const first = later.rows.find((row) => !row.history);
-    if (first) return first.task.id;
-  }
-  return null;
 }
 
 /** Keyboard reordering keeps focus on the same handle, even across a day boundary. */
@@ -368,11 +346,12 @@ watch(
     </p>
 
     <WeekGantt
-      v-else-if="ganttView && (lanes.length || laterTasks.length)"
-      :lanes="lanes"
+      v-else-if="ganttView && (days.some((day) => day.rows.length) || laterTasks.length)"
+      :days="days"
       :dates="week"
+      :today="today"
       :outside-moved="poolMoved"
-      :outside-column="poolColumn"
+      :outside-target="poolTarget"
       @changed="refresh"
     />
 
@@ -508,11 +487,11 @@ watch(
         <span>{{ t("week.later", { count: laterTasks.length }) }}</span>
         <span class="ml-auto text-[10px]">{{ t("week.laterHint") }}</span>
       </div>
-      <ul ref="deckEl" class="flex items-end pt-14 pb-1">
+      <ul ref="deckEl" class="flex items-end pt-1 pb-1">
         <li
           v-for="(task, index) in laterTasks"
           :key="task.id"
-          class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 select-none shadow-sm transition duration-200 ease-out hover:-translate-y-[34px] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-0 after:content-[''] hover:after:h-9"
+          class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 select-none shadow-sm transition duration-200 ease-out hover:z-40 hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/40"
           :style="{ marginLeft: index ? `${deckStep - DECK_CARD_W}px` : undefined }"
           :class="{ 'opacity-40': poolDraggingId === task.id }"
           role="button"
@@ -526,7 +505,6 @@ watch(
           @keydown.enter.prevent="openLater(task)"
         >
           <span class="flex min-w-0 items-center gap-1.5">
-            <StatusDot :status="task.status" :suspended="task.suspended" />
             <span class="truncate text-[13px]">{{ task.title }}</span>
             <span
               v-if="task.projectName"
@@ -575,7 +553,6 @@ watch(
       aria-hidden="true"
     >
       <span class="flex min-w-0 items-center gap-1.5">
-        <StatusDot :status="poolGhost.task.status" :suspended="poolGhost.task.suspended" />
         <span class="truncate text-[13px]">{{ poolGhost.task.title }}</span>
       </span>
       <span
