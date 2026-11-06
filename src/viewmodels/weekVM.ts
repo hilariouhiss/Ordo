@@ -19,11 +19,13 @@ import {
   moveTask,
   placeTask,
   resumeTask,
+  suspendTask,
   weekStats,
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
 import { saveCapture } from "./captureSave";
+import { undoVM } from "./undoVM";
 
 export function createWeekVM() {
   const state = reactive({
@@ -145,8 +147,14 @@ export function createWeekVM() {
   }
 
   async function resume(id: string): Promise<void> {
+    const parked = state.suspended.find((task) => task.id === id);
     try {
       await resumeTask(id);
+      if (parked) {
+        undoVM.pushUndo(t("undo.resumed", { title: parked.title }), async () => {
+          await suspendTask(id, parked.suspendedUntil, parked.suspendReason);
+        });
+      }
       await load();
     } catch (e) {
       void askNotice(t("common.actionFailed"), errorText(e));

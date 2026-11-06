@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Ellipsis, GripVertical, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { askConfirm, askText } from "../lib/dialog";
 import { errorText, language, t } from "../lib/i18n";
@@ -10,6 +10,7 @@ import { listItemMotion } from "../lib/motion";
 import { projectSections, type ProjectSection } from "../lib/projectGroups";
 import type { ProjectGroup, ProjectSummary } from "../model/types";
 import { projectsVM } from "../viewmodels/projectsVM";
+import { undoVM } from "../viewmodels/undoVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
@@ -136,6 +137,12 @@ async function removeGroup(group: ProjectGroup): Promise<void> {
     error.value = String(e);
   }
 }
+watch(
+  () => undoVM.state.revision,
+  () => {
+    void projectsVM.load();
+  },
+);
 </script>
 
 <template>

@@ -1,4 +1,4 @@
-use crate::dto::SettingsDto;
+use crate::dto::{SavedTaskViewDto, SettingsDto, TaskFilterDto};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
@@ -71,6 +71,50 @@ pub fn valid_task_group_by(value: &str) -> bool {
         value,
         "none" | "project" | "category" | "tag" | "owner" | "priority"
     )
+}
+
+/// The settings key holding the task page's named views as a JSON array.
+pub const SAVED_VIEWS_KEY: &str = "tasks.saved_views";
+
+fn valid_priority(value: &str) -> bool {
+    matches!(value, "high" | "normal" | "low")
+}
+
+pub fn valid_task_filter(filter: &TaskFilterDto) -> bool {
+    filter
+        .priority
+        .as_deref()
+        .map(valid_priority)
+        .unwrap_or(true)
+}
+
+pub fn valid_saved_view(view: &SavedTaskViewDto) -> bool {
+    !view.id.trim().is_empty()
+        && !view.name.trim().is_empty()
+        && view.name.chars().count() <= 40
+        && valid_task_group_by(&view.group_by)
+        && valid_task_filter(&view.filter)
+}
+
+pub fn valid_saved_views(views: &[SavedTaskViewDto]) -> bool {
+    views.len() <= 20 && views.iter().all(valid_saved_view)
+}
+
+/// A hand-edited or older value must not stop the bootstrap: bad entries are
+/// dropped and the list is capped instead of failing the whole settings read.
+pub fn saved_views(conn: &Connection) -> Vec<SavedTaskViewDto> {
+    get(conn, SAVED_VIEWS_KEY)
+        .ok()
+        .flatten()
+        .and_then(|text| serde_json::from_str::<Vec<SavedTaskViewDto>>(&text).ok())
+        .map(|views| {
+            views
+                .into_iter()
+                .filter(valid_saved_view)
+                .take(20)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The endpoint receives the API key, so it has to be https; a local server may be http.
@@ -162,6 +206,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .filter(|value| valid_week_view(value))
             .cloned()
             .unwrap_or_else(|| "list".into()),
+        saved_task_views: saved_views(conn),
     })
 }
 
@@ -240,5 +285,92 @@ mod tests {
 
         set(&c, "tasks.group_by", "status").unwrap();
         assert_eq!(dto(&c).unwrap().tasks_group_by, "project");
+    }
+
+    #[test]
+    fn saved_views_roundtrip_and_drop_bad_entries() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert!(dto(&c).unwrap().saved_task_views.is_empty());
+
+        let good = SavedTaskViewDto {
+            id: "v1".into(),
+            name: "滨江".into(),
+            group_by: "project".into(),
+            filter: TaskFilterDto {
+                query: "交底".into(),
+                project_id: Some("p1".into()),
+                ..Default::default()
+            },
+        };
+        let mut blank_name = good.clone();
+        blank_name.id = "v2".into();
+        blank_name.name = "  ".into();
+        let mut bad_group = good.clone();
+        bad_group.id = "v3".into();
+        bad_group.group_by = "status".into();
+
+        let text = serde_json::to_string(&[good.clone(), blank_name, bad_group]).unwrap();
+        set(&c, SAVED_VIEWS_KEY, &text).unwrap();
+
+        let views = dto(&c).unwrap().saved_task_views;
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].id, "v1");
+        assert_eq!(views[0].filter.project_id.as_deref(), Some("p1"));
+        assert_eq!(views[0].filter.query, "交底");
+    }
+
+    #[test]
+    fn a_broken_saved_views_value_reads_as_empty() {
+        let c = crate::db::open_in_memory().unwrap();
+        set(&c, SAVED_VIEWS_KEY, "{not json").unwrap();
+        assert!(dto(&c).unwrap().saved_task_views.is_empty());
+    }
+
+    #[test]
+    fn saved_views_are_capped_at_twenty() {
+        let c = crate::db::open_in_memory().unwrap();
+        let base = SavedTaskViewDto {
+            id: "v".into(),
+            name: "v".into(),
+            group_by: "none".into(),
+            filter: TaskFilterDto::default(),
+        };
+        let many: Vec<_> = (0..21)
+            .map(|i| SavedTaskViewDto {
+                id: format!("v{i}"),
+                name: format!("v{i}"),
+                ..base.clone()
+            })
+            .collect();
+        assert!(!valid_saved_views(&many));
+        let twenty: Vec<_> = many.into_iter().take(20).collect();
+        assert!(valid_saved_views(&twenty));
+        let doubled: Vec<_> = twenty.iter().chain(twenty.iter()).cloned().collect();
+        set(
+            &c,
+            SAVED_VIEWS_KEY,
+            &serde_json::to_string(&doubled).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(dto(&c).unwrap().saved_task_views.len(), 20);
+    }
+
+    #[test]
+    fn saved_views_reject_unknown_priorities_and_long_names() {
+        let view = SavedTaskViewDto {
+            id: "v".into(),
+            name: "v".into(),
+            group_by: "none".into(),
+            filter: TaskFilterDto {
+                priority: Some("urgent".into()),
+                ..Default::default()
+            },
+        };
+        assert!(!valid_saved_view(&view));
+        let long = SavedTaskViewDto {
+            name: "长".repeat(41),
+            ..view
+        };
+        assert!(!valid_saved_view(&long));
     }
 }

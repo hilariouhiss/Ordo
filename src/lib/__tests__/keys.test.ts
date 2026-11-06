@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { createShortcut, isImeEnter, recordShortcut } from "../keys";
+import {
+  createShortcut,
+  isEditableTarget,
+  isImeEnter,
+  recordShortcut,
+  searchShortcut,
+  undoShortcut,
+} from "../keys";
 
 function key(init: Partial<KeyboardEvent>): KeyboardEvent {
   return {
@@ -41,6 +48,50 @@ describe("createShortcut", () => {
   it("ignores repeats and IME composition", () => {
     expect(createShortcut(key({ key: "n", ctrlKey: true, repeat: true }))).toBeNull();
     expect(createShortcut(key({ key: "n", ctrlKey: true, isComposing: true }))).toBeNull();
+  });
+});
+
+describe("searchShortcut", () => {
+  it("maps Ctrl+K and Super+K", () => {
+    expect(searchShortcut(key({ key: "k", ctrlKey: true }))).toBe(true);
+    expect(searchShortcut(key({ key: "K", metaKey: true }))).toBe(true);
+  });
+
+  it("ignores other modifiers, repeats, composition and other keys", () => {
+    expect(searchShortcut(key({ key: "k" }))).toBe(false);
+    expect(searchShortcut(key({ key: "k", ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(searchShortcut(key({ key: "k", ctrlKey: true, altKey: true }))).toBe(false);
+    expect(searchShortcut(key({ key: "k", ctrlKey: true, repeat: true }))).toBe(false);
+    expect(searchShortcut(key({ key: "k", ctrlKey: true, isComposing: true }))).toBe(false);
+    expect(searchShortcut(key({ key: "z", ctrlKey: true }))).toBe(false);
+  });
+});
+
+describe("undoShortcut", () => {
+  it("maps Ctrl+Z and Super+Z only", () => {
+    expect(undoShortcut(key({ key: "z", ctrlKey: true }))).toBe(true);
+    expect(undoShortcut(key({ key: "Z", metaKey: true }))).toBe(true);
+  });
+
+  it("ignores redo combos, repeated keys and composition", () => {
+    expect(undoShortcut(key({ key: "z", ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(undoShortcut(key({ key: "y", ctrlKey: true }))).toBe(false);
+    expect(undoShortcut(key({ key: "z", ctrlKey: true, repeat: true }))).toBe(false);
+    expect(undoShortcut(key({ key: "z", ctrlKey: true, isComposing: true }))).toBe(false);
+    expect(undoShortcut(key({ key: "k", ctrlKey: true }))).toBe(false);
+  });
+});
+
+describe("isEditableTarget", () => {
+  it("guards text entry and leaves buttons alone", () => {
+    expect(isEditableTarget({ tagName: "INPUT" } as unknown as EventTarget)).toBe(true);
+    expect(isEditableTarget({ tagName: "TEXTAREA" } as unknown as EventTarget)).toBe(true);
+    expect(isEditableTarget({ tagName: "SELECT" } as unknown as EventTarget)).toBe(true);
+    expect(
+      isEditableTarget({ tagName: "DIV", isContentEditable: true } as unknown as EventTarget),
+    ).toBe(true);
+    expect(isEditableTarget({ tagName: "BUTTON" } as unknown as EventTarget)).toBe(false);
+    expect(isEditableTarget(null)).toBe(false);
   });
 });
 

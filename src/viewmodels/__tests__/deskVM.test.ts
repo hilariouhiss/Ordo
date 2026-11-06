@@ -8,7 +8,9 @@ vi.mock("../../model/ipc", () => ({
   setTaskStatus: vi.fn(),
   startTask: vi.fn(),
   suspendTask: vi.fn(),
+  resumeTask: vi.fn(),
 }));
+vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 
 import {
   getSettings,
@@ -21,6 +23,7 @@ import {
 import type { DeskPin } from "../../model/types";
 import { appVM } from "../appVM";
 import { createDeskVM } from "../deskVM";
+import { undoVM } from "../undoVM";
 import { defaultSettings, task } from "./fixtures";
 
 describe("deskVM", () => {
@@ -105,6 +108,18 @@ describe("deskVM", () => {
     expect(setTaskStatus).toHaveBeenCalledWith("a", "done");
     expect(vm.state.busy).toBe(false);
     expect(vm.state.actionError).toBe("");
+  });
+
+  it("offers undo for a widget completion", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(setTaskStatus).mockResolvedValue(task({ id: "a", status: "done" }));
+    const vm = createDeskVM();
+
+    await vm.complete(task({ id: "a", title: "交底", status: "todo" }));
+
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    await run();
+    expect(setTaskStatus).toHaveBeenLastCalledWith("a", "todo");
   });
 
   it("keeps a failed action for the view", async () => {

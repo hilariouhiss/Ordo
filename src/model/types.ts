@@ -7,6 +7,37 @@ export type Priority = "high" | "normal" | "low";
 export type DeskPin = "top" | "bottom";
 export type WeekView = "list" | "gantt";
 
+/** The task-page narrowing: text plus one value per facet, combined with AND. */
+export interface TaskFilter {
+  query: string;
+  projectId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  tagId: string | null;
+  priority: Priority | null;
+}
+
+/** A named task-page filter; the grouping travels with it. */
+export interface SavedTaskView {
+  id: string;
+  name: string;
+  groupBy: TaskGrouping;
+  filter: TaskFilter;
+}
+
+export type SearchHitKind = "task" | "project";
+export type SearchHitState = "active" | "done" | "archived" | "canceled";
+
+/** One global-search row: a task in any state, or a live project. */
+export interface SearchHit {
+  kind: SearchHitKind;
+  id: string;
+  title: string;
+  /** The project name for tasks; null for projects and loose tasks. */
+  subtitle: string | null;
+  state: SearchHitState;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -48,6 +79,7 @@ export interface Settings {
   tasksGroupBy: TaskGrouping;
   weekShowEmptyDays: boolean;
   weekView: WeekView;
+  savedTaskViews: SavedTaskView[];
 }
 
 export interface ProjectMember {

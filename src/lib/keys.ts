@@ -14,6 +14,32 @@ export function createShortcut(event: KeyboardEvent): "task" | "project" | null 
   return event.shiftKey ? "project" : "task";
 }
 
+/** The global search palette: Ctrl+K (or Super+K), no Alt/Shift, no repeats. */
+export function searchShortcut(event: KeyboardEvent): boolean {
+  if (event.repeat || event.isComposing) return false;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+  return event.key.toLowerCase() === "k";
+}
+
+/** The last-action undo: Ctrl+Z (or Super+Z), leaving Shift+Ctrl+Z free for redo. */
+export function undoShortcut(event: KeyboardEvent): boolean {
+  if (event.repeat || event.isComposing) return false;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+  return event.key.toLowerCase() === "z";
+}
+
+/** Text entry keeps its own Ctrl+Z; the app-wide undo must not steal it. */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  return (
+    el.tagName === "INPUT" ||
+    el.tagName === "TEXTAREA" ||
+    el.tagName === "SELECT" ||
+    el.isContentEditable === true
+  );
+}
+
 const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta"]);
 
 /**

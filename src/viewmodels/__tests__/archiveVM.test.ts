@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../../model/ipc", () => ({
+  archiveProject: vi.fn(),
   archiveTask: vi.fn(),
   bootstrap: vi.fn(),
   createProject: vi.fn(),
@@ -19,8 +20,18 @@ vi.mock("../../model/ipc", () => ({
 
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
-import { listArchive, restoreTask } from "../../model/ipc";
+vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
+
+import {
+  archiveProject,
+  listArchive,
+  listProjectGroups,
+  listProjects,
+  restoreProject,
+  restoreTask,
+} from "../../model/ipc";
 import { createArchiveVM } from "../archiveVM";
+import { undoVM } from "../undoVM";
 
 const empty = { projects: [], tasks: [], canceled: [], done: [] };
 
@@ -38,6 +49,20 @@ describe("archiveVM", () => {
 
     expect(dialogRequest.value?.kind).toBe("notice");
     expect(listArchive).not.toHaveBeenCalled();
+  });
+
+  it("offers undoing a project restore by archiving it again", async () => {
+    vi.mocked(restoreProject).mockResolvedValue();
+    vi.mocked(listArchive).mockResolvedValue(empty);
+    vi.mocked(listProjects).mockResolvedValue([]);
+    vi.mocked(listProjectGroups).mockResolvedValue([]);
+    const vm = createArchiveVM();
+
+    await vm.restoreProject("p1");
+
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    await run();
+    expect(archiveProject).toHaveBeenCalledWith("p1");
   });
 
   it("reloads after a successful restore", async () => {

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ChevronRight, GripVertical } from "@lucide/vue";
+import { ChevronRight, GripVertical, Plus, Search, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
+import { askText } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { panelSwapMotion } from "../lib/motion";
 import { NONE_GROUP_KEY, type TaskGroup } from "../lib/taskGroups";
-import type { Task } from "../model/types";
+import type { Priority, Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { tasksVM } from "../viewmodels/tasksVM";
+import ChipSelect from "./components/ChipSelect.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 
@@ -25,6 +27,84 @@ const groupOptions = computed(
 );
 // A ref nested in the VM object is not unwrapped by the template.
 const sections = computed(() => tasksVM.sections.value);
+const savedViews = computed(() => tasksVM.savedViews.value);
+const activeViewId = computed(() => tasksVM.activeViewId.value);
+const filtering = computed(() => !tasksVM.isEmpty.value);
+const shownCount = computed(() => tasksVM.filteredTasks.value.length);
+type Facet = "projectId" | "categoryId" | "ownerId" | "tagId";
+
+/** A saved filter can point at a value that is gone; show the id with a label. */
+function withFallback(
+  options: { value: string; label: string }[],
+  value: string | null,
+  label: string,
+): { value: string; label: string }[] {
+  if (!value || options.some((option) => option.value === value)) return options;
+  return [...options, { value, label }];
+}
+
+const projectOptions = computed(() =>
+  withFallback(
+    [
+      { value: "", label: t("filters.all") },
+      ...appVM.state.projects.map((project) => ({ value: project.id, label: project.name })),
+    ],
+    tasksVM.state.filter.projectId,
+    t("filters.removedOption"),
+  ),
+);
+const categoryOptions = computed(() =>
+  withFallback(
+    [
+      { value: "", label: t("filters.all") },
+      ...[...appVM.state.categories]
+        .sort((one, other) => one.sortOrder - other.sortOrder)
+        .map((category) => ({ value: category.id, label: category.name })),
+    ],
+    tasksVM.state.filter.categoryId,
+    t("filters.removedOption"),
+  ),
+);
+const ownerOptions = computed(() =>
+  withFallback(
+    [
+      { value: "", label: t("filters.all") },
+      ...appVM.state.people.map((person) => ({ value: person.id, label: person.name })),
+    ],
+    tasksVM.state.filter.ownerId,
+    t("filters.removedOption"),
+  ),
+);
+const tagOptions = computed(() =>
+  withFallback(
+    [
+      { value: "", label: t("filters.all") },
+      ...appVM.state.tags.map((tag) => ({ value: tag.id, label: tag.name })),
+    ],
+    tasksVM.state.filter.tagId,
+    t("filters.removedOption"),
+  ),
+);
+const priorityOptions = computed(() => [
+  { value: "", label: t("filters.all") },
+  { value: "high", label: t("task.priorityHigh") },
+  { value: "normal", label: t("task.priorityNormal") },
+  { value: "low", label: t("task.priorityLow") },
+]);
+
+function setFacet(key: Facet, value: string): void {
+  tasksVM.state.filter[key] = value || null;
+}
+
+function setPriority(value: string): void {
+  tasksVM.state.filter.priority = (value || null) as Priority | null;
+}
+
+async function saveView(): Promise<void> {
+  const name = await askText(t("filters.saveTitle"), "");
+  if (name) await tasksVM.saveView(name);
+}
+
 const draggingTaskId = ref<string | null>(null);
 const dragOverGroup = ref<string | null>(null);
 let dragEndedAt = 0;
@@ -64,7 +144,7 @@ function projectIdForGroup(group: TaskGroup): string | null | undefined {
 }
 
 function onTaskDragStart(event: DragEvent, task: Task): void {
-  if (tasksVM.state.groupBy !== "project") return;
+  if (tasksVM.state.groupBy !== "project" || filtering.value) return;
   draggingTaskId.value = task.id;
   dragOverGroup.value = null;
   event.dataTransfer?.setData("text/plain", task.id);
@@ -78,7 +158,7 @@ function onTaskDragEnd(): void {
 }
 
 function onGroupDragOver(event: DragEvent, group: TaskGroup): void {
-  if (!draggingTaskId.value || projectIdForGroup(group) === undefined) return;
+  if (filtering.value || !draggingTaskId.value || projectIdForGroup(group) === undefined) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   dragOverGroup.value = group.key;
@@ -110,7 +190,11 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
     <div class="flex items-center gap-3">
       <h1 class="text-[16px] font-semibold">{{ t("tasks.title") }}</h1>
       <span class="text-[11px] tabular-nums text-base-content/45">
-        {{ t("tasks.count", { count: tasksVM.state.tasks.length }) }}
+        {{
+          filtering
+            ? t("filters.count", { shown: shownCount, total: tasksVM.state.tasks.length })
+            : t("tasks.count", { count: tasksVM.state.tasks.length })
+        }}
       </span>
       <span class="ml-auto text-[10.5px] text-base-content/35">{{ hint }}</span>
     </div>
@@ -129,9 +213,108 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
       </button>
     </div>
 
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="input input-sm flex w-56 items-center gap-1.5 rounded-lg border-0 bg-base-100">
+        <Search :size="13" class="shrink-0 text-base-content/35" aria-hidden="true" />
+        <input
+          v-model="tasksVM.state.filter.query"
+          class="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-base-content/35"
+          :placeholder="t('filters.searchPlaceholder')"
+          :aria-label="t('filters.searchPlaceholder')"
+        />
+        <button
+          v-if="tasksVM.state.filter.query"
+          type="button"
+          class="shrink-0 text-base-content/35 hover:text-base-content"
+          :aria-label="t('filters.clearQuery')"
+          @click="tasksVM.state.filter.query = ''"
+        >
+          <X :size="12" aria-hidden="true" />
+        </button>
+      </div>
+      <ChipSelect
+        :model-value="tasksVM.state.filter.projectId ?? ''"
+        :options="projectOptions"
+        :label="t('filters.project')"
+        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        @update:model-value="setFacet('projectId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.categoryId ?? ''"
+        :options="categoryOptions"
+        :label="t('filters.category')"
+        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        @update:model-value="setFacet('categoryId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.ownerId ?? ''"
+        :options="ownerOptions"
+        :label="t('filters.owner')"
+        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        @update:model-value="setFacet('ownerId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.tagId ?? ''"
+        :options="tagOptions"
+        :label="t('filters.tag')"
+        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        @update:model-value="setFacet('tagId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.priority ?? ''"
+        :options="priorityOptions"
+        :label="t('filters.priority')"
+        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        @update:model-value="setPriority($event)"
+      />
+      <button
+        v-if="filtering"
+        type="button"
+        class="px-1 text-[11px] text-base-content/40 hover:text-error"
+        @click="tasksVM.clearFilter()"
+      >
+        {{ t("filters.clear") }}
+      </button>
+    </div>
+
+    <div v-if="savedViews.length || filtering" class="flex flex-wrap items-center gap-1.5">
+      <span class="text-[10.5px] text-base-content/40">{{ t("filters.savedViews") }}</span>
+      <div
+        v-for="view in savedViews"
+        :key="view.id"
+        class="flex items-center rounded-full border pr-1 pl-2.5 text-[11px]"
+        :class="
+          activeViewId === view.id
+            ? 'border-primary/30 bg-primary/10 text-primary'
+            : 'border-base-300 bg-base-100 text-base-content/60'
+        "
+      >
+        <button type="button" class="py-1" @click="tasksVM.applyView(view.id)">
+          {{ view.name }}
+        </button>
+        <button
+          type="button"
+          class="ml-1 grid size-4 place-items-center rounded-full text-base-content/35 hover:bg-base-200 hover:text-error"
+          :aria-label="t('filters.deleteAria', { name: view.name })"
+          @click.stop="tasksVM.removeView(view.id)"
+        >
+          <X :size="10" aria-hidden="true" />
+        </button>
+      </div>
+      <button
+        v-if="filtering"
+        type="button"
+        class="flex items-center gap-1 rounded-full border border-dashed border-base-300 px-2.5 py-1 text-[11px] text-base-content/50 hover:border-primary/30 hover:text-primary"
+        @click="saveView"
+      >
+        <Plus :size="11" aria-hidden="true" />
+        {{ t("filters.save") }}
+      </button>
+    </div>
+
     <AnimatePresence mode="wait" :initial="false">
       <motion.div :key="tasksVM.state.groupBy" v-bind="panelSwapMotion">
-        <div v-if="tasksVM.state.tasks.length" class="space-y-2">
+        <div v-if="shownCount" class="space-y-2">
           <section
             v-for="group in sections"
             :key="group.key"
@@ -186,7 +369,7 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
                   :key="task.id"
                   :task="task"
                   :show-project="tasksVM.state.groupBy !== 'project'"
-                  :draggable="tasksVM.state.groupBy === 'project'"
+                  :draggable="tasksVM.state.groupBy === 'project' && !filtering"
                   :style="{ opacity: draggingTaskId === task.id ? 0.4 : undefined }"
                   @open="openTask"
                   @changed="refresh"
@@ -209,6 +392,19 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
             </div>
           </section>
         </div>
+        <p
+          v-else-if="!tasksVM.state.loading && filtering"
+          class="px-1 text-[13px] text-base-content/40"
+        >
+          {{ t("filters.empty") }}
+          <button
+            type="button"
+            class="ml-1 underline hover:text-base-content"
+            @click="tasksVM.clearFilter()"
+          >
+            {{ t("filters.clear") }}
+          </button>
+        </p>
         <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
           {{ t("tasks.empty") }}
         </p>

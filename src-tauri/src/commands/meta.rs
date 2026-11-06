@@ -65,8 +65,28 @@ pub async fn set_settings(
             app.autolaunch().disable()
         };
     }
+    if let Some(views) = patch.saved_task_views.as_deref() {
+        if !crate::repo::settings::valid_saved_views(views) {
+            return Err("invalid_saved_views".into());
+        }
+    }
     let language_requested = patch.language.is_some();
     let desk_requested = patch.desk_enabled.is_some();
+    // Names are trimmed before they are stored, so the chip rows stay tidy.
+    let saved_views = patch
+        .saved_task_views
+        .as_ref()
+        .map(|views| {
+            let trimmed: Vec<crate::dto::SavedTaskViewDto> = views
+                .iter()
+                .map(|view| crate::dto::SavedTaskViewDto {
+                    name: view.name.trim().to_string(),
+                    ..view.clone()
+                })
+                .collect();
+            serde_json::to_string(&trimmed).map_err(|e| e.to_string())
+        })
+        .transpose()?;
     let settings = with_db(&state, move |conn| {
         let sets: Vec<(&str, Option<String>)> = vec![
             ("language", patch.language),
@@ -87,6 +107,7 @@ pub async fn set_settings(
                 patch.week_show_empty_days.map(|v| v.to_string()),
             ),
             ("week.view", patch.week_view),
+            ("tasks.saved_views", saved_views),
         ];
         for (key, value) in sets {
             if let Some(value) = value {

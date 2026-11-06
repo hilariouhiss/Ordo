@@ -9,6 +9,7 @@ vi.mock("../../model/ipc", () => ({
   listWeekDone: vi.fn().mockResolvedValue([]),
   weekStats: vi.fn(),
   resumeTask: vi.fn(),
+  suspendTask: vi.fn(),
   markNotificationsSeen: vi.fn(),
   moveTask: vi.fn(),
   placeTask: vi.fn(),
@@ -26,12 +27,16 @@ import {
   moveTask,
   placeTask,
   resumeTask,
+  suspendTask,
   weekStats,
 } from "../../model/ipc";
 import type { Task } from "../../model/types";
 import { appVM } from "../appVM";
+import { undoVM } from "../undoVM";
 import { createWeekVM } from "../weekVM";
 import { defaultSettings, task } from "./fixtures";
+
+vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 
 describe("weekVM", () => {
   afterEach(() => closeDialog(null));
@@ -357,6 +362,29 @@ describe("weekVM plan", () => {
     await vm.resume("t1");
 
     expect(dialogRequest.value?.kind).toBe("notice");
+  });
+
+  it("offers undo back to the parking a resume ended", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([
+      task({
+        id: "t1",
+        title: "交底",
+        suspended: true,
+        suspendedUntil: "2026-11-02",
+        suspendReason: "等甲方",
+      }),
+    ]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(resumeTask).mockResolvedValue(task({ id: "t1" }));
+    const vm = createWeekVM();
+    await vm.load();
+
+    await vm.resume("t1");
+
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    await run();
+    expect(suspendTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方");
   });
 });
 

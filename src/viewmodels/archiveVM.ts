@@ -1,5 +1,6 @@
 import { reactive } from "vue";
 import {
+  archiveProject as archiveProjectApi,
   archiveTask as archiveTaskApi,
   deleteProject as deleteProjectApi,
   deleteTask as deleteTaskApi,
@@ -11,6 +12,7 @@ import { askNotice, runWithNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import type { ArchiveData } from "../model/types";
 import { projectsVM } from "./projectsVM";
+import { undoVM } from "./undoVM";
 
 export type ArchiveTab = "projects" | "tasks" | "canceled" | "done";
 
@@ -57,6 +59,9 @@ export function createArchiveVM() {
 
   async function restoreProject(id: string): Promise<void> {
     if (!(await runWithNotice(() => restoreProjectApi(id)))) return;
+    undoVM.pushUndo(t("undo.restoredProject"), async () => {
+      await archiveProjectApi(id);
+    });
     try {
       await projectsVM.load();
     } catch (e) {

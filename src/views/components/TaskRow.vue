@@ -101,7 +101,8 @@ function toggleDone(): void {
 }
 
 function toggleStep(stepId: string): void {
-  void run(() => taskRowVM.toggleStepDone(stepId));
+  const step = props.task.steps.find((one) => one.id === stepId);
+  if (step) void run(() => taskRowVM.toggleStepDone(step));
 }
 
 function toggleExpanded(): void {

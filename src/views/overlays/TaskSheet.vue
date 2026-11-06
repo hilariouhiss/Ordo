@@ -8,12 +8,13 @@ import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { allocateSteps, currentStep, formatStepClock, formatStepEffort } from "../../lib/steps";
 import { parseEffortText } from "../../lib/effort";
-import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
+import { addMember, archiveTask, ownerCandidates, restoreTask } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status, Step } from "../../model/types";
 import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
 import { appVM } from "../../viewmodels/appVM";
 import { formFinish, syncActualPreview, taskSheetVM } from "../../viewmodels/taskSheetVM";
+import { undoVM } from "../../viewmodels/undoVM";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
 
@@ -287,6 +288,9 @@ async function archive(): Promise<void> {
   taskSheetVM.state.error = null;
   try {
     await archiveTask(task.id);
+    undoVM.pushUndo(t("undo.archivedTask", { title: task.title }), async () => {
+      await restoreTask(task.id);
+    });
     taskSheetVM.close();
   } catch (e) {
     taskSheetVM.state.error = String(e);

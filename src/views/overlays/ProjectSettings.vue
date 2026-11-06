@@ -10,6 +10,7 @@ import * as ipc from "../../model/ipc";
 import type { Priority, ProjectGroup, ProjectMember } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { projectsVM } from "../../viewmodels/projectsVM";
+import { undoVM } from "../../viewmodels/undoVM";
 
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ close: [gone?: boolean] }>();
@@ -146,6 +147,9 @@ async function archive(): Promise<void> {
     error.value = String(e);
     return;
   }
+  undoVM.pushUndo(t("undo.archivedProject", { name: form.name }), async () => {
+    await ipc.restoreProject(props.id);
+  });
   await refreshProjects();
   emit("close", true);
 }

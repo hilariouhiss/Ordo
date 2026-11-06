@@ -15,7 +15,7 @@ pub(crate) const UNPARK: &str =
     "in_week = 1, suspended = 0, suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL";
 
 /// Archive lists keep a task inside its archived project; restoring the project comes first.
-const LIVE_PROJECT: &str = concat!(
+pub(crate) const LIVE_PROJECT: &str = concat!(
     "(project_id IS NULL OR NOT EXISTS (SELECT 1 FROM projects p ",
     "WHERE p.id = tasks.project_id AND p.archived_at IS NOT NULL))"
 );

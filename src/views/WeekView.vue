@@ -13,6 +13,7 @@ import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
+import { undoVM } from "../viewmodels/undoVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
 import StatusDot from "./components/StatusDot.vue";
@@ -310,6 +311,12 @@ function laterStart(task: Task): string {
 function refresh(): void {
   void load();
 }
+watch(
+  () => undoVM.state.revision,
+  () => {
+    void weekVM.load();
+  },
+);
 </script>
 
 <template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PanelRight, Settings } from "@lucide/vue";
+import { PanelRight, Search, Settings } from "@lucide/vue";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -8,7 +8,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { askNotice, dialogRequest } from "./lib/dialog";
 import { errorText, setLanguage, t } from "./lib/i18n";
-import { createShortcut } from "./lib/keys";
+import { createShortcut, isEditableTarget, searchShortcut, undoShortcut } from "./lib/keys";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
   applyTheme,
@@ -21,16 +21,20 @@ import { appVM } from "./viewmodels/appVM";
 import { passVM } from "./viewmodels/passVM";
 import { projectsVM } from "./viewmodels/projectsVM";
 import { quickCreateVM } from "./viewmodels/quickCreateVM";
+import { searchVM } from "./viewmodels/searchVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
 import { templatesVM } from "./viewmodels/templatesVM";
+import { undoVM } from "./viewmodels/undoVM";
 import { weekVM } from "./viewmodels/weekVM";
 import { closeOverlays, windowModeVM } from "./viewmodels/windowModeVM";
+import UndoToast from "./views/components/UndoToast.vue";
 import WindowControls from "./views/components/WindowControls.vue";
 import DeskView from "./views/DeskView.vue";
 import AppDialog from "./views/overlays/AppDialog.vue";
 import QuickCreate from "./views/overlays/QuickCreate.vue";
+import SearchPalette from "./views/overlays/SearchPalette.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
 const navItems = computed(
@@ -131,6 +135,7 @@ function onCollapseChange(collapsed: boolean): void {
 function overlayOpen(): boolean {
   return (
     !!dialogRequest.value ||
+    !!searchVM.state.open ||
     !!quickCreateVM.state.mode ||
     !!taskSheetVM.state.openId ||
     settingsVM.state.open ||
@@ -148,6 +153,29 @@ function onQuickCreateKey(event: KeyboardEvent): void {
   if (!appVM.state.ready || windowModeVM.state.phase !== "idle" || overlayOpen()) return;
   if (target === "task") quickCreateVM.openTask();
   else quickCreateVM.openProject();
+}
+
+function openSearch(): void {
+  if (!appVM.state.ready || windowModeVM.state.phase !== "idle" || overlayOpen()) return;
+  searchVM.open();
+}
+
+function onSearchKey(event: KeyboardEvent): void {
+  if (!searchShortcut(event)) return;
+  event.preventDefault();
+  if (searchVM.state.open) {
+    searchVM.close();
+    return;
+  }
+  if (!appVM.state.ready || windowModeVM.state.phase !== "idle" || overlayOpen()) return;
+  searchVM.open();
+}
+
+function onUndoKey(event: KeyboardEvent): void {
+  if (!undoShortcut(event) || isEditableTarget(event.target)) return;
+  if (overlayOpen() || !undoVM.state.entry) return;
+  event.preventDefault();
+  void undoVM.undo();
 }
 
 // The widget's quick actions do not update the hidden main views; refresh on the way back.
@@ -200,6 +228,8 @@ function revealWindow(): void {
 
 onMounted(async () => {
   window.addEventListener("keydown", onQuickCreateKey);
+  window.addEventListener("keydown", onSearchKey);
+  window.addEventListener("keydown", onUndoKey);
   windowModeVM.attachSurface(appSurface.value);
   try {
     await appVM.load();
@@ -261,6 +291,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onQuickCreateKey);
+  window.removeEventListener("keydown", onSearchKey);
+  window.removeEventListener("keydown", onUndoKey);
   windowModeVM.attachSurface(null);
   windowModeVM.attachWidgetLayer(null);
 });
@@ -313,6 +345,15 @@ onUnmounted(() => {
             </LayoutGroup>
             <div class="ml-auto flex h-full items-center gap-2">
               <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+              <button
+                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
+                :aria-label="t('search.openAria')"
+                :title="t('search.openAria')"
+                :disabled="windowModeVM.state.phase !== 'idle'"
+                @click="openSearch"
+              >
+                <Search :size="16" aria-hidden="true" />
+              </button>
               <button
                 class="grid size-8 place-items-center rounded-lg disabled:opacity-50"
                 :class="
@@ -379,6 +420,8 @@ onUnmounted(() => {
       <div v-if="windowModeVM.state.phase !== 'idle'" class="fixed inset-0 z-50"></div>
       <QuickCreate />
       <AppDialog />
+      <SearchPalette />
+      <UndoToast />
     </div>
   </MotionConfig>
 </template>

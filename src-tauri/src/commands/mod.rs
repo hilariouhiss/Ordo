@@ -4,6 +4,7 @@ pub mod categories;
 pub mod meta;
 pub mod projects;
 pub mod rules;
+pub mod search;
 pub mod shortcuts;
 pub mod stats;
 pub mod tags;

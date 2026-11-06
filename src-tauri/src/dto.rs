@@ -57,6 +57,8 @@ pub struct SettingsDto {
     pub week_show_empty_days: bool,
     /// The week page layout; "list" when unset.
     pub week_view: String,
+    /// Named task filters saved on the task page; empty when unset.
+    pub saved_task_views: Vec<SavedTaskViewDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -418,4 +420,48 @@ pub struct SettingsPatch {
     pub tasks_group_by: Option<String>,
     pub week_show_empty_days: Option<bool>,
     pub week_view: Option<String>,
+    pub saved_task_views: Option<Vec<SavedTaskViewDto>>,
+}
+
+/// A task-page filter saved under a name. The filter itself is a plain value
+/// so it can round-trip through the settings table as JSON.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskFilterDto {
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub category_id: Option<String>,
+    #[serde(default)]
+    pub owner_id: Option<String>,
+    #[serde(default)]
+    pub tag_id: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedTaskViewDto {
+    pub id: String,
+    pub name: String,
+    /// One of the task page groupings.
+    pub group_by: String,
+    pub filter: TaskFilterDto,
+}
+
+/// One global-search result: a task in any state or a live project.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHitDto {
+    /// "task" or "project".
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    /// The project name for tasks; empty for projects.
+    pub subtitle: Option<String>,
+    /// "active", "done", "archived" or "canceled".
+    pub state: String,
 }

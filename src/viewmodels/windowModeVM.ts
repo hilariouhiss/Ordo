@@ -35,6 +35,7 @@ import { projectsVM } from "./projectsVM";
 import { quickCreateVM } from "./quickCreateVM";
 import { settingsVM } from "./settingsVM";
 import { taskSheetVM } from "./taskSheetVM";
+import { searchVM } from "./searchVM";
 import { templatesVM } from "./templatesVM";
 
 export type WindowMode = "full" | "widget";
@@ -103,6 +104,7 @@ export function closeOverlays(): void {
   quickCreateVM.close();
   projectsVM.closeSettings();
   templatesVM.closeSheets();
+  searchVM.close();
 }
 
 function serialized(task: () => Promise<void>): Promise<void> {

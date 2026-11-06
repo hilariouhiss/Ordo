@@ -1,5 +1,7 @@
-import { setTaskStatus, startTask, suspendTask, toggleStep } from "../model/ipc";
-import type { Task } from "../model/types";
+import { resumeTask, setTaskStatus, startTask, suspendTask, toggleStep } from "../model/ipc";
+import { t } from "../lib/i18n";
+import type { Step, Task } from "../model/types";
+import { undoVM } from "./undoVM";
 
 export function createTaskRowVM() {
   function start(task: Task): Promise<Task> {
@@ -7,15 +9,35 @@ export function createTaskRowVM() {
   }
 
   function suspend(task: Task, until: string | null, reason: string | null): Promise<Task> {
-    return suspendTask(task.id, until, reason);
+    return suspendTask(task.id, until, reason).then((updated) => {
+      undoVM.pushUndo(t("undo.suspended", { title: task.title }), async () => {
+        await resumeTask(task.id);
+      });
+      return updated;
+    });
   }
 
   function toggleDone(task: Task): Promise<Task> {
-    return setTaskStatus(task.id, task.status === "done" ? "todo" : "done");
+    const previous = task.status;
+    const next = previous === "done" ? "todo" : "done";
+    return setTaskStatus(task.id, next).then((updated) => {
+      undoVM.pushUndo(
+        t(next === "done" ? "undo.completed" : "undo.reopened", { title: task.title }),
+        async () => {
+          await setTaskStatus(task.id, previous);
+        },
+      );
+      return updated;
+    });
   }
 
-  function toggleStepDone(stepId: string): Promise<Task> {
-    return toggleStep(stepId);
+  function toggleStepDone(step: Step): Promise<Task> {
+    return toggleStep(step.id).then((updated) => {
+      undoVM.pushUndo(t("undo.step", { title: step.title }), async () => {
+        await toggleStep(step.id);
+      });
+      return updated;
+    });
   }
 
   return { start, suspend, toggleDone, toggleStepDone };

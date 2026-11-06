@@ -5,13 +5,16 @@ import { planSchedule } from "../lib/schedule";
 import {
   getSettings,
   listWeek,
+  resumeTask,
   setSettings,
   setTaskStatus,
   startTask,
   suspendTask,
 } from "../model/ipc";
+import { t } from "../lib/i18n";
 import type { DeskPin, Settings, Task } from "../model/types";
 import { appVM } from "./appVM";
+import { undoVM } from "./undoVM";
 
 export function createDeskVM() {
   const state = reactive({
@@ -53,31 +56,40 @@ export function createDeskVM() {
   }
 
   /** One mutation at a time; reload afterwards so the row leaves or changes state. */
-  async function run(action: () => Promise<unknown>): Promise<void> {
-    if (state.busy) return;
+  async function run(action: () => Promise<unknown>): Promise<boolean> {
+    if (state.busy) return false;
     state.busy = true;
     state.actionError = "";
     try {
       await action();
       await load();
+      return true;
     } catch (e) {
       state.actionError = String(e);
+      return false;
     } finally {
       state.busy = false;
     }
   }
 
-  function start(task: Task): Promise<void> {
-    return run(() => startTask(task.id));
+  async function start(task: Task): Promise<void> {
+    await run(() => startTask(task.id));
   }
 
   /** The widget parks without a review date or reason; the main window keeps the full dialog. */
-  function suspend(task: Task): Promise<void> {
-    return run(() => suspendTask(task.id, null, null));
+  async function suspend(task: Task): Promise<void> {
+    if (!(await run(() => suspendTask(task.id, null, null)))) return;
+    undoVM.pushUndo(t("undo.suspended", { title: task.title }), async () => {
+      await resumeTask(task.id);
+    });
   }
 
-  function complete(task: Task): Promise<void> {
-    return run(() => setTaskStatus(task.id, "done"));
+  async function complete(task: Task): Promise<void> {
+    const previous = task.status;
+    if (!(await run(() => setTaskStatus(task.id, "done")))) return;
+    undoVM.pushUndo(t("undo.completed", { title: task.title }), async () => {
+      await setTaskStatus(task.id, previous);
+    });
   }
 
   async function setPin(pin: DeskPin): Promise<void> {

@@ -12,6 +12,7 @@ import type {
   ProjectGroup,
   ProjectSummary,
   RuleInput,
+  SearchHit,
   Settings,
   Status,
   ShortcutOutcome,
@@ -43,6 +44,11 @@ export function listWeek(): Promise<Task[]> {
 
 export function listAllTasks(): Promise<Task[]> {
   return invoke<Task[]>("list_all_tasks");
+}
+
+/** Task titles in every state plus live project names, for the global palette. */
+export function searchAll(query: string): Promise<SearchHit[]> {
+  return invoke<SearchHit[]>("search_all", { query });
 }
 
 export function getTask(id: string): Promise<Task> {

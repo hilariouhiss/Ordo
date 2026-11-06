@@ -20,6 +20,7 @@ export const defaultSettings: Settings = {
   tasksGroupBy: "project",
   weekShowEmptyDays: true,
   weekView: "list",
+  savedTaskViews: [],
 };
 
 export function task(over: Partial<Task> = {}): Task {

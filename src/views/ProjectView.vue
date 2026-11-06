@@ -12,6 +12,7 @@ import { appVM } from "../viewmodels/appVM";
 import { createProjectVM } from "../viewmodels/projectVM";
 import { projectsVM } from "../viewmodels/projectsVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
+import { undoVM } from "../viewmodels/undoVM";
 import CaptureBar from "./components/CaptureBar.vue";
 import CategoryProgress from "./components/CategoryProgress.vue";
 import SummaryLine from "./components/SummaryLine.vue";
@@ -82,6 +83,12 @@ function closeSettings(gone = false): void {
   if (gone) void router.push("/projects");
   else void vm.load(props.id);
 }
+watch(
+  () => undoVM.state.revision,
+  () => {
+    void vm.load(props.id);
+  },
+);
 </script>
 
 <template>

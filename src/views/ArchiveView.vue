@@ -5,8 +5,10 @@ import { localDate, shortDate } from "../lib/dates";
 import { askConfirm } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
+import { appVM } from "../viewmodels/appVM";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
+import { undoVM } from "../viewmodels/undoVM";
 import TaskSheet from "./overlays/TaskSheet.vue";
 
 onMounted(() => {
@@ -53,6 +55,13 @@ async function removeProject(id: string, name: string): Promise<void> {
 function openTask(id: string): void {
   void taskSheetVM.open(id);
 }
+watch(
+  () => undoVM.state.revision,
+  () => {
+    void appVM.load();
+    void vm.load();
+  },
+);
 </script>
 
 <template>

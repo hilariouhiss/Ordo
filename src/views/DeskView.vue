@@ -29,6 +29,7 @@ import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
 import type { Task } from "../model/types";
 import { deskVM } from "../viewmodels/deskVM";
+import { undoVM } from "../viewmodels/undoVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
 import StatusDot from "./components/StatusDot.vue";
 
@@ -479,6 +480,12 @@ onUnmounted(() => {
   window.removeEventListener("focus", onWindowFocus);
   for (const unlisten of unlisteners) unlisten();
 });
+watch(
+  () => undoVM.state.revision,
+  () => {
+    void deskVM.load();
+  },
+);
 </script>
 
 <template>
