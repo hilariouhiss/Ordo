@@ -373,7 +373,7 @@ describe("weekVM plan across a week boundary", () => {
     appVM.state.settings = null;
   });
 
-  it("stops at this week and puts a next-week task on its last day", async () => {
+  it("leaves a task planned after this week out of the week and its numbers", async () => {
     vi.mocked(listWeek).mockResolvedValue([
       task({ id: "dcm204", expectedStartDate: "2026-11-05", exclusive: true }),
       task({ id: "trip", expectedStartDate: "2026-11-10", effortMinutes: 1440, exclusive: true }),
@@ -391,9 +391,15 @@ describe("weekVM plan across a week boundary", () => {
       "2026-11-05",
       "2026-11-06",
     ]);
-    // The trip keeps a full row, so its circle still completes it; it reads last.
-    expect(vm.days.value[4].rows.map((row) => row.task.id)).toEqual(["dcm205", "trip"]);
-    expect(vm.days.value[4].rows[1]).toMatchObject({ start: "2026-11-10", clamped: true });
+    expect(vm.days.value[3].rows.map((row) => row.task.id)).toEqual(["dcm204"]);
+    expect(vm.days.value[4].rows.map((row) => row.task.id)).toEqual(["dcm205"]);
+    // The trip is next week's work: no lane, no plan end, no load, no conflict count.
+    expect(vm.lanes.value.map((lane) => lane.task.id)).toEqual(["dcm204", "dcm205"]);
+    expect(vm.planEnd.value).toBe("2026-11-06");
+    expect([...vm.loads.value.keys()]).not.toContain("2026-11-10");
+    expect(vm.conflictCount.value).toBe(0);
+    // The week set still holds it, so the pass queue and the task page keep it.
+    expect(vm.state.tasks.map((task) => task.id)).toEqual(["dcm204", "trip", "dcm205"]);
   });
 
   it("cuts a span that runs into next week at Friday", async () => {

@@ -39,7 +39,14 @@ export function createWeekVM() {
   /** The page's own idea of today; load() refreshes it so a window left open past midnight follows. */
   const today = ref(todayIso());
   const week = computed(() => weekWorkdays(today.value));
-  const planTasks = computed(() => state.tasks.map(toPlanTask));
+  /** A task the user planned after this week is next week's work: not on the page, not in its numbers. */
+  const weekTasks = computed(() => {
+    const weekEnd = week.value[week.value.length - 1];
+    return state.tasks.filter(
+      (task) => !task.expectedStartDate || task.expectedStartDate <= weekEnd,
+    );
+  });
+  const planTasks = computed(() => weekTasks.value.map(toPlanTask));
   // The plan lays out the whole week, so a task's own start before today still counts.
   const plan = computed(() => planSchedule(planTasks.value, today.value, week.value[0]));
   const loads = computed(() => planLoads(planTasks.value, plan.value));
@@ -59,12 +66,17 @@ export function createWeekVM() {
 
   /**
    * The whole week shows, Monday to Friday, including the days already gone. A plan that
-   * runs into next week is cut at the last workday, which also hosts the tasks whose
-   * start falls past it; finished tasks keep their day so the week reads as it happened.
+   * runs past the last workday is cut there, and work the queue pushes past it is clamped
+   * onto that day too; finished tasks keep their day so the week reads as it happened.
    */
   const days = computed(() => {
     const dates = week.value;
-    const planned = groupPlannedDays(state.tasks, plan.value, today.value, dates[dates.length - 1]);
+    const planned = groupPlannedDays(
+      weekTasks.value,
+      plan.value,
+      today.value,
+      dates[dates.length - 1],
+    );
     const withDone = addDoneRows(planned, state.done, dates, today.value);
     if (!appVM.state.settings?.weekShowEmptyDays) return withDone;
     return fillPlannedDays(withDone, dates, plan.value, today.value);
@@ -164,6 +176,7 @@ export function createWeekVM() {
     state,
     today,
     week,
+    weekTasks,
     plan,
     days,
     lanes,

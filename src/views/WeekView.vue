@@ -21,6 +21,7 @@ const {
   state,
   today,
   week,
+  weekTasks,
   lanes,
   days,
   plan,
@@ -93,7 +94,7 @@ const shownDays = computed(() => {
 });
 /** Nothing to show: the list's empty days and the gantt's lanes are the two cases. */
 const emptyWeek = computed(() => {
-  if (state.loading || state.tasks.length) return false;
+  if (state.loading || weekTasks.value.length) return false;
   return ganttView.value ? !lanes.value.length : !shownDays.value.length;
 });
 /** The days each open task already shows on, so a drop inside them only reorders. */
