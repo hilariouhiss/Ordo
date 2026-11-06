@@ -3,6 +3,7 @@ import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
+import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { formatEffort } from "../lib/effort";
 import { t } from "../lib/i18n";
 import { fillPlannedDays } from "../lib/plan";
@@ -102,6 +103,21 @@ const poolColumn = computed(() => {
   const index = day ? week.value.indexOf(day) : -1;
   return index >= 0 ? index : null;
 });
+/** The bottom stack fits the row: the gap between cards shrinks as tasks come in. */
+const deckEl = ref<HTMLElement | null>(null);
+const deckStep = ref(DECK_MAX_STEP);
+let deckObserver: ResizeObserver | undefined;
+
+function fitDeck(): void {
+  deckStep.value = stackStep(deckEl.value?.clientWidth ?? 0, laterTasks.value.length);
+}
+
+function observeDeck(): void {
+  deckObserver ??= new ResizeObserver(fitDeck);
+  deckObserver.disconnect();
+  if (deckEl.value) deckObserver.observe(deckEl.value);
+  fitDeck();
+}
 const draggingId = computed(() => drag.id.value ?? poolDrag.id.value);
 const dropTarget = computed(() => drag.target.value ?? poolDrag.target.value);
 const dragMoved = computed(() => drag.moved.value || poolDrag.moved.value);
@@ -195,11 +211,13 @@ onMounted(() => {
   // Seeing this page is what clears the tray's unread count; other pages do not.
   void markSeen();
   dayTick = window.setInterval(checkDay, DAY_TICK_MS);
+  observeDeck();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
   window.removeEventListener("focus", onWindowFocus);
   window.clearInterval(dayTick);
+  deckObserver?.disconnect();
 });
 
 watch(
@@ -218,6 +236,9 @@ watch(
     if (!open) void load();
   },
 );
+
+// A reload changes how many cards the row holds: re-measure once the DOM has them.
+watch(() => laterTasks.value.length, observeDeck, { flush: "post" });
 
 function dayLoad(date: string): number {
   return loads.value.get(date) ?? 0;
@@ -443,11 +464,12 @@ function refresh(): void {
         <span>{{ t("week.later", { count: laterTasks.length }) }}</span>
         <span class="ml-auto text-[10px]">{{ t("week.laterHint") }}</span>
       </div>
-      <ul class="flex items-end overflow-x-auto pt-14 pb-1">
+      <ul ref="deckEl" class="flex items-end pt-14 pb-1">
         <li
-          v-for="task in laterTasks"
+          v-for="(task, index) in laterTasks"
           :key="task.id"
-          class="week-later-card relative -ml-[156px] flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-200 ease-out first:ml-0 hover:-translate-y-[34px] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-9 after:content-['']"
+          class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-200 ease-out hover:-translate-y-[34px] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-0 after:content-[''] hover:after:h-9"
+          :style="{ marginLeft: index ? `${deckStep - DECK_CARD_W}px` : undefined }"
           :class="{ 'opacity-40': poolDraggingId === task.id }"
           role="button"
           tabindex="0"
