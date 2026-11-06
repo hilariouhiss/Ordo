@@ -32,15 +32,16 @@ const unitOptions = computed(() => [
   { value: "minutes", label: t("effort.minutesUnit") },
 ]);
 
+/** The amount and the unit share one box: same height, square inner edges, one gap-free join. */
 const inputClass = computed(() =>
   props.compact
-    ? "input input-xs w-11 rounded-md border-base-300 bg-base-100 px-1 text-center text-[10.5px] text-inherit tabular-nums"
-    : "input input-sm w-16 rounded-lg border-base-300 bg-base-100 px-1.5 text-center text-[12.5px] text-inherit tabular-nums",
+    ? "input input-xs h-6 w-11 rounded-l-md rounded-r-none border-base-300 bg-base-100 px-1 text-center text-[10.5px] text-inherit tabular-nums"
+    : "input input-sm h-8 w-16 rounded-l-lg rounded-r-none border-base-300 bg-base-100 px-1.5 text-center text-[12.5px] text-inherit tabular-nums",
 );
 const unitClass = computed(() =>
   props.compact
-    ? "select select-xs w-[52px] rounded-md border-base-300 bg-base-100 pl-1! text-[10px] text-inherit"
-    : "select select-sm w-[68px] rounded-lg border-base-300 bg-base-100 pl-1.5 text-[11px] text-inherit",
+    ? "select select-xs h-6 w-[52px] justify-center rounded-r-md rounded-l-none border-l-0 border-base-300 bg-base-100 text-[10px] text-inherit"
+    : "select select-sm h-8 w-14 justify-center rounded-r-lg rounded-l-none border-l-0 border-base-300 bg-base-100 text-[11px] text-inherit",
 );
 
 function show(minutes: number): void {
@@ -121,7 +122,7 @@ function onEnter(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div ref="root" class="inline-flex items-center gap-1" @focusout="onFocusOut">
+  <div ref="root" class="inline-flex items-center" @focusout="onFocusOut">
     <input
       ref="inputEl"
       v-model="amount"
@@ -140,6 +141,7 @@ function onEnter(event: KeyboardEvent): void {
       :options="unitOptions"
       :label="fieldLabel"
       :class="unitClass"
+      style="padding-inline: 4px"
       @update:model-value="onUnit"
     />
   </div>
