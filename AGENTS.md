@@ -69,7 +69,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 - `src-tauri/src/services/`：业务规则（本周集合、过一遍、状态推导、统计、延误、归档、导出、时间推算）。函数同步接收 `&Connection`，需要时间的传入 `now`/`today` 字符串以便测试。
 - `src-tauri/src/repo/`：可复用的 SQL 与事务；服务层也会写少量针对性查询。只有 Rust 侧碰数据库。
 - `src-tauri/src/db/`：连接 PRAGMA、迁移、损坏恢复。`migrations.rs` 用 `PRAGMA user_version` 做单向迁移。
-- `src-tauri/src/reminders/`：独立线程每 30 秒 tick，启动即跑一次；通知去重靠 `notifications` 表唯一键；补报最近 14 天。提醒不能交给前端定时器。
+- `src-tauri/src/reminders/`：独立线程每 30 秒 tick，启动即跑一次；通知去重靠 `notifications` 表唯一键；补报最近 14 天。提醒不能交给前端定时器。提醒时刻由 `reminders/rules.rs` 现算：无时刻任务在「完成日前一天 17:30」，带时刻任务在当天 `expected_finish_time`，逾期在次日 17:30，挂起恢复在当天 09:00；全局提前量 `reminders.lead_minutes`（设置里「提前提醒」，0 = 按上面这套内置时刻）会把两类任务都从「任务自己的时刻」往前推（无时刻任务的时刻按完成日 17:30 算）。任务提醒弹条带「1 小时后」「明天 09:00」两个按钮，点击后写 `reminder_snoozes`（一任务一行，覆盖），到点按任务当前完成日重算文案再弹一次后删行，推迟期间该任务其他提醒候选被跳过；这条 re-fire 不写 `notifications`（原来那条已经计过未读）。每天 09:00 有一条「每日汇总」（`reminders.digest` 默认开，用 `reminders.digest_date` 记发过的日期，当天没有到期/逾期就不发），点开进本周页。
 - `src-tauri/src/ai/`：DeepSeek（OpenAI 兼容）请求、prompt、结果校验。只补项目/分类/负责人/标签，不产生日期。`keyring` 保存 key；AI 默认关闭，没 key 不发请求。
 - `src-tauri/src/dto.rs` / `state.rs`：IPC DTO（serde `camelCase`）与 `AppState`/`with_db`（`spawn_blocking` 包住数据库锁）。
 - 前端：`src/model/ipc.ts` 是唯一调用 `invoke` 的地方；状态用 VM 的 `reactive`，不引入 Pinia；`types.ts` 镜像 Rust DTO；`viewmodels/` 是 Vue `reactive` + 动作的工厂，页面级单例在文件底部导出；`views/` 只做绑定；`lib/` 放日期、IME、主题、时间轴等工具。
@@ -121,6 +121,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 真实数据库（`%APPDATA%\com.ordo.taskbook`）不要手工清理、重置或跑破坏性 SQL；要动先确认。测试用 `db::open_in_memory()` 或临时目录。
 - 主窗口关闭只是隐藏到托盘，退出走托盘菜单；首次关闭会提示一次。别把关闭改回直接退出。
 - 改全局快捷键失败时必须回滚旧键（`services/shortcut.rs`），不要留下半失效状态。
+- 通知按钮（「1 小时后」/「明天 09:00」）只有在**注册了 action type 且存在 Rust `on_action` handler** 时才会出现（插件在 `has_listeners()` 为真时才走 tracked 路径，按钮来自 `register_action_types`）；改提醒的显示方式时别把这两件事拆开。点击通知正文与点按钮都走同一个 handler，汇总通知的目标是「本周页」而不是任务。
 - 主窗口的 `html`/`body` 是 `overflow: hidden`（`src/style.css`）：从窗口边缘滑入的固定定位抽屉（任务浮层）在动画途中会越过视口，Chrome 把这段溢出算成文档滚动条，滚动条高度又从 `100vh` 里扣掉，整个界面就会「上移几像素」抖一下；别把这条当成多余的样式删掉。
 - 主题：只有显式选了浅/深色才 `setTheme` 钉原生窗口；`setTheme` 会经 wry 把 WebView 的 `prefers-color-scheme` 一起钉住，所以“跟随系统”必须 `setTheme(null)` 后读 `theme()` 的系统值，不要用 `matchMedia`。
 - Windows 通知收进通知中心后再点，系统不会告诉 Ordo 是哪一条；只有提示条还在屏幕上时点击才能定位任务。这是平台限制，不是待修 bug。
