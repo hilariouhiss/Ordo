@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 19;
+pub const LATEST: i64 = 20;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -481,7 +481,231 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 19)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 20 {
+        // Steps are child tasks now: one row each, carrying the parent attributes and the
+        // share of its effort. The step rows stay behind so an older build can still read
+        // the ledger; nothing in this build touches them again.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "parent_id")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN parent_id TEXT
+                 REFERENCES tasks(id) ON DELETE CASCADE",
+            )?;
+        }
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)")?;
+        migrate_steps_to_subtasks(&tx)?;
+        tx.pragma_update(None, "user_version", 20)?;
+        tx.commit()?;
+    }
     Ok(())
+}
+
+/// One step about to become a child task, with the parent fields it inherits.
+struct StepRow {
+    id: String,
+    task_id: String,
+    title: String,
+    done: bool,
+    effort_minutes: Option<i64>,
+    updated_at: String,
+    parent_effort: i64,
+    parent_done: bool,
+    expected_start_date: Option<String>,
+    expected_finish_date: Option<String>,
+    actual_finish_at: Option<String>,
+    project_id: Option<String>,
+    category_id: Option<String>,
+    owner_id: Option<String>,
+    priority: String,
+    time_exclusive: i64,
+    in_week: i64,
+    suspended: i64,
+    suspended_until: Option<String>,
+    suspended_at: Option<String>,
+    suspend_reason: Option<String>,
+    archived_at: Option<String>,
+    canceled_at: Option<String>,
+    deleted_at: Option<String>,
+    rule_id: Option<String>,
+    created_at: String,
+}
+
+/// Turns every live step into a child task. Each child gets the step own share of the
+/// parent effort: a hand-set share stays, the rest splits the remainder evenly with the
+/// pennies going to the earliest steps. Ids are the step ids, so a replay after a crash
+/// skips the rows already written.
+fn migrate_steps_to_subtasks(tx: &Connection) -> rusqlite::Result<()> {
+    // A hand-built older database can claim a version whose column step never ran. Without
+    // sort_order this build cannot write a task row, and no shipped build ever wrote steps
+    // into such a ledger, so there is nothing here to convert.
+    if !has_task_column(tx, "sort_order")? {
+        return Ok(());
+    }
+    // A database that skipped a column step keeps working: the missing column reads as its
+    // default instead of failing the whole upgrade.
+    let actual_finish = table_column(tx, "actual_finish_at", "NULL")?;
+    let priority = table_column(tx, "priority", "'normal'")?;
+    let exclusive = table_column(tx, "time_exclusive", "0")?;
+    let suspended = table_column(tx, "suspended", "0")?;
+    let suspended_at = table_column(tx, "suspended_at", "NULL")?;
+    let suspend_reason = table_column(tx, "suspend_reason", "NULL")?;
+    let rows: Vec<StepRow> = {
+        let mut stmt = tx.prepare(&format!(
+            "SELECT s.id, s.task_id, s.title, s.done, s.effort_minutes, s.updated_at,
+                    t.effort_minutes, t.status = 'done', t.expected_start_date,
+                    t.expected_finish_date, {actual_finish}, t.project_id, t.category_id,
+                    t.owner_id, {priority}, {exclusive}, t.in_week, {suspended},
+                    t.suspended_until, {suspended_at}, {suspend_reason}, t.archived_at,
+                    t.canceled_at, t.deleted_at, t.rule_id, s.created_at
+             FROM steps s JOIN tasks t ON t.id = s.task_id
+             WHERE s.deleted_at IS NULL
+             ORDER BY s.task_id, s.sort_order, s.id"
+        ))?;
+        let mapped = stmt.query_map([], |r| {
+            Ok(StepRow {
+                id: r.get(0)?,
+                task_id: r.get(1)?,
+                title: r.get(2)?,
+                done: r.get::<_, i64>(3)? == 1,
+                effort_minutes: r.get(4)?,
+                updated_at: r.get(5)?,
+                parent_effort: r.get(6)?,
+                parent_done: r.get::<_, i64>(7)? == 1,
+                expected_start_date: r.get(8)?,
+                expected_finish_date: r.get(9)?,
+                actual_finish_at: r.get(10)?,
+                project_id: r.get(11)?,
+                category_id: r.get(12)?,
+                owner_id: r.get(13)?,
+                priority: r.get(14)?,
+                time_exclusive: r.get(15)?,
+                in_week: r.get(16)?,
+                suspended: r.get(17)?,
+                suspended_until: r.get(18)?,
+                suspended_at: r.get(19)?,
+                suspend_reason: r.get(20)?,
+                archived_at: r.get(21)?,
+                canceled_at: r.get(22)?,
+                deleted_at: r.get(23)?,
+                rule_id: r.get(24)?,
+                created_at: r.get(25)?,
+            })
+        })?;
+        mapped.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    let mut next_sort: i64 =
+        tx.query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks", [], |r| {
+            r.get(0)
+        })?;
+    let mut group: Vec<StepRow> = Vec::new();
+    for row in rows {
+        if group
+            .first()
+            .is_some_and(|first| first.task_id != row.task_id)
+        {
+            insert_step_children(tx, &group, &mut next_sort)?;
+            group.clear();
+        }
+        group.push(row);
+    }
+    if !group.is_empty() {
+        insert_step_children(tx, &group, &mut next_sort)?;
+    }
+    Ok(())
+}
+
+fn insert_step_children(
+    tx: &Connection,
+    rows: &[StepRow],
+    next_sort: &mut i64,
+) -> rusqlite::Result<()> {
+    let parent = &rows[0];
+    let manual: Vec<Option<i64>> = rows.iter().map(|row| row.effort_minutes).collect();
+    let shares = split_shares(parent.parent_effort, &manual);
+    let mut total = 0;
+    for (row, share) in rows.iter().zip(shares) {
+        total += share;
+        // A finished parent ends with finished children, or the derived status would flip it
+        // back to open work the first time anything looks at it.
+        let done = row.done || parent.parent_done;
+        let finish_at = done.then(|| {
+            parent
+                .actual_finish_at
+                .clone()
+                .unwrap_or_else(|| row.updated_at.clone())
+        });
+        let effort = done.then_some(share);
+        tx.execute(
+            "INSERT INTO tasks (id, title, parent_id, project_id, category_id, owner_id,
+                                expected_start_date, expected_finish_date, actual_finish_at,
+                                actual_effort_minutes, status, in_week, suspended,
+                                suspended_until, suspended_at, suspend_reason, archived_at,
+                                canceled_at, created_at, updated_at, deleted_at, sort_order,
+                                effort_minutes, priority, time_exclusive, rule_id)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                    ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
+             WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE id = ?1)",
+            rusqlite::params![
+                row.id,
+                row.title,
+                row.task_id,
+                row.project_id,
+                row.category_id,
+                row.owner_id,
+                row.expected_start_date,
+                row.expected_finish_date,
+                finish_at,
+                effort,
+                if done { "done" } else { "todo" },
+                if done { 0 } else { row.in_week },
+                row.suspended,
+                row.suspended_until,
+                row.suspended_at,
+                row.suspend_reason,
+                row.archived_at,
+                row.canceled_at,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at,
+                *next_sort,
+                share,
+                row.priority,
+                row.time_exclusive,
+                row.rule_id,
+            ],
+        )?;
+        *next_sort += 1;
+    }
+    // The parent total is the children total now. Writing it keeps the two agreeing until
+    // the first edit recomputes it anyway.
+    tx.execute(
+        "UPDATE tasks SET effort_minutes = ?1 WHERE id = ?2",
+        rusqlite::params![total, parent.task_id],
+    )?;
+    Ok(())
+}
+
+/// Each step minutes: hand-set shares stay, the remainder splits across the automatic
+/// ones with the pennies going to the earliest, never less than one minute.
+fn split_shares(parent_effort: i64, manual: &[Option<i64>]) -> Vec<i64> {
+    let manual_total: i64 = manual.iter().flatten().sum();
+    let auto_count = manual.iter().filter(|share| share.is_none()).count() as i64;
+    let remaining = (parent_effort - manual_total).max(0);
+    let base = if auto_count > 0 { remaining / auto_count } else { 0 };
+    let mut extra = if auto_count > 0 { remaining % auto_count } else { 0 };
+    manual
+        .iter()
+        .map(|share| match share {
+            Some(minutes) => *minutes,
+            None => {
+                let minutes = base + if extra > 0 { extra -= 1; 1 } else { 0 };
+                minutes.max(1)
+            }
+        })
+        .collect()
 }
 
 /// Moves `tasks` onto the four-time shape, dropping a stray `ai_fill` left by an older
@@ -533,6 +757,15 @@ fn rename_time_columns(tx: &Connection) -> rusqlite::Result<bool> {
         changed = true;
     }
     Ok(changed)
+}
+
+/// A task column an older database may have skipped, with the default to read instead.
+fn table_column(conn: &Connection, column: &str, fallback: &str) -> rusqlite::Result<String> {
+    Ok(if has_column(conn, "tasks", column)? {
+        format!("t.{column}")
+    } else {
+        fallback.to_string()
+    })
 }
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
@@ -1465,5 +1698,111 @@ mod tests {
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
         assert!(has_column(&c, "steps", "effort_minutes").unwrap());
+    }
+
+    /// A database with one finished task and three steps, from before subtasks existed.
+    const V19_STEPS: &str = "INSERT INTO tasks (id, title, effort_minutes, status, in_week,
+            expected_start_date, expected_finish_date, actual_finish_at, created_at, updated_at)
+        VALUES ('p', '迁移', 480, 'done', 0, '2026-11-10', '2026-11-14',
+                '2026-10-22T09:00:00Z', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+        INSERT INTO steps (id, task_id, title, sort_order, done, effort_minutes,
+                           created_at, updated_at)
+        VALUES ('s1', 'p', '备份', 0, 1, 90, '2026-10-20T08:00:00Z', '2026-10-20T09:00:00Z'),
+               ('s2', 'p', '脚本', 1, 0, NULL, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z'),
+               ('s3', 'p', '演练', 2, 0, NULL, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');";
+
+    fn v19_ledger(statements: &str) -> Connection {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(statements).unwrap();
+        c.pragma_update(None, "user_version", 19).unwrap();
+        c
+    }
+
+    /// The children of one parent, in sheet order.
+    fn children(c: &Connection, parent: &str) -> Vec<(String, i64, String)> {
+        c.prepare(
+            "SELECT id, effort_minutes, status FROM tasks WHERE parent_id = ?1 ORDER BY sort_order",
+        )
+        .unwrap()
+        .query_map([parent], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+    }
+
+    #[test]
+    fn migrates_steps_into_subtasks() {
+        let c = v19_ledger(V19_STEPS);
+        migrate(&c).unwrap();
+
+        let made = children(&c, "p");
+        assert_eq!(made.len(), 3);
+        assert_eq!(made[0].0, "s1");
+        // 90 by hand plus the 390 left over split in two.
+        assert_eq!(made[0].1, 90);
+        assert_eq!(made.iter().map(|(_, effort, _)| *effort).sum::<i64>(), 480);
+        // A finished parent ends with finished children, or its derived status would reopen it.
+        assert!(made.iter().all(|(_, _, status)| status == "done"));
+        let stamped: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE parent_id = 'p' AND actual_finish_at IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stamped, 3);
+        // Children carry the parent attributes, so the week keeps showing the same plan.
+        let plan: (Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT expected_start_date, expected_finish_date FROM tasks WHERE id = 's2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(plan.0.as_deref(), Some("2026-11-10"));
+        assert_eq!(plan.1.as_deref(), Some("2026-11-14"));
+        let parent_effort: i64 = c
+            .query_row("SELECT effort_minutes FROM tasks WHERE id = 'p'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(parent_effort, 480);
+    }
+
+    #[test]
+    fn an_archived_parent_archives_its_children() {
+        let c = v19_ledger(
+            "INSERT INTO tasks (id, title, created_at, updated_at, archived_at)
+             VALUES ('p', '旧事', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z',
+                     '2026-10-21T08:00:00Z');
+             INSERT INTO steps (id, task_id, title, sort_order, done, created_at, updated_at)
+             VALUES ('s1', 'p', '一步', 0, 0, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        );
+        migrate(&c).unwrap();
+
+        let archived: Option<String> = c
+            .query_row("SELECT archived_at FROM tasks WHERE id = 's1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(archived.as_deref(), Some("2026-10-21T08:00:00Z"));
+    }
+
+    #[test]
+    fn the_step_migration_replays_cleanly() {
+        let c = v19_ledger(V19_STEPS);
+        migrate(&c).unwrap();
+        // A crash after the rows landed but before the version bump must not double them.
+        c.pragma_update(None, "user_version", 19).unwrap();
+        migrate(&c).unwrap();
+
+        assert_eq!(children(&c, "p").len(), 3);
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn split_shares_gives_the_remainder_to_the_earliest() {
+        assert_eq!(split_shares(480, &[None, None, None]), vec![160, 160, 160]);
+        assert_eq!(split_shares(100, &[None, None, None]), vec![34, 33, 33]);
+        assert_eq!(split_shares(480, &[Some(90), None, None]), vec![90, 195, 195]);
+        // Hand shares that fill the total leave nothing, and a child still needs a minute.
+        assert_eq!(split_shares(480, &[Some(480), None]), vec![480, 1]);
     }
 }
