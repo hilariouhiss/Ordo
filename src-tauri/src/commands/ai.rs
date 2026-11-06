@@ -57,6 +57,29 @@ fn context(conn: &Connection) -> Result<AiContext, String> {
     })
 }
 
+/// Applies the fill only when the task still looks the way the request saw it.
+fn apply_if_unchanged(
+    conn: &Connection,
+    task_id: &str,
+    enrichment: &Enrichment,
+    now: &str,
+    seen_updated_at: &str,
+) -> Result<TaskDto, String> {
+    let current: String = conn
+        .query_row(
+            "SELECT updated_at FROM tasks WHERE id = ?1",
+            [task_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if current != seen_updated_at {
+        // The user changed the task while the request was in flight; a background fill
+        // must never overwrite that edit (or put back a field they just cleared).
+        return crate::repo::tasks::dto(conn, task_id).map_err(|e| e.to_string());
+    }
+    apply(conn, task_id, enrichment, now)
+}
+
 fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -> Result<TaskDto, String> {
     let (before_category, current_project, current_owner): (
         Option<String>,
@@ -221,11 +244,15 @@ pub async fn ai_enrich(
     };
 
     let id = task_id.clone();
-    let (title, ctx) = with_db(&state, move |conn| {
-        let title: String = conn
-            .query_row("SELECT title FROM tasks WHERE id = ?1", [&id], |r| r.get(0))
+    let (title, ctx, seen_updated_at) = with_db(&state, move |conn| {
+        let (title, seen): (String, String) = conn
+            .query_row(
+                "SELECT title, updated_at FROM tasks WHERE id = ?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
             .map_err(|e| e.to_string())?;
-        Ok((title, context(conn)?))
+        Ok((title, context(conn)?, seen))
     })
     .await?;
 
@@ -246,7 +273,7 @@ pub async fn ai_enrich(
 
     let now = now_iso();
     let task = with_db(&state, move |conn| {
-        apply(conn, &task_id, &enrichment, &now)
+        apply_if_unchanged(conn, &task_id, &enrichment, &now, &seen_updated_at)
     })
     .await?;
 
@@ -370,6 +397,34 @@ mod tests {
         assert!(
             !crate::repo::projects::is_member(&c, &other.id, &outsider.id).unwrap(),
             "the AI owner is ignored because the task already has one"
+        );
+    }
+
+    #[test]
+    fn a_stale_enrichment_does_not_overwrite_a_later_edit() {
+        let c = crate::db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        // The user changes the task while the request is in flight.
+        c.execute(
+            "UPDATE tasks SET updated_at = '2026-10-20T08:00:01Z' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        let enrichment = Enrichment {
+            project_id: Some(p.id.clone()),
+            tags: vec!["fix".into()],
+            ..Default::default()
+        };
+
+        let task =
+            apply_if_unchanged(&c, "t1", &enrichment, "2026-10-20T08:00:02Z", NOW).unwrap();
+
+        assert!(task.project_id.is_none(), "the stale fill put the project back");
+        assert!(task.tags.is_empty());
+        assert_eq!(
+            task.updated_at, "2026-10-20T08:00:01Z",
+            "a skipped fill must not touch the row"
         );
     }
 
