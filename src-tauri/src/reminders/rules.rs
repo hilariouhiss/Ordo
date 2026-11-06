@@ -33,8 +33,8 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     let snoozed = crate::repo::snoozes::all(conn).map_err(|e| e.to_string())?;
 
     let sql = format!(
-        "SELECT id, expected_finish_date, expected_finish_time, updated_at FROM tasks
-         WHERE expected_finish_date IS NOT NULL AND status <> 'done'
+        "SELECT id, expected_finish_date, expected_finish_time, created_at FROM tasks
+         WHERE expected_finish_date IS NOT NULL AND status <> 'done' AND suspended = 0
            AND {}",
         VISIBLE_TASK_FILTER
     );
@@ -50,13 +50,14 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (task_id, due, expected_finish_time, updated_at) = row.map_err(|e| e.to_string())?;
+        let (task_id, due, expected_finish_time, created_at) = row.map_err(|e| e.to_string())?;
         let Ok(due_date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
             continue;
         };
-        // A finish that was derived after the reminder's moment (a fresh capture, an
-        // estimate change) must not trigger a catch-up toast for a slot already gone by.
-        let changed = chrono::DateTime::parse_from_rfc3339(&updated_at)
+        // A task that did not exist yet at the reminder's moment must not trigger a
+        // catch-up toast for a slot already gone by. The creation stamp is used, not the
+        // edit stamp: fixing a typo after the slot must not silence the reminder.
+        let created = chrono::DateTime::parse_from_rfc3339(&created_at)
             .map(|stamp| stamp.with_timezone(&Local))
             .ok();
         if snoozed.iter().any(|(id, _)| id == &task_id) {
@@ -87,7 +88,11 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         } else {
             moment - Duration::minutes(lead)
         };
-        if due_date >= today && scheduled <= now && recent(scheduled, now) && unchanged_since(changed, scheduled) {
+        if due_date >= today
+            && scheduled <= now
+            && recent(scheduled, now)
+            && created_before_slot(created, scheduled)
+        {
             out.push(Candidate {
                 task_id: task_id.clone(),
                 kind: "due_tomorrow",
@@ -148,7 +153,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
                 &format!(
                     "SELECT expected_finish_date FROM tasks
                      WHERE id = ?1 AND expected_finish_date IS NOT NULL AND status <> 'done'
-                       AND {}",
+                       AND suspended = 0 AND {}",
                     VISIBLE_TASK_FILTER
                 ),
                 [&task_id],
@@ -213,7 +218,7 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
         conn.query_row(
             &format!(
                 "SELECT COUNT(*) FROM tasks
-                 WHERE status <> 'done' AND {extra} AND {VISIBLE_TASK_FILTER}"
+                 WHERE status <> 'done' AND suspended = 0 AND {extra} AND {VISIBLE_TASK_FILTER}"
             ),
             [&key],
             |r| r.get(0),
@@ -229,7 +234,7 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
         .prepare(&format!(
             "SELECT title FROM tasks
              WHERE expected_finish_date IS NOT NULL AND expected_finish_date <= ?1
-               AND status <> 'done' AND {}
+               AND status <> 'done' AND suspended = 0 AND {}
              ORDER BY expected_finish_date DESC, sort_order
              LIMIT {DIGEST_TITLES}",
             VISIBLE_TASK_FILTER
@@ -260,12 +265,12 @@ fn recent(scheduled: DateTime<Local>, now: DateTime<Local>) -> bool {
     scheduled >= now - Duration::days(CATCH_UP_DAYS)
 }
 
-/// Whether the task already had this deadline when the reminder came due. A finish
-/// derived after that moment did not exist then, so its toast is skipped instead of
-/// arriving as a catch-up right after the capture or the estimate change.
-fn unchanged_since(changed: Option<DateTime<Local>>, scheduled: DateTime<Local>) -> bool {
-    match changed {
-        Some(changed) => changed <= scheduled,
+/// Whether the task already existed when the reminder came due. A task captured after
+/// that moment did not have the deadline then, so its toast is skipped instead of arriving
+/// as a catch-up right after the capture.
+fn created_before_slot(created: Option<DateTime<Local>>, scheduled: DateTime<Local>) -> bool {
+    match created {
+        Some(created) => created <= scheduled,
         // An unreadable stamp keeps the old behaviour rather than silencing reminders.
         None => true,
     }
@@ -280,10 +285,13 @@ mod tests {
 
     fn task_with_due(c: &Connection, id: &str, due: &str) {
         crate::services::week::capture(c, "交底", NOW, id).unwrap();
-        // Backdate the edit stamp: a deadline set now would be newer than the reminder
-        // slot, and these cases are about tasks that had the deadline all along.
+        // Backdate the creation stamp: a deadline set now would be newer than the reminder
+        // slot, and these cases are about tasks that had the deadline all along. The edit
+        // stamp is backdated too so a later edit can be simulated on its own.
         c.execute(
-            "UPDATE tasks SET expected_finish_date = ?1, updated_at = '2026-10-18T00:00:00Z'
+            "UPDATE tasks SET expected_finish_date = ?1,
+                    created_at = '2026-10-18T00:00:00Z',
+                    updated_at = '2026-10-18T00:00:00Z'
              WHERE id = ?2",
             rusqlite::params![due, id],
         )
@@ -748,5 +756,55 @@ mod tests {
         assert!(crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 30))
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn a_parked_task_does_not_remind_about_its_deadline() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-21");
+        crate::services::week::suspend(&c, "t1", Some("2026-11-02"), None, NOW).unwrap();
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+
+        assert!(
+            cands.iter().all(|candidate| candidate.task_id != "t1"),
+            "a parked task must not nag about a deadline the user put on hold"
+        );
+    }
+
+    #[test]
+    fn a_parked_task_is_left_out_of_the_digest() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+        crate::services::week::suspend(&c, "t1", None, Some("等甲方"), NOW).unwrap();
+
+        assert!(
+            crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 30))
+                .unwrap()
+                .is_none(),
+            "the morning digest counts parked work as due"
+        );
+    }
+
+    #[test]
+    fn an_edit_after_the_reminder_slot_still_reminds() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-21");
+        // The user edits the title after the 17:30 slot; only the deadline changing later
+        // may cancel the catch-up, not any edit at all.
+        c.execute(
+            "UPDATE tasks SET updated_at = '2026-10-20T18:00:00Z' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 18, 1)).unwrap();
+
+        assert!(
+            cands
+                .iter()
+                .any(|candidate| candidate.task_id == "t1" && candidate.kind == "due_tomorrow"),
+            "an edit must not silence the reminder permanently"
+        );
     }
 }
