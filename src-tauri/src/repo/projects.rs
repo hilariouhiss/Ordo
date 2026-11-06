@@ -186,6 +186,26 @@ fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<ProjectDto>> 
     ids.iter().map(|id| dto(conn, id)).collect()
 }
 
+/// Every live project in its row shape but without members: a project list that never
+/// shows them should not pay one member query per project.
+pub fn list_brief(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, group_id, priority FROM projects
+         WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY created_at",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(ProjectDto {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            group_id: r.get(2)?,
+            priority: r.get(3)?,
+            archived_at: None,
+            members: vec![],
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn add_member(
     conn: &Connection,
     project_id: &str,

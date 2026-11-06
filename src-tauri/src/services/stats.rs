@@ -4,6 +4,7 @@ use crate::dto::{
 use crate::repo::projects;
 use chrono::{NaiveDate, TimeDelta};
 use rusqlite::Connection;
+use std::collections::HashMap;
 
 /// A year and a day; the page offers presets well inside this, and a longer
 /// request would only make the client-side bucketing pointless.
@@ -224,12 +225,79 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
     })
 }
 
+/// Every live project's counters, with one query per metric instead of a round of
+/// queries per project. Runs on every bootstrap, so the count has to stay flat.
 pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
-    projects::list(conn)
-        .map_err(|e| e.to_string())?
-        .iter()
-        .map(|p| summary(conn, &p.id))
-        .collect()
+    let projects = projects::list_brief(conn).map_err(|e| e.to_string())?;
+
+    let mut totals: HashMap<String, (i64, i64)> = HashMap::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT project_id, COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
+             WHERE project_id IS NOT NULL AND deleted_at IS NULL AND canceled_at IS NULL
+               AND archived_at IS NULL
+             GROUP BY project_id",
+        )
+        .map_err(|e| e.to_string())?;
+    let counters = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in counters {
+        let (project_id, total, done) = row.map_err(|e| e.to_string())?;
+        totals.insert(project_id, (total, done));
+    }
+
+    let mut by_category: HashMap<String, Vec<CategoryProgressDto>> = HashMap::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.project_id, c.id, c.name, COUNT(t.id), COALESCE(SUM(t.status = 'done'), 0)
+             FROM tasks t JOIN categories c ON c.id = t.category_id
+             WHERE t.project_id IS NOT NULL AND t.deleted_at IS NULL AND t.canceled_at IS NULL
+               AND t.archived_at IS NULL AND c.deleted_at IS NULL
+             GROUP BY t.project_id, c.id, c.name, c.sort_order
+             ORDER BY c.sort_order",
+        )
+        .map_err(|e| e.to_string())?;
+    let grouped = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                CategoryProgressDto {
+                    category_id: r.get(1)?,
+                    name: r.get(2)?,
+                    total: r.get(3)?,
+                    done: r.get(4)?,
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in grouped {
+        let (project_id, category) = row.map_err(|e| e.to_string())?;
+        by_category.entry(project_id).or_default().push(category);
+    }
+
+    Ok(projects
+        .into_iter()
+        .map(|project| {
+            let (total, done) = totals.get(&project.id).copied().unwrap_or((0, 0));
+            let by_category = by_category.remove(&project.id).unwrap_or_default();
+            ProjectSummaryDto {
+                id: project.id,
+                name: project.name,
+                group_id: project.group_id,
+                priority: project.priority,
+                total,
+                done,
+                by_category,
+            }
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -446,5 +514,29 @@ mod tests {
         );
         // The limit itself is inclusive: 366 days pass.
         assert!(stats::overview(&c, "2025-10-01", "2026-10-01").is_ok());
+    }
+
+    #[test]
+    fn the_project_list_agrees_with_each_summary() {
+        let (c, id) = setup();
+        let empty = projects::create(&c, "空项目", "2026-10-19T08:00:00Z").unwrap();
+
+        let listed = stats::list(&c).unwrap();
+
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].id, empty.id, "the list keeps the created order");
+        assert_eq!((listed[0].total, listed[0].done), (0, 0));
+        assert!(listed[0].by_category.is_empty());
+
+        let direct = stats::summary(&c, &id).unwrap();
+        let row = listed.iter().find(|project| project.id == id).unwrap();
+        assert_eq!((row.total, row.done), (direct.total, direct.done));
+        assert_eq!(row.priority, direct.priority);
+        assert_eq!(row.name, direct.name);
+        assert_eq!(row.by_category.len(), direct.by_category.len());
+        for (listed, direct) in row.by_category.iter().zip(direct.by_category.iter()) {
+            assert_eq!(listed.category_id, direct.category_id);
+            assert_eq!((listed.total, listed.done), (direct.total, direct.done));
+        }
     }
 }
