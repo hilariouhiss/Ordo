@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 17;
+pub const LATEST: i64 = 18;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -439,6 +439,32 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             tx.execute_batch("ALTER TABLE steps ADD COLUMN effort_minutes INTEGER")?;
         }
         tx.pragma_update(None, "user_version", 17)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 18 {
+        // A rule's clock time is when its occurrence starts, so the generated task now
+        // finishes the effort later. Rows written before this step stored the start as the
+        // finish, so shift each rule row once by its own effort. An effort that runs past
+        // midnight stops at 23:59: the date comes from the rule's weekday, not from here.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "UPDATE tasks
+             SET expected_finish_time = printf('%02d:%02d',
+                                               shifted.finish_minutes / 60,
+                                               shifted.finish_minutes % 60)
+             FROM (
+               SELECT id,
+                      MIN(1439, CAST(substr(expected_finish_time, 1, 2) AS INTEGER) * 60
+                              + CAST(substr(expected_finish_time, 4, 2) AS INTEGER)
+                              + MAX(0, COALESCE(effort_minutes, 0))) AS finish_minutes
+               FROM tasks
+               WHERE rule_id IS NOT NULL AND expected_finish_time IS NOT NULL
+             ) AS shifted
+             WHERE tasks.id = shifted.id;",
+        )?;
+        tx.pragma_update(None, "user_version", 18)?;
         tx.commit()?;
     }
     Ok(())
@@ -1333,6 +1359,53 @@ mod tests {
             })
             .unwrap();
         assert_eq!(start, "2026-10-19");
+    }
+
+    #[test]
+    fn shifts_rule_finish_times_by_their_effort() {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "INSERT INTO task_rules
+               (id, title, weekdays, at_time, effort_minutes, created_at, updated_at)
+             VALUES ('r1', '周总结会', '[5]', '17:00', 480,
+                     '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        )
+        .unwrap();
+        c.execute_batch(
+            "INSERT INTO tasks
+               (id, title, expected_finish_date, expected_finish_time, effort_minutes,
+                rule_id, created_at, updated_at)
+             VALUES
+               ('a', '周总结会', '2026-10-23', '17:00', 30, 'r1',
+                '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z'),
+               ('b', '夜班', '2026-10-24', '23:40', 60, 'r1',
+                '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z'),
+               ('c', '自己建的', '2026-10-23', '17:00', 30, NULL,
+                '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        )
+        .unwrap();
+        // Rewind to the shape this step upgrades from.
+        c.pragma_update(None, "user_version", 17).unwrap();
+
+        migrate(&c).unwrap();
+
+        let rows: Vec<(String, Option<String>)> = c
+            .prepare("SELECT id, expected_finish_time FROM tasks ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("a".to_string(), Some("17:30".to_string())),
+                ("b".to_string(), Some("23:59".to_string())),
+                ("c".to_string(), Some("17:00".to_string())),
+            ]
+        );
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
     }
 
     #[test]

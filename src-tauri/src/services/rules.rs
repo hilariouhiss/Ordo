@@ -1,6 +1,6 @@
 use crate::dto::{RuleDto, RuleInput};
 use crate::repo::rules;
-use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, SecondsFormat};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, SecondsFormat, Timelike};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -106,6 +106,18 @@ pub fn normalize_time(raw: &str) -> Result<String, String> {
     Ok(format!("{hour:02}:{minute:02}"))
 }
 
+/// A rule's clock time is when its occurrence starts, so the generated task finishes
+/// that many effort minutes later.
+fn finish_time(at: &str, effort_minutes: i64) -> String {
+    let start = NaiveTime::parse_from_str(at, "%H:%M")
+        .map(|time| time.hour() as i64 * 60 + time.minute() as i64)
+        .unwrap_or(0);
+    // shortcut: an effort that runs past midnight stops at 23:59 because the occurrence's
+    // date comes from the rule's weekday; revisit if overnight rules ever matter.
+    let end = (start + effort_minutes.max(0)).min(23 * 60 + 59);
+    format!("{:02}:{:02}", end / 60, end % 60)
+}
+
 /// Creates the task rows for the occurrences that are due. Runs on the reminder tick and
 /// right after a rule is saved, so a new rule shows today's occurrence immediately.
 pub fn materialize(conn: &Connection, now: DateTime<Local>) -> Result<Vec<String>, String> {
@@ -203,7 +215,7 @@ fn insert_generated(
             rule.owner_id,
             rule.priority,
             due,
-            rule.at,
+            finish_time(&rule.at, rule.effort_minutes),
             rule.effort_minutes,
             rule.exclusive as i64,
             rule.id,
@@ -289,7 +301,8 @@ mod tests {
         let rows = generated(&c, &rule.id);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].0, "2026-10-20");
-        assert_eq!(rows[0].1.as_deref(), Some("09:00"));
+        // 09:00 is the start; the default day-long effort ends it at 17:00.
+        assert_eq!(rows[0].1.as_deref(), Some("17:00"));
         assert!(rows[0].2);
     }
 
@@ -448,7 +461,38 @@ mod tests {
         assert_eq!(task.category_id.as_deref(), Some(category.as_str()));
         assert!(task.exclusive);
         assert_eq!(task.effort_minutes, 960);
-        assert_eq!(task.expected_finish_time.as_deref(), Some("15:00"));
+        // 15:00 + 16h runs past midnight, so the finish stops at the end of that day.
+        assert_eq!(task.expected_finish_time.as_deref(), Some("23:59"));
+    }
+
+    #[test]
+    fn a_rule_time_is_the_start_and_the_finish_adds_the_effort() {
+        let c = db::open_in_memory().unwrap();
+        let day = weekday(2026, 10, 20);
+        let mut rule_input = input("周总结会", vec![day], "17:00");
+        rule_input.effort_minutes = Some(30);
+        let rule = save(&c, &rule_input, NOW).unwrap();
+
+        materialize(&c, at(2026, 10, 20, 18, 0)).unwrap();
+
+        let rows = generated(&c, &rule.id);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "2026-10-20");
+        assert_eq!(rows[0].1.as_deref(), Some("17:30"));
+    }
+
+    #[test]
+    fn a_rule_that_runs_past_midnight_finishes_at_the_end_of_its_day() {
+        let c = db::open_in_memory().unwrap();
+        let day = weekday(2026, 10, 20);
+        let mut rule_input = input("夜班", vec![day], "23:40");
+        rule_input.effort_minutes = Some(60);
+        let rule = save(&c, &rule_input, NOW).unwrap();
+
+        materialize(&c, at(2026, 10, 20, 23, 50)).unwrap();
+
+        let rows = generated(&c, &rule.id);
+        assert_eq!(rows[0].1.as_deref(), Some("23:59"));
     }
 
     #[test]
