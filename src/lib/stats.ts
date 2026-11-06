@@ -30,11 +30,6 @@ export interface HeatmapRow {
   cells: HeatmapCell[];
 }
 
-export interface HeatmapMonth {
-  date: string;
-  label: string;
-}
-
 /** How the page names an unset grouping so the chart is never blank. */
 export interface BreakdownRow {
   name: string | null;
