@@ -259,6 +259,10 @@ export interface TaskPatch {
   categoryId?: string | null;
   ownerId?: string | null;
   expectedStartDate?: string | null;
+  expectedFinishDate?: string | null;
+  actualStartAt?: string | null;
+  actualFinishAt?: string | null;
+  actualEffortMinutes?: number | null;
   note?: string | null;
   tags?: string[];
   effortMinutes?: number;

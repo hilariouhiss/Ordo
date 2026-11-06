@@ -16,6 +16,44 @@ pub fn update_patch(
     patch: &TaskPatch,
     now: &str,
 ) -> Result<TaskDto, String> {
+    let mut patch = patch.clone();
+    if let Some(priority) = patch.priority.as_deref() {
+        if !valid_priority(priority) {
+            return Err("invalid_priority".into());
+        }
+    }
+
+    // A recurring rule owns its occurrence's day: moving it would make the next tick
+    // create a second occurrence for the day the rule still expects.
+    if patch.expected_finish_date.is_some() && rule_owned(conn, id)? {
+        return Err("rule_owns_finish".into());
+    }
+
+    // A picked finish day also sets the estimate, so the date and the estimate the
+    // sheet shows can never disagree. A weekend pick reads as the Friday before it,
+    // which is the last day the estimate counts.
+    let picked_finish = match patch.expected_finish_date.as_ref() {
+        Some(Some(text)) => {
+            let finish = crate::services::timing::workday_on_or_before(
+                chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                    .map_err(|_| "invalid_finish_date")?,
+            );
+            patch.expected_finish_date = Some(Some(finish.format("%Y-%m-%d").to_string()));
+            let start = match patch.expected_start_date.as_ref() {
+                Some(value) => value.clone(),
+                None => expected_start_of(conn, id)?,
+            };
+            let anchor = crate::services::timing::anchor_for(
+                crate::services::local_today(now)?,
+                start.as_deref(),
+            );
+            patch.effort_minutes =
+                Some(crate::services::timing::effort_for_finish(anchor, finish)?);
+            Some(finish)
+        }
+        _ => None,
+    };
+
     if let Some(effort) = patch.effort_minutes {
         if !valid_effort(effort) {
             return Err("invalid_effort".into());
@@ -27,17 +65,23 @@ pub fn update_patch(
             return Err("steps_over_effort".into());
         }
     }
-    if let Some(priority) = patch.priority.as_deref() {
-        if !valid_priority(priority) {
-            return Err("invalid_priority".into());
-        }
+
+    if let Some(finish) = picked_finish {
+        // The ledger records a later day before the row itself changes.
+        crate::services::timing::write_finish(conn, id, finish, now)?;
     }
-    crate::repo::tasks::apply_patch(conn, id, patch, now).map_err(|e| e.to_string())?;
-    // The expected finish is derived, never edited: a new estimate or a new start moves it.
-    if patch.effort_minutes.is_some() || patch.expected_start_date.is_some() {
+    crate::repo::tasks::apply_patch(conn, id, &patch, now).map_err(|e| e.to_string())?;
+    // A picked finish owns the date; an estimate or start edit derives it otherwise.
+    // An explicit clear stays cleared even when the same edit moves the estimate.
+    let finish_cleared = matches!(patch.expected_finish_date.as_ref(), Some(None));
+    if picked_finish.is_none()
+        && !finish_cleared
+        && (patch.effort_minutes.is_some() || patch.expected_start_date.is_some())
+    {
         crate::services::timing::sync_finish(conn, id, now)?;
     }
-    route_owner(conn, id, patch, now)?;
+    sync_actual(conn, id, &patch, now)?;
+    route_owner(conn, id, &patch, now)?;
     // Moving a task or changing its owner must not leave an owner outside the project.
     if patch.project_id.is_some() || patch.owner_id.is_some() {
         let task = crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())?;
@@ -50,6 +94,170 @@ pub fn update_patch(
         return Ok(task);
     }
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
+}
+
+fn expected_start_of(conn: &Connection, id: &str) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT expected_start_date FROM tasks WHERE id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn rule_owned(conn: &Connection, id: &str) -> Result<bool, String> {
+    conn.query_row("SELECT rule_id IS NOT NULL FROM tasks WHERE id = ?1", [id], |row| {
+        row.get(0)
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn has_open_steps(conn: &Connection, id: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM steps
+                       WHERE task_id = ?1 AND deleted_at IS NULL AND done = 0)",
+        [id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Hands the actual times between finish and effort. The actual start is the anchor
+/// both directions measure from, so setting either one without it is refused; clearing
+/// still works, so a task finished before it was started can be tidied up.
+fn sync_actual(
+    conn: &Connection,
+    id: &str,
+    patch: &TaskPatch,
+    now: &str,
+) -> Result<(), String> {
+    if patch.actual_start_at.is_none()
+        && patch.actual_finish_at.is_none()
+        && patch.actual_effort_minutes.is_none()
+    {
+        return Ok(());
+    }
+    // Steps own completion: ticking the last one stamps the finish and effort itself,
+    // so a hand-entered pair would only fight the derived status.
+    let setting_finish = patch
+        .actual_finish_at
+        .as_ref()
+        .is_some_and(|value| value.is_some());
+    let setting_effort = patch
+        .actual_effort_minutes
+        .as_ref()
+        .is_some_and(|value| value.is_some());
+    if (setting_finish || setting_effort) && has_open_steps(conn, id)? {
+        return Err("steps_open".into());
+    }
+    let (stored_start, stored_finish, stored_effort, status): (
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT started_at, actual_finish_at, actual_effort_minutes, status
+             FROM tasks WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let start = match &patch.actual_start_at {
+        Some(value) => value.as_deref().map(normalize_stamp).transpose()?,
+        None => stored_start,
+    };
+    let start_changed = patch.actual_start_at.is_some();
+
+    let mut finish = stored_finish;
+    let mut reopen = false;
+    match &patch.actual_finish_at {
+        Some(Some(text)) => finish = Some(normalize_stamp(text)?),
+        Some(None) => {
+            finish = None;
+            reopen = true;
+        }
+        None => {}
+    }
+
+    // Moving the effort moves the finish, but only around a real start.
+    if patch.actual_finish_at.is_none() {
+        if let Some(Some(minutes)) = &patch.actual_effort_minutes {
+            if !valid_effort(*minutes) {
+                return Err("invalid_effort".into());
+            }
+            if let Some(start) = &start {
+                finish = Some(add_minutes(start, *minutes)?);
+            }
+        }
+    }
+
+    if start.is_none()
+        && (patch
+            .actual_finish_at
+            .as_ref()
+            .is_some_and(|value| value.is_some())
+            || patch
+                .actual_effort_minutes
+                .as_ref()
+                .is_some_and(|value| value.is_some()))
+    {
+        return Err("actual_start_required".into());
+    }
+
+    let mut effort = match &patch.actual_effort_minutes {
+        Some(value) => *value,
+        None => stored_effort,
+    };
+    if let (Some(start), Some(finish)) = (&start, &finish) {
+        let minutes = minutes_between(start, finish)?;
+        if minutes < 0 {
+            return Err("finish_before_start".into());
+        }
+        effort = Some(minutes.clamp(1, 28800));
+    }
+    if reopen {
+        effort = None;
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE tasks SET started_at = ?1, actual_finish_at = ?2, actual_effort_minutes = ?3,
+                updated_at = ?4 WHERE id = ?5",
+        rusqlite::params![start, finish, effort, now, id],
+    )
+    .map_err(|e| e.to_string())?;
+    if finish.is_some() && status != "done" {
+        crate::repo::tasks::set_status_only(&tx, id, "done", true, now)
+            .map_err(|e| e.to_string())?;
+    } else if reopen && status == "done" {
+        crate::repo::tasks::set_status_only(&tx, id, "doing", false, now)
+            .map_err(|e| e.to_string())?;
+    } else if start_changed && start.is_some() && status == "todo" && finish.is_none() {
+        crate::repo::tasks::set_status_only(&tx, id, "doing", false, now)
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+fn parse_stamp(text: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .map(|stamp| stamp.with_timezone(&chrono::Utc))
+        .map_err(|_| "invalid_actual_time".to_string())
+}
+
+fn normalize_stamp(text: &str) -> Result<String, String> {
+    Ok(parse_stamp(text)?.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+fn add_minutes(start: &str, minutes: i64) -> Result<String, String> {
+    Ok((parse_stamp(start)? + chrono::Duration::minutes(minutes))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+fn minutes_between(start: &str, finish: &str) -> Result<i64, String> {
+    Ok((parse_stamp(finish)? - parse_stamp(start)?).num_minutes())
 }
 
 /// A category or project change hands the task to that specialty's owner unless the
@@ -304,19 +512,153 @@ mod tests {
         assert_eq!(t.tags.len(), 1);
     }
 
+    /// A fixed start in the future keeps the anchor independent of the machine's timezone.
+    fn future_start(c: &Connection) {
+        let patch = TaskPatch {
+            expected_start_date: Some(Some("2026-10-21".into())),
+            ..Default::default()
+        };
+        tasks::update_patch(c, "t1", &patch, NOW).unwrap();
+    }
+
     #[test]
-    fn a_finish_date_in_the_payload_cannot_skip_the_reschedule_record() {
+    fn an_edited_finish_back_computes_the_effort_and_records_the_move() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        future_start(&c);
+
+        let patch: TaskPatch =
+            serde_json::from_str(r#"{"expectedFinishDate":"2026-10-23"}"#).unwrap();
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-23"));
+        assert_eq!(t.effort_minutes, 1440);
+        assert!(
+            t.delays
+                .iter()
+                .any(|d| d.kind == "reschedule" && d.new_due.as_deref() == Some("2026-10-23")),
+            "{:?}",
+            t.delays
+        );
+    }
+
+    #[test]
+    fn a_picked_finish_replaces_an_estimate_sent_with_it() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        future_start(&c);
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(Some("2026-10-23".into())),
+            effort_minutes: Some(480),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-23"));
+        assert_eq!(t.effort_minutes, 1440);
+    }
+
+    #[test]
+    fn a_weekend_finish_is_stored_on_the_friday_before_it() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        future_start(&c);
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(Some("2026-10-25".into())),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-23"));
+        assert_eq!(t.effort_minutes, 1440);
+    }
+
+    #[test]
+    fn a_picked_finish_on_a_rule_task_is_rejected() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET expected_finish_date = '2026-10-25' WHERE id = 't1'",
-            [],
+            "INSERT INTO task_rules (id, title, weekdays, at_time, created_at, updated_at)
+             VALUES ('r1', '周报', '[1,2,3,4,5]', '09:00', ?1, ?1)",
+            [NOW],
         )
         .unwrap();
-        // A finish date only moves through set_expected_finish, which writes the record.
-        let patch: TaskPatch = serde_json::from_str(r#"{"expectedFinishDate":"2026-12-01"}"#).unwrap();
+        c.execute("UPDATE tasks SET rule_id = 'r1' WHERE id = 't1'", [])
+            .unwrap();
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(Some("2026-10-23".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "rule_owns_finish"
+        );
+    }
+
+    #[test]
+    fn a_cleared_finish_stays_cleared_when_the_estimate_changes_too() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(None),
+            effort_minutes: Some(960),
+            ..Default::default()
+        };
         let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
-        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-25"));
+
+        assert!(t.expected_finish_date.is_none());
+        assert_eq!(t.effort_minutes, 960);
+    }
+
+    #[test]
+    fn a_finish_before_the_anchor_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        future_start(&c);
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(Some("2026-10-20".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "finish_before_start"
+        );
+    }
+
+    #[test]
+    fn a_finish_beyond_sixty_workdays_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        future_start(&c);
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(Some("2027-02-01".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "finish_too_far"
+        );
+    }
+
+    #[test]
+    fn a_cleared_finish_leaves_the_effort_alone() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(None),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert!(t.expected_finish_date.is_none());
+        assert_eq!(t.effort_minutes, 480);
     }
 
     #[test]
@@ -780,5 +1122,211 @@ mod tests {
             tasks::set_status(&c, "t1", "archived", NOW).unwrap_err(),
             "invalid_status"
         );
+    }
+
+    fn start_task(c: &Connection) {
+        tasks::set_status(c, "t1", "doing", NOW).unwrap();
+    }
+
+    #[test]
+    fn an_edited_actual_finish_derives_the_effort_and_completes() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+
+        let patch = TaskPatch {
+            actual_finish_at: Some(Some("2026-10-20T10:30:00Z".into())),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.actual_effort_minutes, Some(150));
+        assert_eq!(t.status, "done");
+        assert!(!t.in_week);
+    }
+
+    #[test]
+    fn an_edited_actual_effort_moves_the_actual_finish() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+
+        let patch = TaskPatch {
+            actual_effort_minutes: Some(Some(90)),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.actual_finish_at.as_deref(), Some("2026-10-20T09:30:00Z"));
+        assert_eq!(t.status, "done");
+        assert!(!t.in_week);
+    }
+
+    #[test]
+    fn an_actual_finish_with_open_steps_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+        crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
+
+        let patch = TaskPatch {
+            actual_finish_at: Some(Some("2026-10-20T10:30:00Z".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "steps_open"
+        );
+    }
+
+    #[test]
+    fn an_actual_effort_with_open_steps_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+        crate::services::steps::add(&c, "t1", "收集清单", NOW).unwrap();
+
+        let patch = TaskPatch {
+            actual_effort_minutes: Some(Some(90)),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "steps_open"
+        );
+    }
+
+    #[test]
+    fn an_actual_finish_without_a_start_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            actual_finish_at: Some(Some("2026-10-20T10:30:00Z".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "actual_start_required"
+        );
+    }
+
+    #[test]
+    fn actual_effort_without_a_start_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            actual_effort_minutes: Some(Some(90)),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "actual_start_required"
+        );
+    }
+
+    #[test]
+    fn clearing_an_actual_finish_without_a_start_is_allowed() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        let patch = TaskPatch {
+            actual_finish_at: Some(None),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert!(t.actual_finish_at.is_none());
+        assert!(t.actual_effort_minutes.is_none());
+        assert_eq!(t.status, "doing");
+    }
+
+    #[test]
+    fn an_actual_finish_before_the_start_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+
+        let patch = TaskPatch {
+            actual_finish_at: Some(Some("2026-10-20T07:00:00Z".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "finish_before_start"
+        );
+    }
+
+    #[test]
+    fn clearing_the_actual_finish_reopens_the_task() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+        tasks::set_status(&c, "t1", "done", "2026-10-20T10:30:00Z").unwrap();
+
+        let patch = TaskPatch {
+            actual_finish_at: Some(None),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.status, "doing");
+        assert!(t.in_week);
+        assert!(t.actual_finish_at.is_none());
+        assert!(t.actual_effort_minutes.is_none());
+        assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
+    }
+
+    #[test]
+    fn a_manual_actual_start_moves_a_todo_task_to_doing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            actual_start_at: Some(Some("2026-10-20T07:00:00Z".into())),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.status, "doing");
+        assert_eq!(t.actual_start_at.as_deref(), Some("2026-10-20T07:00:00Z"));
+        assert!(t.in_week);
+    }
+
+    #[test]
+    fn clearing_the_actual_start_keeps_the_finish() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        start_task(&c);
+        tasks::set_status(&c, "t1", "done", "2026-10-20T10:30:00Z").unwrap();
+
+        let patch = TaskPatch {
+            actual_start_at: Some(None),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert!(t.actual_start_at.is_none());
+        assert_eq!(t.actual_finish_at.as_deref(), Some("2026-10-20T10:30:00Z"));
+        assert_eq!(t.actual_effort_minutes, Some(150));
+        assert_eq!(t.status, "done");
+    }
+
+    #[test]
+    fn an_actual_start_and_finish_in_one_patch_are_allowed() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            actual_start_at: Some(Some("2026-10-20T07:00:00Z".into())),
+            actual_finish_at: Some(Some("2026-10-20T09:00:00Z".into())),
+            ..Default::default()
+        };
+        let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(t.actual_effort_minutes, Some(120));
+        assert_eq!(t.status, "done");
     }
 }

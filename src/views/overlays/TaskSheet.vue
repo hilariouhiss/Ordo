@@ -2,19 +2,21 @@
 import { RotateCcw, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { localDate, shortDate, shortDateTime, todayIso, weekdayLabel } from "../../lib/dates";
+import { localDate, localTime, shortDate, stampOfLocal, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { allocateSteps, currentStep, formatStepClock, formatStepEffort } from "../../lib/steps";
-import { formatEffort, parseEffortText } from "../../lib/effort";
+import { parseEffortText } from "../../lib/effort";
 import { addMember, archiveTask, ownerCandidates } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status, Step } from "../../model/types";
+import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
 import { appVM } from "../../viewmodels/appVM";
-import { finishPreview, taskSheetVM } from "../../viewmodels/taskSheetVM";
+import { formFinish, taskSheetVM } from "../../viewmodels/taskSheetVM";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
+import TimeField from "../components/TimeField.vue";
 
 const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "todo", key: "task.statusTodo" },
@@ -33,12 +35,23 @@ const form = reactive({
   categoryId: null as string | null,
   ownerId: null as string | null,
   expectedStartDate: "",
+  /** The date on screen; sent only when the user picked it by hand. */
+  expectedFinishDate: "",
+  expectedFinishPicked: false,
   note: "",
   tags: [] as string[],
   effortMinutes: 480,
   priority: "normal" as Priority,
   status: "todo" as Status,
   exclusive: true,
+});
+/** Actual times save the moment a field is left; the server recomputes the pair. */
+const actual = reactive({
+  startDate: "",
+  startTime: "09:00",
+  finishDate: "",
+  finishTime: "09:00",
+  effortText: "",
 });
 const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
@@ -69,6 +82,8 @@ const late = computed(() =>
 );
 const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0);
 const steps = computed(() => taskSheetVM.state.task?.steps ?? []);
+/** Steps own completion, so their ticks stamp the actual finish and effort themselves. */
+const hasOpenSteps = computed(() => steps.value.some((step) => !step.done));
 const allocation = computed(() => allocateSteps(form.effortMinutes, steps.value));
 const allocatedMinutes = computed(() => allocation.value.allocated);
 const remainingMinutes = computed(() => form.effortMinutes - allocatedMinutes.value);
@@ -116,7 +131,10 @@ async function saveStepMinutes(step: Step, minutes: number | null): Promise<void
     if (after > before) {
       raisedTo.value = after;
       // Follow the raised estimate unless the user is already editing the field.
-      if (form.effortMinutes === before) form.effortMinutes = after;
+      if (form.effortMinutes === before) {
+        form.effortMinutes = after;
+        refreshFinishPreview();
+      }
     }
   } catch (e) {
     taskSheetVM.state.error = String(e);
@@ -151,23 +169,8 @@ async function evenSteps(): Promise<void> {
     taskSheetVM.state.error = String(e);
   }
 }
-/** The finish always follows the estimate; it is shown, never typed. */
-const expectedFinish = computed(() => {
-  const task = taskSheetVM.state.task;
-  return task ? finishPreview(task, form) : "";
-});
-const expectedFinishLabel = computed(
-  () => `${shortDate(expectedFinish.value)} ${weekdayLabel(expectedFinish.value)}`,
-);
-const hasActual = computed(() => {
-  const task = taskSheetVM.state.task;
-  return (
-    !!task &&
-    (task.actualStartAt !== null ||
-      task.actualFinishAt !== null ||
-      task.actualEffortMinutes !== null)
-  );
-});
+/** The earliest finish day a picked start allows; the date picker refuses earlier days. */
+const finishMin = computed(() => timingAnchor(todayIso(), form.expectedStartDate || null));
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
@@ -183,6 +186,8 @@ watch(
     if (seededFor === task.id) {
       // Steps change the derived status, so keep the buttons in step without reseeding.
       form.status = task.status;
+      // Actual edits come back recomputed; the other fields stay as the user left them.
+      seedActual();
       return;
     }
     seededFor = task.id;
@@ -192,12 +197,15 @@ watch(
     form.categoryId = task.categoryId;
     form.ownerId = task.ownerId;
     form.expectedStartDate = task.expectedStartDate ?? "";
+    form.expectedFinishDate = task.expectedFinishDate ?? "";
+    form.expectedFinishPicked = false;
     form.note = task.note ?? "";
     form.tags = task.tags.map((tag) => tag.name);
     form.effortMinutes = task.effortMinutes;
     form.priority = task.priority;
     form.status = task.status;
     form.exclusive = task.exclusive;
+    seedActual();
     await refreshCandidates(task.projectId);
   },
   { immediate: true },
@@ -239,6 +247,105 @@ async function run(action: () => Promise<unknown>): Promise<boolean> {
 async function setStatus(status: Status): Promise<void> {
   if (!(await run(() => taskSheetVM.setStatus(status)))) return;
   form.status = status;
+}
+
+/** A picked finish day sets the estimate that many workdays would need. */
+function onFinishPicked(value: string): void {
+  form.expectedFinishPicked = true;
+  if (!value) return;
+  // A weekend pick reads as the Friday before it, the last day the estimate counts.
+  const finish = workdayOnOrBefore(value);
+  form.expectedFinishDate = finish;
+  const effort = effortForFinish(finishMin.value, finish);
+  if (effort === null) {
+    taskSheetVM.state.error = finish < finishMin.value ? "finish_before_start" : "finish_too_far";
+    return;
+  }
+  form.effortMinutes = effort;
+}
+
+/** The estimate or the start moved: the preview follows unless a rule owns the day. */
+function refreshFinishPreview(): void {
+  form.expectedFinishPicked = false;
+  if (taskSheetVM.state.task?.expectedFinishTime) return;
+  form.expectedFinishDate = formFinish(form);
+}
+
+/** Reads the actual times from the task; the server's answer is the source of truth. */
+function seedActual(): void {
+  const task = taskSheetVM.state.task;
+  if (!task) return;
+  actual.startDate = task.actualStartAt ? localDate(task.actualStartAt) : "";
+  actual.startTime = localTime(task.actualStartAt) || "09:00";
+  actual.finishDate = task.actualFinishAt ? localDate(task.actualFinishAt) : "";
+  actual.finishTime = localTime(task.actualFinishAt) || "09:00";
+  actual.effortText =
+    task.actualEffortMinutes == null ? "" : formatStepClock(task.actualEffortMinutes);
+}
+
+/** Same instant, whatever the stamp's offset or seconds say. */
+function sameStamp(one: string | null, other: string | null): boolean {
+  if (!one || !other) return one === other;
+  return Date.parse(one) === Date.parse(other);
+}
+
+async function commitActualStart(): Promise<boolean> {
+  const task = taskSheetVM.state.task;
+  if (!task) return true;
+  const stamp = stampOfLocal(actual.startDate, actual.startTime);
+  if (sameStamp(stamp, task.actualStartAt)) return true;
+  if (!(await run(() => taskSheetVM.patch({ actualStartAt: stamp })))) {
+    seedActual();
+    return false;
+  }
+  return true;
+}
+
+async function commitActualFinish(): Promise<boolean> {
+  const task = taskSheetVM.state.task;
+  if (!task) return true;
+  const stamp = stampOfLocal(actual.finishDate, actual.finishTime);
+  if (sameStamp(stamp, task.actualFinishAt)) return true;
+  if (!(await run(() => taskSheetVM.patch({ actualFinishAt: stamp })))) {
+    seedActual();
+    return false;
+  }
+  return true;
+}
+
+async function commitActualEffort(): Promise<boolean> {
+  const task = taskSheetVM.state.task;
+  if (!task) return true;
+  const text = actual.effortText.trim();
+  const minutes = text ? parseEffortText(text) : null;
+  // Unreadable stays on screen; a bare clear means "no record".
+  if (text && minutes === null) {
+    seedActual();
+    return true;
+  }
+  if (minutes === task.actualEffortMinutes) return true;
+  if (!(await run(() => taskSheetVM.patch({ actualEffortMinutes: minutes })))) {
+    seedActual();
+    return false;
+  }
+  return true;
+}
+
+/** Actual fields save as they go, so leaving the sheet must not drop a fresh value. */
+async function flushActual(): Promise<boolean> {
+  const start = await commitActualStart();
+  const finish = await commitActualFinish();
+  const effort = await commitActualEffort();
+  return start && finish && effort;
+}
+
+async function closeSheet(): Promise<void> {
+  if (await flushActual()) taskSheetVM.close();
+}
+
+function onActualEffortKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void commitActualEffort();
 }
 
 function onPriorityChange(event: Event): void {
@@ -304,7 +411,7 @@ function onTagKey(event: KeyboardEvent): void {
 }
 
 function onKey(event: KeyboardEvent): void {
-  if (event.key === "Escape") taskSheetVM.close();
+  if (event.key === "Escape") void closeSheet();
 }
 
 onMounted(() => window.addEventListener("keydown", onKey));
@@ -316,7 +423,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   <motion.div
     v-bind="backdropMotion"
     class="window-scrim fixed inset-0 z-60 flex justify-end bg-neutral/40"
-    @mousedown.left.self="taskSheetVM.close()"
+    @mousedown.left.self="closeSheet()"
   >
     <motion.aside
       v-bind="sheetPanelMotion"
@@ -339,7 +446,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <button
             class="mt-2 shrink-0 text-base-content/30"
             :aria-label="t('common.close')"
-            @click="taskSheetVM.close()"
+            @click="closeSheet()"
           >
             <X :size="15" aria-hidden="true" />
           </button>
@@ -564,49 +671,100 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <DateField
               v-model="form.expectedStartDate"
               class="input input-sm mt-1 w-full rounded-md border-base-300"
+              @update:model-value="refreshFinishPreview"
             />
+          </label>
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.expectedFinish") }}
             <span
-              class="mt-0.5 block text-[10.5px] leading-4 text-base-content/40"
-              :title="t('task.expectedFinishDerived')"
+              v-if="taskSheetVM.state.task?.expectedFinishTime"
+              class="input input-sm mt-1 flex w-full items-center rounded-md border-base-300 bg-base-200/30 tabular-nums text-base-content/60"
             >
-              {{ t("task.expectedFinish") }} {{ expectedFinishLabel }}
-              <span v-if="taskSheetVM.state.task?.expectedFinishTime">
-                {{ taskSheetVM.state.task.expectedFinishTime }}
-              </span>
+              {{ shortDate(form.expectedFinishDate) || t("common.none") }} ·
+              {{ taskSheetVM.state.task.expectedFinishTime }}
+            </span>
+            <DateField
+              v-else
+              v-model="form.expectedFinishDate"
+              :min="finishMin"
+              class="input input-sm mt-1 w-full rounded-md border-base-300"
+              @update:model-value="onFinishPicked"
+            />
+            <span class="mt-0.5 block text-[10.5px] leading-4 text-base-content/40">
+              {{
+                t(
+                  taskSheetVM.state.task?.expectedFinishTime
+                    ? "task.expectedFinishRuleHint"
+                    : "task.expectedFinishHint",
+                )
+              }}
             </span>
           </label>
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.effort") }}
             <div class="mt-1">
-              <EffortField v-model="form.effortMinutes" />
+              <EffortField
+                v-model="form.effortMinutes"
+                @update:model-value="refreshFinishPreview"
+              />
             </div>
           </label>
         </div>
 
-        <div
-          v-if="hasActual"
-          class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/45"
-        >
-          <span>
-            {{ t("task.actualStart") }}
-            <span class="text-base-content/70">{{
-              shortDateTime(taskSheetVM.state.task?.actualStartAt ?? null) || t("common.none")
-            }}</span>
-          </span>
-          <span>
-            {{ t("task.actualFinish") }}
-            <span class="text-base-content/70">{{
-              shortDateTime(taskSheetVM.state.task?.actualFinishAt ?? null) || t("common.none")
-            }}</span>
-          </span>
-          <span>
-            {{ t("task.actualEffort") }}
-            <span class="text-base-content/70">{{
-              taskSheetVM.state.task?.actualEffortMinutes
-                ? formatEffort(taskSheetVM.state.task.actualEffortMinutes)
-                : t("common.none")
-            }}</span>
-          </span>
+        <div class="mt-3 rounded-lg border border-base-300 px-3 py-2">
+          <div class="text-[11px] font-medium tracking-wide text-base-content/40">
+            {{ t("task.actualTimes") }}
+          </div>
+          <div class="mt-1.5 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5">
+            <span class="text-[11px] text-base-content/45">{{ t("task.actualStart") }}</span>
+            <div class="flex min-w-0 items-center gap-1">
+              <DateField
+                v-model="actual.startDate"
+                class="input input-xs w-24 rounded-md border-base-300"
+                @update:model-value="commitActualStart"
+              />
+              <TimeField
+                v-if="actual.startDate"
+                v-model="actual.startTime"
+                class="input input-xs w-16 rounded-md border-base-300"
+                @update:model-value="commitActualStart"
+              />
+            </div>
+            <span class="text-[11px] text-base-content/45">{{ t("task.actualFinish") }}</span>
+            <div class="flex min-w-0 items-center gap-1">
+              <DateField
+                v-model="actual.finishDate"
+                class="input input-xs w-24 rounded-md border-base-300"
+                @update:model-value="commitActualFinish"
+              />
+              <TimeField
+                v-if="actual.finishDate"
+                v-model="actual.finishTime"
+                class="input input-xs w-16 rounded-md border-base-300"
+                @update:model-value="commitActualFinish"
+              />
+            </div>
+            <span class="text-[11px] text-base-content/45">{{ t("task.actualEffort") }}</span>
+            <div class="flex min-w-0 items-center gap-1.5">
+              <input
+                v-model="actual.effortText"
+                class="input input-xs w-16 rounded-md border-base-300 bg-base-100 px-1.5 text-center font-mono text-[11px] tabular-nums"
+                inputmode="decimal"
+                autocomplete="off"
+                spellcheck="false"
+                :placeholder="t('common.none')"
+                :aria-label="t('task.actualEffort')"
+                @keydown.enter="onActualEffortKey"
+                @blur="commitActualEffort"
+              />
+              <span class="text-[10.5px] text-base-content/40">{{
+                t("task.actualEffortHint")
+              }}</span>
+            </div>
+          </div>
+          <p class="mt-1.5 text-[10.5px] leading-4 text-base-content/40">
+            {{ t(hasOpenSteps ? "task.actualStepsHint" : "task.actualAutoHint") }}
+          </p>
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-1.5">
@@ -704,7 +862,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </button>
           <button
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-            @click="taskSheetVM.close()"
+            @click="closeSheet()"
           >
             {{ t("common.cancel") }}
           </button>

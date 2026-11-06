@@ -21,6 +21,9 @@ export interface TaskForm {
   categoryId: string | null;
   ownerId: string | null;
   expectedStartDate: string;
+  /** The date on screen; only sent when the user picked it (see `expectedFinishPicked`). */
+  expectedFinishDate: string;
+  expectedFinishPicked: boolean;
   note: string;
   tags: string[];
   effortMinutes: number;
@@ -39,6 +42,11 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if ((form.expectedStartDate || null) !== task.expectedStartDate) {
     patch.expectedStartDate = form.expectedStartDate || null;
   }
+  // A date the sheet derived itself is not sent: the backend derives it from the estimate
+  // or start instead, so an hour of work does not round up to a whole day.
+  if (form.expectedFinishPicked && (form.expectedFinishDate || null) !== task.expectedFinishDate) {
+    patch.expectedFinishDate = form.expectedFinishDate || null;
+  }
   if ((form.note || null) !== task.note) patch.note = form.note || null;
   if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
     patch.tags = form.tags;
@@ -55,19 +63,6 @@ export function formFinish(form: TaskForm): string {
     timingAnchor(todayIso(), form.expectedStartDate || null),
     form.effortMinutes,
   );
-}
-
-/**
- * What the sheet shows. An untouched task keeps the date it already has, so a rule's
- * occurrence date is not replaced by a preview; once the start or the estimate changes,
- * the date moves with it.
- */
-export function finishPreview(task: Task, form: TaskForm): string {
-  const untouched =
-    (form.expectedStartDate || null) === task.expectedStartDate &&
-    form.effortMinutes === task.effortMinutes;
-  if (untouched && task.expectedFinishDate) return task.expectedFinishDate;
-  return formFinish(form);
 }
 
 export function createTaskSheetVM() {
@@ -136,6 +131,15 @@ export function createTaskSheetVM() {
     }
   }
 
+  /** Writes one hand-edited field, e.g. an actual time, and takes the recomputed task. */
+  async function patch(patch: TaskPatch): Promise<void> {
+    const id = state.openId;
+    if (!id) return;
+    const task = await updateTaskPatch(id, patch);
+    // A blur-then-close must not revive the sheet with a task nobody opened.
+    if (state.openId === id) state.task = task;
+  }
+
   async function addNote(reason: string): Promise<void> {
     if (!state.openId || !reason.trim()) return;
     state.task = await addDelayNote(state.openId, reason.trim());
@@ -156,6 +160,7 @@ export function createTaskSheetVM() {
     setStepEffort,
     evenSteps,
     saveForm,
+    patch,
     addNote,
     setStatus,
   };

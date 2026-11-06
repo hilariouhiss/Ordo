@@ -3,8 +3,10 @@ import {
   addDays,
   isWeekend,
   localDate,
+  localTime,
   mondayOf,
   shortDateTime,
+  stampOfLocal,
   weekdayLabel,
   weekdayOf,
   weekWorkdays,
@@ -62,6 +64,31 @@ describe("mondayOf", () => {
 describe("localDate", () => {
   it("keeps the local calendar day of a timestamp", () => {
     expect(localDate(new Date(2026, 9, 20, 0, 30).toISOString())).toBe("2026-10-20");
+  });
+});
+
+describe("stampOfLocal", () => {
+  it("reads a local date and time as a UTC stamp", () => {
+    expect(stampOfLocal("2026-10-20", "09:05")).toBe(new Date(2026, 9, 20, 9, 5).toISOString());
+  });
+
+  it("defaults the time to nine in the morning", () => {
+    expect(stampOfLocal("2026-10-20", "")).toBe(new Date(2026, 9, 20, 9, 0).toISOString());
+  });
+
+  it("returns null without a date", () => {
+    expect(stampOfLocal("", "09:00")).toBeNull();
+  });
+});
+
+describe("localTime", () => {
+  it("renders the local hour and minute of a stamp", () => {
+    expect(localTime(new Date(2026, 9, 20, 9, 5).toISOString())).toBe("09:05");
+  });
+
+  it("returns an empty string without a stamp", () => {
+    expect(localTime(null)).toBe("");
+    expect(localTime("nope")).toBe("");
   });
 });
 

@@ -253,6 +253,15 @@ pub fn stored_status(conn: &Connection, id: &str) -> rusqlite::Result<String> {
     conn.query_row("SELECT status FROM tasks WHERE id = ?1", [id], |r| r.get(0))
 }
 
+/// The status columns every completion and reopen shares. `?1` is the status, `?2`
+/// is "left the week", `?3` the stamp and `?4` the task id.
+const STATUS_SET: &str = "status = ?1,
+            in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
+            suspended = CASE WHEN ?2 THEN 0 ELSE suspended END,
+            suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
+            suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
+            suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END";
+
 pub fn set_status(
     conn: &Connection,
     id: &str,
@@ -260,28 +269,38 @@ pub fn set_status(
     leave_week: bool,
     now: &str,
 ) -> rusqlite::Result<()> {
-    // A done task clears the four parked columns conditionally, so they are spelled out
-    // here rather than through `UNPARK`; keep the two in step.
     // Completing records the actual effort: the wall-clock time between start and finish
     // when the task was started, and the estimate when it never was. One minute is the
     // floor, so a quick tick still counts.
     conn.execute(
-        "UPDATE tasks SET status = ?1,
-            in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
-            suspended = CASE WHEN ?2 THEN 0 ELSE suspended END,
-            suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
-            suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
-            suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
-            started_at = CASE WHEN ?1 = 'doing' THEN COALESCE(started_at, ?3) ELSE started_at END,
-            actual_finish_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
-            actual_effort_minutes = CASE WHEN ?2 THEN
-                COALESCE(
-                    MIN(28800, MAX(1, CAST(ROUND((julianday(?3) - julianday(started_at)) * 1440.0)
-                                            AS INTEGER))),
-                    effort_minutes)
-                ELSE NULL END,
-            updated_at = ?3
-         WHERE id = ?4",
+        &format!(
+            "UPDATE tasks SET {STATUS_SET},
+                started_at = CASE WHEN ?1 = 'doing' THEN COALESCE(started_at, ?3) ELSE started_at END,
+                actual_finish_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
+                actual_effort_minutes = CASE WHEN ?2 THEN
+                    COALESCE(
+                        MIN(28800, MAX(1, CAST(ROUND((julianday(?3) - julianday(started_at)) * 1440.0)
+                                                AS INTEGER))),
+                        effort_minutes)
+                    ELSE NULL END,
+                updated_at = ?3
+             WHERE id = ?4"
+        ),
+        params![status, leave_week as i64, now, id],
+    )?;
+    Ok(())
+}
+
+/// The status change alone, for `sync_actual`, which writes its own time stamps.
+pub fn set_status_only(
+    conn: &Connection,
+    id: &str,
+    status: &str,
+    leave_week: bool,
+    now: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        &format!("UPDATE tasks SET {STATUS_SET}, updated_at = ?3 WHERE id = ?4"),
         params![status, leave_week as i64, now, id],
     )?;
     Ok(())
@@ -320,6 +339,7 @@ pub fn apply_patch(
     push(&mut cols, &mut vals, "category_id", &patch.category_id);
     push(&mut cols, &mut vals, "owner_id", &patch.owner_id);
     push(&mut cols, &mut vals, "expected_start_date", &patch.expected_start_date);
+    push(&mut cols, &mut vals, "expected_finish_date", &patch.expected_finish_date);
     push(&mut cols, &mut vals, "note", &patch.note);
     if let Some(effort) = patch.effort_minutes {
         cols.push("effort_minutes");

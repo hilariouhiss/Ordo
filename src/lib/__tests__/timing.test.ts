@@ -1,6 +1,13 @@
+import inverseCases from "./timing-inverse-cases.json";
 import cases from "./timing-cases.json";
 import { describe, expect, it } from "vite-plus/test";
-import { finishForEffort, timingAnchor, workdayOnOrAfter } from "../timing";
+import {
+  effortForFinish,
+  finishForEffort,
+  timingAnchor,
+  workdayOnOrAfter,
+  workdayOnOrBefore,
+} from "../timing";
 
 /**
  * The same examples run in `services/timing.rs`, so a change to the rule on one side
@@ -15,11 +22,46 @@ describe("the shared finish-date examples", () => {
   });
 });
 
+/**
+ * The same inverse examples run in `services/timing.rs`, so editing a finish date in
+ * the sheet and storing it on save cannot drift apart.
+ */
+describe("the shared finish-to-effort examples", () => {
+  it("matches the table the backend tests use", () => {
+    for (const each of inverseCases) {
+      const effort = effortForFinish(timingAnchor(each.today, each.start), each.finish);
+      expect(effort, JSON.stringify(each)).toBe(each.effort);
+    }
+  });
+});
+
+describe("effortForFinish", () => {
+  it("counts whole workdays from the anchor through the finish", () => {
+    expect(effortForFinish("2026-10-21", "2026-10-21")).toBe(480);
+    expect(effortForFinish("2026-10-21", "2026-10-23")).toBe(1440);
+    expect(effortForFinish("2026-10-23", "2026-10-26")).toBe(960);
+  });
+
+  it("refuses a finish before the anchor or beyond sixty workdays", () => {
+    expect(effortForFinish("2026-10-21", "2026-10-20")).toBeNull();
+    expect(effortForFinish("2026-10-21", "2027-02-01")).toBeNull();
+  });
+});
+
 describe("workdayOnOrAfter", () => {
   it("keeps a weekday and rolls a weekend to Monday", () => {
     expect(workdayOnOrAfter("2026-10-21")).toBe("2026-10-21");
     expect(workdayOnOrAfter("2026-10-24")).toBe("2026-10-26");
     expect(workdayOnOrAfter("2026-10-25")).toBe("2026-10-26");
+  });
+});
+
+describe("workdayOnOrBefore", () => {
+  it("keeps a weekday and rolls a weekend back to Friday", () => {
+    expect(workdayOnOrBefore("2026-10-23")).toBe("2026-10-23");
+    expect(workdayOnOrBefore("2026-10-24")).toBe("2026-10-23");
+    expect(workdayOnOrBefore("2026-10-25")).toBe("2026-10-23");
+    expect(workdayOnOrBefore("2026-10-26")).toBe("2026-10-26");
   });
 });
 

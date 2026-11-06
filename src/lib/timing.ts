@@ -8,6 +8,13 @@ export function workdayOnOrAfter(iso: string): string {
   return day;
 }
 
+/** The same day, or the Friday before when it falls on a weekend. */
+export function workdayOnOrBefore(iso: string): string {
+  let day = iso;
+  while (isWeekend(day)) day = addDays(day, -1);
+  return day;
+}
+
 function nextWorkday(iso: string): string {
   return workdayOnOrAfter(addDays(iso, 1));
 }
@@ -22,6 +29,23 @@ export function finishForEffort(anchor: string, effortMinutes: number): string {
   let day = workdayOnOrAfter(anchor);
   for (let left = 1; left < days; left++) day = nextWorkday(day);
   return day;
+}
+
+/** The whole-day estimate a chosen finish day implies, mirrored by the backend. */
+export function effortForFinish(anchor: string, finishDay: string): number | null {
+  const finish = workdayOnOrBefore(finishDay);
+  if (finish < anchor) return null;
+  const maxDays = 28800 / MINUTES_PER_DAY;
+  let days = 0;
+  let day = workdayOnOrAfter(anchor);
+  while (day <= finish) {
+    if (!isWeekend(day)) {
+      days += 1;
+      if (days > maxDays) return null;
+    }
+    day = addDays(day, 1);
+  }
+  return days === 0 ? null : days * MINUTES_PER_DAY;
 }
 
 /** Work starts today unless the task already carries a later expected start. */

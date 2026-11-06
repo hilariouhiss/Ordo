@@ -5,6 +5,15 @@ use uuid::Uuid;
 /// One task day is eight hours, so the estimate decides how many working days it needs.
 pub const MINUTES_PER_DAY: i64 = 480;
 
+/// The same calendar day, or the Friday before when it falls on a weekend.
+pub fn workday_on_or_before(day: NaiveDate) -> NaiveDate {
+    let mut day = day;
+    while matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+        day -= Duration::days(1);
+    }
+    day
+}
+
 /// The same calendar day, or the next Monday when it falls on a weekend.
 pub fn workday_on_or_after(day: NaiveDate) -> NaiveDate {
     let mut day = day;
@@ -27,6 +36,33 @@ pub fn finish_for(anchor: NaiveDate, effort_minutes: i64) -> NaiveDate {
         day = next_workday(day);
     }
     day
+}
+
+/// The estimate a chosen finish day implies: whole workdays from the anchor through
+/// that day, counting both ends. A day before the anchor has no answer, and more than
+/// sixty workdays would overflow the estimate the rest of the app allows.
+pub fn effort_for_finish(anchor: NaiveDate, finish: NaiveDate) -> Result<i64, String> {
+    // A weekend pick reads as the Friday before it, so the stored day is always one the
+    // estimate can reproduce.
+    let finish = workday_on_or_before(finish);
+    if finish < anchor {
+        return Err("finish_before_start".into());
+    }
+    let mut days = 0i64;
+    let mut day = workday_on_or_after(anchor);
+    while day <= finish {
+        if !matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+            days += 1;
+            if days * MINUTES_PER_DAY > 28800 {
+                return Err("finish_too_far".into());
+            }
+        }
+        day += Duration::days(1);
+    }
+    if days == 0 {
+        return Err("finish_before_start".into());
+    }
+    Ok(days * MINUTES_PER_DAY)
 }
 
 /// Work starts today unless the task already carries a later expected start.
@@ -257,5 +293,55 @@ mod tests {
         let task = crate::services::tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
 
         assert_eq!(task.expected_finish_date, finished);
+    }
+
+    #[test]
+    fn the_shared_finish_to_effort_examples_hold() {
+        #[derive(serde::Deserialize, Debug)]
+        struct Case {
+            today: String,
+            start: Option<String>,
+            finish: String,
+            effort: Option<i64>,
+        }
+
+        let raw = include_str!("../../../src/lib/__tests__/timing-inverse-cases.json");
+        let cases: Vec<Case> = serde_json::from_str(raw).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let anchor = anchor_for(day(&case.today), case.start.as_deref());
+            assert_eq!(
+                effort_for_finish(anchor, day(&case.finish)).ok(),
+                case.effort,
+                "{case:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_weekend_rolls_back_to_the_friday() {
+        assert_eq!(workday_on_or_before(day("2026-10-23")), day("2026-10-23"));
+        assert_eq!(workday_on_or_before(day("2026-10-24")), day("2026-10-23"));
+        assert_eq!(workday_on_or_before(day("2026-10-25")), day("2026-10-23"));
+        assert_eq!(workday_on_or_before(day("2026-10-26")), day("2026-10-26"));
+    }
+
+    #[test]
+    fn whole_workdays_count_from_the_anchor_through_the_finish() {
+        assert_eq!(effort_for_finish(day("2026-10-21"), day("2026-10-21")), Ok(480));
+        assert_eq!(effort_for_finish(day("2026-10-21"), day("2026-10-22")), Ok(960));
+        assert_eq!(effort_for_finish(day("2026-10-23"), day("2026-10-26")), Ok(960));
+    }
+
+    #[test]
+    fn a_finish_before_the_anchor_or_too_far_out_is_rejected() {
+        assert_eq!(
+            effort_for_finish(day("2026-10-21"), day("2026-10-20")),
+            Err("finish_before_start".into())
+        );
+        assert_eq!(
+            effort_for_finish(day("2026-10-21"), day("2027-02-01")),
+            Err("finish_too_far".into())
+        );
     }
 }

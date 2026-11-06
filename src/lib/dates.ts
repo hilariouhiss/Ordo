@@ -66,6 +66,23 @@ export function shortDateTime(timestamp: string | null): string {
   return `${shortDate(isoOf(date))} ${hours}:${minutes}`;
 }
 
+/** The RFC3339 stamp of a local date and time; a missing time reads as 09:00. */
+export function stampOfLocal(date: string, time: string): string | null {
+  if (!date) return null;
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = (time || "09:00").split(":").map(Number);
+  const stamp = new Date(year, month - 1, day, hours, minutes);
+  return Number.isNaN(stamp.getTime()) ? null : stamp.toISOString();
+}
+
+/** The local "HH:MM" of an RFC3339 timestamp, or an empty string when missing. */
+export function localTime(timestamp: string | null): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 /**
  * The workdays of the week the page shows: Monday to Friday. A weekend rolls forward to
  * the next Monday, so the page never opens on a blank weekend.

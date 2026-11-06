@@ -13,13 +13,7 @@ vi.mock("../../model/ipc", () => ({
 
 import { getTask, setStepEffort, updateTaskPatch } from "../../model/ipc";
 import type { Task } from "../../model/types";
-import {
-  createTaskSheetVM,
-  diffTask,
-  finishPreview,
-  formFinish,
-  type TaskForm,
-} from "../taskSheetVM";
+import { createTaskSheetVM, diffTask, formFinish, type TaskForm } from "../taskSheetVM";
 import { step, task } from "./fixtures";
 
 function formOf(t: Task): TaskForm {
@@ -29,6 +23,8 @@ function formOf(t: Task): TaskForm {
     categoryId: t.categoryId,
     ownerId: t.ownerId,
     expectedStartDate: t.expectedStartDate ?? "",
+    expectedFinishDate: t.expectedFinishDate ?? "",
+    expectedFinishPicked: false,
     note: t.note ?? "",
     tags: t.tags.map((tag) => tag.name),
     effortMinutes: t.effortMinutes,
@@ -98,13 +94,37 @@ describe("taskSheetVM", () => {
     expect(updateTaskPatch).toHaveBeenCalledWith("t1", { effortMinutes: 960 });
   });
 
-  it("never sends a finish date, because the backend derives it", async () => {
-    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", expectedFinishDate: "2026-10-25" }));
+  it("sends a picked finish date and a cleared one", () => {
+    const t = task({ expectedFinishDate: "2026-10-25" });
+
+    expect(
+      diffTask(t, { ...formOf(t), expectedFinishDate: "2026-10-27", expectedFinishPicked: true }),
+    ).toEqual({ expectedFinishDate: "2026-10-27" });
+    expect(
+      diffTask(t, { ...formOf(t), expectedFinishDate: "", expectedFinishPicked: true }),
+    ).toEqual({ expectedFinishDate: null });
+  });
+
+  it("does not send a finish date the sheet derived itself", () => {
+    const t = task({ expectedFinishDate: "2026-10-25" });
+
+    expect(diffTask(t, { ...formOf(t), expectedFinishDate: "2026-10-27" })).toEqual({});
+  });
+
+  it("patches one actual time and takes the refreshed task", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1" }));
+    vi.mocked(updateTaskPatch).mockResolvedValue(
+      task({ id: "t1", actualStartAt: "2026-10-20T07:00:00Z" }),
+    );
 
     const vm = createTaskSheetVM();
     await vm.open("t1");
+    await vm.patch({ actualStartAt: "2026-10-20T07:00:00Z" });
 
-    expect(diffTask(task({ id: "t1" }), formOf(task({ id: "t1" })))).toEqual({});
+    expect(updateTaskPatch).toHaveBeenCalledWith("t1", {
+      actualStartAt: "2026-10-20T07:00:00Z",
+    });
+    expect(vm.state.task?.actualStartAt).toBe("2026-10-20T07:00:00Z");
   });
 
   it("returns false and reports a failed save", async () => {
@@ -142,25 +162,6 @@ describe("taskSheetVM", () => {
   it("sends an exclusive change on its own", () => {
     const t = task({ exclusive: false });
     expect(diffTask(t, { ...formOf(t), exclusive: true })).toEqual({ exclusive: true });
-  });
-});
-
-describe("finishPreview", () => {
-  it("keeps the stored date until the start or the estimate changes", () => {
-    const t = task({ expectedFinishDate: "2026-10-23", effortMinutes: 480 });
-    expect(finishPreview(t, formOf(t))).toBe("2026-10-23");
-  });
-
-  it("moves with a new estimate", () => {
-    const t = task({ expectedFinishDate: "2026-10-21", effortMinutes: 480 });
-    const form = { ...formOf(t), effortMinutes: 960 };
-    expect(finishPreview(t, form)).toBe(formFinish(form));
-    expect(finishPreview(t, form)).not.toBe("2026-10-21");
-  });
-
-  it("falls back to the derived date when the task has none", () => {
-    const t = task({ expectedFinishDate: null });
-    expect(finishPreview(t, formOf(t))).toBe(formFinish(formOf(t)));
   });
 });
 

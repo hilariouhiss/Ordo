@@ -258,8 +258,8 @@ pub struct StatsOverviewDto {
 }
 /// A task edit. An absent field keeps its value; an explicit `null` clears it.
 /// `title` and `tags` are not nullable, so absent keeps and a value replaces.
-/// No expected finish date: it is derived from the estimate. The actual times are
-/// stamped by the status changes instead.
+/// The expected finish and the three actual values are hand editable; a finish and
+/// an effort move each other, and a finish needs an actual start to measure from.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPatch {
@@ -273,6 +273,14 @@ pub struct TaskPatch {
     pub owner_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "clearable")]
     pub expected_start_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub expected_finish_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub actual_start_at: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub actual_finish_at: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub actual_effort_minutes: Option<Option<i64>>,
     #[serde(default, deserialize_with = "clearable")]
     pub note: Option<Option<String>>,
     #[serde(default)]
