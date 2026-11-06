@@ -80,6 +80,10 @@ export interface Settings {
   weekShowEmptyDays: boolean;
   weekView: WeekView;
   savedTaskViews: SavedTaskView[];
+  /** Minutes a reminder fires before a task's own moment; 0 keeps the built-in times. */
+  remindersLeadMinutes: number;
+  /** Whether the daily 09:00 digest fires. */
+  remindersDigest: boolean;
 }
 
 export interface ProjectMember {

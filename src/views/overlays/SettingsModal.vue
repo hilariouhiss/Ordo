@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
 import { recordShortcut } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion, panelSwapMotion } from "../../lib/motion";
@@ -10,6 +10,7 @@ import type { WeekView } from "../../model/types";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
+import EffortField from "../components/EffortField.vue";
 
 const themeOptions: { value: ThemePref; key: MessageKey }[] = [
   { value: "system", key: "settings.themeSystem" },
@@ -42,6 +43,22 @@ const settings = computed(() => appVM.state.settings);
 const recording = ref<ShortcutTarget | null>(null);
 const pendingShortcut = ref<{ target: ShortcutTarget; combo: string } | null>(null);
 const shortcutWarnings = ref<Partial<Record<ShortcutTarget, string>>>({});
+/** The lead is edited in place, then saved; 0 is the field's empty state. */
+const leadMinutes = ref(0);
+watch(
+  () => settings.value?.remindersLeadMinutes,
+  (minutes) => {
+    leadMinutes.value = minutes ?? 0;
+  },
+  { immediate: true },
+);
+function saveLead(minutes: number): void {
+  const clamped = Math.min(10_080, Math.max(0, Math.round(minutes)));
+  leadMinutes.value = clamped;
+  if (clamped !== settings.value?.remindersLeadMinutes) {
+    void vm.save({ remindersLeadMinutes: clamped });
+  }
+}
 const keyDraft = ref("");
 const hasKey = ref(false);
 const aiStatus = ref<AiStatus>(null);
@@ -417,6 +434,32 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               </div>
               <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
                 {{ t("settings.weekViewHint") }}
+              </p>
+              <div class="mt-4 h-px bg-base-300"></div>
+              <div class="mt-3 flex items-center justify-between text-[12px]">
+                <span>{{ t("settings.reminderLead") }}</span>
+                <EffortField
+                  v-model="leadMinutes"
+                  optional
+                  compact
+                  :label="t('settings.reminderLead')"
+                  @update:model-value="saveLead"
+                />
+              </div>
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.reminderLeadHint") }}
+              </p>
+              <div class="mt-3 flex items-center justify-between text-[12px]">
+                <span>{{ t("settings.digest") }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs toggle-success"
+                  :checked="settings.remindersDigest"
+                  @change="vm.save({ remindersDigest: !settings.remindersDigest })"
+                />
+              </div>
+              <p class="mt-1 px-0.5 text-[10.5px] text-base-content/40">
+                {{ t("settings.digestHint") }}
               </p>
               <div v-for="row in shortcutRows" :key="row.target" class="mt-3">
                 <div class="flex items-center justify-between text-[12px]">

@@ -21,6 +21,8 @@ export const defaultSettings: Settings = {
   weekShowEmptyDays: true,
   weekView: "list",
   savedTaskViews: [],
+  remindersLeadMinutes: 0,
+  remindersDigest: true,
 };
 
 export function task(over: Partial<Task> = {}): Task {

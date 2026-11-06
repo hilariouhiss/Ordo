@@ -386,6 +386,12 @@ export const zh = {
   "settings.weekView": "本周视图",
   "settings.weekViewList": "列表",
   "settings.weekViewGantt": "甘特图",
+  "settings.reminderLead": "提前提醒",
+  "settings.reminderLeadHint":
+    "留空就按现在的时刻（带时刻的任务准时提醒、只有日期的任务在前一天 17:30）；填 30 分钟就都提前半小时。",
+  "settings.digest": "每日汇总",
+  "settings.digestHint":
+    "每天 09:00 汇总今天到期和已逾期的任务，当天没有就不发；点通知打开本周页。",
   "settings.weekViewHint":
     "列表按天堆任务卡片；甘特图一条任务一行、按天横排任务条，拖条形改开始日。",
   "settings.shortcut": "迷你窗口快捷键",
@@ -541,6 +547,7 @@ export const zh = {
   "error.invalid_language": "不支持这个语言。",
   "error.invalid_priority": "优先级只能是高、中、低。",
   "error.invalid_start_date": "预计开始日期格式不对。",
+  "error.invalid_reminder_lead": "提前量最多 7 天。",
   "error.invalid_finish_date": "预计完成日期格式不对。",
   "error.finish_before_start": "完成时间不能早于开始。",
   "error.finish_too_far": "预计完成太远，最多 60 个工作日。",
@@ -954,6 +961,12 @@ export const en: Record<MessageKey, string> = {
   "settings.weekView": "Week view",
   "settings.weekViewList": "List",
   "settings.weekViewGantt": "Gantt",
+  "settings.reminderLead": "Remind earlier",
+  "settings.reminderLeadHint":
+    "Leave empty for the built-in times (timed tasks at their moment, dated tasks the evening before at 17:30); 30 minutes pulls both half an hour earlier.",
+  "settings.digest": "Daily digest",
+  "settings.digestHint":
+    "Every day at 09:00, one summary of what is due today or already late; nothing on a quiet day. Tapping it opens the week page.",
   "settings.weekViewHint":
     "The list stacks cards by day; the gantt gives each task one row and a bar across the days it covers. Drag a bar to change its start day.",
   "settings.weekShowEmptyDays": "Show unplanned weekdays",
@@ -1115,6 +1128,7 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_language": "Unsupported language.",
   "error.invalid_priority": "Priority must be high, normal or low.",
   "error.invalid_start_date": "The expected start date is not valid.",
+  "error.invalid_reminder_lead": "A reminder can go at most a week early.",
   "error.invalid_finish_date": "The expected finish date is not valid.",
   "error.finish_before_start": "The finish can't be before the start.",
   "error.finish_too_far": "That finish is too far out; at most 60 workdays.",
@@ -1190,6 +1204,7 @@ const knownErrors = [
   "empty_response",
   "invalid_language",
   "invalid_priority",
+  "invalid_reminder_lead",
   "invalid_start_date",
   "invalid_finish_date",
   "finish_before_start",
