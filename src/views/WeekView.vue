@@ -447,7 +447,7 @@ function refresh(): void {
         <li
           v-for="task in laterTasks"
           :key="task.id"
-          class="week-later-card relative -ml-[156px] flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-200 ease-out first:ml-0 hover:-translate-y-[34px] hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-12 after:content-['']"
+          class="week-later-card relative -ml-[156px] flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-200 ease-out first:ml-0 hover:-translate-y-[34px] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-9 after:content-['']"
           :class="{ 'opacity-40': poolDraggingId === task.id }"
           role="button"
           tabindex="0"
