@@ -93,19 +93,20 @@ export function boardDropAt(
 }
 
 /**
- * The global anchor for a day-local drop: the first live task of a later day when the
- * drop lands after the day's last card, so a move leaves the task at the bottom of that
- * day instead of jumping past the other days.
+ * The global anchor for a day-local drop: the first task of a later day when the drop
+ * lands after the day's last card, so a move leaves the task at the bottom of that day
+ * instead of jumping past the other days. A multi-day task that started on an earlier
+ * day is ordered before that day's own work, so it cannot serve as the anchor.
  */
 export function anchorFor(
-  days: { date: string; rows: { task: { id: string }; history?: boolean }[] }[],
+  days: { date: string; rows: { task: { id: string }; start: string; history?: boolean }[] }[],
   day: string,
   beforeId: string | null,
 ): string | null {
   if (beforeId) return beforeId;
   const index = days.findIndex((entry) => entry.date === day);
   for (const later of days.slice(index + 1)) {
-    const first = later.rows.find((row) => !row.history);
+    const first = later.rows.find((row) => !row.history && row.start === later.date);
     if (first) return first.task.id;
   }
   return null;

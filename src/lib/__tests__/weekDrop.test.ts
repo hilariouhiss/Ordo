@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { boardDropAt, listDropAt } from "../weekDrop";
+import { anchorFor, boardDropAt, listDropAt } from "../weekDrop";
 
 interface Rect {
   top: number;
@@ -58,6 +58,44 @@ describe("listDropAt", () => {
   it("returns null outside the list", () => {
     expect(listDropAt(list, 250)).toBeNull();
     expect(listDropAt(null, 10)).toBeNull();
+  });
+});
+
+describe("anchorFor", () => {
+  const row = (id: string, start: string, history = false) => ({
+    task: { id },
+    start,
+    history,
+  });
+  const days = [
+    { date: "2026-11-02", rows: [row("a", "2026-11-02")] },
+    {
+      date: "2026-11-03",
+      rows: [row("span", "2026-11-02"), row("b", "2026-11-03")],
+    },
+  ];
+
+  it("skips a span that started earlier and anchors on the first task that starts there", () => {
+    expect(anchorFor(days, "2026-11-02", null)).toBe("b");
+  });
+
+  it("leaves the drop at the end when no later day starts a task", () => {
+    const onlySpans = [days[0], { date: "2026-11-03", rows: [row("span", "2026-11-02")] }];
+
+    expect(anchorFor(onlySpans, "2026-11-02", null)).toBeNull();
+  });
+
+  it("keeps an explicit anchor and ignores finished rows", () => {
+    expect(anchorFor(days, "2026-11-02", "x")).toBe("x");
+
+    const withHistory = [
+      days[0],
+      {
+        date: "2026-11-03",
+        rows: [row("old", "2026-11-03", true), row("b", "2026-11-03")],
+      },
+    ];
+    expect(anchorFor(withHistory, "2026-11-02", null)).toBe("b");
   });
 });
 
