@@ -49,4 +49,13 @@ describe("errorText", () => {
     expect(errorText("ai_http_401")).toBe("The API key was refused.");
     expect(errorText("ai_http_500")).toContain("500");
   });
+
+  it("translates only a code, not a message that merely contains one", () => {
+    expect(errorText("disk is full: empty_title")).toBe("disk is full: empty_title");
+  });
+
+  it("still translates a code that carries detail after a colon", () => {
+    setLanguage("en");
+    expect(errorText("shortcut_rollback_failed: taken")).toBe(t("error.shortcut_rollback_failed"));
+  });
 });

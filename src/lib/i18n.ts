@@ -1242,6 +1242,8 @@ export function errorText(error: unknown): string {
     if (http[1] === "429") return t("error.ai_rate_limited");
     return t("error.ai_http_failed", { status: http[1] });
   }
-  const code = knownErrors.find((candidate) => raw.includes(candidate));
-  return code ? t(`error.${code}` as MessageKey) : raw;
+  // Only the code itself is ours; a longer message that happens to contain one is not
+  // translated. Detail after a colon (shortcut_rollback_failed: taken) still maps.
+  const code = raw.split(":", 1)[0].trim();
+  return (knownErrors as readonly string[]).includes(code) ? t(`error.${code}` as MessageKey) : raw;
 }
