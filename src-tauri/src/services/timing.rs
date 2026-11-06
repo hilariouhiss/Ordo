@@ -75,20 +75,8 @@ pub fn anchor_for(today: NaiveDate, expected_start: Option<&str>) -> NaiveDate {
 }
 
 /// Writes the finish the estimate implies. A later finish records a reschedule, so the
-/// delay ledger keeps every day the work was pushed back.
-pub fn write_finish(
-    conn: &Connection,
-    task_id: &str,
-    finish: NaiveDate,
-    now: &str,
-) -> Result<(), String> {
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    write_finish_in(&tx, task_id, finish, now)?;
-    tx.commit().map_err(|e| e.to_string())
-}
-
-/// The same write on a connection that already holds a transaction, so a caller can
-/// keep its own writes and the delay record together.
+/// delay ledger keeps every day the work was pushed back. The caller owns the
+/// transaction, so its own writes and the delay record land together.
 pub(crate) fn write_finish_in(
     conn: &Connection,
     task_id: &str,
@@ -128,8 +116,8 @@ pub(crate) fn write_finish_in(
 
 /// Rewrites the finish of a live task from its current start and estimate. Recurring
 /// tasks keep the occurrence date the rule gave them, and finished or archived work is
-/// left alone.
-pub fn sync_finish(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
+/// left alone. The caller owns the transaction.
+pub(crate) fn sync_finish_in(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
     let (status, canceled, archived, start, effort, rule): (
         String,
         Option<String>,
@@ -159,7 +147,7 @@ pub fn sync_finish(conn: &Connection, task_id: &str, now: &str) -> Result<(), St
     }
     let today = crate::services::local_today(now)?;
     let anchor = anchor_for(today, start.as_deref());
-    write_finish(conn, task_id, finish_for(anchor, effort), now)
+    write_finish_in(conn, task_id, finish_for(anchor, effort), now)
 }
 
 #[cfg(test)]

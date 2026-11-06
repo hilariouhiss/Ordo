@@ -52,33 +52,28 @@ pub fn insert(
     Ok(())
 }
 
-pub fn list_week_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
-    let sql = format!(
-        "SELECT id FROM tasks
-         WHERE in_week = 1 AND suspended = 0 AND {VISIBLE_TASK_FILTER}
-         ORDER BY sort_order, id"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |r| r.get(0))?;
-    rows.collect()
-}
-
 pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
-    dtos(conn, &list_week_ids(conn)?)
+    list_for(
+        conn,
+        &format!(
+            "SELECT id FROM tasks
+             WHERE in_week = 1 AND suspended = 0 AND {VISIBLE_TASK_FILTER}
+             ORDER BY sort_order, id"
+        ),
+        &[],
+    )
 }
 
 pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
-    let mut stmt = conn.prepare(
+    list_for(
+        conn,
         "SELECT id FROM tasks
          WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
            AND status <> 'done'
          ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
                   expected_finish_date IS NULL, expected_finish_date, created_at",
-    )?;
-    let ids: Vec<String> = stmt
-        .query_map([], |r| r.get(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    dtos(conn, &ids)
+        &[],
+    )
 }
 
 const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expected_start_date,
@@ -137,6 +132,19 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
 /// How many ids one statement may carry. SQLite's own ceiling is 999 on older builds and
 /// 32766 since 3.32; staying well under both keeps a huge ledger from failing outright.
 const LOAD_CHUNK: usize = 400;
+
+/// The tasks an id query selects, in that order: the shared body of every list here.
+pub fn list_for(
+    conn: &Connection,
+    sql: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> rusqlite::Result<Vec<TaskDto>> {
+    let mut stmt = conn.prepare(sql)?;
+    let ids: Vec<String> = stmt
+        .query_map(params, |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    dtos(conn, &ids)
+}
 
 /// Loads the full row and its children for each id, keeping the given order. The child
 /// tables are read in one query each, so a long list costs a handful of statements
@@ -307,7 +315,8 @@ pub fn set_status_only(
 }
 
 /// Writes only the fields the patch names, so untouched columns keep their value.
-pub fn apply_patch(
+/// The caller owns the transaction, so a refused later step rolls these writes back too.
+pub(crate) fn apply_patch_in(
     conn: &Connection,
     id: &str,
     patch: &crate::dto::TaskPatch,
@@ -328,7 +337,6 @@ pub fn apply_patch(
         }
     }
 
-    let tx = conn.unchecked_transaction()?;
     let mut cols: Vec<&'static str> = Vec::new();
     let mut vals: Vec<Value> = Vec::new();
     if let Some(title) = &patch.title {
@@ -355,19 +363,19 @@ pub fn apply_patch(
     }
 
     if let Some(tags) = &patch.tags {
-        tx.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
+        conn.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
         for name in tags {
             let name = name.trim();
             if name.is_empty() {
                 continue;
             }
             let tag = crate::repo::tags::find_or_create(
-                &tx,
+                conn,
                 &uuid::Uuid::new_v4().to_string(),
                 name,
                 now,
             )?;
-            tx.execute(
+            conn.execute(
                 "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?1, ?2)",
                 params![id, tag.id],
             )?;
@@ -376,7 +384,7 @@ pub fn apply_patch(
 
     // A tags-only patch still counts as an edit, so archived lists re-sort on it.
     if cols.is_empty() && patch.tags.is_none() {
-        return tx.commit();
+        return Ok(());
     }
     cols.push("updated_at");
     vals.push(Value::Text(now.to_owned()));
@@ -391,8 +399,8 @@ pub fn apply_patch(
         vals.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
     let id_param: &str = id;
     args.push(&id_param);
-    tx.prepare_cached(&sql)?.execute(args.as_slice())?;
-    tx.commit()
+    conn.prepare_cached(&sql)?.execute(args.as_slice())?;
+    Ok(())
 }
 
 pub fn set_owner(conn: &Connection, id: &str, owner_id: &str, now: &str) -> rusqlite::Result<()> {
@@ -404,15 +412,13 @@ pub fn set_owner(conn: &Connection, id: &str, owner_id: &str, now: &str) -> rusq
 }
 
 pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
-    let mut stmt = conn.prepare(
+    list_for(
+        conn,
         "SELECT id FROM tasks
          WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL AND archived_at IS NULL
          ORDER BY expected_finish_date IS NULL, expected_finish_date, created_at",
-    )?;
-    let ids: Vec<String> = stmt
-        .query_map([project_id], |r| r.get(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    dtos(conn, &ids)
+        &[&project_id],
+    )
 }
 pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(

@@ -66,11 +66,14 @@ pub fn update_patch(
         }
     }
 
+    // One transaction: a refused actual time or a failed write must not leave the other
+    // fields committed, so a save is all or nothing.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     if let Some(finish) = picked_finish {
-        // The ledger records a later day before the row itself changes.
-        crate::services::timing::write_finish(conn, id, finish, now)?;
+        // The ledger records a later day in the same transaction as the row.
+        crate::services::timing::write_finish_in(&tx, id, finish, now)?;
     }
-    crate::repo::tasks::apply_patch(conn, id, &patch, now).map_err(|e| e.to_string())?;
+    crate::repo::tasks::apply_patch_in(&tx, id, &patch, now).map_err(|e| e.to_string())?;
     // A picked finish owns the date; an estimate or start edit derives it otherwise.
     // An explicit clear stays cleared even when the same edit moves the estimate.
     let finish_cleared = matches!(patch.expected_finish_date.as_ref(), Some(None));
@@ -78,21 +81,21 @@ pub fn update_patch(
         && !finish_cleared
         && (patch.effort_minutes.is_some() || patch.expected_start_date.is_some())
     {
-        crate::services::timing::sync_finish(conn, id, now)?;
+        crate::services::timing::sync_finish_in(&tx, id, now)?;
     }
-    sync_actual(conn, id, &patch, now)?;
-    route_owner(conn, id, &patch, now)?;
+    sync_actual_in(&tx, id, &patch, now)?;
+    route_owner(&tx, id, &patch, now)?;
     // Moving a task or changing its owner must not leave an owner outside the project.
     if patch.project_id.is_some() || patch.owner_id.is_some() {
-        let task = crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())?;
+        let task = crate::repo::tasks::dto(&tx, id).map_err(|e| e.to_string())?;
         crate::services::projects::ensure_member(
-            conn,
+            &tx,
             task.project_id.as_deref(),
             task.owner_id.as_deref(),
             now,
         )?;
-        return Ok(task);
     }
+    tx.commit().map_err(|e| e.to_string())?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -124,8 +127,9 @@ fn has_open_steps(conn: &Connection, id: &str) -> Result<bool, String> {
 
 /// Hands the actual times between finish and effort. The actual start is the anchor
 /// both directions measure from, so setting either one without it is refused; clearing
-/// still works, so a task finished before it was started can be tidied up.
-fn sync_actual(
+/// still works, so a task finished before it was started can be tidied up. The caller
+/// owns the transaction, so its field writes and these land together.
+fn sync_actual_in(
     conn: &Connection,
     id: &str,
     patch: &TaskPatch,
@@ -221,24 +225,23 @@ fn sync_actual(
         effort = None;
     }
 
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    tx.execute(
+    conn.execute(
         "UPDATE tasks SET started_at = ?1, actual_finish_at = ?2, actual_effort_minutes = ?3,
                 updated_at = ?4 WHERE id = ?5",
         rusqlite::params![start, finish, effort, now, id],
     )
     .map_err(|e| e.to_string())?;
     if finish.is_some() && status != "done" {
-        crate::repo::tasks::set_status_only(&tx, id, "done", true, now)
+        crate::repo::tasks::set_status_only(conn, id, "done", true, now)
             .map_err(|e| e.to_string())?;
     } else if reopen && status == "done" {
-        crate::repo::tasks::set_status_only(&tx, id, "doing", false, now)
+        crate::repo::tasks::set_status_only(conn, id, "doing", false, now)
             .map_err(|e| e.to_string())?;
     } else if start_changed && start.is_some() && status == "todo" && finish.is_none() {
-        crate::repo::tasks::set_status_only(&tx, id, "doing", false, now)
+        crate::repo::tasks::set_status_only(conn, id, "doing", false, now)
             .map_err(|e| e.to_string())?;
     }
-    tx.commit().map_err(|e| e.to_string())
+    Ok(())
 }
 
 fn parse_stamp(text: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
@@ -1328,5 +1331,66 @@ mod tests {
 
         assert_eq!(t.actual_effort_minutes, Some(120));
         assert_eq!(t.status, "done");
+    }
+
+    #[test]
+    fn a_rejected_actual_finish_keeps_the_other_fields_untouched() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "原标题", NOW, "t1").unwrap();
+        crate::services::steps::add(&c, "t1", "收集", NOW).unwrap();
+
+        let patch = TaskPatch {
+            title: Some("新标题".into()),
+            actual_finish_at: Some(Some("2026-10-20T10:00:00Z".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "steps_open"
+        );
+
+        let after = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(after.title, "原标题", "nothing may be written on a rejected save");
+        assert!(after.actual_finish_at.is_none());
+    }
+
+    #[test]
+    fn a_finish_without_a_start_writes_nothing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "原标题", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            title: Some("新标题".into()),
+            actual_finish_at: Some(Some("2026-10-20T10:00:00Z".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "actual_start_required"
+        );
+
+        let after = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(after.title, "原标题");
+        assert!(after.actual_finish_at.is_none());
+    }
+
+    #[test]
+    fn a_picked_finish_and_a_rejected_actual_time_leave_no_delay_record() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let patch = TaskPatch {
+            expected_finish_date: Some(Some("2026-10-23".into())),
+            actual_finish_at: Some(Some("2026-10-20T10:00:00Z".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "actual_start_required"
+        );
+
+        let after = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_ne!(after.expected_finish_date.as_deref(), Some("2026-10-23"));
+        assert!(after.delays.is_empty());
     }
 }
