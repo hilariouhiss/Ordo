@@ -19,6 +19,7 @@ import WeeklyPass from "./overlays/WeeklyPass.vue";
 
 const {
   state,
+  today,
   week,
   lanes,
   days,
@@ -141,6 +142,15 @@ function onKey(event: KeyboardEvent): void {
   if (event.key === "Escape") drag.cancel();
 }
 
+const DAY_TICK_MS = 60_000;
+let dayTick: ReturnType<typeof setInterval> | undefined;
+
+/** The window can stay open past midnight, so the today mark and the week columns must follow. */
+function checkDay(): void {
+  if (draggingId.value || todayIso() === today.value) return;
+  refresh();
+}
+
 /** The tray window can stay open across midnight, so refresh today and the plan on return. */
 function onWindowFocus(): void {
   if (draggingId.value) return;
@@ -155,10 +165,12 @@ onMounted(() => {
   void load();
   // Seeing this page is what clears the tray's unread count; other pages do not.
   void markSeen();
+  dayTick = window.setInterval(checkDay, DAY_TICK_MS);
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
   window.removeEventListener("focus", onWindowFocus);
+  window.clearInterval(dayTick);
 });
 
 watch(

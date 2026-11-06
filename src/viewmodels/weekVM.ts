@@ -1,4 +1,4 @@
-import { computed, reactive } from "vue";
+import { computed, reactive, ref } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
 import { mondayOf, todayIso, weekWorkdays } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
@@ -36,10 +36,12 @@ export function createWeekVM() {
     stats: { added: 0, done: 0, delayed: 0 } as WeekStats,
   });
 
-  const week = computed(() => weekWorkdays(todayIso()));
+  /** The page's own idea of today; load() refreshes it so a window left open past midnight follows. */
+  const today = ref(todayIso());
+  const week = computed(() => weekWorkdays(today.value));
   const planTasks = computed(() => state.tasks.map(toPlanTask));
   // The plan lays out the whole week, so a task's own start before today still counts.
-  const plan = computed(() => planSchedule(planTasks.value, todayIso(), week.value[0]));
+  const plan = computed(() => planSchedule(planTasks.value, today.value, week.value[0]));
   const loads = computed(() => planLoads(planTasks.value, plan.value));
   const overloadDates = computed(() =>
     [...loads.value.entries()]
@@ -61,30 +63,30 @@ export function createWeekVM() {
    * start falls past it; finished tasks keep their day so the week reads as it happened.
    */
   const days = computed(() => {
-    const today = todayIso();
     const dates = week.value;
-    const planned = groupPlannedDays(state.tasks, plan.value, today, dates[dates.length - 1]);
-    const withDone = addDoneRows(planned, state.done, dates, today);
+    const planned = groupPlannedDays(state.tasks, plan.value, today.value, dates[dates.length - 1]);
+    const withDone = addDoneRows(planned, state.done, dates, today.value);
     if (!appVM.state.settings?.weekShowEmptyDays) return withDone;
-    return fillPlannedDays(withDone, dates, plan.value, today);
+    return fillPlannedDays(withDone, dates, plan.value, today.value);
   });
   /** The gantt's rows: one lane per task, finished ones kept in their planned order. */
   const lanes = computed(() => groupLanes(days.value, week.value));
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {
     const last = appVM.state.settings?.lastPassWeek ?? "";
-    return last !== mondayOf(todayIso()) && state.tasks.length > 0;
+    return last !== mondayOf(today.value) && state.tasks.length > 0;
   });
 
   async function load(): Promise<void> {
     state.loading = true;
     try {
-      const today = todayIso();
+      today.value = todayIso();
+      const todayNow = today.value;
       const [tasks, suspended, stats, done] = await Promise.all([
         listWeek(),
         listSuspended(),
-        weekStats(today),
-        listWeekDone(today),
+        weekStats(todayNow),
+        listWeekDone(todayNow),
       ]);
       state.tasks = tasks;
       state.suspended = suspended;
@@ -160,6 +162,7 @@ export function createWeekVM() {
 
   return {
     state,
+    today,
     week,
     plan,
     days,

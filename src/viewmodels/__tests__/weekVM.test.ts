@@ -483,6 +483,55 @@ describe("weekVM plan across a week boundary", () => {
   });
 });
 
+describe("weekVM across midnight", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 20, 9, 0, 0));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    appVM.state.settings = null;
+  });
+
+  async function loadedWith(tasks: Task[]) {
+    vi.mocked(listWeek).mockResolvedValue(tasks);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+    return vm;
+  }
+
+  it("moves the today mark when the window stays open past midnight", async () => {
+    const vm = await loadedWith([task({ id: "a", expectedStartDate: "2026-10-20" })]);
+    expect(vm.today.value).toBe("2026-10-20");
+    expect(vm.days.value[0]).toMatchObject({ date: "2026-10-20", isToday: true, isPast: false });
+
+    vi.setSystemTime(new Date(2026, 9, 21, 0, 5, 0));
+    await vm.load();
+
+    expect(vm.today.value).toBe("2026-10-21");
+    expect(vm.days.value[0]).toMatchObject({ date: "2026-10-20", isToday: false, isPast: true });
+  });
+
+  it("moves the week to the next Monday when the window stays open over the weekend", async () => {
+    const vm = await loadedWith([task({ id: "a" })]);
+    expect(vm.week.value[0]).toBe("2026-10-19");
+
+    vi.setSystemTime(new Date(2026, 9, 24, 0, 5, 0));
+    await vm.load();
+
+    expect(vm.week.value).toEqual([
+      "2026-10-26",
+      "2026-10-27",
+      "2026-10-28",
+      "2026-10-29",
+      "2026-10-30",
+    ]);
+  });
+});
+
 describe("weekVM pass entry", () => {
   afterEach(() => {
     appVM.state.settings = null;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Pause, Play } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
-import { shortDate, shortDateTime, todayIso, weekdayLabel } from "../../lib/dates";
+import { shortDate, shortDateTime, weekdayLabel } from "../../lib/dates";
 import { askNotice, askSuspend } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
@@ -20,7 +20,7 @@ const emit = defineEmits<{ changed: [] }>();
 
 /** Mark a column as today only when today really sits in the shown week. */
 const today = computed(() => {
-  const now = todayIso();
+  const now = weekVM.today.value;
   return props.dates.includes(now) ? now : "";
 });
 const loads = weekVM.loads;
