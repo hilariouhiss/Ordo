@@ -257,7 +257,10 @@ function openSubtask(child: Task): void {
 
 function openParent(): void {
   const id = task.value?.parentId;
-  if (id) void taskSheetVM.open(id);
+  if (!id) return;
+  // The way back keeps this draft; only the parent's derived fields are refreshed.
+  if (taskSheetVM.state.stack.at(-1)?.task.id === id) void taskSheetVM.back();
+  else void taskSheetVM.drill(id);
 }
 
 function goBack(): void {
@@ -638,6 +641,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
         <div class="mt-4 flex justify-end gap-2">
           <button
+            v-if="!task.parentId"
             class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
             @click="archive"
           >

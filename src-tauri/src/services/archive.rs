@@ -30,6 +30,7 @@ pub fn archive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
 fn last_live_child(conn: &Connection, id: &str) -> Result<Option<String>, String> {
     conn.query_row(
         "SELECT id FROM tasks WHERE parent_id = ?1 AND deleted_at IS NULL
+           AND canceled_at IS NULL AND archived_at IS NULL
          ORDER BY sort_order DESC LIMIT 1",
         [id],
         |r| r.get(0),
@@ -54,9 +55,9 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
     }
     let was_done = tasks::stored_status(&tx, id).map_err(|e| e.to_string())? == "done";
     tasks::restore(&tx, id, now).map_err(|e| e.to_string())?;
-    // The work comes back with the umbrella.
+    // The work comes back with the umbrella; a child canceled on purpose stays canceled.
     tx.execute(
-        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, updated_at = ?1,
+        "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
                 in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
          WHERE parent_id = ?2 AND deleted_at IS NULL",
         params![now, id],
@@ -477,6 +478,33 @@ mod tests {
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert!(ids.contains(&"t1".to_string()));
         assert!(ids.contains(&"t2".to_string()));
+    }
+
+    #[test]
+    fn restoring_an_umbrella_leaves_a_canceled_child_canceled() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let first = parent.children[0].id.clone();
+        let parent = crate::services::subtasks::add(&c, "t1", "汇编", NOW).unwrap();
+        let canceled = parent.children[1].id.clone();
+        week::resolve(&c, &canceled, week::PassAction::Cancel, None, None, NOW).unwrap();
+
+        archive::archive_task(&c, "t1", NOW).unwrap();
+        archive::restore_task(&c, "t1", NOW).unwrap();
+
+        let still: Option<String> = c
+            .query_row("SELECT canceled_at FROM tasks WHERE id = ?1", [&canceled], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(still.is_some(), "restoring the umbrella must not undo a cancel");
+        let first_canceled: Option<String> = c
+            .query_row("SELECT canceled_at FROM tasks WHERE id = ?1", [&first], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(first_canceled.is_none());
     }
 
     #[test]

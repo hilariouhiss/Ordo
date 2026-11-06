@@ -53,6 +53,20 @@ describe("taskSheetVM", () => {
     expect(vm.state.task?.id).toBe("t2");
   });
 
+  it("drops the previous draft when the next open fails", async () => {
+    vi.mocked(getTask)
+      .mockResolvedValueOnce(task({ id: "t1", title: "旧的" }))
+      .mockRejectedValueOnce("task_not_found");
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    await vm.open("gone");
+
+    expect(vm.state.task).toBeNull();
+    expect(vm.state.form).toBeNull();
+    expect(vm.state.error).toBe("task_not_found");
+  });
+
   it("keeps the parent draft across a subtask and refreshes its derived fields", async () => {
     const parent = task({
       id: "t1",

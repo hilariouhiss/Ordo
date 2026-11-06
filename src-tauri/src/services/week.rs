@@ -159,6 +159,8 @@ pub fn resolve(
                 params![now, task_id],
             )
             .map_err(|e| e.to_string())?;
+            // A canceled subtask stops being work, so the umbrella totals what is left.
+            crate::services::subtasks::sync_parent(conn, task_id, now)?;
         }
     }
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
@@ -200,7 +202,7 @@ pub fn suspend(
     tx.execute(
         "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
                 suspend_reason = ?2, suspended_at = ?3, updated_at = ?4
-         WHERE parent_id = ?5 AND deleted_at IS NULL",
+         WHERE parent_id = ?5 AND deleted_at IS NULL AND status <> 'done'",
         params![
             until,
             reason,
@@ -236,8 +238,9 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
         done: count(
             "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done'
              AND actual_finish_at IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM tasks c
-                             WHERE c.parent_id = tasks.id AND c.deleted_at IS NULL)
+             AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = tasks.id
+                             AND c.deleted_at IS NULL AND c.archived_at IS NULL
+                             AND c.canceled_at IS NULL)
              AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
         delayed: count(
@@ -309,7 +312,8 @@ fn unpark(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     conn.execute(
         &format!(
-            "UPDATE tasks SET {}, updated_at = ?1 WHERE parent_id = ?2",
+            "UPDATE tasks SET {}, updated_at = ?1
+             WHERE parent_id = ?2 AND status <> 'done'",
             tasks::UNPARK
         ),
         params![now, task_id],
@@ -778,6 +782,37 @@ mod tests {
     }
 
     #[test]
+    fn canceling_a_subtask_updates_its_umbrella() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let first = parent.children[0].id.clone();
+        let parent = crate::services::subtasks::add(&c, "t1", "汇编", NOW).unwrap();
+        let second = parent.children[1].id.clone();
+        crate::services::tasks::set_status(&c, &first, "done", NOW).unwrap();
+
+        week::resolve(&c, &second, PassAction::Cancel, None, None, NOW).unwrap();
+
+        let umbrella = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(umbrella.status, "done");
+        assert_eq!(umbrella.effort_minutes, 480);
+        assert_eq!(umbrella.children.len(), 1);
+    }
+
+    #[test]
+    fn canceling_the_last_subtask_returns_the_umbrella_to_the_week() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+
+        week::resolve(&c, &child, PassAction::Cancel, None, None, NOW).unwrap();
+
+        let week_ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(week_ids, vec!["t1".to_string()]);
+    }
+
+    #[test]
     fn parking_an_umbrella_parks_its_children() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交付", NOW, "t1").unwrap();
@@ -801,6 +836,23 @@ mod tests {
             .map(|task| task.id)
             .collect();
         assert_eq!(back, vec![child]);
+    }
+
+    #[test]
+    fn resuming_an_umbrella_does_not_bring_finished_work_back() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let done_child = parent.children[0].id.clone();
+        let parent = crate::services::subtasks::add(&c, "t1", "汇编", NOW).unwrap();
+        let open_child = parent.children[1].id.clone();
+        crate::services::tasks::set_status(&c, &done_child, "done", NOW).unwrap();
+
+        week::suspend(&c, "t1", None, None, NOW).unwrap();
+        week::resume(&c, "t1", NOW).unwrap();
+
+        let week_ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(week_ids, vec![open_child]);
     }
 
     #[test]

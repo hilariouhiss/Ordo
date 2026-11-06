@@ -528,7 +528,6 @@ struct StepRow {
     archived_at: Option<String>,
     canceled_at: Option<String>,
     deleted_at: Option<String>,
-    rule_id: Option<String>,
     created_at: String,
 }
 
@@ -558,7 +557,7 @@ fn migrate_steps_to_subtasks(tx: &Connection) -> rusqlite::Result<()> {
                     t.expected_finish_date, {actual_finish}, t.project_id, t.category_id,
                     t.owner_id, {priority}, {exclusive}, t.in_week, {suspended},
                     t.suspended_until, {suspended_at}, {suspend_reason}, t.archived_at,
-                    t.canceled_at, t.deleted_at, t.rule_id, s.created_at
+                    t.canceled_at, t.deleted_at, s.created_at
              FROM steps s JOIN tasks t ON t.id = s.task_id
              WHERE s.deleted_at IS NULL
              ORDER BY s.task_id, s.sort_order, s.id"
@@ -589,8 +588,7 @@ fn migrate_steps_to_subtasks(tx: &Connection) -> rusqlite::Result<()> {
                 archived_at: r.get(21)?,
                 canceled_at: r.get(22)?,
                 deleted_at: r.get(23)?,
-                rule_id: r.get(24)?,
-                created_at: r.get(25)?,
+                created_at: r.get(24)?,
             })
         })?;
         mapped.collect::<rusqlite::Result<Vec<_>>>()?
@@ -644,9 +642,9 @@ fn insert_step_children(
                                 actual_effort_minutes, status, in_week, suspended,
                                 suspended_until, suspended_at, suspend_reason, archived_at,
                                 canceled_at, created_at, updated_at, deleted_at, sort_order,
-                                effort_minutes, priority, time_exclusive, rule_id)
+                                effort_minutes, priority, time_exclusive)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                    ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
+                    ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25
              WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE id = ?1)",
             rusqlite::params![
                 row.id,
@@ -674,7 +672,6 @@ fn insert_step_children(
                 share,
                 row.priority,
                 row.time_exclusive,
-                row.rule_id,
             ],
         )?;
         *next_sort += 1;
@@ -1763,6 +1760,32 @@ mod tests {
             .query_row("SELECT archived_at FROM tasks WHERE id = 's1'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(archived.as_deref(), Some("2026-10-21T08:00:00Z"));
+    }
+
+    #[test]
+    fn a_rule_occurrence_with_steps_migrates() {
+        let c = v19_ledger(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, effort_minutes,
+                                     created_at, updated_at)
+             VALUES ('r1', '周会', '[1]', '09:00', 480,
+                     '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             INSERT INTO tasks (id, title, expected_finish_date, expected_finish_time,
+                                effort_minutes, rule_id, created_at, updated_at)
+             VALUES ('p', '周会', '2026-10-20', '17:00', 480, 'r1',
+                     '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             INSERT INTO steps (id, task_id, title, sort_order, done, created_at, updated_at)
+             VALUES ('s1', 'p', '开会', 0, 0, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        );
+
+        migrate(&c).unwrap();
+
+        // A child is not an occurrence: copying rule_id would collide with the unique
+        // rule-and-day index and hide the occurrence from the rule tick.
+        let child_rule: Option<String> = c
+            .query_row("SELECT rule_id FROM tasks WHERE id = 's1'", [], |r| r.get(0))
+            .unwrap();
+        assert!(child_rule.is_none());
+        assert_eq!(children(&c, "p").len(), 1);
     }
 
     #[test]

@@ -9,8 +9,8 @@ pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
     "canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL ",
     "AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p ",
     "WHERE p.id = tasks.project_id AND p.archived_at IS NULL)) ",
-    "AND NOT EXISTS (SELECT 1 FROM tasks c ",
-    "WHERE c.parent_id = tasks.id AND c.deleted_at IS NULL)"
+    "AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = tasks.id ",
+    "AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.canceled_at IS NULL)"
 );
 
 /// Bringing a parked task back always means the same five columns. Kept in one place so a
@@ -218,6 +218,7 @@ fn attach_children(
     let child_ids: Vec<String> = {
         let mut stmt = conn.prepare(&format!(
             "SELECT id FROM tasks WHERE parent_id IN ({placeholders}) AND deleted_at IS NULL
+               AND archived_at IS NULL AND canceled_at IS NULL
              ORDER BY sort_order, id"
         ))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(ids), |row| row.get(0))?;
@@ -516,11 +517,13 @@ fn list_where(
     conn: &Connection,
     condition: &str,
     query: Option<&str>,
+    include_children: bool,
 ) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
+    let top_level = if include_children { "" } else { "parent_id IS NULL AND " };
     let pattern = query.map(crate::repo::like_pattern);
     let sql = format!(
         "SELECT id, title, archived_at, canceled_at FROM tasks
-         WHERE deleted_at IS NULL AND parent_id IS NULL AND {} AND {LIVE_PROJECT}
+         WHERE deleted_at IS NULL AND {top_level}{} AND {LIVE_PROJECT}
            AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC
          LIMIT {ARCHIVE_LIMIT}",
@@ -539,17 +542,25 @@ fn list_where(
 }
 
 pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
-    list_where(conn, "archived_at IS NOT NULL AND canceled_at IS NULL", query)
+    list_where(
+        conn,
+        "archived_at IS NOT NULL AND canceled_at IS NULL",
+        query,
+        false,
+    )
 }
 
+/// Canceled work keeps its subtasks: a subtask canceled in the weekly pass is restored from
+/// here, and the umbrella it belongs to is not listed beside it (only leaves are canceled).
 pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
-    list_where(conn, "canceled_at IS NOT NULL", query)
+    list_where(conn, "canceled_at IS NOT NULL", query, true)
 }
 pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     list_where(
         conn,
         "status = 'done' AND canceled_at IS NULL AND archived_at IS NULL",
         query,
+        false,
     )
 }
 
@@ -591,6 +602,19 @@ mod tests {
         assert!(tasks[0].children.is_empty() && tasks[0].tags.is_empty());
         assert!(tasks[1].children.is_empty() && tasks[1].delays.is_empty());
         assert!(tasks[2].tags.is_empty() && tasks[2].delays.is_empty());
+    }
+
+    #[test]
+    fn an_archived_child_leaves_the_children_list() {
+        let c = db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        archive(&c, &child, NOW).unwrap();
+
+        let parent = dto(&c, "t1").unwrap();
+
+        assert!(parent.children.is_empty(), "only live children belong to a task");
     }
 
     #[test]

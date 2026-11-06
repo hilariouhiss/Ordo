@@ -13,7 +13,7 @@ pub(crate) fn split_shares(parent_effort: i64, shares: &[Option<i64>]) -> Vec<i6
     let remaining = (parent_effort - manual_total).max(0);
     let base = if auto_count > 0 { remaining / auto_count } else { 0 };
     let mut extra = if auto_count > 0 { remaining % auto_count } else { 0 };
-    shares
+    let mut shares: Vec<i64> = shares
         .iter()
         .map(|share| match share {
             Some(minutes) => *minutes,
@@ -22,7 +22,15 @@ pub(crate) fn split_shares(parent_effort: i64, shares: &[Option<i64>]) -> Vec<i6
                 minutes.max(1)
             }
         })
-        .collect()
+        .collect();
+    // Hand shares alone cannot spend the whole estimate; the first child carries the rest,
+    // so a migrated parent keeps the total it had.
+    if auto_count == 0 {
+        if let Some(first) = shares.first_mut() {
+            *first += remaining;
+        }
+    }
+    shares
 }
 
 /// The parent fields a new subtask inherits, so it starts out as the same kind of work.
@@ -73,8 +81,11 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
 
 /// Adds a child task under a top-level one and refreshes the parent it now totals.
 pub fn add(conn: &Connection, parent_id: &str, title: &str, now: &str) -> Result<TaskDto, String> {
-    insert_child(conn, parent_id, title, DEFAULT_EFFORT, now)?;
-    refresh(conn, parent_id, now)?;
+    // One transaction: the child and the total it changes land together.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    insert_child(&tx, parent_id, title, DEFAULT_EFFORT, now)?;
+    refresh(&tx, parent_id, now)?;
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, parent_id).map_err(|e| e.to_string())
 }
 
@@ -143,12 +154,14 @@ pub fn remove(conn: &Connection, child_id: &str, now: &str) -> Result<TaskDto, S
         .map_err(|e| e.to_string())?
         .flatten()
         .ok_or_else(|| "task_not_found".to_string())?;
-    conn.execute(
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
         "UPDATE tasks SET deleted_at = ?1, in_week = 0, updated_at = ?1 WHERE id = ?2",
         params![now, child_id],
     )
     .map_err(|e| e.to_string())?;
-    refresh(conn, &parent, now)?;
+    refresh(&tx, &parent, now)?;
+    tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, &parent).map_err(|e| e.to_string())
 }
 
@@ -227,10 +240,12 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
             },
         )
         .map_err(|e| e.to_string())?;
-    let stored: String = conn
-        .query_row("SELECT status FROM tasks WHERE id = ?1", [parent_id], |r| {
-            r.get(0)
-        })
+    let (stored, rule_owned): (String, bool) = conn
+        .query_row(
+            "SELECT status, rule_id IS NOT NULL FROM tasks WHERE id = ?1",
+            [parent_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .map_err(|e| e.to_string())?;
     let refs: Vec<&str> = statuses.iter().map(String::as_str).collect();
     let status = crate::services::status::derive(&stored, &refs);
@@ -240,7 +255,7 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
     conn.execute(
         "UPDATE tasks SET effort_minutes = ?1,
                 expected_start_date = ?2,
-                expected_finish_date = ?3,
+                expected_finish_date = CASE WHEN ?11 THEN expected_finish_date ELSE ?3 END,
                 started_at = COALESCE(?4, started_at),
                 status = ?5,
                 in_week = CASE WHEN ?6 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
@@ -262,7 +277,8 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
             finished,
             actual,
             now,
-            parent_id
+            parent_id,
+            rule_owned
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -350,6 +366,44 @@ mod tests {
         // One child finished is a task in progress, not a finished umbrella.
         assert_eq!(parent.status, "doing");
         assert!(parent.in_week);
+    }
+
+    #[test]
+    fn a_rule_occurrence_keeps_its_own_day() {
+        let c = db::open_in_memory().unwrap();
+        // The rule made this occurrence; its day belongs to the rule, not to the children.
+        c.execute_batch(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, effort_minutes,
+                                     created_at, updated_at)
+             VALUES ('r1', '周会', '[1]', '09:00', 480,
+                     '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             INSERT INTO tasks (id, title, expected_finish_date, expected_finish_time,
+                                effort_minutes, rule_id, created_at, updated_at)
+             VALUES ('p', '周会', '2026-10-20', '17:00', 480, 'r1',
+                     '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        )
+        .unwrap();
+        let parent = add(&c, "p", "准备材料", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+
+        tasks::update_patch(
+            &c,
+            &child,
+            &TaskPatch {
+                expected_finish_date: Some(Some("2026-10-23".to_string())),
+                ..Default::default()
+            },
+            LATER,
+        )
+        .unwrap();
+
+        let parent = crate::repo::tasks::dto(&c, "p").unwrap();
+        assert_eq!(parent.expected_finish_date.as_deref(), Some("2026-10-20"));
+        assert_eq!(
+            parent.children[0].expected_finish_date.as_deref(),
+            Some("2026-10-23"),
+            "the child still owns its own day"
+        );
     }
 
     #[test]
@@ -480,5 +534,7 @@ mod tests {
         assert_eq!(split_shares(480, &[None, None]), vec![240, 240]);
         assert_eq!(split_shares(100, &[None, None, None]), vec![34, 33, 33]);
         assert_eq!(split_shares(480, &[Some(90), None, None]), vec![90, 195, 195]);
+        // Hand shares alone cannot spend the whole estimate; the first child carries it.
+        assert_eq!(split_shares(480, &[Some(90), Some(90)]), vec![390, 90]);
     }
 }

@@ -18,8 +18,8 @@ const COMPLETED_FILTER: &str = concat!(
     "t.deleted_at IS NULL AND t.canceled_at IS NULL ",
     "AND t.status = 'done' AND t.actual_finish_at IS NOT NULL ",
     // A finished umbrella only adds its children up; counting it would count the work twice.
-    "AND NOT EXISTS (SELECT 1 FROM tasks c ",
-    "WHERE c.parent_id = t.id AND c.deleted_at IS NULL)"
+    "AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = t.id ",
+    "AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.canceled_at IS NULL)"
 );
 
 struct RangeCounts {
@@ -83,20 +83,19 @@ fn delayed_count(conn: &Connection, from: &str, to: &str) -> Result<i64, String>
 /// Completions and additions per local day, skipping the days neither happened.
 fn daily(conn: &Connection, from: &str, to: &str) -> Result<Vec<DayStatsDto>, String> {
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT day, SUM(completed), SUM(created) FROM (
                 SELECT date(t.actual_finish_at, 'localtime') AS day, 1 AS completed, 0 AS created
                 FROM tasks t
-                WHERE t.deleted_at IS NULL AND t.canceled_at IS NULL AND t.status = 'done'
-                  AND t.actual_finish_at IS NOT NULL
+                WHERE {COMPLETED_FILTER}
                   AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2
                 UNION ALL
                 SELECT date(created_at, 'localtime'), 0, 1
                 FROM tasks
                 WHERE deleted_at IS NULL
                   AND date(created_at, 'localtime') BETWEEN ?1 AND ?2
-             ) GROUP BY day ORDER BY day",
-        )
+             ) GROUP BY day ORDER BY day"
+        ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([from, to], |r| {
@@ -396,6 +395,9 @@ mod tests {
 
         assert_eq!(s.completed, 1, "the umbrella is not a second completion");
         assert_eq!(s.completed_minutes, 480);
+        // The daily bars must add up to the same number the header shows.
+        let per_day: i64 = s.daily.iter().map(|day| day.completed).sum();
+        assert_eq!(per_day, s.completed);
     }
 
     #[test]

@@ -204,7 +204,14 @@ export function createTaskSheetVM() {
         state.note = "";
       }
     } catch (e) {
-      if (state.openId === id) state.error = String(e);
+      if (state.openId === id) {
+        // Never keep the previous task's draft under a failed open: a save would post it
+        // against the id that failed to load.
+        state.error = String(e);
+        state.task = null;
+        state.form = null;
+        state.note = "";
+      }
     } finally {
       if (state.openId === id) state.loading = false;
     }
