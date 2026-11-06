@@ -59,6 +59,10 @@ pub struct SettingsDto {
     pub week_view: String,
     /// Named task filters saved on the task page; empty when unset.
     pub saved_task_views: Vec<SavedTaskViewDto>,
+    /// Minutes a reminder fires before a task's own moment; 0 keeps the built-in times.
+    pub reminders_lead_minutes: i64,
+    /// Whether the daily 09:00 digest fires.
+    pub reminders_digest: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,6 +425,8 @@ pub struct SettingsPatch {
     pub week_show_empty_days: Option<bool>,
     pub week_view: Option<String>,
     pub saved_task_views: Option<Vec<SavedTaskViewDto>>,
+    pub reminders_lead_minutes: Option<i64>,
+    pub reminders_digest: Option<bool>,
 }
 
 /// A task-page filter saved under a name. The filter itself is a plain value

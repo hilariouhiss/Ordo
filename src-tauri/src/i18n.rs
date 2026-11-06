@@ -92,6 +92,63 @@ pub fn reminder_body(lang: Lang) -> &'static str {
     }
 }
 
+/// The daily digest: how much is due in the morning, and what it is.
+pub fn digest_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Zh => "今日汇总",
+        Lang::En => "Today at a glance",
+    }
+}
+
+/// `titles` already holds the first couple of names; `folded` is how many more are left.
+pub fn digest_body(
+    lang: Lang,
+    due: usize,
+    overdue: usize,
+    titles: &[String],
+    folded: usize,
+) -> String {
+    let headline = match (lang, due, overdue) {
+        (Lang::Zh, 0, _) => format!("{overdue} 项已逾期"),
+        (Lang::Zh, _, 0) => format!("今天 {due} 项到期"),
+        (Lang::Zh, _, _) => format!("今天 {due} 项到期 · {overdue} 项逾期"),
+        (Lang::En, 0, _) => format!("{overdue} overdue"),
+        (Lang::En, _, 0) => format!("{due} due today"),
+        (Lang::En, _, _) => format!("{due} due today · {overdue} overdue"),
+    };
+    if titles.is_empty() {
+        return headline;
+    }
+    let list = titles.join(match lang {
+        Lang::Zh => "、",
+        Lang::En => ", ",
+    });
+    let more = match (lang, folded) {
+        (_, 0) => String::new(),
+        (Lang::Zh, count) => format!(" 等 {count} 项"),
+        (Lang::En, count) => format!(" and {count} more"),
+    };
+    match lang {
+        Lang::Zh => format!("{headline}：{list}{more}"),
+        Lang::En => format!("{headline}: {list}{more}"),
+    }
+}
+
+/// The two buttons on a reminder toast.
+pub fn snooze_hour(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Zh => "1 小时后",
+        Lang::En => "In 1 hour",
+    }
+}
+
+pub fn snooze_tomorrow(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Zh => "明天 09:00",
+        Lang::En => "Tomorrow 9:00",
+    }
+}
+
 pub fn more_reminders(lang: Lang, count: usize) -> String {
     match lang {
         Lang::Zh => format!("还有 {count} 条提醒"),
@@ -219,6 +276,19 @@ mod tests {
             reminder_headline(Lang::En, "suspend_start", false, "Kickoff"),
             "Time to start: Kickoff"
         );
+        assert_eq!(
+            digest_body(Lang::Zh, 3, 1, &["交底".into(), "周会".into()], 1),
+            "今天 3 项到期 · 1 项逾期：交底、周会 等 1 项"
+        );
+        assert_eq!(
+            digest_body(Lang::En, 3, 0, &["Kickoff".into()], 0),
+            "3 due today: Kickoff"
+        );
+        assert_eq!(digest_body(Lang::Zh, 0, 2, &[], 0), "2 项已逾期");
+        assert_eq!(digest_body(Lang::En, 0, 2, &[], 0), "2 overdue");
+        assert_eq!(digest_title(Lang::Zh), "今日汇总");
+        assert!(!snooze_hour(Lang::En).is_empty());
+        assert!(!snooze_tomorrow(Lang::Zh).is_empty());
         assert_eq!(more_reminders(Lang::Zh, 2), "还有 2 条提醒");
         assert_eq!(more_reminders(Lang::En, 2), "2 more reminders");
         assert_eq!(tray_tooltip(Lang::En, 2), "Ordo · 2 unread");

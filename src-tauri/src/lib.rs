@@ -492,16 +492,39 @@ pub fn run() {
       let _ = app
           .notification()
           .on_action(move |action| {
+              let state = notification_handle.state::<crate::state::AppState>();
+              let target = action
+                  .notification()
+                  .map(|n| n.id())
+                  .and_then(|id| state.reminder_targets.target_for(id));
               if action.action_id() == "tap" {
-                  let state = notification_handle.state::<crate::state::AppState>();
-                  let task_id = action
-                      .notification()
-                      .map(|n| n.id())
-                      .and_then(|id| state.reminder_targets.task_for(id));
-                  if let Some(task_id) = task_id {
-                      let _ = notification_handle.emit_to("main", "reminder:open", task_id);
+                  match target {
+                      Some(crate::reminders::ReminderTarget::Task(task_id)) => {
+                          let _ = notification_handle.emit_to("main", "reminder:open", task_id);
+                      }
+                      Some(crate::reminders::ReminderTarget::Week) => {
+                          let _ = notification_handle.emit_to("main", "nav:week", ());
+                      }
+                      None => {}
                   }
                   show_main(&notification_handle);
+                  return;
+              }
+              // A snooze button: remember when the task should be reminded again.
+              let Some(until) =
+                  crate::reminders::snoozed_until(action.action_id(), chrono::Local::now())
+              else {
+                  return;
+              };
+              let Some(crate::reminders::ReminderTarget::Task(task_id)) = target else {
+                  return;
+              };
+              if let Ok(conn) = state.db.lock() {
+                  let _ = crate::repo::snoozes::set(
+                      &conn,
+                      &task_id,
+                      &until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                  );
               }
           });
 

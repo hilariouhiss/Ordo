@@ -2,6 +2,9 @@ use crate::dto::{SavedTaskViewDto, SettingsDto, TaskFilterDto};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
+/// A reminder may fire up to a week early; anything past that is a typo.
+pub const LEAD_MAX_MINUTES: i64 = 10_080;
+
 pub fn get_all(conn: &Connection) -> rusqlite::Result<HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -132,6 +135,25 @@ pub fn valid_ai_base_url(value: &str) -> bool {
     }
 }
 
+/// How long before a task's own moment reminders fire; 0 keeps the built-in times.
+pub fn reminder_lead_minutes(conn: &Connection) -> i64 {
+    get(conn, "reminders.lead_minutes")
+        .ok()
+        .flatten()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
+        .clamp(0, LEAD_MAX_MINUTES)
+}
+
+/// The daily 09:00 digest is on unless the user turned it off.
+pub fn reminders_digest(conn: &Connection) -> bool {
+    get(conn, "reminders.digest")
+        .ok()
+        .flatten()
+        .map(|value| value != "false")
+        .unwrap_or(true)
+}
+
 /// The main window starts as the week widget when this is on.
 pub fn desk_enabled(conn: &Connection) -> bool {
     get(conn, "desk.enabled")
@@ -207,6 +229,9 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .cloned()
             .unwrap_or_else(|| "list".into()),
         saved_task_views: saved_views(conn),
+        reminders_lead_minutes: num(&map, "reminders.lead_minutes", 0)
+            .clamp(0, LEAD_MAX_MINUTES),
+        reminders_digest: flag(&map, "reminders.digest", true),
     })
 }
 

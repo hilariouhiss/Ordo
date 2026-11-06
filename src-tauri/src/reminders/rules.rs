@@ -7,13 +7,30 @@ pub struct Candidate {
     pub kind: &'static str,
     pub due_key: String,
     pub scheduled_for: DateTime<Local>,
+    /// Snoozes are not written to `notifications`: the first reminder already counted.
+    pub record: bool,
+}
+
+/// The daily digest: what is due today, what is late, and the first few names.
+pub struct Digest {
+    pub due: usize,
+    pub overdue: usize,
+    pub titles: Vec<String>,
+    pub folded: usize,
 }
 
 const CATCH_UP_DAYS: i64 = 14;
+/// The digest fires once a day at this local time.
+const DIGEST_HOUR: u32 = 9;
+/// Names the digest body spells out before folding the rest into a count.
+const DIGEST_TITLES: usize = 2;
 
 pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candidate>, String> {
     let mut out = Vec::new();
     let today = now.date_naive();
+    let lead = crate::repo::settings::reminder_lead_minutes(conn);
+    // A pending snooze owns the task's next reminder; other kinds would double up.
+    let snoozed = crate::repo::snoozes::all(conn).map_err(|e| e.to_string())?;
 
     let sql = format!(
         "SELECT id, expected_finish_date, expected_finish_time, updated_at FROM tasks
@@ -42,47 +59,56 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         let changed = chrono::DateTime::parse_from_rfc3339(&updated_at)
             .map(|stamp| stamp.with_timezone(&Local))
             .ok();
-        let advance = local_at(due_date - Duration::days(1), 17, 30)?;
-        // The task is overdue only after its own day ends; the notice belongs to
-        // the next day's 17:30, or the first launch after that.
-        let overdue_at = local_at(due_date + Duration::days(1), 17, 30)?;
+        if snoozed.iter().any(|(id, _)| id == &task_id) {
+            continue;
+        }
+        // A daylight-saving gap means this clock time does not exist that day; skip the
+        // task instead of failing every other reminder in the scan.
         let timed = expected_finish_time
             .as_deref()
             .and_then(|raw| NaiveTime::parse_from_str(raw, "%H:%M").ok());
-
-        // A timed task reminds once at its own moment on its own day instead.
-        // shortcut: it reuses the day-before kind so the notifications CHECK stays put;
-        // the key is still the day, so it fires once. Add a due_at kind when the copy
-        // needs to differ.
-        if let Some(at) = timed {
-            // A daylight-saving gap means this clock time does not exist that day;
-            // skip the task instead of failing every other reminder in the scan.
-            if let Ok(scheduled) = local_at(due_date, at.hour(), at.minute()) {
-                if due_date == today && scheduled <= now && recent(scheduled, now) && unchanged_since(changed, scheduled) {
-                    out.push(Candidate {
-                        task_id: task_id.clone(),
-                        kind: "due_tomorrow",
-                        due_key: due.clone(),
-                        scheduled_for: scheduled,
-                    });
-                }
+        let moment = match timed {
+            Some(at) => match local_at(due_date, at.hour(), at.minute()) {
+                Ok(moment) => moment,
+                Err(_) => continue,
+            },
+            None => match local_at(due_date, 17, 30) {
+                Ok(moment) => moment,
+                Err(_) => continue,
+            },
+        };
+        // Without a lead the untimed reminder keeps its day-before slot; a lead pulls
+        // both kinds forward from the task's own moment.
+        let scheduled = if lead == 0 && timed.is_none() {
+            match local_at(due_date - Duration::days(1), 17, 30) {
+                Ok(advance) => advance,
+                Err(_) => continue,
             }
-        }
-
-        if timed.is_none() && due_date >= today && advance <= now && recent(advance, now) && unchanged_since(changed, advance) {
+        } else {
+            moment - Duration::minutes(lead)
+        };
+        if due_date >= today && scheduled <= now && recent(scheduled, now) && unchanged_since(changed, scheduled) {
             out.push(Candidate {
                 task_id: task_id.clone(),
                 kind: "due_tomorrow",
                 due_key: due.clone(),
-                scheduled_for: advance,
+                scheduled_for: scheduled,
+                record: true,
             });
         }
+        // The task is overdue only after its own day ends; the notice belongs to
+        // the next day's 17:30, or the first launch after that.
+        let overdue_at = match local_at(due_date + Duration::days(1), 17, 30) {
+            Ok(at) => at,
+            Err(_) => continue,
+        };
         if due_date < today && overdue_at <= now && recent(overdue_at, now) {
             out.push(Candidate {
                 task_id,
                 kind: "overdue",
                 due_key: due,
                 scheduled_for: overdue_at,
+                record: true,
             });
         }
     }
@@ -109,11 +135,118 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
                 kind: "suspend_start",
                 due_key: until,
                 scheduled_for: scheduled,
+                record: true,
             });
         }
     }
 
+    // Snoozes the user asked for; a row is dropped as soon as it is handed over, so a
+    // reminder that was postponed once cannot come back next tick.
+    for (task_id, fire_at) in snoozed {
+        let due: Option<String> = conn
+            .query_row(
+                &format!(
+                    "SELECT expected_finish_date FROM tasks
+                     WHERE id = ?1 AND expected_finish_date IS NOT NULL AND status <> 'done'
+                       AND {}",
+                    VISIBLE_TASK_FILTER
+                ),
+                [&task_id],
+                |r| r.get(0),
+            )
+            .ok();
+        let Some(due) = due else {
+            // Finished, deleted, archived, or it lost its day while postponed.
+            let _ = crate::repo::snoozes::remove(conn, &task_id);
+            continue;
+        };
+        let Ok(fire_at) = DateTime::parse_from_rfc3339(&fire_at) else {
+            let _ = crate::repo::snoozes::remove(conn, &task_id);
+            continue;
+        };
+        let fire_at = fire_at.with_timezone(&Local);
+        if fire_at > now {
+            continue;
+        }
+        let _ = crate::repo::snoozes::remove(conn, &task_id);
+        if !recent(fire_at, now) {
+            continue;
+        }
+        let Ok(due_date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
+            continue;
+        };
+        out.push(Candidate {
+            task_id,
+            kind: if due_date < today { "overdue" } else { "due_tomorrow" },
+            due_key: due,
+            scheduled_for: fire_at,
+            record: false,
+        });
+    }
+
     Ok(out)
+}
+
+/// The 09:00 digest, once a day: what is due today and what is already late.
+/// Returns nothing before 09:00, on a day with no work, or when it already fired.
+pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>, String> {
+    if !crate::repo::settings::reminders_digest(conn) {
+        return Ok(None);
+    }
+    let today = now.date_naive();
+    let Ok(at) = local_at(today, DIGEST_HOUR, 0) else {
+        return Ok(None);
+    };
+    if at > now {
+        return Ok(None);
+    }
+    let key = today.format("%Y-%m-%d").to_string();
+    let fired = crate::repo::settings::get(conn, "reminders.digest_date")
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(key.as_str());
+    if fired {
+        return Ok(None);
+    }
+    let count = |extra: &str| -> Result<i64, String> {
+        conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM tasks
+                 WHERE status <> 'done' AND {extra} AND {VISIBLE_TASK_FILTER}"
+            ),
+            [&key],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())
+    };
+    let due = count("expected_finish_date = ?1")?;
+    let overdue = count("expected_finish_date < ?1")?;
+    if due == 0 && overdue == 0 {
+        return Ok(None);
+    }
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT title FROM tasks
+             WHERE expected_finish_date IS NOT NULL AND expected_finish_date <= ?1
+               AND status <> 'done' AND {}
+             ORDER BY expected_finish_date DESC, sort_order
+             LIMIT {DIGEST_TITLES}",
+            VISIBLE_TASK_FILTER
+        ))
+        .map_err(|e| e.to_string())?;
+    let titles: Vec<String> = stmt
+        .query_map([&key], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    let total = (due + overdue) as usize;
+    Ok(Some(Digest {
+        due: due as usize,
+        overdue: overdue as usize,
+        folded: total.saturating_sub(titles.len()),
+        titles,
+    }))
 }
 
 fn local_at(date: NaiveDate, hour: u32, minute: u32) -> Result<DateTime<Local>, String> {
@@ -416,5 +549,204 @@ mod tests {
         // No timed toast for a past day; it is only the next day's 17:30 overdue check.
         assert!(cands.iter().all(|c| c.scheduled_for.format("%Y-%m-%d").to_string()
             != "2026-10-19"));
+    }
+
+    fn lead(c: &Connection, minutes: i64) {
+        crate::repo::settings::set(c, "reminders.lead_minutes", &minutes.to_string()).unwrap();
+    }
+
+    fn scheduled(c: &Connection, now: chrono::DateTime<Local>) -> Vec<String> {
+        crate::reminders::rules::candidates(c, now)
+            .unwrap()
+            .into_iter()
+            .map(|candidate| candidate.scheduled_for.format("%Y-%m-%d %H:%M").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_lead_pulls_a_timed_reminder_forward() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-20", "17:30");
+        lead(&c, 30);
+
+        let early = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 16, 59)).unwrap();
+        assert!(early.is_empty());
+
+        let on_time = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 0)).unwrap();
+        assert_eq!(on_time.len(), 1);
+        assert_eq!(on_time[0].due_key, "2026-10-20");
+        assert_eq!(on_time[0].kind, "due_tomorrow");
+        assert_eq!(
+            on_time[0].scheduled_for.format("%H:%M").to_string(),
+            "17:00"
+        );
+    }
+
+    #[test]
+    fn a_lead_moves_a_date_only_task_off_the_day_before() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+        lead(&c, 30);
+
+        // 17:00 on the due day, not the 17:30 of the day before.
+        assert_eq!(scheduled(&c, at(2026, 10, 20, 17, 1)), ["2026-10-20 17:00"]);
+        // A whole day of lead is the built-in slot again.
+        lead(&c, 1440);
+        assert_eq!(scheduled(&c, at(2026, 10, 19, 17, 31)), ["2026-10-19 17:30"]);
+        // No lead keeps the day-before slot.
+        lead(&c, 0);
+        assert_eq!(scheduled(&c, at(2026, 10, 19, 17, 31)), ["2026-10-19 17:30"]);
+    }
+
+    #[test]
+    fn a_lead_can_cross_midnight_without_duplicating() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-21", "00:15");
+        lead(&c, 60);
+
+        assert_eq!(scheduled(&c, at(2026, 10, 20, 23, 16)), ["2026-10-20 23:15"]);
+        // The same due day yields the same key, so the notification table dedupes it.
+        let candidate = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 23, 30))
+            .unwrap()
+            .remove(0);
+        let fired = crate::repo::notifications::fire(
+            &c,
+            "n1",
+            &candidate.task_id,
+            candidate.kind,
+            &candidate.due_key,
+            &candidate.scheduled_for.to_rfc3339(),
+            NOW,
+        )
+        .unwrap();
+        let again = crate::repo::notifications::fire(
+            &c,
+            "n2",
+            &candidate.task_id,
+            candidate.kind,
+            &candidate.due_key,
+            &candidate.scheduled_for.to_rfc3339(),
+            NOW,
+        )
+        .unwrap();
+        assert!(fired && !again);
+    }
+
+    #[test]
+    fn a_snooze_replaces_the_other_reminders_and_fires_once() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-20", "17:30");
+        crate::repo::snoozes::set(
+            &c,
+            "t1",
+            &at(2026, 10, 20, 10, 0)
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339(),
+        )
+        .unwrap();
+
+        // Before its moment neither the snooze nor the task's own reminder fires.
+        assert!(scheduled(&c, at(2026, 10, 20, 9, 0)).is_empty());
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 10, 1)).unwrap();
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].kind, "due_tomorrow");
+        assert!(!cands[0].record, "a snooze must not write a second notification");
+        // The row is gone, so the next tick has nothing left to hand over.
+        assert!(crate::repo::snoozes::all(&c).unwrap().is_empty());
+        assert!(scheduled(&c, at(2026, 10, 20, 10, 2)).is_empty());
+    }
+
+    #[test]
+    fn a_snooze_goes_late_once_the_day_passes() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-20", "17:30");
+        crate::repo::snoozes::set(
+            &c,
+            "t1",
+            &at(2026, 10, 21, 1, 0).with_timezone(&chrono::Utc).to_rfc3339(),
+        )
+        .unwrap();
+
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 9, 0)).unwrap();
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].kind, "overdue");
+        assert_eq!(cands[0].due_key, "2026-10-20");
+    }
+
+    #[test]
+    fn a_snooze_on_a_finished_task_is_dropped() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-20", "17:30");
+        crate::repo::snoozes::set(
+            &c,
+            "t1",
+            &at(2026, 10, 20, 1, 0).with_timezone(&chrono::Utc).to_rfc3339(),
+        )
+        .unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        assert!(scheduled(&c, at(2026, 10, 20, 10, 0)).is_empty());
+        assert!(crate::repo::snoozes::all(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_digest_waits_for_nine_and_fires_once_a_day() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+
+        assert!(crate::reminders::rules::digest(&c, at(2026, 10, 20, 8, 59))
+            .unwrap()
+            .is_none());
+
+        let digest = crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!((digest.due, digest.overdue), (1, 0));
+        assert_eq!(digest.titles, ["交底"]);
+
+        // The tick dates it before showing, so later ticks stay quiet.
+        crate::repo::settings::set(&c, "reminders.digest_date", "2026-10-20").unwrap();
+        assert!(crate::reminders::rules::digest(&c, at(2026, 10, 20, 15, 0))
+            .unwrap()
+            .is_none());
+        // The next day the same task is late, and the digest still goes out once.
+        let tomorrow = crate::reminders::rules::digest(&c, at(2026, 10, 21, 9, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!((tomorrow.due, tomorrow.overdue), (0, 1));
+    }
+
+    #[test]
+    fn the_digest_counts_overdue_work_and_skips_empty_days() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+        task_with_due(&c, "t2", "2026-10-19");
+        task_with_due(&c, "t3", "2026-10-18");
+        task_with_due(&c, "t4", "2026-10-25");
+
+        let digest = crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 30))
+            .unwrap()
+            .unwrap();
+        assert_eq!((digest.due, digest.overdue), (1, 2));
+        assert_eq!(digest.titles.len(), 2, "only the first two names are spelled out");
+        assert_eq!(digest.folded, 1);
+
+        let quiet = crate::db::open_in_memory().unwrap();
+        task_with_due(&quiet, "t1", "2026-10-25");
+        assert!(crate::reminders::rules::digest(&quiet, at(2026, 10, 20, 9, 30))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn the_digest_can_be_turned_off() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+        crate::repo::settings::set(&c, "reminders.digest", "false").unwrap();
+
+        assert!(crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 30))
+            .unwrap()
+            .is_none());
     }
 }

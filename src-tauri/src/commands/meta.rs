@@ -70,6 +70,11 @@ pub async fn set_settings(
             return Err("invalid_saved_views".into());
         }
     }
+    if let Some(lead) = patch.reminders_lead_minutes {
+        if !(0..=crate::repo::settings::LEAD_MAX_MINUTES).contains(&lead) {
+            return Err("invalid_reminder_lead".into());
+        }
+    }
     let language_requested = patch.language.is_some();
     let desk_requested = patch.desk_enabled.is_some();
     // Names are trimmed before they are stored, so the chip rows stay tidy.
@@ -108,6 +113,11 @@ pub async fn set_settings(
             ),
             ("week.view", patch.week_view),
             ("tasks.saved_views", saved_views),
+            (
+                "reminders.lead_minutes",
+                patch.reminders_lead_minutes.map(|v| v.to_string()),
+            ),
+            ("reminders.digest", patch.reminders_digest.map(|v| v.to_string())),
         ];
         for (key, value) in sets {
             if let Some(value) = value {

@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 18;
+pub const LATEST: i64 = 19;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -465,6 +465,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
              WHERE tasks.id = shifted.id;",
         )?;
         tx.pragma_update(None, "user_version", 18)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 19 {
+        // A reminder the user pushed back: one row per task, dropped when it fires.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS reminder_snoozes (
+               task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+               fire_at TEXT NOT NULL
+             );",
+        )?;
+        tx.pragma_update(None, "user_version", 19)?;
         tx.commit()?;
     }
     Ok(())
@@ -1359,6 +1373,38 @@ mod tests {
             })
             .unwrap();
         assert_eq!(start, "2026-10-19");
+    }
+
+    #[test]
+    fn adds_the_snooze_table_without_touching_tasks() {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "INSERT INTO tasks (id, title, created_at, updated_at)
+             VALUES ('a', '周会', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        )
+        .unwrap();
+        // Rewind to the shape this step upgrades from.
+        c.pragma_update(None, "user_version", 18).unwrap();
+
+        migrate(&c).unwrap();
+
+        assert!(has_column(&c, "reminder_snoozes", "fire_at").unwrap());
+        c.execute(
+            "INSERT INTO reminder_snoozes (task_id, fire_at) VALUES ('a', '2026-10-21T01:00:00Z');",
+            [],
+        )
+        .unwrap();
+
+        // Running it again is a no-op and keeps the row.
+        migrate(&c).unwrap();
+        let kept: i64 = c
+            .query_row("SELECT COUNT(*) FROM reminder_snoozes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1);
+        let title: String = c
+            .query_row("SELECT title FROM tasks WHERE id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(title, "周会");
     }
 
     #[test]
