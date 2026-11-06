@@ -117,10 +117,14 @@ input[type="number"]::-webkit-outer-spin-button {
   display: none;
 }
 
-/* The main window paints its own surface; the page behind it stays transparent for the widget morph. */
+/* The main window paints its own surface; the page behind it stays transparent for the widget morph.
+   Overflow is locked here too: a fixed drawer sliding in from the window edge reaches past the
+   viewport, and Chrome turns that into a document scrollbar whose height comes out of 100vh —
+   the whole page then loses that many pixels and reads as a jump. */
 html[data-window="main"],
 html[data-window="main"] body {
   background: transparent;
+  overflow: hidden;
 }
 
 /* The window surface and every full-window scrim share one Win11 radius. */
