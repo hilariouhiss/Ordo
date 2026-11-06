@@ -1,5 +1,5 @@
 import type { Task } from "../model/types";
-import { localDate, weekdayLabel } from "./dates";
+import { addDays, isWeekend, localDate, weekdayLabel } from "./dates";
 import { plannedDayParts, type PlanTask, type PlannedTask, type PlannedDayPart } from "./schedule";
 
 export interface PlannedRow {
@@ -159,11 +159,24 @@ export function fillPlannedDays(
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** The workdays a finished task really ran, or null when either actual stamp is missing. */
+function actualWorkdays(task: Task): string[] | null {
+  if (!task.actualStartAt || !task.actualFinishAt) return null;
+  const start = localDate(task.actualStartAt);
+  const finish = localDate(task.actualFinishAt);
+  if (finish < start) return null;
+  const days: string[] = [];
+  for (let day = start; day <= finish; day = addDays(day, 1)) {
+    if (!isWeekend(day)) days.push(day);
+  }
+  return days.length ? days : null;
+}
+
 /**
- * Puts finished tasks back on the days they were planned for — or, when the plan has no
- * day in this week, on the day they were done — so a past day still shows its work. A
- * multi-day task keeps every day it covered; without a planned day there is no span to
- * restore and the record stays on the finish day.
+ * Puts finished tasks back where they really ran: actual start through actual finish,
+ * workdays only, clipped to this week. Without both actual stamps it falls back to the
+ * days they were planned for — or, when the plan has no day in this week, to the day
+ * they were done — so a past day still shows its work.
  */
 export function addDoneRows(
   days: PlannedDay[],
@@ -183,6 +196,23 @@ export function addDoneRows(
   };
 
   for (const task of done) {
+    // A finished task with real times reads as it happened, not as it was estimated.
+    const actual = actualWorkdays(task);
+    const shown = actual?.filter((day) => dates.includes(day)) ?? [];
+    if (actual && shown.length) {
+      const row: PlannedRow = {
+        task,
+        start: actual[0],
+        end: actual[actual.length - 1],
+        spans: actual.length > 1,
+        days: actual.length,
+        clamped: false,
+        conflict: false,
+        history: true,
+      };
+      for (const day of shown) groupFor(day).rows.push(row);
+      continue;
+    }
     const finished = task.actualFinishAt ? localDate(task.actualFinishAt) : null;
     const planned = task.expectedStartDate;
     // A plan that starts after the finish would put a finished task in the future.

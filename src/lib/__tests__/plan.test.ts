@@ -205,6 +205,84 @@ describe("addDoneRows", () => {
     expect(addDoneRows([], [finished], WEEK, TODAY)).toEqual([]);
   });
 
+  it("lays a finished task over the workdays it actually ran", () => {
+    const finished = task("a", 1440, {
+      status: "done",
+      expectedStartDate: "2026-10-21",
+      actualStartAt: stamp(19),
+      actualFinishAt: stamp(22),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual([
+      "2026-10-19",
+      "2026-10-20",
+      "2026-10-21",
+      "2026-10-22",
+    ]);
+    for (const entry of days) {
+      expect(entry.rows[0]).toMatchObject({
+        history: true,
+        spans: true,
+        days: 4,
+        start: "2026-10-19",
+        end: "2026-10-22",
+      });
+    }
+  });
+
+  it("clips an actual run that starts before this week", () => {
+    const finished = task("a", 480, {
+      status: "done",
+      actualStartAt: stamp(16),
+      actualFinishAt: stamp(20),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual(["2026-10-19", "2026-10-20"]);
+    expect(days[0].rows[0]).toMatchObject({
+      spans: true,
+      days: 3,
+      start: "2026-10-16",
+      end: "2026-10-20",
+    });
+  });
+
+  it("skips the weekend inside an actual run", () => {
+    const finished = task("a", 480, {
+      status: "done",
+      actualStartAt: stamp(16),
+      actualFinishAt: stamp(19),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual(["2026-10-19"]);
+    expect(days[0].rows[0]).toMatchObject({ days: 2, spans: true });
+  });
+
+  it("leaves out a finished task whose actual run ended before its planned day", () => {
+    const finished = task("a", 480, {
+      status: "done",
+      expectedStartDate: "2026-10-21",
+      actualStartAt: stamp(14),
+      actualFinishAt: stamp(15),
+    });
+
+    expect(addDoneRows([], [finished], WEEK, TODAY)).toEqual([]);
+  });
+
+  it("keeps the planned days when only one actual stamp is set", () => {
+    const finished = task("a", 480, {
+      status: "done",
+      expectedStartDate: "2026-10-21",
+      actualStartAt: stamp(20),
+    });
+    const days = addDoneRows([], [finished], WEEK, TODAY);
+
+    expect(days.map((entry) => entry.date)).toEqual(["2026-10-21"]);
+    expect(days[0].rows[0]).toMatchObject({ start: "2026-10-21", days: 1 });
+  });
+
   it("reads the finished row after the day's planned work", () => {
     const work = task("p");
     const days = groupPlannedDays([work], planSchedule([toPlanTask(work)], TODAY), TODAY);
@@ -255,6 +333,21 @@ describe("groupLanes", () => {
 
     expect(merged.map((lane) => lane.task.id)).toEqual(["open", "done"]);
     expect(merged[1]).toMatchObject({ from: 2, to: 2, row: { history: true } });
+  });
+
+  it("draws a finished bar over its actual workdays", () => {
+    const finished = task("done", 480, {
+      status: "done",
+      actualStartAt: new Date(2026, 9, 19, 15).toISOString(),
+      actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
+    });
+    const lanes = groupLanes(addDoneRows([], [finished], WEEK, TODAY), WEEK);
+
+    expect(lanes[0]).toMatchObject({
+      from: 0,
+      to: 2,
+      row: { history: true, spans: true, days: 3 },
+    });
   });
 
   it("clips a task the week end clamps onto Friday", () => {
