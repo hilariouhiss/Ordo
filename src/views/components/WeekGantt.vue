@@ -8,6 +8,7 @@ import { errorText, t } from "../../lib/i18n";
 import type { WeekLane } from "../../lib/plan";
 import { usePointerDrag } from "../../lib/pointerDrag";
 import { canSuspendTask } from "../../lib/status";
+import { ganttDropAt } from "../../lib/weekDrop";
 import type { Task } from "../../model/types";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
@@ -15,7 +16,14 @@ import { weekVM } from "../../viewmodels/weekVM";
 import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
-const props = defineProps<{ lanes: WeekLane[]; dates: string[] }>();
+const props = defineProps<{
+  lanes: WeekLane[];
+  dates: string[];
+  /** A drag from the week's bottom stack, so the grid shows the same drop marks. */
+  outsideMoved?: boolean;
+  outsideColumn?: number | null;
+  outsideBefore?: string | null;
+}>();
 const emit = defineEmits<{ changed: [] }>();
 
 /** Mark a column as today only when today really sits in the shown week. */
@@ -30,22 +38,7 @@ const gridEl = ref<HTMLElement | null>(null);
 
 /** The gantt's drag: threshold, the column and lane under the pointer, edge auto-scroll. */
 const drag = usePointerDrag<{ column: number; before: string | null }>({
-  targetOf: ({ x, y }) => {
-    const grid = gridEl.value;
-    if (!grid) return null;
-    const box = grid.getBoundingClientRect();
-    const width = box.width / props.dates.length;
-    const column = Math.floor((x - box.left) / width);
-    let before: string | null = null;
-    for (const row of grid.querySelectorAll<HTMLElement>("[data-lane]")) {
-      const rect = row.getBoundingClientRect();
-      if (y < rect.top + rect.height / 2) {
-        before = row.dataset.lane ?? null;
-        break;
-      }
-    }
-    return { column: Math.min(props.dates.length - 1, Math.max(0, column)), before };
-  },
+  targetOf: ({ x, y }) => ganttDropAt(gridEl.value, x, y, props.dates.length),
   scroller: () => gridEl.value?.closest("main") ?? null,
   drop: (id, target) => {
     // A drag ends with a click; the sheet must not open too.
@@ -61,9 +54,9 @@ const drag = usePointerDrag<{ column: number; before: string | null }>({
   },
 });
 const draggingId = drag.id;
-const dragMoved = drag.moved;
-const dropColumn = computed(() => drag.target.value?.column ?? null);
-const dropBefore = computed(() => drag.target.value?.before ?? null);
+const dragMoved = computed(() => drag.moved.value || props.outsideMoved === true);
+const dropColumn = computed(() => drag.target.value?.column ?? props.outsideColumn ?? null);
+const dropBefore = computed(() => drag.target.value?.before ?? props.outsideBefore ?? null);
 /** A drag that just ended must not be read as a click on the bar. */
 const dragged = ref(false);
 
@@ -176,6 +169,7 @@ function startDrag(event: PointerEvent, lane: WeekLane): void {
 <template>
   <div
     ref="gridEl"
+    data-gantt-grid
     class="flex grow flex-col overflow-hidden rounded-2xl bg-base-100"
     :class="{ 'select-none': draggingId }"
   >

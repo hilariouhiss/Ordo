@@ -60,6 +60,10 @@ export const zh = {
   "week.ganttBarAria": "「{title}」：点开任务浮层，拖动改开始日，上下拖改顺序",
   "week.dropDay": "拖到这里",
   "week.emptyDay": "没有安排",
+  "week.later": "本周之后 ({count})",
+  "week.laterHint": "拖到本周某天即可排期",
+  "week.laterStarts": "{date} {weekday} 起",
+  "week.laterCardAria": "「{title}」：点开任务浮层，拖到本周某天排期",
 
   "tasks.title": "任务",
   "tasks.count": "共 {count} 条",
@@ -580,6 +584,10 @@ export const en: Record<MessageKey, string> = {
     "“{title}”: click to open the task, drag to change the start day, drag up or down to reorder",
   "week.dropDay": "Drop here",
   "week.emptyDay": "Nothing planned",
+  "week.later": "After this week ({count})",
+  "week.laterHint": "Drag onto a day to plan it this week",
+  "week.laterStarts": "Starts {date} {weekday}",
+  "week.laterCardAria": '"{title}": open the task, or drag it onto a day to plan it this week',
 
   "tasks.title": "Tasks",
   "tasks.count": "Total: {count}",

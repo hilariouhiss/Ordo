@@ -398,8 +398,32 @@ describe("weekVM plan across a week boundary", () => {
     expect(vm.planEnd.value).toBe("2026-11-06");
     expect([...vm.loads.value.keys()]).not.toContain("2026-11-10");
     expect(vm.conflictCount.value).toBe(0);
+    // The bottom stack holds exactly the work planned after this week.
+    expect(vm.laterTasks.value.map((task) => task.id)).toEqual(["trip"]);
     // The week set still holds it, so the pass queue and the task page keep it.
     expect(vm.state.tasks.map((task) => task.id)).toEqual(["dcm204", "trip", "dcm205"]);
+  });
+
+  it("orders the bottom stack by start date, then by hand", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "third", expectedStartDate: "2026-11-18" }),
+      task({ id: "first", expectedStartDate: "2026-11-09", sortOrder: 5 }),
+      task({ id: "firstB", expectedStartDate: "2026-11-09", sortOrder: 2 }),
+      task({ id: "second", expectedStartDate: "2026-11-12", sortOrder: 1 }),
+      task({ id: "now", expectedStartDate: "2026-11-05" }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.laterTasks.value.map((task) => task.id)).toEqual([
+      "firstB",
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(vm.weekTasks.value.map((task) => task.id)).toEqual(["now"]);
   });
 
   it("cuts a span that runs into next week at Friday", async () => {

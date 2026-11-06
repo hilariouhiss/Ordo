@@ -3,15 +3,18 @@ import { GripVertical } from "@lucide/vue";
 import { AnimatePresence } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
+import { formatEffort } from "../lib/effort";
 import { t } from "../lib/i18n";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
+import { ganttDropAt, listDropAt } from "../lib/weekDrop";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
+import StatusDot from "./components/StatusDot.vue";
 import TaskRow from "./components/TaskRow.vue";
 import WeekGantt from "./components/WeekGantt.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
@@ -22,6 +25,7 @@ const {
   today,
   week,
   weekTasks,
+  laterTasks,
   lanes,
   days,
   plan,
@@ -45,28 +49,7 @@ const ganttView = computed(() => appVM.state.settings?.weekView === "gantt");
 const listEl = ref<HTMLElement | null>(null);
 /** The list's drag: threshold, the day and row under the pointer, edge auto-scroll. */
 const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
-  targetOf: ({ y }) => {
-    const sections = listEl.value?.querySelectorAll<HTMLElement>("[data-day]");
-    if (!sections?.length) return null;
-    let section: HTMLElement | null = null;
-    for (const candidate of sections) {
-      if (y < candidate.getBoundingClientRect().bottom) {
-        section = candidate;
-        break;
-      }
-    }
-    const day = section?.dataset.day;
-    if (!section || !day) return null;
-    let beforeId: string | null = null;
-    for (const row of section.querySelectorAll<HTMLElement>("[data-task-id]")) {
-      const rect = row.getBoundingClientRect();
-      if (y < rect.top + rect.height / 2) {
-        beforeId = row.dataset.taskId ?? null;
-        break;
-      }
-    }
-    return { day, beforeId };
-  },
+  targetOf: ({ y }) => listDropAt(listEl.value, y),
   scroller: () => listEl.value?.closest("main") ?? null,
   drop: (id, target) => {
     // The anchor is read while the drag still counts as live: a suspended drag may have
@@ -76,9 +59,52 @@ const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
     else void place(id, target.day, beforeId);
   },
 });
-const draggingId = drag.id;
-const dropTarget = drag.target;
-const dragMoved = drag.moved;
+
+/**
+ * The bottom stack's drag: a card planned after this week lands on a day of the week,
+ * moves its expected start there, and joins the queue from that day.
+ */
+const poolDragged = ref(false);
+const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
+  // The list and the gantt measure differently; both go through the shared helpers, so a
+  // card lands exactly where a bar or a row would.
+  targetOf: ({ x, y }) => {
+    if (ganttView.value) {
+      const grid = document.querySelector<HTMLElement>("[data-gantt-grid]");
+      if (!grid) return null;
+      // The stack sits below the grid, so only a pointer inside it reads as a day.
+      const box = grid.getBoundingClientRect();
+      if (y < box.top || y >= box.bottom) return null;
+      const drop = ganttDropAt(grid, x, y, week.value.length);
+      return drop ? { day: week.value[drop.column], beforeId: drop.before } : null;
+    }
+    return listDropAt(listEl.value, y);
+  },
+  scroller: () =>
+    (ganttView.value
+      ? document.querySelector<HTMLElement>("[data-gantt-grid]")
+      : listEl.value
+    )?.closest("main") ?? null,
+  drop: (id, target) => {
+    // A drag ends with a click; the sheet must not open too.
+    poolDragged.value = true;
+    window.setTimeout(() => (poolDragged.value = false), 0);
+    const beforeId = ganttView.value ? target.beforeId : anchorFor(target.day, target.beforeId);
+    void place(id, target.day, beforeId);
+  },
+});
+const poolDraggingId = poolDrag.id;
+const poolTarget = poolDrag.target;
+const poolMoved = poolDrag.moved;
+/** The gantt column under the stacked card, when the card hovers a day of the week. */
+const poolColumn = computed(() => {
+  const day = poolTarget.value?.day;
+  const index = day ? week.value.indexOf(day) : -1;
+  return index >= 0 ? index : null;
+});
+const draggingId = computed(() => drag.id.value ?? poolDrag.id.value);
+const dropTarget = computed(() => drag.target.value ?? poolDrag.target.value);
+const dragMoved = computed(() => drag.moved.value || poolDrag.moved.value);
 
 const draggingSuspended = computed(
   () => draggingId.value !== null && state.suspended.some((task) => task.id === draggingId.value),
@@ -88,7 +114,7 @@ const draggingSuspended = computed(
  * can be empty, so a suspended drag temporarily fills this week's workdays back in.
  */
 const shownDays = computed(() => {
-  if (days.value.length || !draggingSuspended.value) return days.value;
+  if (days.value.length || !(draggingSuspended.value || poolMoved.value)) return days.value;
   const today = todayIso();
   return fillPlannedDays(days.value, weekWorkdays(today), plan.value, today);
 });
@@ -140,7 +166,9 @@ async function onMoveBy(taskId: string, delta: -1 | 1): Promise<void> {
 }
 
 function onKey(event: KeyboardEvent): void {
-  if (event.key === "Escape") drag.cancel();
+  if (event.key !== "Escape") return;
+  drag.cancel();
+  poolDrag.cancel();
 }
 
 const DAY_TICK_MS = 60_000;
@@ -199,6 +227,30 @@ function openTask(task: Task): void {
   void taskSheetVM.open(task.id);
 }
 
+/** A stacked card drags from its body; a click without movement still opens the task. */
+function startPoolDrag(event: PointerEvent, task: Task): void {
+  if (event.button !== 0) return;
+  poolDrag.start(event, task.id);
+}
+
+function openLater(task: Task): void {
+  if (poolDragged.value) {
+    poolDragged.value = false;
+    return;
+  }
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  void taskSheetVM.open(task.id);
+}
+
+/** The day a stacked task waits for, e.g. "11/9 周一 起". */
+function laterStart(task: Task): string {
+  const start = task.expectedStartDate;
+  return start
+    ? t("week.laterStarts", { date: shortDate(start), weekday: weekdayLabel(start) })
+    : "";
+}
+
 function refresh(): void {
   void load();
 }
@@ -242,14 +294,20 @@ function refresh(): void {
       </span>
     </div>
 
-    <p v-if="emptyWeek" class="px-1 text-[13px] text-base-content/40">
+    <p
+      v-if="emptyWeek && !(ganttView && laterTasks.length)"
+      class="px-1 text-[13px] text-base-content/40"
+    >
       {{ t("week.empty") }}
     </p>
 
     <WeekGantt
-      v-else-if="ganttView && lanes.length"
+      v-else-if="ganttView && (lanes.length || laterTasks.length)"
       :lanes="lanes"
       :dates="week"
+      :outside-moved="poolMoved"
+      :outside-column="poolColumn"
+      :outside-before="poolTarget?.beforeId ?? null"
       @changed="refresh"
     />
 
@@ -375,6 +433,50 @@ function refresh(): void {
             </button>
           </template>
         </TaskRow>
+      </ul>
+    </div>
+
+    <div v-if="laterTasks.length" class="week-later space-y-1.5 px-1">
+      <div
+        class="flex items-center gap-2 px-1 text-[10.5px] font-medium tracking-wide text-base-content/40"
+      >
+        <span>{{ t("week.later", { count: laterTasks.length }) }}</span>
+        <span class="ml-auto text-[10px]">{{ t("week.laterHint") }}</span>
+      </div>
+      <ul class="flex items-end overflow-x-auto pt-4 pb-1">
+        <li
+          v-for="task in laterTasks"
+          :key="task.id"
+          class="week-later-card relative -ml-[156px] flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-150 ease-out first:ml-0 hover:-translate-y-2.5 hover:scale-[1.02] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40"
+          :class="{ 'opacity-40': poolDraggingId === task.id }"
+          role="button"
+          tabindex="0"
+          :aria-label="t('week.laterCardAria', { title: task.title })"
+          @pointerdown="startPoolDrag($event, task)"
+          @pointermove="poolDrag.move"
+          @pointerup="poolDrag.end"
+          @pointercancel="poolDrag.cancel"
+          @click="openLater(task)"
+          @keydown.enter.prevent="openLater(task)"
+        >
+          <span class="flex min-w-0 items-center gap-1.5">
+            <StatusDot :status="task.status" :suspended="task.suspended" />
+            <span class="truncate text-[13px]">{{ task.title }}</span>
+            <span
+              v-if="task.projectName"
+              class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
+              :title="task.projectName"
+            >
+              <span class="min-w-0 truncate">{{ task.projectName }}</span>
+            </span>
+          </span>
+          <span class="flex min-w-0 items-center gap-1.5 text-[10.5px] text-base-content/45">
+            <span class="truncate">{{ laterStart(task) }}</span>
+            <span v-if="task.effortMinutes !== 480" class="badge badge-ghost badge-xs shrink-0">
+              {{ formatEffort(task.effortMinutes) }}
+            </span>
+          </span>
+        </li>
       </ul>
     </div>
 

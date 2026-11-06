@@ -39,13 +39,22 @@ export function createWeekVM() {
   /** The page's own idea of today; load() refreshes it so a window left open past midnight follows. */
   const today = ref(todayIso());
   const week = computed(() => weekWorkdays(today.value));
+  const weekEnd = computed(() => week.value[week.value.length - 1]);
   /** A task the user planned after this week is next week's work: not on the page, not in its numbers. */
-  const weekTasks = computed(() => {
-    const weekEnd = week.value[week.value.length - 1];
-    return state.tasks.filter(
-      (task) => !task.expectedStartDate || task.expectedStartDate <= weekEnd,
-    );
-  });
+  const plannedLater = (task: Task): boolean =>
+    task.expectedStartDate !== null && task.expectedStartDate > weekEnd.value;
+  const weekTasks = computed(() => state.tasks.filter((task) => !plannedLater(task)));
+  /** The bottom stack: this week's set that waits for a later start, soonest first. */
+  const laterTasks = computed(() =>
+    state.tasks
+      .filter(plannedLater)
+      .sort(
+        (a, b) =>
+          (a.expectedStartDate ?? "").localeCompare(b.expectedStartDate ?? "") ||
+          a.sortOrder - b.sortOrder ||
+          a.id.localeCompare(b.id),
+      ),
+  );
   const planTasks = computed(() => weekTasks.value.map(toPlanTask));
   // The plan lays out the whole week, so a task's own start before today still counts.
   const plan = computed(() => planSchedule(planTasks.value, today.value, week.value[0]));
@@ -177,6 +186,7 @@ export function createWeekVM() {
     today,
     week,
     weekTasks,
+    laterTasks,
     plan,
     days,
     lanes,
