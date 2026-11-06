@@ -116,20 +116,18 @@ pub fn week_start(today: &str) -> String {
 }
 
 pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
-    let sql = format!(
-        "SELECT id FROM tasks
-         WHERE in_week = 1 AND status <> 'done' AND suspended = 0
-           AND {}
-         ORDER BY sort_order, id",
-        tasks::VISIBLE_TASK_FILTER
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let ids: Vec<String> = stmt
-        .query_map([], |r| r.get(0))
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
-    tasks::dtos(conn, &ids).map_err(|e| e.to_string())
+    tasks::list_for(
+        conn,
+        &format!(
+            "SELECT id FROM tasks
+             WHERE in_week = 1 AND status <> 'done' AND suspended = 0
+               AND {}
+             ORDER BY sort_order, id",
+            tasks::VISIBLE_TASK_FILTER
+        ),
+        &[],
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn resolve(
@@ -238,40 +236,36 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
 /// them on the day they were done.
 pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String> {
     let start = week_start(today);
-    let sql = format!(
-        "SELECT id FROM tasks
-         WHERE status = 'done'
-           AND ((actual_finish_at IS NOT NULL
-                 AND date(actual_finish_at, 'localtime') BETWEEN ?1 AND ?2)
-                OR (expected_start_date BETWEEN ?1 AND ?2))
-           AND {}
-         ORDER BY actual_finish_at, sort_order, id",
-        tasks::VISIBLE_TASK_FILTER
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let ids: Vec<String> = stmt
-        .query_map(params![start, today], |r| r.get(0))
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
-    tasks::dtos(conn, &ids).map_err(|e| e.to_string())
+    tasks::list_for(
+        conn,
+        &format!(
+            "SELECT id FROM tasks
+             WHERE status = 'done'
+               AND ((actual_finish_at IS NOT NULL
+                     AND date(actual_finish_at, 'localtime') BETWEEN ?1 AND ?2)
+                    OR (expected_start_date BETWEEN ?1 AND ?2))
+               AND {}
+             ORDER BY actual_finish_at, sort_order, id",
+            tasks::VISIBLE_TASK_FILTER
+        ),
+        &[&start, &today],
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
-    let sql = format!(
-        "SELECT id FROM tasks
-         WHERE suspended = 1 AND status <> 'done'
-           AND {}
-         ORDER BY suspended_until IS NULL, suspended_until, updated_at",
-        tasks::VISIBLE_TASK_FILTER
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let ids: Vec<String> = stmt
-        .query_map([], |r| r.get(0))
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
-    tasks::dtos(conn, &ids).map_err(|e| e.to_string())
+    tasks::list_for(
+        conn,
+        &format!(
+            "SELECT id FROM tasks
+             WHERE suspended = 1 AND status <> 'done'
+               AND {}
+             ORDER BY suspended_until IS NULL, suspended_until, updated_at",
+            tasks::VISIBLE_TASK_FILTER
+        ),
+        &[],
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
