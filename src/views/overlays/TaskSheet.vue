@@ -2,7 +2,7 @@
 import { RotateCcw, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { localDate, localTime, shortDate, stampOfLocal, todayIso } from "../../lib/dates";
+import { localDate, localTime, shortDate, todayIso } from "../../lib/dates";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
@@ -13,10 +13,9 @@ import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status, Step } from "../../model/types";
 import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
 import { appVM } from "../../viewmodels/appVM";
-import { formFinish, taskSheetVM } from "../../viewmodels/taskSheetVM";
+import { formFinish, syncActualPreview, taskSheetVM } from "../../viewmodels/taskSheetVM";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
-import TimeField from "../components/TimeField.vue";
 
 const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "todo", key: "task.statusTodo" },
@@ -44,15 +43,17 @@ const form = reactive({
   priority: "normal" as Priority,
   status: "todo" as Status,
   exclusive: true,
+  actualStartDate: "",
+  /** Carried over from the stored stamp, so a date-only edit never rewrites the hour. */
+  actualStartTime: "09:00",
+  actualFinishDate: "",
+  actualFinishTime: "09:00",
+  /** 0 is the empty state the field shows; the server reads it as "no record". */
+  actualEffortMinutes: 0,
 });
-/** Actual times save the moment a field is left; the server recomputes the pair. */
-const actual = reactive({
-  startDate: "",
-  startTime: "09:00",
-  finishDate: "",
-  finishTime: "09:00",
-  effortText: "",
-});
+/** The steps as the sheet shows them; a step added here still carries a temp id. */
+const draftSteps = ref<Step[]>([]);
+let tempStep = 0;
 const candidates = ref<Person[]>([]);
 const stepDraft = ref("");
 const noteDraft = ref("");
@@ -80,10 +81,8 @@ watch(
 const late = computed(() =>
   overdueDays(taskSheetVM.state.task?.expectedFinishDate ?? null, todayIso()),
 );
-const hasSteps = computed(() => (taskSheetVM.state.task?.steps.length ?? 0) > 0);
-const steps = computed(() => taskSheetVM.state.task?.steps ?? []);
-/** Steps own completion, so their ticks stamp the actual finish and effort themselves. */
-const hasOpenSteps = computed(() => steps.value.some((step) => !step.done));
+const hasSteps = computed(() => draftSteps.value.length > 0);
+const steps = computed(() => draftSteps.value);
 const allocation = computed(() => allocateSteps(form.effortMinutes, steps.value));
 const allocatedMinutes = computed(() => allocation.value.allocated);
 const remainingMinutes = computed(() => form.effortMinutes - allocatedMinutes.value);
@@ -123,25 +122,18 @@ function cancelStepEdit(): void {
   stepEffortDraft.value = "";
 }
 
-async function saveStepMinutes(step: Step, minutes: number | null): Promise<void> {
-  const before = taskSheetVM.state.task?.effortMinutes ?? 0;
-  try {
-    await taskSheetVM.setStepEffort(step.id, minutes);
-    const after = taskSheetVM.state.task?.effortMinutes ?? before;
-    if (after > before) {
-      raisedTo.value = after;
-      // Follow the raised estimate unless the user is already editing the field.
-      if (form.effortMinutes === before) {
-        form.effortMinutes = after;
-        refreshFinishPreview();
-      }
-    }
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
+/** A hand-pinned share; a sum above the estimate raises it, exactly as the save does. */
+function saveStepMinutes(step: Step, minutes: number | null): void {
+  step.effortMinutes = minutes;
+  const total = draftSteps.value.reduce((sum, one) => sum + (one.effortMinutes ?? 0), 0);
+  if (total > form.effortMinutes) {
+    form.effortMinutes = total;
+    raisedTo.value = total;
+    refreshFinishPreview();
   }
 }
 
-async function commitStepEdit(step: Step): Promise<void> {
+function commitStepEdit(step: Step): void {
   if (editingStepId.value !== step.id) return;
   const minutes = parseEffortText(stepEffortDraft.value);
   const current = stepMinutes(step.id);
@@ -150,24 +142,20 @@ async function commitStepEdit(step: Step): Promise<void> {
   if (minutes === null) return;
   if (step.effortMinutes == null && minutes === current) return;
   if (step.effortMinutes === minutes) return;
-  await saveStepMinutes(step, minutes);
+  saveStepMinutes(step, minutes);
 }
 
 function onStepEffortEnter(event: KeyboardEvent, step: Step): void {
   if (isImeEnter(event)) return;
-  void commitStepEdit(step);
+  commitStepEdit(step);
 }
 
-async function resetStepEffort(step: Step): Promise<void> {
-  await saveStepMinutes(step, null);
+function resetStepEffort(step: Step): void {
+  saveStepMinutes(step, null);
 }
 
-async function evenSteps(): Promise<void> {
-  try {
-    await taskSheetVM.evenSteps();
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+function evenSteps(): void {
+  for (const step of draftSteps.value) step.effortMinutes = null;
 }
 /** The earliest finish day a picked start allows; the date picker refuses earlier days. */
 const finishMin = computed(() => timingAnchor(todayIso(), form.expectedStartDate || null));
@@ -176,22 +164,21 @@ async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
 }
 
-// Step and status edits return a fresh task; only a different task reseeds the form.
+// The sheet owns its draft while open, so only a different task reseeds it.
 let seededFor: string | null = null;
 
 watch(
   () => taskSheetVM.state.task,
   async (task) => {
-    if (!task) return;
-    if (seededFor === task.id) {
-      // Steps change the derived status, so keep the buttons in step without reseeding.
-      form.status = task.status;
-      // Actual edits come back recomputed; the other fields stay as the user left them.
-      seedActual();
+    if (!task) {
+      seededFor = null;
       return;
     }
+    if (seededFor === task.id) return;
     seededFor = task.id;
     raisedTo.value = null;
+    stepDraft.value = "";
+    noteDraft.value = "";
     form.title = task.title;
     form.projectId = task.projectId;
     form.categoryId = task.categoryId;
@@ -205,7 +192,12 @@ watch(
     form.priority = task.priority;
     form.status = task.status;
     form.exclusive = task.exclusive;
-    seedActual();
+    form.actualStartDate = task.actualStartAt ? localDate(task.actualStartAt) : "";
+    form.actualStartTime = localTime(task.actualStartAt) || "09:00";
+    form.actualFinishDate = task.actualFinishAt ? localDate(task.actualFinishAt) : "";
+    form.actualFinishTime = localTime(task.actualFinishAt) || "09:00";
+    form.actualEffortMinutes = task.actualEffortMinutes ?? 0;
+    draftSteps.value = task.steps.map((one) => ({ ...one }));
     await refreshCandidates(task.projectId);
   },
   { immediate: true },
@@ -220,33 +212,31 @@ async function onProjectChange(): Promise<void> {
 }
 
 async function save(): Promise<void> {
-  const task = taskSheetVM.state.task;
-  if (!task) return;
+  if (!taskSheetVM.state.task) return;
+  // A focused field still owes the draft its value; leaving it commits first.
+  (document.activeElement as HTMLElement | null)?.blur();
   try {
     if (form.projectId && form.ownerId && !candidates.value.some((p) => p.id === form.ownerId)) {
       await addMember(form.projectId, form.ownerId, null);
     }
-    if (await taskSheetVM.saveForm(form)) taskSheetVM.close();
+    const saved = await taskSheetVM.saveSheet({
+      form,
+      steps: draftSteps.value,
+      note: noteDraft.value,
+    });
+    if (saved) taskSheetVM.close();
   } catch (e) {
     taskSheetVM.state.error = String(e);
   }
 }
 
-/** Runs one sheet action; a failed write must stay visible instead of vanishing. */
-async function run(action: () => Promise<unknown>): Promise<boolean> {
-  taskSheetVM.state.error = null;
-  try {
-    await action();
-    return true;
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-    return false;
-  }
-}
-
-async function setStatus(status: Status): Promise<void> {
-  if (!(await run(() => taskSheetVM.setStatus(status)))) return;
+function setStatus(status: Status): void {
   form.status = status;
+}
+
+/** Actual times are a draft too: the pair previews here and is written on save. */
+function onActualEdit(edited: "start" | "finish" | "effort"): void {
+  taskSheetVM.state.error = syncActualPreview(form, edited);
 }
 
 /** A picked finish day sets the estimate that many workdays would need. */
@@ -271,81 +261,9 @@ function refreshFinishPreview(): void {
   form.expectedFinishDate = formFinish(form);
 }
 
-/** Reads the actual times from the task; the server's answer is the source of truth. */
-function seedActual(): void {
-  const task = taskSheetVM.state.task;
-  if (!task) return;
-  actual.startDate = task.actualStartAt ? localDate(task.actualStartAt) : "";
-  actual.startTime = localTime(task.actualStartAt) || "09:00";
-  actual.finishDate = task.actualFinishAt ? localDate(task.actualFinishAt) : "";
-  actual.finishTime = localTime(task.actualFinishAt) || "09:00";
-  actual.effortText =
-    task.actualEffortMinutes == null ? "" : formatStepClock(task.actualEffortMinutes);
-}
-
-/** Same instant, whatever the stamp's offset or seconds say. */
-function sameStamp(one: string | null, other: string | null): boolean {
-  if (!one || !other) return one === other;
-  return Date.parse(one) === Date.parse(other);
-}
-
-async function commitActualStart(): Promise<boolean> {
-  const task = taskSheetVM.state.task;
-  if (!task) return true;
-  const stamp = stampOfLocal(actual.startDate, actual.startTime);
-  if (sameStamp(stamp, task.actualStartAt)) return true;
-  if (!(await run(() => taskSheetVM.patch({ actualStartAt: stamp })))) {
-    seedActual();
-    return false;
-  }
-  return true;
-}
-
-async function commitActualFinish(): Promise<boolean> {
-  const task = taskSheetVM.state.task;
-  if (!task) return true;
-  const stamp = stampOfLocal(actual.finishDate, actual.finishTime);
-  if (sameStamp(stamp, task.actualFinishAt)) return true;
-  if (!(await run(() => taskSheetVM.patch({ actualFinishAt: stamp })))) {
-    seedActual();
-    return false;
-  }
-  return true;
-}
-
-async function commitActualEffort(): Promise<boolean> {
-  const task = taskSheetVM.state.task;
-  if (!task) return true;
-  const text = actual.effortText.trim();
-  const minutes = text ? parseEffortText(text) : null;
-  // Unreadable stays on screen; a bare clear means "no record".
-  if (text && minutes === null) {
-    seedActual();
-    return true;
-  }
-  if (minutes === task.actualEffortMinutes) return true;
-  if (!(await run(() => taskSheetVM.patch({ actualEffortMinutes: minutes })))) {
-    seedActual();
-    return false;
-  }
-  return true;
-}
-
-/** Actual fields save as they go, so leaving the sheet must not drop a fresh value. */
-async function flushActual(): Promise<boolean> {
-  const start = await commitActualStart();
-  const finish = await commitActualFinish();
-  const effort = await commitActualEffort();
-  return start && finish && effort;
-}
-
-async function closeSheet(): Promise<void> {
-  if (await flushActual()) taskSheetVM.close();
-}
-
-function onActualEffortKey(event: KeyboardEvent): void {
-  if (isImeEnter(event)) return;
-  void commitActualEffort();
+/** Leaving the sheet drops the draft: nothing was written. */
+function closeSheet(): void {
+  taskSheetVM.close();
 }
 
 function onPriorityChange(event: Event): void {
@@ -375,34 +293,31 @@ async function archive(): Promise<void> {
   }
 }
 
-async function submitStep(): Promise<void> {
+function submitStep(): void {
   const title = stepDraft.value.trim();
   if (!title) return;
-  if (await run(() => taskSheetVM.add(title))) stepDraft.value = "";
-}
-
-async function saveNote(): Promise<void> {
-  if (!noteDraft.value.trim()) return;
-  if (await run(() => taskSheetVM.addNote(noteDraft.value))) noteDraft.value = "";
+  draftSteps.value.push({
+    id: `new-${++tempStep}`,
+    taskId: taskSheetVM.state.task?.id ?? "",
+    title,
+    sortOrder: draftSteps.value.length,
+    done: false,
+    effortMinutes: null,
+  });
+  stepDraft.value = "";
 }
 
 function onStepKey(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
-  void submitStep();
+  submitStep();
 }
 
-/** Step buttons: the sheet shows its own error, so the result is dropped. */
 function toggleStep(step: Step): void {
-  void run(() => taskSheetVM.toggle(step.id));
+  step.done = !step.done;
 }
 
 function removeStep(step: Step): void {
-  void run(() => taskSheetVM.remove(step.id));
-}
-
-function onNoteKey(event: KeyboardEvent): void {
-  if (isImeEnter(event)) return;
-  void saveNote();
+  draftSteps.value = draftSteps.value.filter((one) => one.id !== step.id);
 }
 
 function onTagKey(event: KeyboardEvent): void {
@@ -427,7 +342,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   >
     <motion.aside
       v-bind="sheetPanelMotion"
-      class="window-edge-panel flex h-full w-full max-w-[440px] flex-col overflow-y-auto bg-base-100 p-5 shadow-2xl"
+      class="window-edge-panel flex h-full w-full max-w-[480px] flex-col overflow-y-auto bg-base-100 p-5 shadow-2xl"
     >
       <p v-if="taskSheetVM.state.error" class="mb-1 text-[11px] text-error">
         {{ errorText(taskSheetVM.state.error) }}
@@ -487,7 +402,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </div>
         <AnimatePresence as="div" mode="popLayout" :initial="false" class="mt-1 space-y-0.5">
           <motion.div
-            v-for="(s, i) in taskSheetVM.state.task.steps"
+            v-for="(s, i) in steps"
             :key="s.id"
             v-bind="listItemMotion"
             class="flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-base-200"
@@ -505,7 +420,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ s.title }}
             </span>
             <span
-              v-if="currentStep(taskSheetVM.state.task.steps)?.id === s.id"
+              v-if="currentStep(steps)?.id === s.id"
               class="badge badge-ghost badge-xs shrink-0 text-primary"
             >
               {{ t("task.current") }}
@@ -666,105 +581,82 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <option value="low">{{ t("task.priorityLow") }}</option>
             </select>
           </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.expectedStart") }}
-            <DateField
-              v-model="form.expectedStartDate"
-              class="input input-sm mt-1 w-full rounded-md border-base-300"
-              @update:model-value="refreshFinishPreview"
-            />
-          </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.expectedFinish") }}
-            <span
-              v-if="taskSheetVM.state.task?.expectedFinishTime"
-              class="input input-sm mt-1 flex w-full items-center rounded-md border-base-300 bg-base-200/30 tabular-nums text-base-content/60"
-            >
-              {{ shortDate(form.expectedFinishDate) || t("common.none") }} ·
-              {{ taskSheetVM.state.task.expectedFinishTime }}
-            </span>
-            <DateField
-              v-else
-              v-model="form.expectedFinishDate"
-              :min="finishMin"
-              class="input input-sm mt-1 w-full rounded-md border-base-300"
-              @update:model-value="onFinishPicked"
-            />
-            <span class="mt-0.5 block text-[10.5px] leading-4 text-base-content/40">
-              {{
-                t(
-                  taskSheetVM.state.task?.expectedFinishTime
-                    ? "task.expectedFinishRuleHint"
-                    : "task.expectedFinishHint",
-                )
-              }}
-            </span>
-          </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.effort") }}
-            <div class="mt-1">
-              <EffortField
-                v-model="form.effortMinutes"
-                @update:model-value="refreshFinishPreview"
-              />
-            </div>
-          </label>
         </div>
 
-        <div class="mt-3 rounded-lg border border-base-300 px-3 py-2">
-          <div class="text-[11px] font-medium tracking-wide text-base-content/40">
-            {{ t("task.actualTimes") }}
-          </div>
-          <div class="mt-1.5 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5">
-            <span class="text-[11px] text-base-content/45">{{ t("task.actualStart") }}</span>
-            <div class="flex min-w-0 items-center gap-1">
+        <!-- Expected and actual share one grid, so both rows keep the same columns. -->
+        <div class="mt-2.5 rounded-lg border border-base-300 px-3 py-2">
+          <div class="grid grid-cols-[1fr_auto_1fr] items-start gap-x-2">
+            <label class="block text-[11px] text-base-content/45">
+              {{ t("task.expectedStart") }}
               <DateField
-                v-model="actual.startDate"
-                class="input input-xs w-24 rounded-md border-base-300"
-                @update:model-value="commitActualStart"
+                v-model="form.expectedStartDate"
+                class="input input-sm mt-1 w-full rounded-md border-base-300"
+                @update:model-value="refreshFinishPreview"
               />
-              <TimeField
-                v-if="actual.startDate"
-                v-model="actual.startTime"
-                class="input input-xs w-16 rounded-md border-base-300"
-                @update:model-value="commitActualStart"
-              />
-            </div>
-            <span class="text-[11px] text-base-content/45">{{ t("task.actualFinish") }}</span>
-            <div class="flex min-w-0 items-center gap-1">
+            </label>
+            <label class="block text-[11px] text-base-content/45">
+              {{ t("task.effort") }}
+              <div class="mt-1">
+                <EffortField
+                  v-model="form.effortMinutes"
+                  @update:model-value="refreshFinishPreview"
+                />
+              </div>
+            </label>
+            <label class="block text-[11px] text-base-content/45">
+              {{ t("task.expectedFinish") }}
+              <span
+                v-if="taskSheetVM.state.task?.expectedFinishTime"
+                class="input input-sm mt-1 flex w-full items-center rounded-md border-base-300 bg-base-200/30 tabular-nums text-base-content/60"
+              >
+                {{ shortDate(form.expectedFinishDate) || t("common.none") }} ·
+                {{ taskSheetVM.state.task.expectedFinishTime }}
+              </span>
               <DateField
-                v-model="actual.finishDate"
-                class="input input-xs w-24 rounded-md border-base-300"
-                @update:model-value="commitActualFinish"
+                v-else
+                v-model="form.expectedFinishDate"
+                :min="finishMin"
+                class="input input-sm mt-1 w-full rounded-md border-base-300"
+                @update:model-value="onFinishPicked"
               />
-              <TimeField
-                v-if="actual.finishDate"
-                v-model="actual.finishTime"
-                class="input input-xs w-16 rounded-md border-base-300"
-                @update:model-value="commitActualFinish"
+            </label>
+            <p
+              v-if="taskSheetVM.state.task?.expectedFinishTime"
+              class="col-span-3 mt-1 text-[10.5px] leading-4 text-base-content/40"
+            >
+              {{ t("task.expectedFinishRuleHint") }}
+            </p>
+
+            <div class="col-span-3 mt-2 h-px bg-base-300"></div>
+
+            <label class="block text-[11px] text-base-content/45">
+              {{ t("task.actualStart") }}
+              <DateField
+                v-model="form.actualStartDate"
+                class="input input-sm mt-1 w-full rounded-md border-base-300"
+                @update:model-value="onActualEdit('start')"
               />
-            </div>
-            <span class="text-[11px] text-base-content/45">{{ t("task.actualEffort") }}</span>
-            <div class="flex min-w-0 items-center gap-1.5">
-              <input
-                v-model="actual.effortText"
-                class="input input-xs w-16 rounded-md border-base-300 bg-base-100 px-1.5 text-center font-mono text-[11px] tabular-nums"
-                inputmode="decimal"
-                autocomplete="off"
-                spellcheck="false"
-                :placeholder="t('common.none')"
-                :aria-label="t('task.actualEffort')"
-                @keydown.enter="onActualEffortKey"
-                @blur="commitActualEffort"
+            </label>
+            <label class="block text-[11px] text-base-content/45">
+              {{ t("task.actualEffort") }}
+              <div class="mt-1">
+                <EffortField
+                  v-model="form.actualEffortMinutes"
+                  optional
+                  :label="t('task.actualEffort')"
+                  @update:model-value="onActualEdit('effort')"
+                />
+              </div>
+            </label>
+            <label class="block text-[11px] text-base-content/45">
+              {{ t("task.actualFinish") }}
+              <DateField
+                v-model="form.actualFinishDate"
+                class="input input-sm mt-1 w-full rounded-md border-base-300"
+                @update:model-value="onActualEdit('finish')"
               />
-              <span class="text-[10.5px] text-base-content/40">{{
-                t("task.actualEffortHint")
-              }}</span>
-            </div>
+            </label>
           </div>
-          <p class="mt-1.5 text-[10.5px] leading-4 text-base-content/40">
-            {{ t(hasOpenSteps ? "task.actualStepsHint" : "task.actualAutoHint") }}
-          </p>
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-1.5">
@@ -837,20 +729,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <div class="text-[11px] font-medium tracking-wide text-base-content/40">
             {{ t("task.overdueNote", { days: late }) }}
           </div>
-          <div class="mt-1 flex items-center gap-1.5">
-            <input
-              v-model="noteDraft"
-              class="input input-sm flex-1 rounded-lg border-base-300"
-              :placeholder="t('task.notePlaceholder')"
-              @keydown.enter="onNoteKey"
-            />
-            <button
-              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-              @click="saveNote"
-            >
-              {{ t("task.saveNote") }}
-            </button>
-          </div>
+          <input
+            v-model="noteDraft"
+            class="input input-sm mt-1 w-full rounded-lg border-base-300"
+            :placeholder="t('task.notePlaceholder')"
+          />
         </div>
 
         <div class="mt-4 flex justify-end gap-2">

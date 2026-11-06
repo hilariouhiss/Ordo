@@ -10,7 +10,8 @@ import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import ChipSelect from "./ChipSelect.vue";
 
-const props = defineProps<{ compact?: boolean }>();
+/** `optional` lets the field sit empty: 0 means "no value recorded". */
+const props = defineProps<{ compact?: boolean; optional?: boolean; label?: string }>();
 const model = defineModel<number>({ required: true });
 
 const root = ref<HTMLElement | null>(null);
@@ -21,6 +22,9 @@ const unit = ref<EffortUnit>("minutes");
 let editing = false;
 /** Whether the amount text is the user's own, not a converted display. */
 const typed = ref(false);
+
+/** The sheet passes "actual effort" so the field is not announced as the estimate. */
+const fieldLabel = computed(() => props.label ?? t("task.effort"));
 
 const unitOptions = computed(() => [
   { value: "days", label: t("effort.daysUnit") },
@@ -40,6 +44,11 @@ const unitClass = computed(() =>
 );
 
 function show(minutes: number): void {
+  if (props.optional && minutes <= 0) {
+    amount.value = "";
+    typed.value = false;
+    return;
+  }
   const value = bestEffortUnit(minutes);
   amount.value = String(value.amount);
   unit.value = value.unit;
@@ -57,6 +66,11 @@ watch(
 function commit(): void {
   const minutes = parseEffortAmount(amount.value, unit.value);
   if (minutes === null) {
+    if (props.optional && !amount.value.trim()) {
+      if (model.value !== 0) model.value = 0;
+      show(0);
+      return;
+    }
     show(model.value);
     return;
   }
@@ -115,7 +129,7 @@ function onEnter(event: KeyboardEvent): void {
       inputmode="decimal"
       autocomplete="off"
       spellcheck="false"
-      :aria-label="t('task.effort')"
+      :aria-label="fieldLabel"
       :class="inputClass"
       @input="onInput"
       @focus="onFocus"
@@ -124,7 +138,7 @@ function onEnter(event: KeyboardEvent): void {
     <ChipSelect
       :model-value="unit"
       :options="unitOptions"
-      :label="t('task.effort')"
+      :label="fieldLabel"
       :class="unitClass"
       @update:model-value="onUnit"
     />
