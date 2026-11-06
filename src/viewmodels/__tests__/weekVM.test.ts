@@ -383,6 +383,29 @@ describe("weekVM plan", () => {
     await run();
     expect(suspendTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方");
   });
+
+  it("undo of a resume after the parked date only restores the parking", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([
+      task({
+        id: "t1",
+        title: "交底",
+        suspended: true,
+        suspendedUntil: "2026-10-01",
+        suspendReason: "等甲方",
+      }),
+    ]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(resumeTask).mockResolvedValue(task({ id: "t1" }));
+    const vm = createWeekVM();
+    await vm.load();
+
+    await vm.resume("t1");
+
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
+    await run();
+    expect(suspendTask).toHaveBeenLastCalledWith("t1", null, "等甲方");
+  });
 });
 
 describe("weekVM plan across a week boundary", () => {

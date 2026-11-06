@@ -145,7 +145,13 @@ export function createWeekVM() {
       await resumeTask(id);
       if (parked) {
         undoVM.pushUndo(t("undo.resumed", { title: parked.title }), async () => {
-          await suspendTask(id, parked.suspendedUntil, parked.suspendReason);
+          // A review date already in the past cannot be written back; the park itself is
+          // what the undo restores, so keep it without the date instead of failing.
+          const until =
+            parked.suspendedUntil && parked.suspendedUntil >= todayIso()
+              ? parked.suspendedUntil
+              : null;
+          await suspendTask(id, until, parked.suspendReason);
         });
       }
       await load();
