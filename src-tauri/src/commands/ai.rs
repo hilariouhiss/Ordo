@@ -151,7 +151,12 @@ pub async fn ai_key_status() -> Result<bool, String> {
 #[tauri::command]
 pub async fn ai_test(state: State<'_, AppState>) -> Result<AiTestResult, String> {
     let (_, base_url, model) = with_db(&state, |conn| Ok(ai_settings(conn))).await?;
-    let Some(key) = client::get_key() else {
+    // The credential store can block (locked vault, policy prompt), so keep it off the
+    // async runtime thread.
+    let key = tauri::async_runtime::spawn_blocking(client::get_key)
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(key) = key else {
         return Ok(AiTestResult {
             ok: false,
             latency_ms: 0,
@@ -204,12 +209,16 @@ pub async fn ai_enrich(
     task_id: String,
 ) -> Result<(), String> {
     let (enabled, base_url, model) = with_db(&state, |conn| Ok(ai_settings(conn))).await?;
-    let Some(key) = client::get_key() else {
-        return Ok(());
-    };
+    // AI is off by default: a capture must not touch the credential store for nothing.
     if !enabled {
         return Ok(());
     }
+    let key = tauri::async_runtime::spawn_blocking(client::get_key)
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(key) = key else {
+        return Ok(());
+    };
 
     let id = task_id.clone();
     let (title, ctx) = with_db(&state, move |conn| {

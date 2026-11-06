@@ -113,17 +113,6 @@ pub async fn set_step_effort(
 }
 
 #[tauri::command]
-pub async fn reset_step_efforts(
-    state: State<'_, AppState>,
-    task_id: String,
-) -> Result<TaskDto, String> {
-    let now = now_iso();
-    with_db(&state, move |conn| {
-        crate::services::steps::reset_efforts(conn, &task_id, &now)
-    })
-    .await
-}
-#[tauri::command]
 pub async fn pass_queue(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
     with_db(&state, |conn| crate::services::week::pass_queue(conn)).await
 }
@@ -151,7 +140,7 @@ pub async fn pass_resolve(
 }
 
 #[tauri::command]
-pub async fn mark_pass_done(state: State<'_, AppState>, today: String) -> Result<(), String> {
+pub async fn mark_pass_done(state: State<'_, AppState>, today: String) -> Result<String, String> {
     with_db(&state, move |conn| {
         crate::services::week::mark_pass_done(conn, &today)
     })

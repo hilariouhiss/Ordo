@@ -101,6 +101,8 @@ function toggleDone(): void {
 }
 
 function toggleStep(stepId: string): void {
+  // A finished row in the week is for the record: ticking a step would reopen the task.
+  if (props.readonly) return;
   const step = props.task.steps.find((one) => one.id === stepId);
   if (step) void run(() => taskRowVM.toggleStepDone(step));
 }
@@ -304,7 +306,7 @@ async function suspend(): Promise<void> {
               type="button"
               class="flex w-full items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-base-200 disabled:opacity-60"
               :aria-label="step.title"
-              :disabled="busy"
+              :disabled="busy || readonly"
               @click.stop="toggleStep(step.id)"
             >
               <span class="w-3 shrink-0 text-[10px] tabular-nums text-base-content/30">{{

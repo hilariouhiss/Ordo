@@ -6,9 +6,10 @@ vi.mock("../../model/ipc", () => ({
   markPassDone: vi.fn(),
 }));
 
-import { passQueue, passResolve } from "../../model/ipc";
+import { markPassDone, passQueue, passResolve } from "../../model/ipc";
+import { appVM } from "../appVM";
 import { createPassVM } from "../passVM";
-import { task } from "./fixtures";
+import { defaultSettings, task } from "./fixtures";
 
 describe("passVM", () => {
   it("resolves the current card and advances", async () => {
@@ -57,6 +58,19 @@ describe("passVM", () => {
     await vm.start();
 
     expect(vm.state.counts.keep).toBe(0);
+  });
+
+  it("keeps the week the service cleared, so the Monday banner stays quiet", async () => {
+    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" })]);
+    vi.mocked(markPassDone).mockResolvedValue("2026-10-26");
+    appVM.state.settings = { ...defaultSettings, lastPassWeek: "2026-10-19" };
+
+    const vm = createPassVM();
+    await vm.start();
+    await vm.finish();
+
+    expect(appVM.state.settings?.lastPassWeek).toBe("2026-10-26");
+    expect(vm.state.open).toBe(false);
   });
 
   it("split returns the current card without advancing", async () => {

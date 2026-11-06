@@ -8,7 +8,7 @@ import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { allocateSteps, currentStep, formatStepClock, formatStepEffort } from "../../lib/steps";
 import { parseEffortText } from "../../lib/effort";
-import { addMember, archiveTask, ownerCandidates, restoreTask } from "../../model/ipc";
+import { addMember, archiveTask, ownerCandidates, unarchiveTask } from "../../model/ipc";
 import { overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status, Step } from "../../model/types";
 import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
@@ -289,7 +289,8 @@ async function archive(): Promise<void> {
   try {
     await archiveTask(task.id);
     undoVM.pushUndo(t("undo.archivedTask", { title: task.title }), async () => {
-      await restoreTask(task.id);
+      // Only the archive flag; restoring through the archive page would reopen finished work.
+      await unarchiveTask(task.id);
     });
     taskSheetVM.close();
   } catch (e) {

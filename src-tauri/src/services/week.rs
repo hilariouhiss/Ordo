@@ -104,9 +104,13 @@ pub fn list(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     tasks::list_week(conn).map_err(|e| e.to_string())
 }
 
+/// The Monday of the week the page is showing. A weekend already shows the coming
+/// week, so Saturday and Sunday count as that Monday: the numbers above the board and
+/// the weekly pass must describe the days on screen, not the week that just ended.
 pub fn week_start(today: &str) -> String {
     let date = NaiveDate::parse_from_str(today, "%Y-%m-%d")
         .unwrap_or_else(|_| chrono::Local::now().date_naive());
+    let date = crate::services::timing::workday_on_or_after(date);
     let start = date - Duration::days(date.weekday().num_days_from_monday() as i64);
     start.format("%Y-%m-%d").to_string()
 }
@@ -199,8 +203,12 @@ pub fn suspend(
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
-pub fn mark_pass_done(conn: &Connection, today: &str) -> Result<(), String> {
-    settings::set(conn, "last_pass_week", &week_start(today)).map_err(|e| e.to_string())
+/// Stores the week the pass just cleared and hands it back, so the page shows the
+/// same Monday the ledger kept.
+pub fn mark_pass_done(conn: &Connection, today: &str) -> Result<String, String> {
+    let start = week_start(today);
+    settings::set(conn, "last_pass_week", &start).map_err(|e| e.to_string())?;
+    Ok(start)
 }
 
 pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
@@ -1060,7 +1068,36 @@ mod tests {
     #[test]
     fn week_start_is_monday_and_crosses_year() {
         assert_eq!(week::week_start("2026-10-20"), "2026-10-19");
-        assert_eq!(week::week_start("2026-10-25"), "2026-10-19");
         assert_eq!(week::week_start("2026-01-01"), "2025-12-29");
+    }
+
+    #[test]
+    fn a_weekend_belongs_to_the_coming_week() {
+        // Saturday and Sunday show next week's board, so they count as that week.
+        assert_eq!(week::week_start("2026-10-23"), "2026-10-19");
+        assert_eq!(week::week_start("2026-10-24"), "2026-10-26");
+        assert_eq!(week::week_start("2026-10-25"), "2026-10-26");
+        assert_eq!(week::week_start("2026-10-26"), "2026-10-26");
+    }
+
+    #[test]
+    fn weekend_numbers_describe_the_week_the_page_shows() {
+        let c = db::open_in_memory().unwrap();
+        // Local Saturday midday: the page is already showing the coming week.
+        week::capture(&c, "周六新增", "2026-10-24T04:00:00Z", "t1").unwrap();
+        assert_eq!(week::stats(&c, "2026-10-24").unwrap().added, 0);
+
+        crate::services::tasks::set_status(&c, "t1", "done", "2026-10-24T06:00:00Z").unwrap();
+        assert_eq!(week::stats(&c, "2026-10-24").unwrap().done, 0);
+        assert!(week::list_done(&c, "2026-10-24").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_pass_finished_on_the_weekend_counts_for_the_coming_week() {
+        let c = db::open_in_memory().unwrap();
+        let start = week::mark_pass_done(&c, "2026-10-24").unwrap();
+        assert_eq!(start, "2026-10-26");
+        let stored = crate::repo::settings::get(&c, "last_pass_week").unwrap();
+        assert_eq!(stored.as_deref(), Some(start.as_str()));
     }
 }

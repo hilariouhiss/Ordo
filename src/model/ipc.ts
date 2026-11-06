@@ -85,10 +85,6 @@ export function setStepEffort(stepId: string, effortMinutes: number | null): Pro
   return invoke<Task>("set_step_effort", { stepId, effortMinutes });
 }
 
-export function resetStepEfforts(taskId: string): Promise<Task> {
-  return invoke<Task>("reset_step_efforts", { taskId });
-}
-
 export function passQueue(): Promise<Task[]> {
   return invoke<Task[]>("pass_queue");
 }
@@ -102,8 +98,9 @@ export function passResolve(
   return invoke<Task>("pass_resolve", { taskId, action, suspendUntil, suspendReason });
 }
 
-export function markPassDone(today: string): Promise<void> {
-  return invoke<void>("mark_pass_done", { today });
+/** Clears the pass for the week the page shows and returns that week's Monday. */
+export function markPassDone(today: string): Promise<string> {
+  return invoke<string>("mark_pass_done", { today });
 }
 
 export function weekStats(today: string): Promise<WeekStats> {
@@ -249,6 +246,11 @@ export function archiveTask(id: string): Promise<Task> {
 
 export function restoreTask(id: string): Promise<Task> {
   return invoke<Task>("restore_task", { id });
+}
+
+/** The undo of archiving: the task comes back with its status and times untouched. */
+export function unarchiveTask(id: string): Promise<Task> {
+  return invoke<Task>("unarchive_task", { id });
 }
 
 export function deleteTask(id: string): Promise<void> {

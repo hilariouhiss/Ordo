@@ -1,4 +1,11 @@
-import { resumeTask, setTaskStatus, startTask, suspendTask, toggleStep } from "../model/ipc";
+import {
+  resumeTask,
+  setTaskStatus,
+  startTask,
+  suspendTask,
+  toggleStep,
+  updateTaskPatch,
+} from "../model/ipc";
 import { t } from "../lib/i18n";
 import type { Step, Task } from "../model/types";
 import { undoVM } from "./undoVM";
@@ -25,6 +32,13 @@ export function createTaskRowVM() {
         t(next === "done" ? "undo.completed" : "undo.reopened", { title: task.title }),
         async () => {
           await setTaskStatus(task.id, previous);
+          // Re-completing stamps "now"; the undo of a reopen hands the recorded pair back.
+          if (next === "todo" && task.actualStartAt && task.actualFinishAt) {
+            await updateTaskPatch(task.id, {
+              actualStartAt: task.actualStartAt,
+              actualFinishAt: task.actualFinishAt,
+            });
+          }
         },
       );
       return updated;

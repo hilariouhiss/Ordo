@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { mondayOf, shortDate, todayIso } from "../../lib/dates";
+import { shortDate, todayIso } from "../../lib/dates";
 import { dialogRequest, runWithNotice } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -60,7 +60,6 @@ function onSuspendEnter(event: KeyboardEvent): void {
 
 async function finish(): Promise<void> {
   if (!(await runWithNotice(() => passVM.finish()))) return;
-  if (appVM.state.settings) appVM.state.settings.lastPassWeek = mondayOf(todayIso());
   await weekVM.load();
 }
 

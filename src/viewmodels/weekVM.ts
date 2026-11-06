@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from "vue";
 import type { CaptureSubmission } from "../lib/capture";
-import { mondayOf, todayIso, weekWorkdays } from "../lib/dates";
+import { todayIso, weekWorkdays } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import {
@@ -97,7 +97,8 @@ export function createWeekVM() {
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {
     const last = appVM.state.settings?.lastPassWeek ?? "";
-    return last !== mondayOf(today.value) && state.tasks.length > 0;
+    // The pass belongs to the week on screen; on a weekend that is the coming one.
+    return last !== week.value[0] && state.tasks.length > 0;
   });
 
   async function load(): Promise<void> {

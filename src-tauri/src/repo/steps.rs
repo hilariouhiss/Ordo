@@ -97,16 +97,6 @@ pub fn manual_effort_sum(conn: &Connection, task_id: &str) -> rusqlite::Result<i
     )
 }
 
-/// Returns every live step of the task to the automatic split.
-pub fn clear_efforts(conn: &Connection, task_id: &str, now: &str) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE steps SET effort_minutes = NULL, updated_at = ?1
-         WHERE task_id = ?2 AND deleted_at IS NULL",
-        params![now, task_id],
-    )?;
-    Ok(())
-}
-
 pub fn set_done(conn: &Connection, id: &str, done: bool, now: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE steps SET done = ?1, updated_at = ?2 WHERE id = ?3",

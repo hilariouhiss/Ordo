@@ -1,4 +1,5 @@
-import { addDays, isWeekend } from "./dates";
+import { addDays } from "./dates";
+import { workdayOnOrAfter } from "./timing";
 
 export interface PlanTask {
   id: string;
@@ -33,15 +34,7 @@ interface Start {
 }
 
 function nextWorkday(iso: string): string {
-  let day = addDays(iso, 1);
-  while (isWeekend(day)) day = addDays(day, 1);
-  return day;
-}
-
-function startWorkday(iso: string): string {
-  let day = iso;
-  while (isWeekend(day)) day = addDays(day, 1);
-  return day;
+  return workdayOnOrAfter(addDays(iso, 1));
 }
 
 function needOf(task: PlanTask): number {
@@ -52,7 +45,7 @@ function needOf(task: PlanTask): number {
 /** Where the plan begins: the task's own start date (never before the week), else today. */
 function anchorOf(task: PlanTask, start: string, weekStart: string): string {
   const explicit = task.expectedStartDate;
-  return startWorkday(explicit ? (explicit > weekStart ? explicit : weekStart) : start);
+  return workdayOnOrAfter(explicit ? (explicit > weekStart ? explicit : weekStart) : start);
 }
 
 /** The next hourly slot: the next hour, then the next working day's first hour. */
@@ -76,7 +69,7 @@ function fits(taken: Map<string, number>, start: Start, need: number): boolean {
 
 /** The first working hour at or after the anchor with `need` free slots in a row. */
 function firstFree(anchor: string, need: number, taken: Map<string, number>): Start {
-  let slot: Start = { day: startWorkday(anchor), hour: 0 };
+  let slot: Start = { day: workdayOnOrAfter(anchor), hour: 0 };
   for (;;) {
     if (fits(taken, slot, need)) return slot;
     slot = slotAfter(slot.day, slot.hour);

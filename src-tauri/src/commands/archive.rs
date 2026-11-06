@@ -33,6 +33,16 @@ pub async fn restore_task(state: State<'_, AppState>, id: String) -> Result<Task
     .await
 }
 
+/// The undo of archiving: the task comes back exactly as it was filed.
+#[tauri::command]
+pub async fn unarchive_task(state: State<'_, AppState>, id: String) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::archive::unarchive_task(conn, &id, &now)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn delete_task(state: State<'_, AppState>, id: String) -> Result<(), String> {
     with_db(&state, move |conn| {

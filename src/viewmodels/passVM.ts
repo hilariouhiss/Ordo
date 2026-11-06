@@ -2,6 +2,7 @@ import { computed, reactive } from "vue";
 import { markPassDone, passQueue, passResolve } from "../model/ipc";
 import type { PassAction, Task } from "../model/types";
 import { todayIso } from "../lib/dates";
+import { appVM } from "./appVM";
 
 export function createPassVM() {
   const state = reactive({
@@ -42,7 +43,8 @@ export function createPassVM() {
   }
 
   async function finish(): Promise<void> {
-    await markPassDone(todayIso());
+    const weekStart = await markPassDone(todayIso());
+    if (appVM.state.settings) appVM.state.settings.lastPassWeek = weekStart;
     state.open = false;
     state.queue = [];
     state.index = 0;

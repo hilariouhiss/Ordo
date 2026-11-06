@@ -38,6 +38,24 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
+/// The undo of archiving: clear the flag and put the task back where it belongs.
+/// Status, actual times and a suspension stay as they were, so a finished task comes
+/// back finished and out of the week instead of turning into open work again.
+pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
+    let changed = conn
+        .execute(
+            "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
+                    in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
+             WHERE id = ?2",
+            rusqlite::params![now, id],
+        )
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("task_not_found".into());
+    }
+    tasks::dto(conn, id).map_err(|e| e.to_string())
+}
+
 pub fn delete_task(conn: &Connection, id: &str) -> Result<(), String> {
     let row = conn.query_row(
         "SELECT archived_at, canceled_at FROM tasks WHERE id = ?1",
@@ -450,5 +468,65 @@ mod tests {
         assert_eq!(found.tasks.len(), 1);
         assert_eq!(found.tasks[0].id, "t1");
         assert_eq!(archive::list(&c, Some("没有")).unwrap().tasks.len(), 0);
+    }
+
+    #[test]
+    fn undoing_an_archive_keeps_a_finished_task_finished() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "发版", NOW, "t1").unwrap();
+        let done = crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        let back = archive::unarchive_task(&c, "t1", NOW).unwrap();
+
+        assert_eq!(back.status, "done");
+        assert_eq!(back.actual_finish_at, done.actual_finish_at);
+        assert_eq!(back.actual_effort_minutes, done.actual_effort_minutes);
+        assert!(back.archived_at.is_none());
+        assert!(!back.in_week, "a finished task stays out of the week");
+    }
+
+    #[test]
+    fn undoing_an_archive_returns_an_open_task_to_the_week() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        let back = archive::unarchive_task(&c, "t1", NOW).unwrap();
+
+        assert!(back.in_week);
+        assert_eq!(back.status, "todo");
+        assert!(back.archived_at.is_none());
+    }
+
+    #[test]
+    fn undoing_an_archive_leaves_a_parked_task_parked() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "等甲方", NOW, "t1").unwrap();
+        week::resolve(
+            &c,
+            "t1",
+            week::PassAction::Suspend,
+            Some("2026-11-02"),
+            None,
+            NOW,
+        )
+        .unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        let back = archive::unarchive_task(&c, "t1", NOW).unwrap();
+
+        assert!(back.suspended);
+        assert!(!back.in_week);
+        assert!(back.archived_at.is_none());
+    }
+
+    #[test]
+    fn undoing_an_archive_of_a_missing_task_is_an_error() {
+        let c = db::open_in_memory().unwrap();
+        assert_eq!(
+            archive::unarchive_task(&c, "nope", NOW).unwrap_err(),
+            "task_not_found"
+        );
     }
 }
