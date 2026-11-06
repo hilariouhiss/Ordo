@@ -1,6 +1,7 @@
 import type { Transition } from "motion-v";
 
-export const easeOut = [0.22, 1, 0.36, 1];
+/** A four-point bezier, typed so motion-v accepts it as an easing definition. */
+export const easeOut: [number, number, number, number] = [0.22, 1, 0.36, 1];
 export const springSoft: Transition = { type: "spring", stiffness: 300, damping: 32, mass: 0.9 };
 export const springSnappy: Transition = { type: "spring", stiffness: 480, damping: 36 };
 

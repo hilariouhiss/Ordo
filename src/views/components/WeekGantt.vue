@@ -5,7 +5,7 @@ import { shortDate } from "../../lib/dates";
 import { t } from "../../lib/i18n";
 import { easeOut, listItemMotion } from "../../lib/motion";
 import { weekPanels, type PlannedDay, type PlannedRow, type WeekPanel } from "../../lib/plan";
-import { usePointerDrag } from "../../lib/pointerDrag";
+import { usePointerDrag, type PointerDrag } from "../../lib/pointerDrag";
 import { anchorFor, boardDropAt, type BoardDrop } from "../../lib/weekDrop";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import { weekVM } from "../../viewmodels/weekVM";
@@ -50,7 +50,9 @@ const coverage = computed(() => {
 });
 
 const dragged = ref(false);
-const drag = usePointerDrag<BoardDrop>({
+// The type is spelled out: a drag reports the deck it is over, and the deck is read
+// from the drag, so inference alone runs in a circle.
+const drag: PointerDrag<BoardDrop> = usePointerDrag<BoardDrop>({
   targetOf: ({ x, y }) => boardDropAt(boardEl.value, x, y, activeDeck.value),
   scroller: () => boardEl.value?.closest("main") ?? null,
   drop: (id, target) => {
@@ -71,7 +73,7 @@ const draggingId = computed(() => drag.id.value);
 const hoveredDate = ref<string | null>(null);
 const focusedDate = ref<string | null>(null);
 let dragFront: string | null = null;
-const activeDeck = computed(() =>
+const activeDeck = computed<string | null>(() =>
   drag.id.value ? dragFront : (hoveredDate.value ?? focusedDate.value),
 );
 const openIndex = computed(() => {
