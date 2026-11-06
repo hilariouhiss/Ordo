@@ -34,19 +34,28 @@ export function timelineLayout(range: TimelineRange, tasks: TimelineTask[]): Tim
   const total = (rangeEnd - rangeStart) / DAY;
   if (total <= 0) return [];
 
-  return tasks
-    .filter((task) => task.expectedStartDate || task.expectedFinishDate)
-    .map((task) => {
-      const rawStart = task.expectedStartDate ? Date.parse(task.expectedStartDate) : rangeStart;
-      const rawEnd = task.expectedFinishDate ? Date.parse(task.expectedFinishDate) : rangeEnd;
-      const start = Math.max(rawStart, rangeStart);
-      const end = Math.min(rawEnd, rangeEnd);
-      return {
-        taskId: task.id,
-        leftPct: clampPct(((start - rangeStart) / DAY / total) * 100),
-        widthPct: clampPct(Math.max(MIN_BAR_PCT, ((end - start) / DAY / total) * 100)),
-        dashedStart: !task.expectedStartDate,
-        dashedEnd: !task.expectedFinishDate,
-      };
-    });
+  return (
+    tasks
+      .filter((task) => task.expectedStartDate || task.expectedFinishDate)
+      // A task outside the window has no bar here; drawing it on the edge would read as a
+      // date it does not have.
+      .filter((task) => {
+        const rawStart = task.expectedStartDate ? Date.parse(task.expectedStartDate) : rangeStart;
+        const rawEnd = task.expectedFinishDate ? Date.parse(task.expectedFinishDate) : rangeEnd;
+        return rawEnd >= rangeStart && rawStart <= rangeEnd;
+      })
+      .map((task) => {
+        const rawStart = task.expectedStartDate ? Date.parse(task.expectedStartDate) : rangeStart;
+        const rawEnd = task.expectedFinishDate ? Date.parse(task.expectedFinishDate) : rangeEnd;
+        const start = Math.max(rawStart, rangeStart);
+        const end = Math.min(rawEnd, rangeEnd);
+        return {
+          taskId: task.id,
+          leftPct: clampPct(((start - rangeStart) / DAY / total) * 100),
+          widthPct: clampPct(Math.max(MIN_BAR_PCT, ((end - start) / DAY / total) * 100)),
+          dashedStart: !task.expectedStartDate,
+          dashedEnd: !task.expectedFinishDate,
+        };
+      })
+  );
 }

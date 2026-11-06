@@ -55,4 +55,17 @@ describe("timelineLayout", () => {
   it("skips tasks without any date", () => {
     expect(timelineLayout(range, [t("t3", null, null)])).toEqual([]);
   });
+
+  it("skips a task that ended before the window", () => {
+    expect(timelineLayout(range, [t("old", "2026-08-01", "2026-08-05")])).toEqual([]);
+  });
+
+  it("skips a task that starts after the window", () => {
+    expect(timelineLayout(range, [t("later", "2027-01-01", "2027-02-01")])).toEqual([]);
+  });
+
+  it("keeps a task that touches the window edge", () => {
+    expect(timelineLayout(range, [t("edge", "2026-09-01", "2026-10-06")])).toHaveLength(1);
+    expect(timelineLayout(range, [t("edge2", "2026-11-17", "2026-12-01")])).toHaveLength(1);
+  });
 });
