@@ -35,12 +35,17 @@ struct ParentRow {
     time_exclusive: i64,
     expected_start_date: Option<String>,
     expected_finish_date: Option<String>,
+    suspended: i64,
+    suspended_until: Option<String>,
+    suspended_at: Option<String>,
+    suspend_reason: Option<String>,
 }
 
 fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
     conn.query_row(
         "SELECT parent_id, project_id, category_id, owner_id, priority, time_exclusive,
-                expected_start_date, expected_finish_date
+                expected_start_date, expected_finish_date,
+                suspended, suspended_until, suspended_at, suspend_reason
          FROM tasks
          WHERE id = ?1 AND deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL",
         [id],
@@ -54,6 +59,10 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
                 time_exclusive: r.get(5)?,
                 expected_start_date: r.get(6)?,
                 expected_finish_date: r.get(7)?,
+                suspended: r.get(8)?,
+                suspended_until: r.get(9)?,
+                suspended_at: r.get(10)?,
+                suspend_reason: r.get(11)?,
             })
         },
     )
@@ -87,13 +96,17 @@ pub(crate) fn insert_child(
         return Err("nesting_too_deep".into());
     }
     let id = uuid::Uuid::new_v4().to_string();
+    // A parked umbrella parks its new child too, so the child cannot leak onto the week.
+    let parked = parent.suspended == 1;
     conn.execute(
         "INSERT INTO tasks (id, title, parent_id, project_id, category_id, owner_id,
                             expected_start_date, expected_finish_date, status, in_week,
                             sort_order, effort_minutes, priority, time_exclusive,
+                            suspended, suspended_until, suspended_at, suspend_reason,
                             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'todo', 1,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?9, ?10, ?11, ?12, ?12)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'todo', ?9,
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?10, ?11, ?12,
+                 ?13, ?14, ?15, ?16, ?17, ?17)",
         params![
             id,
             title,
@@ -103,9 +116,14 @@ pub(crate) fn insert_child(
             parent.owner_id,
             parent.expected_start_date,
             parent.expected_finish_date,
+            if parked { 0 } else { 1 },
             effort,
             parent.priority,
             parent.time_exclusive,
+            parent.suspended,
+            parent.suspended_until,
+            parent.suspended_at,
+            parent.suspend_reason,
             now
         ],
     )
@@ -384,6 +402,24 @@ mod tests {
         assert!(parent.in_week);
         assert!(parent.actual_finish_at.is_none());
         assert!(parent.actual_effort_minutes.is_none());
+    }
+
+    #[test]
+    fn a_new_subtask_of_a_parked_umbrella_stays_parked() {
+        let c = with_task();
+        add(&c, "t1", "收集", NOW).unwrap();
+        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+
+        let parent = add(&c, "t1", "汇编", NOW).unwrap();
+
+        let child = parent
+            .children
+            .iter()
+            .find(|one| one.title == "汇编")
+            .unwrap();
+        assert!(child.suspended);
+        assert!(!child.in_week);
+        assert!(week::list(&c).unwrap().is_empty());
     }
 
     #[test]

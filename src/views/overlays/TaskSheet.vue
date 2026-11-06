@@ -130,7 +130,11 @@ async function save(): Promise<void> {
     ) {
       await addMember(form.value.projectId, form.value.ownerId, null);
     }
-    if (await taskSheetVM.saveSheet()) taskSheetVM.close();
+    if (await taskSheetVM.saveSheet()) {
+      // A saved subtask goes back to the umbrella it belongs to instead of closing the sheet.
+      if (taskSheetVM.state.stack.length) await taskSheetVM.back();
+      else taskSheetVM.close();
+    }
   } catch (e) {
     taskSheetVM.state.error = String(e);
   }
@@ -352,6 +356,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </div>
 
         <div
+          v-if="!task.parentId"
           class="mt-3 flex items-center gap-2 text-[11px] font-medium tracking-wide text-base-content/40"
           :title="t('task.subtasksHint')"
         >
@@ -412,6 +417,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </AnimatePresence>
 
         <input
+          v-if="!task.parentId"
           v-model="subtaskDraft"
           class="mt-1 w-full bg-transparent px-1 py-1.5 text-[12.5px] outline-none placeholder:text-base-content/35"
           :placeholder="t('task.subtaskPlaceholder')"
