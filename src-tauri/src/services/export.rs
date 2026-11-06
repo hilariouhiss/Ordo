@@ -3,28 +3,24 @@ use rusqlite::Connection;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const TABLES: [&str; 15] = [
-    "people",
-    "project_groups",
-    "projects",
-    "project_members",
-    "categories",
-    "tags",
-    "tasks",
-    "task_tags",
-    "steps",
-    "delays",
-    "notifications",
-    "task_rules",
-    "task_templates",
-    "template_steps",
-    "settings",
-];
+/// Every table the ledger owns, read from the schema so a new migration cannot leave
+/// the export behind.
+fn tables(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| row.get(0)).map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<String>>>()
+        .map_err(|e| e.to_string())
+}
 
 pub fn to_json(conn: &Connection, path: &Path) -> Result<(), String> {
     let mut out = Map::new();
-    for table in TABLES {
-        out.insert(table.to_string(), Value::Array(dump(conn, table)?));
+    for table in tables(conn)? {
+        out.insert(table.clone(), Value::Array(dump(conn, &table)?));
     }
     let text = serde_json::to_string_pretty(&Value::Object(out)).map_err(|e| e.to_string())?;
     if let Some(parent) = path.parent() {
@@ -408,6 +404,31 @@ mod tests {
         assert!(first.unwrap().exists());
         let second = export::backup_today(&c, &dir).unwrap();
         assert!(second.is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_export_carries_every_table_in_the_ledger() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let dir = std::env::temp_dir().join(format!("ordo-export-tables-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("export.json");
+        export::to_json(&c, &path).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mut stmt = c
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+            .unwrap();
+        let tables: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(tables.len() > 10);
+        for table in tables {
+            assert!(value.get(&table).is_some(), "export is missing {table}");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 }
