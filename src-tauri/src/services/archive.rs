@@ -323,6 +323,11 @@ mod tests {
         let t = archive::restore_task(&c, "t1", NOW).unwrap();
         assert_eq!(t.status, "doing");
         assert!(t.in_week);
+        assert!(t.actual_finish_at.is_none());
+        assert!(
+            t.actual_effort_minutes.is_none(),
+            "a reopened task has no recorded effort any more"
+        );
     }
 
     #[test]
@@ -420,6 +425,8 @@ mod tests {
 
         assert_eq!(restored.status, "doing");
         assert!(restored.in_week);
+        assert!(restored.actual_finish_at.is_none());
+        assert!(restored.actual_effort_minutes.is_none());
         assert!(restored.steps[0].done);
         assert!(!restored.steps[1].done);
 

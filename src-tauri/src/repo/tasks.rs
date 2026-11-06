@@ -133,6 +133,11 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
 /// 32766 since 3.32; staying well under both keeps a huge ledger from failing outright.
 const LOAD_CHUNK: usize = 400;
 
+/// The archive page shows the newest slice of each list. The lists only grow, and rendering
+/// every task ever finished would eventually cost more than the page is worth; the search
+/// still runs in SQL over the whole table before this cap.
+const ARCHIVE_LIMIT: i64 = 1000;
+
 /// The tasks an id query selects, in that order: the shared body of every list here.
 pub fn list_for(
     conn: &Connection,
@@ -435,6 +440,8 @@ pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
                   sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
                   status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
                   actual_finish_at = CASE WHEN status = 'done' THEN NULL ELSE actual_finish_at END,
+                  actual_effort_minutes = CASE WHEN status = 'done' THEN NULL
+                                               ELSE actual_effort_minutes END,
                   updated_at = ?1
              WHERE id = ?2"
         ),
@@ -482,7 +489,8 @@ fn list_where(
         "SELECT id, title, archived_at, canceled_at FROM tasks
          WHERE deleted_at IS NULL AND {} AND {LIVE_PROJECT}
            AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
-         ORDER BY updated_at DESC",
+         ORDER BY updated_at DESC
+         LIMIT {ARCHIVE_LIMIT}",
         condition
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -584,5 +592,28 @@ mod tests {
 
         // A caller asking for a row that vanished must see an error, not a short list.
         assert!(dtos(&c, &ids).is_err());
+    }
+
+    #[test]
+    fn the_archive_lists_stop_at_the_newest_thousand() {
+        let c = db::open_in_memory().unwrap();
+        {
+            let mut stmt = c
+                .prepare(
+                    "INSERT INTO tasks (id, title, created_at, updated_at, archived_at)
+                     VALUES (?1, ?2, ?3, ?3, ?3)",
+                )
+                .unwrap();
+            for index in 0..1001 {
+                stmt.execute(rusqlite::params![
+                    format!("t{index}"),
+                    format!("任务 {index}"),
+                    NOW
+                ])
+                .unwrap();
+            }
+        }
+
+        assert_eq!(list_archived(&c, None).unwrap().len(), 1000);
     }
 }
