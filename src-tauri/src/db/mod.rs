@@ -203,9 +203,18 @@ fn backups_newest_first(backups: &Path) -> Vec<PathBuf> {
 
 const DB_FILES: [&str; 3] = ["ordo.db", "ordo.db-wal", "ordo.db-shm"];
 
+/// Markers in the new directory saying the legacy copy happened, or is in progress.
+const LEGACY_MARKER: &str = "migrated-from-com.ordo.app";
+const LEGACY_COPY_STARTED: &str = "migrating-from-com.ordo.app";
+
 /// Copies the ledger out of the pre-rename bundle identifier's directory once.
 /// The old directory is left in place as a safety copy.
 pub fn migrate_legacy_data(old: &Path, new: &Path) -> std::io::Result<bool> {
+    let finished = new.join(LEGACY_MARKER);
+    if finished.is_file() {
+        return Ok(false);
+    }
+    let started = new.join(LEGACY_COPY_STARTED);
     // A zero-byte destination is a copy cut off before its first byte, not a finished
     // migration; without this, the next start silently opens an empty ledger.
     let target_is_filled = new
@@ -213,16 +222,47 @@ pub fn migrate_legacy_data(old: &Path, new: &Path) -> std::io::Result<bool> {
         .metadata()
         .map(|metadata| metadata.is_file() && metadata.len() > 0)
         .unwrap_or(false);
-    if !old.join("ordo.db").is_file() || target_is_filled {
-        return Ok(false);
+    if started.is_file() {
+        // A copy ran before but never recorded its finish. If the ledger landed, only the
+        // marker write was lost; otherwise finish the copy that was cut short.
+        if target_is_filled {
+            let _ = std::fs::write(&finished, b"");
+            let _ = std::fs::remove_file(&started);
+            return Ok(false);
+        }
+        if !old.join("ordo.db").is_file() {
+            let _ = std::fs::remove_file(&started);
+            return Ok(false);
+        }
+    } else {
+        if target_is_filled {
+            // The new directory is already in use; remember that the copy is done so a lost
+            // ledger goes through the backup restore instead of the old copy.
+            let _ = std::fs::write(&finished, b"");
+            return Ok(false);
+        }
+        if !old.join("ordo.db").is_file() {
+            return Ok(false);
+        }
+        // Dated backups in the new directory mean the app already ran there. A missing
+        // ledger is then a lost file for open_with_recovery to restore, not a first run.
+        if !backups_newest_first(&new.join("backups")).is_empty() {
+            let _ = std::fs::create_dir_all(new);
+            let _ = std::fs::write(&finished, b"");
+            return Ok(false);
+        }
     }
     std::fs::create_dir_all(new)?;
+    let _ = std::fs::write(&started, b"");
     let copied = copy_tree(old, new);
     if copied.is_err() {
         // A half-copied database must not look like a finished migration next time.
         for name in DB_FILES {
             let _ = std::fs::remove_file(new.join(name));
         }
+    } else {
+        let _ = std::fs::write(&finished, b"");
+        let _ = std::fs::remove_file(&started);
     }
     copied.map(|()| true)
 }
@@ -615,6 +655,59 @@ mod tests {
         std::fs::write(new.join("ordo.db"), b"newer").unwrap();
         assert!(!migrate_legacy_data(&old, &new).unwrap());
         assert_eq!(std::fs::read(new.join("ordo.db")).unwrap(), b"newer");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_ledger_with_newer_backups_is_not_refilled_from_the_legacy_copy() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(new.join("backups")).unwrap();
+        std::fs::write(old.join("ordo.db"), b"old ledger").unwrap();
+        std::fs::write(new.join("backups").join("ordo-2026-10-20.db"), b"backup").unwrap();
+
+        // A dated backup in the new directory means the app already ran there. A missing
+        // ledger is a lost file for open_with_recovery to restore, not a first migration.
+        assert!(!migrate_legacy_data(&old, &new).unwrap());
+        assert!(!new.join("ordo.db").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resumes_a_legacy_copy_that_was_cut_short() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(new.join("backups")).unwrap();
+        std::fs::write(old.join("ordo.db"), b"ledger").unwrap();
+        std::fs::write(new.join("backups").join("ordo-2026-10-20.db"), b"backup").unwrap();
+        std::fs::write(new.join(LEGACY_COPY_STARTED), b"").unwrap();
+
+        // A copy in progress is finished even though it already left backups beside it.
+        assert!(migrate_legacy_data(&old, &new).unwrap());
+        assert_eq!(std::fs::read(new.join("ordo.db")).unwrap(), b"ledger");
+        assert!(new.join(LEGACY_MARKER).exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_finished_migration_is_not_repeated_after_the_ledger_is_removed() {
+        let dir = tempdir();
+        let old = dir.join("old");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("ordo.db"), b"old ledger").unwrap();
+
+        assert!(migrate_legacy_data(&old, &new).unwrap());
+        std::fs::remove_file(new.join("ordo.db")).unwrap();
+
+        // The copy already happened once; bringing the old ledger back would silently
+        // replace the newest backup with stale data.
+        assert!(!migrate_legacy_data(&old, &new).unwrap());
+        assert!(!new.join("ordo.db").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
