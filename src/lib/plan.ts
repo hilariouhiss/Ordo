@@ -104,28 +104,24 @@ export function groupPlannedDays(
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** The week split into the past days (a deck) and today onward (columns). */
-export interface WeekPanels {
-  /** Days before today, stacked as a deck with the latest day on top. */
-  deck: PlannedDay[];
-  /** Today and the days after it, one column each. */
-  columns: PlannedDay[];
+/** One board panel: a day plus whether it reads as a rail. */
+export interface WeekPanel extends PlannedDay {
+  /** A past day with nothing left to do: only its 44px rail shows. */
+  stacked: boolean;
 }
 
 /**
- * The board's two halves. Days before today stack into the deck (latest on top); today
- * and the days after it keep a column each. A date the planner left out still gets an
- * empty panel, so it stays a drop target.
+ * The board's days in date order, each marked with how it reads. A past day still holding
+ * open work keeps a full column so the leftovers stay visible; a past day already cleared
+ * keeps only its rail and stacks with the cleared days beside it. A date the planner left
+ * out still gets an empty panel, so it stays a drop target.
  */
-export function weekPanels(days: PlannedDay[], dates: string[], today: string): WeekPanels {
+export function weekPanels(days: PlannedDay[], dates: string[], today: string): WeekPanel[] {
   const known = new Map(days.map((day) => [day.date, day]));
-  const deck: PlannedDay[] = [];
-  const columns: PlannedDay[] = [];
-  for (const date of dates) {
+  return dates.map((date) => {
     const panel = known.get(date) ?? plannedDay(date, today);
-    (date < today ? deck : columns).push(panel);
-  }
-  return { deck, columns };
+    return { ...panel, stacked: date < today && !panel.rows.some((row) => !row.history) };
+  });
 }
 
 /**

@@ -16,7 +16,7 @@ function planned(id: string, start: string, end: string): PlannedTask {
   return { id, start, end, startHour: 0, conflict: false };
 }
 
-function day(date: string, rows = 0): PlannedDay {
+function day(date: string, rows = 0, history = false): PlannedDay {
   return {
     date,
     weekday: date,
@@ -30,6 +30,7 @@ function day(date: string, rows = 0): PlannedDay {
       days: 1,
       clamped: false,
       conflict: false,
+      history: history || undefined,
     })),
   };
 }
@@ -299,39 +300,47 @@ describe("weekPanels", () => {
   it("keeps every day a column while none has passed", () => {
     const panels = weekPanels([], WEEK, "2026-10-19");
 
-    expect(panels.deck).toEqual([]);
-    expect(panels.columns.map((panel) => panel.date)).toEqual(WEEK);
-    expect(panels.columns.every((panel) => panel.rows.length === 0)).toBe(true);
+    expect(panels.map((panel) => panel.date)).toEqual(WEEK);
+    expect(panels.every((panel) => !panel.stacked)).toBe(true);
+    expect(panels.every((panel) => panel.rows.length === 0)).toBe(true);
   });
 
-  it("moves the days before today into the deck and leaves today onward as columns", () => {
-    const days = [day("2026-10-19", 1), day("2026-10-22", 2)];
-    const panels = weekPanels(days, WEEK, "2026-10-23");
-
-    expect(panels.deck.map((panel) => panel.date)).toEqual(WEEK.slice(0, 4));
-    // An existing group is reused, not rebuilt.
-    expect(panels.deck[0].rows).toHaveLength(1);
-    expect(panels.deck[3].rows).toHaveLength(2);
-    expect(panels.columns.map((panel) => panel.date)).toEqual(["2026-10-23"]);
-  });
-
-  it("fills a day the planner left out with an empty panel", () => {
+  it("stacks a cleared past day and keeps today onward as columns", () => {
     const panels = weekPanels([], WEEK, "2026-10-21");
 
-    expect(panels.deck.map((panel) => panel.date)).toEqual(["2026-10-19", "2026-10-20"]);
-    expect(panels.columns.map((panel) => panel.date)).toEqual([
-      "2026-10-21",
-      "2026-10-22",
-      "2026-10-23",
-    ]);
-    expect(panels.deck.every((panel) => panel.rows.length === 0)).toBe(true);
+    expect(panels.map((panel) => panel.stacked)).toEqual([true, true, false, false, false]);
+    // An existing group is reused, not rebuilt.
+    expect(panels[3].date).toBe("2026-10-22");
   });
 
-  it("moves every day into the deck when the week is already behind", () => {
+  it("keeps a past day that still holds work as a column", () => {
+    const panels = weekPanels([day("2026-10-19", 1)], WEEK, "2026-10-23");
+
+    expect(panels[0]).toMatchObject({ date: "2026-10-19", stacked: false });
+    expect(panels[0].rows).toHaveLength(1);
+    expect(panels.slice(1, 4).every((panel) => panel.stacked)).toBe(true);
+  });
+
+  it("stacks a past day whose work is all finished", () => {
+    const panels = weekPanels([day("2026-10-19", 2, true)], WEEK, "2026-10-23");
+
+    expect(panels[0].stacked).toBe(true);
+    expect(panels[0].rows).toHaveLength(2);
+  });
+
+  it("opens only the past days that still hold work", () => {
+    const days = [day("2026-10-19", 1), day("2026-10-20", 1, true), day("2026-10-21", 2)];
+    const panels = weekPanels(days, WEEK, "2026-10-23");
+
+    expect(panels.map((panel) => panel.stacked)).toEqual([false, true, false, true, false]);
+    expect(panels[2].rows).toHaveLength(2);
+  });
+
+  it("stacks every past day when the week is already behind", () => {
     const panels = weekPanels([], WEEK, "2026-10-26");
 
-    expect(panels.deck).toHaveLength(5);
-    expect(panels.columns).toHaveLength(0);
+    expect(panels).toHaveLength(5);
+    expect(panels.every((panel) => panel.stacked)).toBe(true);
   });
 });
 
