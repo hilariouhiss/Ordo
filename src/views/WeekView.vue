@@ -443,11 +443,11 @@ function refresh(): void {
         <span>{{ t("week.later", { count: laterTasks.length }) }}</span>
         <span class="ml-auto text-[10px]">{{ t("week.laterHint") }}</span>
       </div>
-      <ul class="flex items-end overflow-x-auto pt-4 pb-1">
+      <ul class="flex items-end overflow-x-auto pt-14 pb-1">
         <li
           v-for="task in laterTasks"
           :key="task.id"
-          class="week-later-card relative -ml-[156px] flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-150 ease-out first:ml-0 hover:-translate-y-2.5 hover:scale-[1.02] hover:z-40 hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40"
+          class="week-later-card relative -ml-[156px] flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm transition duration-200 ease-out first:ml-0 hover:-translate-y-[34px] hover:border-primary/50 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-primary/40 after:absolute after:inset-x-0 after:top-full after:h-12 after:content-['']"
           :class="{ 'opacity-40': poolDraggingId === task.id }"
           role="button"
           tabindex="0"
