@@ -130,7 +130,7 @@ function reorder(delta: -1 | 1): void {
   <div
     role="button"
     tabindex="0"
-    class="group relative flex cursor-grab touch-none flex-col justify-center gap-0.5 overflow-hidden rounded-[10px] border px-2.5 py-1.5 focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none"
+    class="group relative flex cursor-grab touch-none flex-col justify-center gap-0.5 overflow-hidden rounded-[10px] border px-2.5 py-1.5 transition-[translate,border-color,background-color,box-shadow,opacity] duration-150 ease-out hover:-translate-y-px hover:border-current/50 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none motion-reduce:transition-none"
     :class="[skin, { 'cursor-default opacity-40': dragging }]"
     @pointerdown="onPointerDown"
     @pointermove="emit('dragmove', $event)"
@@ -183,7 +183,7 @@ function reorder(delta: -1 | 1): void {
     </div>
     <div
       v-if="!compact && !readonly"
-      class="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-base-100/90 px-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+      class="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-base-100/90 px-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
     >
       <button
         v-if="canStart"

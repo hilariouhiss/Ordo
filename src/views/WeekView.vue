@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { GripVertical } from "@lucide/vue";
-import { AnimatePresence } from "motion-v";
+import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { formatEffort } from "../lib/effort";
 import { t } from "../lib/i18n";
+import { listItemMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
 import { anchorFor, boardDropAt, listDropAt } from "../lib/weekDrop";
@@ -97,6 +98,18 @@ const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
 const poolDraggingId = poolDrag.id;
 const poolTarget = poolDrag.target;
 const poolMoved = poolDrag.moved;
+/**
+ * The stack's enter/exit. Movement there is margin-driven (the step-aside transition), so
+ * layout is off; the card being dragged stays dimmed instead of animating to full opacity.
+ */
+function stackMotion(dimmed: boolean) {
+  return {
+    ...listItemMotion,
+    layout: false,
+    animate: { ...listItemMotion.animate, opacity: dimmed ? 0.4 : 1 },
+  };
+}
+
 /** The card under the pointer while dragging it out of the stack. */
 const poolGhost = reactive({ task: null as Task | null, x: 0, y: 0, over: false });
 const poolDropLabel = computed(() => {
@@ -488,39 +501,41 @@ watch(
         <span class="ml-auto text-[10px]">{{ t("week.laterHint") }}</span>
       </div>
       <ul ref="deckEl" class="flex items-end pt-1 pb-1">
-        <li
-          v-for="(task, index) in laterTasks"
-          :key="task.id"
-          class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 select-none shadow-sm transition duration-200 ease-out hover:z-40 hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/40"
-          :style="{ marginLeft: index ? `${deckStep - DECK_CARD_W}px` : undefined }"
-          :class="{ 'opacity-40': poolDraggingId === task.id }"
-          role="button"
-          tabindex="0"
-          :aria-label="t('week.laterCardAria', { title: task.title })"
-          @pointerdown="startPoolDrag($event, task)"
-          @pointermove="movePoolDrag"
-          @pointerup="endPoolDrag"
-          @pointercancel="cancelPoolDrag"
-          @click="openLater(task)"
-          @keydown.enter.prevent="openLater(task)"
-        >
-          <span class="flex min-w-0 items-center gap-1.5">
-            <span class="truncate text-[13px]">{{ task.title }}</span>
-            <span
-              v-if="task.projectName"
-              class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
-              :title="task.projectName"
-            >
-              <span class="min-w-0 truncate">{{ task.projectName }}</span>
+        <AnimatePresence mode="popLayout" :initial="false">
+          <motion.li
+            v-for="(task, index) in laterTasks"
+            :key="task.id"
+            v-bind="stackMotion(poolDraggingId === task.id)"
+            class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 select-none shadow-sm transition-[margin,border-color,box-shadow] duration-200 ease-out hover:z-40 hover:border-primary/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary/40 motion-reduce:transition-none"
+            :style="{ marginLeft: index ? `${deckStep - DECK_CARD_W}px` : undefined }"
+            role="button"
+            tabindex="0"
+            :aria-label="t('week.laterCardAria', { title: task.title })"
+            @pointerdown="startPoolDrag($event, task)"
+            @pointermove="movePoolDrag"
+            @pointerup="endPoolDrag"
+            @pointercancel="cancelPoolDrag"
+            @click="openLater(task)"
+            @keydown.enter.prevent="openLater(task)"
+          >
+            <span class="flex min-w-0 items-center gap-1.5">
+              <span class="truncate text-[13px]">{{ task.title }}</span>
+              <span
+                v-if="task.projectName"
+                class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
+                :title="task.projectName"
+              >
+                <span class="min-w-0 truncate">{{ task.projectName }}</span>
+              </span>
             </span>
-          </span>
-          <span class="flex min-w-0 items-center gap-1.5 text-[10.5px] text-base-content/45">
-            <span class="truncate">{{ laterStart(task) }}</span>
-            <span v-if="task.effortMinutes !== 480" class="badge badge-ghost badge-xs shrink-0">
-              {{ formatEffort(task.effortMinutes) }}
+            <span class="flex min-w-0 items-center gap-1.5 text-[10.5px] text-base-content/45">
+              <span class="truncate">{{ laterStart(task) }}</span>
+              <span v-if="task.effortMinutes !== 480" class="badge badge-ghost badge-xs shrink-0">
+                {{ formatEffort(task.effortMinutes) }}
+              </span>
             </span>
-          </span>
-        </li>
+          </motion.li>
+        </AnimatePresence>
       </ul>
     </div>
 

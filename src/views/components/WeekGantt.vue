@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
+import { AnimatePresence, motion } from "motion-v";
 import { shortDate } from "../../lib/dates";
 import { t } from "../../lib/i18n";
+import { easeOut, listItemMotion } from "../../lib/motion";
 import { weekPanels, type PlannedDay, type PlannedRow } from "../../lib/plan";
 import { usePointerDrag } from "../../lib/pointerDrag";
 import { anchorFor, boardDropAt, type BoardDrop } from "../../lib/weekDrop";
@@ -161,7 +163,7 @@ async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1.5">
+  <div class="flex grow flex-col gap-1.5">
     <div class="flex h-[26px] items-center gap-2 px-0.5 text-[10px] text-base-content/40">
       <span class="font-medium text-base-content/55">{{ t("week.ganttCaption") }}</span>
       <span class="truncate">{{ t("week.ganttHint") }}</span>
@@ -171,14 +173,14 @@ async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
       ref="boardEl"
       data-gantt-board
       :data-deck-open="activeDeck ?? undefined"
-      class="flex min-h-[140px] items-stretch"
+      class="flex min-h-[140px] grow items-stretch"
       :class="{ 'select-none': draggingId }"
     >
       <div
         v-for="(day, index) in panels.deck"
         :key="day.date"
         :data-day="day.date"
-        class="relative shrink-0 overflow-hidden rounded-xl border bg-base-100"
+        class="relative shrink-0 overflow-hidden rounded-xl border bg-base-100 transition-[margin,border-color] duration-200 ease-out motion-reduce:transition-none"
         :class="[deckMargin(index), deckBorder(day.date)]"
         :style="{ width: '168px', zIndex: deckZ(index, day.date) }"
         @mouseenter="enterDeck(day.date)"
@@ -205,7 +207,13 @@ async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
             t("week.dayCount", { count: rowsOf(day).length })
           }}</span>
         </button>
-        <div v-if="activeDeck === day.date" class="pr-1.5 pt-1.5 pb-1.5 pl-11">
+        <motion.div
+          v-if="activeDeck === day.date"
+          :initial="{ opacity: 0, y: 3 }"
+          :animate="{ opacity: 1, y: 0 }"
+          :transition="{ duration: 0.12, ease: easeOut }"
+          class="pr-1.5 pt-1.5 pb-1.5 pl-11"
+        >
           <ul class="flex flex-col gap-1">
             <template v-for="row in rowsOf(day)" :key="row.task.id">
               <li
@@ -232,14 +240,14 @@ async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
             </template>
             <li v-if="insertAfter(day.date)" class="h-0.5 rounded-full bg-primary"></li>
           </ul>
-        </div>
+        </motion.div>
       </div>
 
       <div
         v-for="(day, index) in panels.columns"
         :key="day.date"
         :data-day="day.date"
-        class="relative flex min-w-0 flex-1 flex-col rounded-xl border bg-base-100"
+        class="relative flex min-w-0 flex-1 flex-col rounded-xl border bg-base-100 transition-[margin,border-color] duration-200 ease-out motion-reduce:transition-none"
         :class="[
           columnMargin(index),
           columnBorder(day),
@@ -264,31 +272,43 @@ async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
             t("week.tooFull")
           }}</span>
         </div>
-        <ul class="flex min-h-0 flex-1 flex-col gap-1 px-1.5 pb-1.5">
-          <template v-for="row in rowsOf(day)" :key="row.task.id">
-            <li
+        <AnimatePresence
+          as="ul"
+          mode="popLayout"
+          :initial="false"
+          class="flex min-h-0 flex-1 flex-col gap-1 px-1.5 pb-1.5"
+        >
+          <motion.li
+            v-for="row in rowsOf(day)"
+            :key="row.task.id"
+            v-bind="listItemMotion"
+            class="relative"
+          >
+            <span
               v-if="insertBefore(day.date, row.task.id)"
-              class="h-0.5 rounded-full bg-primary"
-            ></li>
-            <li>
-              <WeekTaskCard
-                :data-task-id="row.history ? undefined : row.task.id"
-                :task="row.task"
-                :row="row"
-                :readonly="row.history === true"
-                :dragging="draggingId === row.task.id"
-                @open="openTask(row.task.id)"
-                @changed="emit('changed')"
-                @reorder="moveBy(row.task.id, $event)"
-                @dragstart="startDrag($event, row.task.id)"
-                @dragmove="drag.move($event)"
-                @dragend="drag.end()"
-                @dragcancel="drag.cancel()"
-              />
-            </li>
-          </template>
-          <li v-if="insertAfter(day.date)" class="h-0.5 rounded-full bg-primary"></li>
-        </ul>
+              class="pointer-events-none absolute -top-1 right-0 left-0 h-0.5 rounded-full bg-primary"
+            ></span>
+            <WeekTaskCard
+              :data-task-id="row.history ? undefined : row.task.id"
+              :task="row.task"
+              :row="row"
+              :readonly="row.history === true"
+              :dragging="draggingId === row.task.id"
+              @open="openTask(row.task.id)"
+              @changed="emit('changed')"
+              @reorder="moveBy(row.task.id, $event)"
+              @dragstart="startDrag($event, row.task.id)"
+              @dragmove="drag.move($event)"
+              @dragend="drag.end()"
+              @dragcancel="drag.cancel()"
+            />
+          </motion.li>
+          <li
+            v-if="insertAfter(day.date)"
+            :key="'after-' + day.date"
+            class="h-0.5 rounded-full bg-primary"
+          ></li>
+        </AnimatePresence>
       </div>
     </div>
   </div>
