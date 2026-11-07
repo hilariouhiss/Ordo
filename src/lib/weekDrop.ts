@@ -93,6 +93,25 @@ export function boardDropAt(
 }
 
 /**
+ * The days each open task already shows on. Both the list and the board use it so a drop
+ * inside a task's span only reorders it instead of moving its start day.
+ */
+export function coveredDays(
+  days: { date: string; rows: { task: { id: string }; history?: boolean }[] }[],
+): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const day of days) {
+    for (const row of day.rows) {
+      if (row.history) continue;
+      const dates = map.get(row.task.id) ?? new Set<string>();
+      dates.add(day.date);
+      map.set(row.task.id, dates);
+    }
+  }
+  return map;
+}
+
+/**
  * The global anchor for a day-local drop: the first task of a later day when the drop
  * lands after the day's last card, so a move leaves the task at the bottom of that day
  * instead of jumping past the other days. A multi-day task that started on an earlier

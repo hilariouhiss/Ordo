@@ -3,6 +3,7 @@ import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
+import { REMINDER_LEAD_MAX_MINUTES } from "../../lib/limits";
 import { recordShortcut } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion, panelSwapMotion } from "../../lib/motion";
 import type { ThemePref } from "../../lib/theme";
@@ -53,7 +54,7 @@ watch(
   { immediate: true },
 );
 function saveLead(minutes: number): void {
-  const clamped = Math.min(10_080, Math.max(0, Math.round(minutes)));
+  const clamped = Math.min(REMINDER_LEAD_MAX_MINUTES, Math.max(0, Math.round(minutes)));
   leadMinutes.value = clamped;
   if (clamped !== settings.value?.remindersLeadMinutes) {
     void vm.save({ remindersLeadMinutes: clamped });

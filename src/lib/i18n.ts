@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { EFFORT_MAX_MINUTES, REMINDER_LEAD_MAX_MINUTES, STATS_RANGE_DAYS } from "./limits";
 
 export type Language = "zh" | "en";
 
@@ -512,7 +513,7 @@ export const zh = {
   "error.empty_subtask_title": "子任务标题不能为空。",
   "error.nesting_too_deep": "子任务不能再分子任务。",
   "error.parent_derived": "这项的耗时、日期和状态由子任务汇总，改子任务就行。",
-  "error.invalid_effort": "预计耗时要在 1–28800 分钟之间。",
+  "error.invalid_effort": "预计耗时要在 1–{max} 分钟之间。",
 
   "error.invalid_status": "状态不对。",
   "error.invalid_suspend_date": "挂起日期格式不对。",
@@ -533,6 +534,7 @@ export const zh = {
   "error.project_not_archived": "项目还没归档，不能删除。",
   "error.not_a_member": "这个人还不是该项目的成员。",
   "error.empty_reason": "原因不能为空。",
+  "error.empty_tag_name": "标签名不能为空。",
   "error.no_me": "缺少「我」这个人。",
   "error.db_lock_poisoned": "数据库正忙，请重启 Ordo 再试。",
   "error.no_key": "还没填 API key。",
@@ -543,7 +545,7 @@ export const zh = {
   "error.invalid_language": "不支持这个语言。",
   "error.invalid_priority": "优先级只能是高、中、低。",
   "error.invalid_start_date": "预计开始日期格式不对。",
-  "error.invalid_reminder_lead": "提前量最多 7 天。",
+  "error.invalid_reminder_lead": "提前量最多 {days} 天。",
   "error.invalid_finish_date": "预计完成日期格式不对。",
   "error.finish_before_start": "完成时间不能早于开始。",
   "error.finish_too_far": "预计完成太远，最多 60 个工作日。",
@@ -569,7 +571,7 @@ export const zh = {
   "error.empty_template_name": "模板得有个名字。",
   "error.template_not_found": "这个模板已经不在了。",
   "error.invalid_stats_range": "统计区间不对，换两天再试。",
-  "error.stats_range_too_long": "统计区间最长一年。",
+  "error.stats_range_too_long": "统计区间最长 {days} 天。",
 } as const;
 
 export type MessageKey = keyof typeof zh;
@@ -1090,7 +1092,7 @@ export const en: Record<MessageKey, string> = {
   "error.empty_subtask_title": "A subtask needs a title.",
   "error.nesting_too_deep": "A subtask cannot have subtasks of its own.",
   "error.parent_derived": "This task's effort, dates and status come from its subtasks.",
-  "error.invalid_effort": "Estimated time must be between 1 and 28800 minutes.",
+  "error.invalid_effort": "Estimated time must be between 1 and {max} minutes.",
   "error.invalid_status": "Unknown status.",
   "error.invalid_suspend_date": "The suspend date is not valid.",
   "error.suspend_until_past": "The suspend date can't be in the past.",
@@ -1110,6 +1112,7 @@ export const en: Record<MessageKey, string> = {
   "error.project_not_archived": "Archive the project before deleting it.",
   "error.not_a_member": "This person is not a member of that project.",
   "error.empty_reason": "Reason can't be empty.",
+  "error.empty_tag_name": "A tag needs a name.",
   "error.no_me": 'The "me" person is missing.',
   "error.db_lock_poisoned": "The database is busy; restart Ordo and try again.",
   "error.no_key": "No API key yet.",
@@ -1120,7 +1123,7 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_language": "Unsupported language.",
   "error.invalid_priority": "Priority must be high, normal or low.",
   "error.invalid_start_date": "The expected start date is not valid.",
-  "error.invalid_reminder_lead": "A reminder can go at most a week early.",
+  "error.invalid_reminder_lead": "A reminder can go at most {days} days early.",
   "error.invalid_finish_date": "The expected finish date is not valid.",
   "error.finish_before_start": "The finish can't be before the start.",
   "error.finish_too_far": "That finish is too far out; at most 60 workdays.",
@@ -1148,7 +1151,7 @@ export const en: Record<MessageKey, string> = {
   "error.empty_template_name": "A template needs a name.",
   "error.template_not_found": "That template is gone.",
   "error.invalid_stats_range": "That date range does not work; pick two days again.",
-  "error.stats_range_too_long": "A statistics range can cover at most one year.",
+  "error.stats_range_too_long": "A statistics range can cover at most {days} days.",
 };
 
 export const messages = { zh, en } as const;
@@ -1193,6 +1196,7 @@ const knownErrors = [
   "project_not_archived",
   "not_a_member",
   "empty_reason",
+  "empty_tag_name",
   "no_me",
   "db_lock_poisoned",
   "no_key",
@@ -1241,5 +1245,16 @@ export function errorText(error: unknown): string {
   // Only the code itself is ours; a longer message that happens to contain one is not
   // translated. Detail after a colon (shortcut_rollback_failed: taken) still maps.
   const code = raw.split(":", 1)[0].trim();
+  if (code === "invalid_effort") {
+    return t("error.invalid_effort", { max: EFFORT_MAX_MINUTES });
+  }
+  if (code === "invalid_reminder_lead") {
+    return t("error.invalid_reminder_lead", {
+      days: Math.round(REMINDER_LEAD_MAX_MINUTES / 1440),
+    });
+  }
+  if (code === "stats_range_too_long") {
+    return t("error.stats_range_too_long", { days: STATS_RANGE_DAYS });
+  }
   return (knownErrors as readonly string[]).includes(code) ? t(`error.${code}` as MessageKey) : raw;
 }

@@ -11,9 +11,21 @@ pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String
     })
 }
 
+fn task_exists(conn: &Connection, id: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ?1 AND deleted_at IS NULL)",
+        [id],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// Files a task, taking its subtasks with it: filing the umbrella files the work.
 pub fn archive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    if !task_exists(&tx, id)? {
+        return Err("task_not_found".into());
+    }
     tasks::archive(&tx, id, now).map_err(|e| e.to_string())?;
     tx.execute(
         "UPDATE tasks SET archived_at = ?1, in_week = 0, updated_at = ?1
@@ -52,6 +64,9 @@ fn last_live_child(conn: &Connection, id: &str) -> Result<Option<String>, String
 
 pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    if !task_exists(&tx, id)? {
+        return Err("task_not_found".into());
+    }
     // The week hides archived projects, so a task restored into one would be lost from every list.
     if project_is_archived(&tx, id)? {
         return Err("project_archived".into());
@@ -692,6 +707,19 @@ mod tests {
         assert!(back.suspended);
         assert!(!back.in_week);
         assert!(back.archived_at.is_none());
+    }
+
+    #[test]
+    fn a_missing_task_is_reported_as_missing() {
+        let c = db::open_in_memory().unwrap();
+        assert_eq!(
+            archive::restore_task(&c, "gone", NOW).unwrap_err(),
+            "task_not_found"
+        );
+        assert_eq!(
+            archive::archive_task(&c, "gone", NOW).unwrap_err(),
+            "task_not_found"
+        );
     }
 
     #[test]

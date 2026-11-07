@@ -53,7 +53,7 @@ pub fn effort_for_finish(anchor: NaiveDate, finish: NaiveDate) -> Result<i64, St
     while day <= finish {
         if !matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
             days += 1;
-            if days * MINUTES_PER_DAY > 28800 {
+            if days * MINUTES_PER_DAY > crate::limits::LIMITS.effort_minutes {
                 return Err("finish_too_far".into());
             }
         }

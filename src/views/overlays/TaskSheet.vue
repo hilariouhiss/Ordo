@@ -185,7 +185,8 @@ function onPriorityChange(event: Event): void {
 
 function addTag(): void {
   const name = tagDraft.value.trim();
-  if (!name || form.value.tags.includes(name)) return;
+  const lower = name.toLowerCase();
+  if (!name || form.value.tags.some((tag) => tag.toLowerCase() === lower)) return;
   form.value.tags.push(name);
   tagDraft.value = "";
 }

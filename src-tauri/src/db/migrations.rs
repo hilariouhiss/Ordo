@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 20;
+pub const LATEST: i64 = 21;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -435,7 +435,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if version < 17 {
         // Steps can pin their own share of the task's effort; null means automatic.
         let tx = conn.unchecked_transaction()?;
-        if !has_column(&tx, "steps", "effort_minutes")? {
+        if has_table(&tx, "steps")? && !has_column(&tx, "steps", "effort_minutes")? {
             tx.execute_batch("ALTER TABLE steps ADD COLUMN effort_minutes INTEGER")?;
         }
         tx.pragma_update(None, "user_version", 17)?;
@@ -499,6 +499,15 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 20)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 21 {
+        // v20 moved every step into a subtask; the old table is no longer read or written.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch("DROP TABLE IF EXISTS steps")?;
+        tx.pragma_update(None, "user_version", 21)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -536,6 +545,10 @@ struct StepRow {
 /// pennies going to the earliest steps. Ids are the step ids, so a replay after a crash
 /// skips the rows already written.
 fn migrate_steps_to_subtasks(tx: &Connection) -> rusqlite::Result<()> {
+    // A v21 ledger no longer has the table; a version rewound by hand must still replay.
+    if !has_table(tx, "steps")? {
+        return Ok(());
+    }
     // A hand-built older database can claim a version whose column step never ran. Without
     // sort_order this build cannot write a task row, and no shipped build ever wrote steps
     // into such a ledger, so there is nothing here to convert.
@@ -744,6 +757,14 @@ fn table_column(conn: &Connection, column: &str, fallback: &str) -> rusqlite::Re
     } else {
         fallback.to_string()
     })
+}
+
+fn has_table(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        [table],
+        |r| r.get(0),
+    )
 }
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
@@ -1049,12 +1070,12 @@ mod tests {
             .query_row(
                 "select count(*) from sqlite_master where type='table' and name in \
                  ('people','projects','project_members','categories','tags','task_tags','tasks',\
-                  'steps','delays','notifications','settings')",
+                  'delays','notifications','settings')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 11);
+        assert_eq!(n, 10);
         let me: i64 = c
             .query_row("select count(*) from people where is_me=1", [], |r| r.get(0))
             .unwrap();
@@ -1666,16 +1687,25 @@ mod tests {
     }
 
     #[test]
-    fn steps_can_record_a_manual_effort() {
+    fn an_old_step_table_still_migrates_to_subtasks() {
         let c = db::open_in_memory().unwrap();
-        assert!(has_column(&c, "steps", "effort_minutes").unwrap());
+        // v21 dropped the table; put the pre-v17 shape back and stamp the old version.
+        c.execute_batch(
+            "CREATE TABLE steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL,
+                 sort_order INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, due_date TEXT,
+                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);
+             INSERT INTO tasks (id, title, effort_minutes, status, in_week, created_at, updated_at)
+             VALUES ('p', '迁移', 480, 'todo', 1, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             INSERT INTO steps (id, task_id, title, sort_order, done, created_at, updated_at)
+             VALUES ('s1', 'p', '一步', 0, 0, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 15).unwrap();
 
-        // A crash after the ALTER but before the version bump must replay cleanly.
-        c.pragma_update(None, "user_version", 16).unwrap();
         migrate(&c).unwrap();
-        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, LATEST);
-        assert!(has_column(&c, "steps", "effort_minutes").unwrap());
+
+        assert_eq!(children(&c, "p").len(), 1);
+        assert_eq!(children(&c, "p")[0].0, "s1");
     }
 
     /// A database with one finished task and three steps, from before subtasks existed.
@@ -1691,6 +1721,14 @@ mod tests {
 
     fn v19_ledger(statements: &str) -> Connection {
         let c = db::open_in_memory().unwrap();
+        // A real v19 ledger still had steps; v21 drops the table, so put it back here.
+        c.execute_batch(
+            "CREATE TABLE steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL,
+                 sort_order INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, due_date TEXT,
+                 effort_minutes INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                 deleted_at TEXT);",
+        )
+        .unwrap();
         c.execute_batch(statements).unwrap();
         c.pragma_update(None, "user_version", 19).unwrap();
         c
@@ -1799,6 +1837,19 @@ mod tests {
         assert_eq!(children(&c, "p").len(), 3);
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn the_retired_steps_table_is_dropped() {
+        let c = crate::db::open_in_memory().unwrap();
+        let left: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'steps'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     #[test]

@@ -2,9 +2,6 @@ use crate::dto::{SavedTaskViewDto, SettingsDto, TaskFilterDto};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
-/// A reminder may fire up to a week early; anything past that is a typo.
-pub const LEAD_MAX_MINUTES: i64 = 10_080;
-
 pub fn get_all(conn: &Connection) -> rusqlite::Result<HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -142,7 +139,7 @@ pub fn reminder_lead_minutes(conn: &Connection) -> i64 {
         .flatten()
         .and_then(|value| value.parse().ok())
         .unwrap_or(0)
-        .clamp(0, LEAD_MAX_MINUTES)
+        .clamp(0, crate::limits::LIMITS.reminder_lead_minutes)
 }
 
 /// The daily 09:00 digest is on unless the user turned it off.
@@ -230,7 +227,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .unwrap_or_else(|| "list".into()),
         saved_task_views: saved_views(conn),
         reminders_lead_minutes: num(&map, "reminders.lead_minutes", 0)
-            .clamp(0, LEAD_MAX_MINUTES),
+            .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
         reminders_digest: flag(&map, "reminders.digest", true),
     })
 }

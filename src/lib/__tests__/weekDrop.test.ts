@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { anchorFor, boardDropAt, listDropAt } from "../weekDrop";
+import { anchorFor, boardDropAt, coveredDays, listDropAt } from "../weekDrop";
 
 interface Rect {
   top: number;
@@ -96,6 +96,30 @@ describe("anchorFor", () => {
       },
     ];
     expect(anchorFor(withHistory, "2026-11-02", null)).toBe("b");
+  });
+});
+
+describe("coveredDays", () => {
+  it("collects every day an open task shows on", () => {
+    const days = [
+      {
+        date: "2026-11-02",
+        rows: [
+          { task: { id: "a" }, start: "2026-11-02" },
+          { task: { id: "old" }, start: "2026-11-02", history: true },
+        ],
+      },
+      { date: "2026-11-03", rows: [{ task: { id: "a" }, start: "2026-11-02" }] },
+    ];
+
+    const covered = coveredDays(days);
+
+    expect([...covered.get("a")!]).toEqual(["2026-11-02", "2026-11-03"]);
+    expect(covered.has("old")).toBe(false);
+  });
+
+  it("is empty for an empty week", () => {
+    expect(coveredDays([]).size).toBe(0);
   });
 });
 

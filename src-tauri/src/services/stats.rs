@@ -7,10 +7,6 @@ use chrono::{NaiveDate, TimeDelta};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
-/// A year and a day; the page offers presets well inside this, and a longer
-/// request would only make the client-side bucketing pointless.
-const MAX_RANGE_DAYS: i64 = 366;
-
 /// What finished work means everywhere on the statistics page: a live done task
 /// with a real completion stamp. Archiving is filing, not undoing, so archived
 /// tasks and tasks inside archived projects still count. Reopening a task clears
@@ -153,7 +149,7 @@ pub fn overview(conn: &Connection, from: &str, to: &str) -> Result<StatsOverview
         return Err("invalid_stats_range".into());
     }
     let days = (end - start).num_days() + 1;
-    if days > MAX_RANGE_DAYS {
+    if days > crate::limits::LIMITS.stats_range_days {
         return Err("stats_range_too_long".into());
     }
     let from = format_day(start);

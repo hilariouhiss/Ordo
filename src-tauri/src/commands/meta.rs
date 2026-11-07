@@ -26,6 +26,49 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, Str
     .await
 }
 
+/// Writes every field in one transaction, so a failed write cannot half-save a form.
+fn save_settings(
+    conn: &Connection,
+    patch: SettingsPatch,
+    saved_views: Option<String>,
+) -> Result<SettingsDto, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let sets: Vec<(&str, Option<String>)> = vec![
+        ("language", patch.language),
+        ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
+        ("ai.base_url", patch.ai_base_url.map(|v| v.trim().to_string())),
+        ("ai.model", patch.ai_model),
+        ("autostart", patch.autostart.map(|v| v.to_string())),
+        ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
+        ("theme", patch.theme),
+        ("desk.enabled", patch.desk_enabled.map(|v| v.to_string())),
+        ("desk.controls", patch.desk_controls.map(|v| v.to_string())),
+        ("desk.pin", patch.desk_pin),
+        ("desk.x", patch.desk_x.map(|v| v.to_string())),
+        ("desk.y", patch.desk_y.map(|v| v.to_string())),
+        ("tasks.group_by", patch.tasks_group_by),
+        (
+            "week.show_empty_days",
+            patch.week_show_empty_days.map(|v| v.to_string()),
+        ),
+        ("week.view", patch.week_view),
+        ("tasks.saved_views", saved_views),
+        (
+            "reminders.lead_minutes",
+            patch.reminders_lead_minutes.map(|v| v.to_string()),
+        ),
+        ("reminders.digest", patch.reminders_digest.map(|v| v.to_string())),
+    ];
+    for (key, value) in sets {
+        if let Some(value) = value {
+            crate::repo::settings::set(&tx, key, &value).map_err(|e| e.to_string())?;
+        }
+    }
+    let settings = crate::repo::settings::dto(&tx).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(settings)
+}
+
 #[tauri::command]
 pub async fn set_settings(
     app: tauri::AppHandle,
@@ -64,7 +107,7 @@ pub async fn set_settings(
         }
     }
     if let Some(lead) = patch.reminders_lead_minutes {
-        if !(0..=crate::repo::settings::LEAD_MAX_MINUTES).contains(&lead) {
+        if !(0..=crate::limits::LIMITS.reminder_lead_minutes).contains(&lead) {
             return Err("invalid_reminder_lead".into());
         }
     }
@@ -98,41 +141,7 @@ pub async fn set_settings(
             serde_json::to_string(&trimmed).map_err(|e| e.to_string())
         })
         .transpose()?;
-    let settings = with_db(&state, move |conn| {
-        let sets: Vec<(&str, Option<String>)> = vec![
-            ("language", patch.language),
-            ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
-            ("ai.base_url", patch.ai_base_url.map(|v| v.trim().to_string())),
-            ("ai.model", patch.ai_model),
-            ("autostart", patch.autostart.map(|v| v.to_string())),
-            ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
-            ("theme", patch.theme),
-            ("desk.enabled", patch.desk_enabled.map(|v| v.to_string())),
-            ("desk.controls", patch.desk_controls.map(|v| v.to_string())),
-            ("desk.pin", patch.desk_pin),
-            ("desk.x", patch.desk_x.map(|v| v.to_string())),
-            ("desk.y", patch.desk_y.map(|v| v.to_string())),
-            ("tasks.group_by", patch.tasks_group_by),
-            (
-                "week.show_empty_days",
-                patch.week_show_empty_days.map(|v| v.to_string()),
-            ),
-            ("week.view", patch.week_view),
-            ("tasks.saved_views", saved_views),
-            (
-                "reminders.lead_minutes",
-                patch.reminders_lead_minutes.map(|v| v.to_string()),
-            ),
-            ("reminders.digest", patch.reminders_digest.map(|v| v.to_string())),
-        ];
-        for (key, value) in sets {
-            if let Some(value) = value {
-                crate::repo::settings::set(conn, key, &value).map_err(|e| e.to_string())?;
-            }
-        }
-        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
-    })
-    .await?;
+    let settings = with_db(&state, move |conn| save_settings(conn, patch, saved_views)).await?;
     if language_requested || desk_requested {
         let lang = if settings.language == "en" {
             crate::i18n::Lang::En
@@ -202,6 +211,27 @@ mod tests {
 
         crate::repo::settings::set(&c, "backup_error", "").unwrap();
         assert!(crate::repo::settings::dto(&c).unwrap().backup_error.is_none());
+    }
+
+    #[test]
+    fn a_failed_settings_write_rolls_back_every_field() {
+        let c = crate::db::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_theme BEFORE INSERT ON settings
+             WHEN NEW.key = 'theme' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let patch = crate::dto::SettingsPatch {
+            language: Some("en".into()),
+            theme: Some("dark".into()),
+            ..Default::default()
+        };
+
+        assert!(super::save_settings(&c, patch, None).is_err());
+        assert!(
+            crate::repo::settings::get(&c, "language").unwrap().is_none(),
+            "the first field must roll back with the rejected one"
+        );
     }
 
     #[test]

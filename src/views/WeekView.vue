@@ -9,7 +9,7 @@ import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
-import { anchorFor, boardDropAt, listDropAt } from "../lib/weekDrop";
+import { anchorFor, boardDropAt, coveredDays, listDropAt } from "../lib/weekDrop";
 import type { Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -158,18 +158,7 @@ const emptyWeek = computed(() => {
   return ganttView.value ? !days.value.some((day) => day.rows.length) : !shownDays.value.length;
 });
 /** The days each open task already shows on, so a drop inside them only reorders. */
-const plannedDays = computed(() => {
-  const dates = new Map<string, Set<string>>();
-  for (const day of shownDays.value) {
-    for (const row of day.rows) {
-      if (row.history) continue;
-      const shown = dates.get(row.task.id) ?? new Set<string>();
-      shown.add(day.date);
-      dates.set(row.task.id, shown);
-    }
-  }
-  return dates;
-});
+const plannedDays = computed(() => coveredDays(shownDays.value));
 
 /** The handle starts the drag; a right click does not. */
 function startDrag(event: PointerEvent, id: string): void {

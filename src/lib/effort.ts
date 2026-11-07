@@ -1,8 +1,10 @@
 import { t } from "./i18n";
+import { EFFORT_MAX_MINUTES } from "./limits";
 
-/** Effort is minutes of work: one minute up to 480 hours (sixty eight-hour days). */
+export { EFFORT_MAX_MINUTES };
+
+/** Effort is minutes of work: one minute up to the shared cap (sixty eight-hour days). */
 export const EFFORT_MIN_MINUTES = 1;
-export const EFFORT_MAX_MINUTES = 28800;
 
 export function validEffort(minutes: number): boolean {
   return (

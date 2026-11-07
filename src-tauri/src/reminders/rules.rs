@@ -460,6 +460,27 @@ mod tests {
     }
 
     #[test]
+    fn a_snooze_fires_once_and_is_dropped() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-21");
+        // A snooze in the past is due now; build it from local time so the test holds in any zone.
+        let fire_at = at(2026, 10, 20, 9, 0).with_timezone(&chrono::Utc).to_rfc3339();
+        crate::repo::snoozes::set(&c, "t1", &fire_at).unwrap();
+
+        let first = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 10, 0)).unwrap();
+        let fired: Vec<_> = first.iter().filter(|one| one.task_id == "t1").collect();
+        assert_eq!(fired.len(), 1, "a pending snooze replaces the normal reminder");
+        assert!(!fired[0].record, "the first reminder already counted");
+        assert!(crate::repo::snoozes::all(&c).unwrap().is_empty());
+
+        let second = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 10, 1)).unwrap();
+        assert!(
+            second.iter().all(|one| one.task_id != "t1"),
+            "a snooze must not come back on the next tick"
+        );
+    }
+
+    #[test]
     fn catch_up_skips_older_than_14_days() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-09-30");

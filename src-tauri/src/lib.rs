@@ -7,6 +7,7 @@ pub mod commands;
 pub mod db;
 pub mod dto;
 pub mod i18n;
+pub mod limits;
 pub mod repo;
 pub mod reminders;
 pub mod services;
@@ -426,11 +427,12 @@ pub fn run() {
           match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
               Ok(found) => found,
               Err(e) => {
-                  let (title, message) = crate::i18n::database_open_failed(
-                      crate::i18n::system_lang(),
-                      &e,
-                      &data_dir.display().to_string(),
-                  );
+                  let lang = crate::i18n::system_lang();
+                  let dir_label = data_dir.display().to_string();
+                  let (title, message) = match e.strip_prefix("db_newer_than_app: ") {
+                      Some(version) => crate::i18n::database_too_new(lang, version, &dir_label),
+                      None => crate::i18n::database_open_failed(lang, &e, &dir_label),
+                  };
                   // stderr is invisible in a windows_subsystem release build, so leave a file.
                   eprintln!("{message}");
                   let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);

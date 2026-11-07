@@ -187,6 +187,24 @@ pub fn legacy_migration_failed(lang: Lang, error: &str, old_dir: &str) -> (Strin
     }
 }
 
+/// A ledger from a newer Ordo: the old build must not migrate or write it.
+pub fn database_too_new(lang: Lang, version: &str, data_dir: &str) -> (String, String) {
+    match lang {
+        Lang::Zh => (
+            "Ordo 打不开这个数据库".into(),
+            format!(
+                "这份账本来自更新版本的 Ordo（数据库版本 {version}），这个版本不能安全地打开它。请装回新版；文件和备份还在 {data_dir}，什么都没改。"
+            ),
+        ),
+        Lang::En => (
+            "Ordo could not open this database".into(),
+            format!(
+                "This ledger was written by a newer Ordo (database version {version}); this version cannot open it safely. Reinstall the newer version. The file and backups are still at {data_dir}; nothing was changed."
+            ),
+        ),
+    }
+}
+
 pub fn database_open_failed(lang: Lang, error: &str, data_dir: &str) -> (String, String) {
     match lang {
         Lang::Zh => (

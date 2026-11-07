@@ -49,6 +49,10 @@ pub fn open_with_recovery(
         }
     }
     if let Some(version) = read_version(path) {
+        // Migrations only go forward; an older build must not write into a newer schema.
+        if version > migrations::LATEST {
+            return Err(format!("db_newer_than_app: {version}"));
+        }
         if version > 0 && version != migrations::LATEST {
             backup_before_migration(path, backups, version)?;
         }
@@ -159,6 +163,10 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
     let kept = had_file.then_some(kept_at);
     let mut last = String::new();
     for candidate in candidates {
+        if read_version(&candidate).is_some_and(|version| version > migrations::LATEST) {
+            last = "restored_backup_too_new".to_string();
+            continue;
+        }
         if let Err(e) = std::fs::copy(&candidate, path) {
             last = format!("restore_failed: {e}");
             continue;
@@ -539,6 +547,29 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(version, 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn refuses_a_ledger_written_by_a_newer_build() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        {
+            let c = open(&path).unwrap();
+            c.pragma_update(None, "user_version", 99).unwrap();
+        }
+        let backups = dir.join("backups");
+
+        let err = open_with_recovery(&path, &backups).err().unwrap();
+
+        assert!(err.starts_with("db_newer_than_app: 99"), "{err}");
+        // Nothing was copied or rewritten: the newer build still owns this file.
+        assert!(!backups.join("pre-migration-v99.db").exists());
+        let version: i64 = Connection::open(&path)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 99);
         std::fs::remove_dir_all(&dir).ok();
     }
 

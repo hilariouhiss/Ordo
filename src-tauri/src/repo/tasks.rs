@@ -318,6 +318,7 @@ pub fn set_status(
     // Completing records the actual effort: the wall-clock time between start and finish
     // when the task was started, and the estimate when it never was. One minute is the
     // floor, so a quick tick still counts.
+    let max_effort = crate::limits::LIMITS.effort_minutes;
     conn.execute(
         &format!(
             "UPDATE tasks SET {STATUS_SET},
@@ -325,7 +326,7 @@ pub fn set_status(
                 actual_finish_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
                 actual_effort_minutes = CASE WHEN ?2 THEN
                     COALESCE(
-                        MIN(28800, MAX(1, CAST(ROUND((julianday(?3) - julianday(started_at)) * 1440.0)
+                        MIN({max_effort}, MAX(1, CAST(ROUND((julianday(?3) - julianday(started_at)) * 1440.0)
                                                 AS INTEGER))),
                         effort_minutes)
                     ELSE NULL END,

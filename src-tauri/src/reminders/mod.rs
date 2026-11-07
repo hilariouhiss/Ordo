@@ -97,15 +97,18 @@ pub fn start(app: AppHandle) {
 }
 
 fn tick(app: &AppHandle) -> Result<(), String> {
+    // Copy the ledger before taking the lock: VACUUM INTO reads the whole database and
+    // must not leave the UI waiting behind the app's only connection.
+    let (backed_up, backup_error) = backup_ledger(app);
     let state = app.state::<AppState>();
     // Everything that touches the ledger happens under this one lock; notifications and
     // the tray are updated after it is released, so a slow OS call cannot stall the app.
     let (lang, toasts, digest, unread) = {
         let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
+        crate::services::export::record_error(&conn, backup_error);
         let lang = crate::i18n::from_conn(&conn);
         let now = chrono::Local::now();
-        // Before the fallible reminder work, so one bad row cannot stop the daily backup too.
-        if backup_ledger(app, &conn) {
+        if backed_up {
             let cutoff = (now - chrono::Duration::days(NOTIFICATION_KEEP_DAYS))
                 .with_timezone(&chrono::Utc)
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -206,16 +209,25 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Backs up the ledger once a day; every other tick only checks a file exists. The
-/// return value says whether this tick wrote a copy, which is also when cleanup runs.
-fn backup_ledger(app: &AppHandle, conn: &rusqlite::Connection) -> bool {
+/// Backs up the ledger once a day on its own connection; every other tick only checks a
+/// file exists. The two values say whether this tick wrote a copy (which is also when
+/// cleanup runs) and why it failed, if it did.
+fn backup_ledger(app: &AppHandle) -> (bool, Option<String>) {
     let Ok(data_dir) = app.path().app_data_dir() else {
-        return false;
+        return (false, Some("no_app_data_dir".into()));
     };
-    let result = crate::services::export::backup_daily(conn, &data_dir.join("backups"));
+    let path = data_dir.join("ordo.db");
+    if !path.is_file() {
+        return (false, Some("missing_db".into()));
+    }
+    let conn = match rusqlite::Connection::open(&path) {
+        Ok(conn) => conn,
+        Err(e) => return (false, Some(e.to_string())),
+    };
+    let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
+    let result = crate::services::export::backup_daily(&conn, &data_dir.join("backups"));
     let made = result.as_ref().map(|path| path.is_some()).unwrap_or(false);
-    crate::services::export::record_error(conn, result.err());
-    made
+    (made, result.err())
 }
 
 #[cfg(test)]

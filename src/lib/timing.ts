@@ -1,5 +1,5 @@
 import { addDays, isWeekend } from "./dates";
-import { MINUTES_PER_DAY } from "./effort";
+import { EFFORT_MAX_MINUTES, MINUTES_PER_DAY } from "./effort";
 
 /** The same day, or the next Monday when it falls on a weekend. */
 export function workdayOnOrAfter(iso: string): string {
@@ -35,7 +35,7 @@ export function finishForEffort(anchor: string, effortMinutes: number): string {
 export function effortForFinish(anchor: string, finishDay: string): number | null {
   const finish = workdayOnOrBefore(finishDay);
   if (finish < anchor) return null;
-  const maxDays = 28800 / MINUTES_PER_DAY;
+  const maxDays = EFFORT_MAX_MINUTES / MINUTES_PER_DAY;
   let days = 0;
   let day = workdayOnOrAfter(anchor);
   while (day <= finish) {

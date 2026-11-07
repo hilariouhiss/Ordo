@@ -1,9 +1,9 @@
 use crate::dto::{TaskDto, TaskPatch};
 use rusqlite::Connection;
 
-/// Minutes of work: one minute up to 480 hours (sixty eight-hour days).
+/// Minutes of work: at least one, up to the shared cap (sixty eight-hour days by default).
 pub fn valid_effort(minutes: i64) -> bool {
-    (1..=28800).contains(&minutes)
+    (1..=crate::limits::LIMITS.effort_minutes).contains(&minutes)
 }
 
 pub fn valid_priority(priority: &str) -> bool {
@@ -207,7 +207,7 @@ fn sync_actual_in(
         if minutes < 0 {
             return Err("finish_before_start".into());
         }
-        effort = Some(minutes.clamp(1, 28800));
+        effort = Some(minutes.clamp(1, crate::limits::LIMITS.effort_minutes));
     }
     if reopen {
         effort = None;
@@ -929,7 +929,7 @@ mod tests {
         let t = tasks::update_patch(&c, "t1", &later, NOW).unwrap();
         assert_eq!(t.effort_minutes, 150);
 
-        for accepted in [1, 28800] {
+        for accepted in [1, crate::limits::LIMITS.effort_minutes] {
             let patch = TaskPatch {
                 effort_minutes: Some(accepted),
                 ..Default::default()
@@ -937,7 +937,7 @@ mod tests {
             let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
             assert_eq!(t.effort_minutes, accepted);
         }
-        for rejected in [0, 28801] {
+        for rejected in [0, crate::limits::LIMITS.effort_minutes + 1] {
             let patch = TaskPatch {
                 effort_minutes: Some(rejected),
                 ..Default::default()

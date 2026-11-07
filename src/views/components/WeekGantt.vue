@@ -6,7 +6,7 @@ import { t } from "../../lib/i18n";
 import { easeOut, listItemMotion } from "../../lib/motion";
 import { weekPanels, type PlannedDay, type PlannedRow, type WeekPanel } from "../../lib/plan";
 import { usePointerDrag, type PointerDrag } from "../../lib/pointerDrag";
-import { anchorFor, boardDropAt, type BoardDrop } from "../../lib/weekDrop";
+import { anchorFor, boardDropAt, coveredDays, type BoardDrop } from "../../lib/weekDrop";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import { weekVM } from "../../viewmodels/weekVM";
 import WeekTaskCard from "./WeekTaskCard.vue";
@@ -36,18 +36,7 @@ const rowsByDate = computed(() => {
   return map;
 });
 /** The days each open task already shows on, so a drop inside them only reorders. */
-const coverage = computed(() => {
-  const map = new Map<string, Set<string>>();
-  for (const day of panels.value) {
-    for (const row of day.rows) {
-      if (row.history) continue;
-      const dates = map.get(row.task.id) ?? new Set<string>();
-      dates.add(day.date);
-      map.set(row.task.id, dates);
-    }
-  }
-  return map;
-});
+const coverage = computed(() => coveredDays(panels.value));
 
 const dragged = ref(false);
 // The type is spelled out: a drag reports the deck it is over, and the deck is read

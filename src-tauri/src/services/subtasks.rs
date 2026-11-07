@@ -207,8 +207,18 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|e| e.to_string())?
     };
-    // Nothing left to add up: the task is an ordinary task again and keeps its own fields.
+    // Nothing left to add up: the task is an ordinary task again. Its status and actual
+    // times came from children that are now gone, so they must not stay behind.
     if statuses.is_empty() {
+        conn.execute(
+            "UPDATE tasks SET status = 'todo',
+                    in_week = CASE WHEN suspended THEN 0 ELSE 1 END,
+                    started_at = NULL, actual_finish_at = NULL,
+                    actual_effort_minutes = NULL, updated_at = ?1
+             WHERE id = ?2",
+            params![now, parent_id],
+        )
+        .map_err(|e| e.to_string())?;
         return Ok(());
     }
     let (effort, start, finish, started, finished, actual): (
@@ -527,6 +537,55 @@ mod tests {
             tasks::set_status(&c, "t1", "done", LATER).unwrap_err(),
             "parent_derived"
         );
+    }
+
+    #[test]
+    fn losing_the_last_started_child_clears_the_parent_rollup() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        tasks::set_status(&c, &child, "doing", NOW).unwrap();
+
+        remove(&c, &child, LATER).unwrap();
+
+        let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(parent.status, "todo");
+        assert!(parent.actual_start_at.is_none());
+        assert!(parent.actual_finish_at.is_none());
+        assert!(parent.actual_effort_minutes.is_none());
+        assert!(parent.in_week);
+    }
+
+    #[test]
+    fn losing_the_last_finished_child_clears_the_phantom_completion() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        tasks::set_status(&c, &child, "done", LATER).unwrap();
+        assert_eq!(crate::repo::tasks::dto(&c, "t1").unwrap().status, "done");
+
+        remove(&c, &child, LATER).unwrap();
+
+        let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(parent.status, "todo");
+        assert!(parent.actual_finish_at.is_none());
+        assert!(parent.actual_effort_minutes.is_none());
+        assert!(parent.in_week);
+    }
+
+    #[test]
+    fn cancelling_the_last_started_child_clears_the_parent_rollup() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        tasks::set_status(&c, &child, "doing", NOW).unwrap();
+
+        week::resolve(&c, &child, week::PassAction::Cancel, None, None, LATER).unwrap();
+
+        let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(parent.status, "todo");
+        assert!(parent.actual_start_at.is_none());
+        assert!(parent.in_week);
     }
 
     #[test]

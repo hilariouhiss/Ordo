@@ -12,6 +12,7 @@ import {
   personDays,
   weekdayTotals,
 } from "../lib/stats";
+import { STATS_RANGE_DAYS } from "../lib/limits";
 import { statsOverview } from "../model/ipc";
 import type { StatsOverview } from "../model/types";
 
@@ -19,9 +20,6 @@ export type StatsPreset = "30d" | "12w" | "year" | "custom";
 
 /** Presets the page offers, shortest first; the view maps them to labels. */
 export const STATS_PRESETS: StatsPreset[] = ["30d", "12w", "year", "custom"];
-
-/** A year and a day, matching the service's own ceiling. */
-const MAX_RANGE_DAYS = 366;
 
 /** Stands in before the first payload so the view never juggles nulls. */
 function emptyOverview(): StatsOverview {
@@ -124,7 +122,9 @@ export function createStatsVM() {
     let end = to;
     if (!start || !end) return { from: state.to, to: state.to };
     if (start > end) [start, end] = [end, start];
-    if (daysBetween(start, end) + 1 > MAX_RANGE_DAYS) start = addDays(end, -(MAX_RANGE_DAYS - 1));
+    if (daysBetween(start, end) + 1 > STATS_RANGE_DAYS) {
+      start = addDays(end, -(STATS_RANGE_DAYS - 1));
+    }
     return { from: start, to: end };
   }
 
