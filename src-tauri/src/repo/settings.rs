@@ -102,11 +102,8 @@ pub fn valid_saved_views(views: &[SavedTaskViewDto]) -> bool {
 
 /// A hand-edited or older value must not stop the bootstrap: bad entries are
 /// dropped and the list is capped instead of failing the whole settings read.
-pub fn saved_views(conn: &Connection) -> Vec<SavedTaskViewDto> {
-    get(conn, SAVED_VIEWS_KEY)
-        .ok()
-        .flatten()
-        .and_then(|text| serde_json::from_str::<Vec<SavedTaskViewDto>>(&text).ok())
+pub fn parse_saved_views(text: Option<&str>) -> Vec<SavedTaskViewDto> {
+    text.and_then(|text| serde_json::from_str::<Vec<SavedTaskViewDto>>(text).ok())
         .map(|views| {
             views
                 .into_iter()
@@ -225,7 +222,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .filter(|value| valid_week_view(value))
             .cloned()
             .unwrap_or_else(|| "list".into()),
-        saved_task_views: saved_views(conn),
+        saved_task_views: parse_saved_views(map.get(SAVED_VIEWS_KEY).map(String::as_str)),
         reminders_lead_minutes: num(&map, "reminders.lead_minutes", 0)
             .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
         reminders_digest: flag(&map, "reminders.digest", true),
