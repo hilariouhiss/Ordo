@@ -35,5 +35,9 @@ dist-ssr
 .agents/
 .claude/
 .superpowers/
+.zcode/
 skills-lock.json
 .codegraph/
+
+# Windows scratch that a redirected command leaves behind
+nul
