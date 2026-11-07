@@ -6,6 +6,7 @@ vi.mock("../../model/ipc", () => ({
   suspendTask: vi.fn(),
   resumeTask: vi.fn(),
   updateTaskPatch: vi.fn(),
+  waitTask: vi.fn(),
 }));
 vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 
@@ -15,6 +16,7 @@ import {
   startTask,
   suspendTask,
   updateTaskPatch,
+  waitTask,
 } from "../../model/ipc";
 import { undoVM } from "../undoVM";
 import { createTaskRowVM } from "../taskRowVM";
@@ -28,6 +30,7 @@ describe("taskRowVM", () => {
     vi.mocked(suspendTask).mockResolvedValue(task());
     vi.mocked(resumeTask).mockResolvedValue(task());
     vi.mocked(updateTaskPatch).mockResolvedValue(task());
+    vi.mocked(waitTask).mockResolvedValue(task({ waiting: true }));
   });
 
   it("starts and suspends the task through the commands", async () => {
@@ -72,6 +75,46 @@ describe("taskRowVM", () => {
     const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
     await run();
     expect(resumeTask).toHaveBeenCalledWith("t1");
+  });
+
+  it("waits through the command and offers undo back into the week", async () => {
+    const vm = createTaskRowVM();
+
+    await vm.wait(task({ id: "t1", title: "交底" }), "u2", "2026-11-15");
+
+    expect(waitTask).toHaveBeenCalledWith("t1", "u2", "2026-11-15");
+    const [message, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    expect(String(message)).toContain("交底");
+    await run();
+    expect(resumeTask).toHaveBeenCalledWith("t1");
+  });
+
+  it("undo of a moved wait restores the old person and day", async () => {
+    const vm = createTaskRowVM();
+
+    await vm.wait(
+      task({ id: "t1", waiting: true, waitingOnId: "u2", followUpDate: "2026-12-01" }),
+      "u3",
+      "2026-12-05",
+    );
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
+    await run();
+
+    expect(waitTask).toHaveBeenLastCalledWith("t1", "u2", "2026-12-01");
+  });
+
+  it("undo of a moved wait drops a day that has already passed", async () => {
+    const vm = createTaskRowVM();
+
+    await vm.wait(
+      task({ id: "t1", waiting: true, waitingOnId: "u2", followUpDate: "2020-01-01" }),
+      "u3",
+      "2026-12-05",
+    );
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
+    await run();
+
+    expect(waitTask).toHaveBeenLastCalledWith("t1", "u2", null);
   });
 
   it("puts the recorded times back when the undo of a reopen re-completes", async () => {

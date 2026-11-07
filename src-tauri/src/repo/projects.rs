@@ -57,6 +57,7 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
                 "SELECT id FROM tasks
                  WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
                    AND archived_at IS NULL AND status <> 'done' AND suspended = 0
+                   AND waiting = 0
                  ORDER BY sort_order, id",
             )?;
             stmt.query_map([id], |r| r.get(0))?
@@ -361,6 +362,22 @@ mod tests {
             .unwrap();
         }
         c
+    }
+
+    #[test]
+    fn restoring_a_project_leaves_a_waiting_task_out_of_the_week() {
+        let c = project_with_two_tasks();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+        set_archived(&c, "p1", true, NOW).unwrap();
+        set_archived(&c, "p1", false, NOW).unwrap();
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert!(t.waiting);
+        assert!(!t.in_week);
+        let open: i64 = c
+            .query_row("SELECT in_week FROM tasks WHERE id = 't2'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(open, 1, "the task that is not waiting comes back to the week");
     }
 
     #[test]

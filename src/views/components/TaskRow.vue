@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ChevronRight, Pause, Play } from "@lucide/vue";
+import { ChevronRight, Hourglass, Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, shortDateTime, todayIso } from "../../lib/dates";
-import { askNotice, askSuspend } from "../../lib/dialog";
+import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import { listItemMotion } from "../../lib/motion";
-import { canSuspendTask } from "../../lib/status";
+import { canSuspendTask, canWaitTask } from "../../lib/status";
+import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import { currentSubtask, subtaskLabel, subtasksDone } from "../../lib/subtasks";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
@@ -84,6 +85,13 @@ const suspendedBadge = computed(() =>
     ? t("task.suspendedFor", { days: daysSince(props.task.suspendedAt, todayIso()) })
     : t("task.suspendedNoDate"),
 );
+const canWait = computed(() => canWaitTask(props.task));
+const waitLabel = computed(() =>
+  t(props.task.waiting ? "task.followUpAria" : "task.waitAria", { title: props.task.title }),
+);
+const waitingName = computed(() => waitingOnName(props.task, appVM.state.people));
+const waitingDays = computed(() => daysSince(props.task.waitingSince, todayIso()));
+const followUpToday = computed(() => props.task.followUpDate === todayIso());
 
 async function run(action: () => Promise<unknown>): Promise<void> {
   if (busy.value) return;
@@ -130,6 +138,25 @@ function start(): void {
   void run(() => taskRowVM.start(props.task));
 }
 
+/** Parks the task on someone else's reply, or moves the day to chase them. */
+async function wait(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    const draft = await askWaiting(
+      t("task.waitDialogTitle", { title: props.task.title }),
+      waitDefaults(props.task, appVM.state.people, todayIso()),
+    );
+    if (!draft) return;
+    await taskRowVM.wait(props.task, draft.personId, draft.followUpDate || null);
+    emit("changed");
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function suspend(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
@@ -172,7 +199,7 @@ async function suspend(): Promise<void> {
         :disabled="busy"
         @click.stop="toggleDone"
       >
-        <StatusDot :status="task.status" :suspended="task.suspended" />
+        <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
       </button>
       <span
         v-else
@@ -180,7 +207,7 @@ async function suspend(): Promise<void> {
         :title="hasSubtasks ? t('task.subtasksHint') : undefined"
         @click.stop
       >
-        <StatusDot :status="task.status" :suspended="task.suspended" />
+        <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
       </span>
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2.5">
@@ -246,6 +273,27 @@ async function suspend(): Promise<void> {
           <span v-if="task.suspended && task.suspendedUntil" class="badge badge-ghost badge-xs">
             {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
           </span>
+          <span
+            v-if="task.waiting"
+            class="badge badge-soft badge-info badge-xs"
+            :title="waitingName ?? undefined"
+          >
+            {{ waitingName ? t("task.waitingOn", { name: waitingName }) : t("task.waitingNoName") }}
+          </span>
+          <span v-if="task.waiting && waitingDays > 0" class="badge badge-ghost badge-xs">
+            {{ t("task.waitingFor", { days: waitingDays }) }}
+          </span>
+          <span
+            v-if="task.waiting"
+            class="badge badge-ghost badge-xs"
+            :class="{ 'text-info': followUpToday }"
+          >
+            {{
+              task.followUpDate
+                ? t("task.followUpOn", { date: shortDate(task.followUpDate) })
+                : t("task.noFollowUp")
+            }}
+          </span>
           <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
             t("task.overdue", { days: late })
           }}</span>
@@ -261,7 +309,7 @@ async function suspend(): Promise<void> {
             {{ t("task.doneAt", { date: shortDateTime(task.actualFinishAt) }) }}
           </span>
           <span
-            v-else-if="task.expectedFinishDate"
+            v-else-if="!task.waiting && task.expectedFinishDate"
             class="text-right text-[11px]"
             :class="[
               overdue ? 'text-error' : 'text-base-content/45',
@@ -294,6 +342,16 @@ async function suspend(): Promise<void> {
               @click.stop="suspend"
             >
               <Pause :size="13" aria-hidden="true" />
+            </button>
+            <button
+              v-if="canWait"
+              class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-info disabled:opacity-50"
+              :aria-label="waitLabel"
+              :title="waitLabel"
+              :disabled="busy"
+              @click.stop="wait"
+            >
+              <Hourglass :size="13" aria-hidden="true" />
             </button>
           </div>
         </div>

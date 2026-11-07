@@ -5,8 +5,10 @@ import { springSnappy } from "../../lib/motion";
 import { statusDisplay } from "../../lib/status";
 import type { Status } from "../../model/types";
 
-const props = defineProps<{ status: Status; suspended?: boolean }>();
-const display = computed(() => statusDisplay(props.status, props.suspended ?? false));
+const props = defineProps<{ status: Status; suspended?: boolean; waiting?: boolean }>();
+const display = computed(() =>
+  statusDisplay(props.status, props.suspended ?? false, props.waiting ?? false),
+);
 const dotClass = computed(() => {
   switch (display.value) {
     case "done":
@@ -15,6 +17,8 @@ const dotClass = computed(() => {
       return "border-primary bg-primary/25";
     case "suspended":
       return "border-warning bg-warning/15";
+    case "waiting":
+      return "border-info bg-info/15";
     default:
       return "border-base-content/25";
   }
@@ -37,6 +41,11 @@ const dotClass = computed(() => {
         <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
         <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
       </span>
+      <span
+        v-else-if="display === 'waiting'"
+        class="size-1 rounded-full bg-info"
+        aria-hidden="true"
+      ></span>
     </span>
   </motion.span>
 </template>

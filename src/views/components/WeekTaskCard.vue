@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Pause, Play } from "@lucide/vue";
+import { Hourglass, Pause, Play } from "@lucide/vue";
 import { computed, ref } from "vue";
-import { shortDate, shortDateTime } from "../../lib/dates";
-import { askNotice, askSuspend } from "../../lib/dialog";
+import { shortDate, shortDateTime, todayIso } from "../../lib/dates";
+import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import type { PlannedRow } from "../../lib/plan";
-import { canSuspendTask } from "../../lib/status";
+import { canSuspendTask, canWaitTask } from "../../lib/status";
+import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import type { Task } from "../../model/types";
+import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
 import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
@@ -45,6 +47,11 @@ const canStart = computed(
     (props.task.status === "todo" || props.task.suspended),
 );
 const canSuspend = computed(() => !props.readonly && canSuspendTask(props.task));
+const canWait = computed(() => !props.readonly && canWaitTask(props.task));
+const waitLabel = computed(() =>
+  t(props.task.waiting ? "task.followUpAria" : "task.waitAria", { title: props.task.title }),
+);
+const waitingName = computed(() => waitingOnName(props.task, appVM.state.people));
 const doneLabel = computed(() =>
   t(isDone.value ? "task.reopenAria" : "task.doneAria", { title: props.task.title }),
 );
@@ -71,6 +78,12 @@ const meta = computed(() => {
   }
   if (props.task.actualFinishAt) {
     parts.push(t("task.doneAt", { date: shortDateTime(props.task.actualFinishAt) }));
+  } else if (props.task.waiting) {
+    parts.push(
+      props.task.followUpDate
+        ? t("task.followUpOn", { date: shortDate(props.task.followUpDate) })
+        : t("task.noFollowUp"),
+    );
   } else if (props.row.conflict && props.task.expectedFinishDate) {
     parts.push(t("task.expectedFinish") + " " + shortDate(props.task.expectedFinishDate));
   }
@@ -97,6 +110,24 @@ function complete(): void {
 
 function start(): void {
   void run(() => taskRowVM.start(props.task));
+}
+
+async function wait(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    const draft = await askWaiting(
+      t("task.waitDialogTitle", { title: props.task.title }),
+      waitDefaults(props.task, appVM.state.people, todayIso()),
+    );
+    if (!draft) return;
+    await taskRowVM.wait(props.task, draft.personId, draft.followUpDate || null);
+    emit("changed");
+  } catch (e) {
+    void askNotice(t("common.actionFailed"), errorText(e));
+  } finally {
+    busy.value = false;
+  }
 }
 
 async function suspend(): Promise<void> {
@@ -151,10 +182,10 @@ function reorder(delta: -1 | 1): void {
         :disabled="busy"
         @click.stop="complete"
       >
-        <StatusDot :status="task.status" :suspended="task.suspended" />
+        <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
       </button>
       <span v-else class="shrink-0">
-        <StatusDot :status="task.status" :suspended="task.suspended" />
+        <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
       </span>
       <span class="truncate text-[12.5px]" :class="{ 'text-base-content/40 line-through': isDone }">
         {{ task.title }}
@@ -179,6 +210,9 @@ function reorder(delta: -1 | 1): void {
         <span class="min-w-0 truncate">{{ task.projectName }}</span>
       </span>
       <PriorityBadge :priority="task.priority" />
+      <span v-if="task.waiting" class="badge badge-soft badge-info badge-xs shrink-0">
+        {{ waitingName ? t("task.waitingOn", { name: waitingName }) : t("task.waitingNoName") }}
+      </span>
       <span
         v-if="!task.exclusive"
         class="badge badge-ghost badge-xs shrink-0"
@@ -211,6 +245,16 @@ function reorder(delta: -1 | 1): void {
         @click.stop="suspend"
       >
         <Pause :size="12" aria-hidden="true" />
+      </button>
+      <button
+        v-if="canWait"
+        class="grid size-5 place-items-center rounded-md hover:bg-base-100 hover:text-info disabled:opacity-50"
+        :aria-label="waitLabel"
+        :title="waitLabel"
+        :disabled="busy"
+        @click.stop="wait"
+      >
+        <Hourglass :size="12" aria-hidden="true" />
       </button>
     </div>
   </div>

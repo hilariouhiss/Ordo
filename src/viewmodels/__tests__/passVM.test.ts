@@ -37,6 +37,19 @@ describe("passVM", () => {
     expect(passResolve).toHaveBeenCalledWith("t1", "suspend", null, "等甲方");
   });
 
+  it("counts a wait and advances without asking the backend again", async () => {
+    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" }), task({ id: "t2" })]);
+
+    const vm = createPassVM();
+    await vm.start();
+
+    vm.markWaiting();
+
+    expect(vm.state.counts.wait).toBe(1);
+    expect(vm.state.index).toBe(1);
+    expect(vm.current.value?.id).toBe("t2");
+  });
+
   it("does not open the pass when there is nothing to go through", async () => {
     vi.mocked(passQueue).mockResolvedValue([]);
 

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ArrowLeft, X } from "@lucide/vue";
+import { ArrowLeft, Hourglass, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { localDate, shortDate, todayIso } from "../../lib/dates";
+import { askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { currentSubtask } from "../../lib/subtasks";
 import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
+import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import {
   addMember,
   addSubtask,
@@ -16,10 +18,12 @@ import {
   deleteSubtask,
   getTask,
   ownerCandidates,
+  resumeTask,
   setTaskStatus,
   unarchiveTask,
+  waitTask,
 } from "../../model/ipc";
-import { overdueDays } from "../../model/mappers";
+import { daysSince, overdueDays } from "../../model/mappers";
 import type { Person, Priority, Status, Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import {
@@ -85,6 +89,53 @@ watch(
 );
 
 const late = computed(() => overdueDays(task.value?.expectedFinishDate ?? null, todayIso()));
+const waitingName = computed(() =>
+  task.value ? waitingOnName(task.value, appVM.state.people) : null,
+);
+const waitingDays = computed(() =>
+  task.value?.waitingSince ? daysSince(task.value.waitingSince, todayIso()) : 0,
+);
+
+/** The waiting strip writes at once, like archiving: it is a state, not a draft field. */
+async function openWaiting(): Promise<void> {
+  const current = task.value;
+  if (!current) return;
+  const draft = await askWaiting(
+    t("task.waitDialogTitle", { title: current.title }),
+    waitDefaults(current, appVM.state.people, todayIso()),
+  );
+  if (!draft) return;
+  try {
+    taskSheetVM.applyTask(await waitTask(current.id, draft.personId, draft.followUpDate || null));
+    undoVM.pushUndo(t("undo.waiting", { title: current.title }), async () => {
+      if (current.waiting) {
+        const day =
+          current.followUpDate && current.followUpDate >= todayIso() ? current.followUpDate : null;
+        await waitTask(current.id, current.waitingOnId, day);
+      } else {
+        await resumeTask(current.id);
+      }
+    });
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+  }
+}
+
+/** A reply arrived: the task rejoins the week, and undo parks it on the same wait. */
+async function markReplied(): Promise<void> {
+  const current = task.value;
+  if (!current) return;
+  try {
+    taskSheetVM.applyTask(await resumeTask(current.id));
+    undoVM.pushUndo(t("undo.resumed", { title: current.title }), async () => {
+      const day =
+        current.followUpDate && current.followUpDate >= todayIso() ? current.followUpDate : null;
+      await waitTask(current.id, current.waitingOnId, day);
+    });
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+  }
+}
 
 async function refreshCandidates(projectId: string | null): Promise<void> {
   candidates.value = await ownerCandidates(projectId);
@@ -358,6 +409,41 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             {{ t(option.key) }}
           </button>
         </div>
+
+        <div
+          v-if="task.waiting"
+          class="mt-2 flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[11px] text-info"
+        >
+          <Hourglass :size="12" aria-hidden="true" />
+          <span class="min-w-0 truncate">
+            {{ waitingName ? t("task.waitingOn", { name: waitingName }) : t("task.waitingNoName") }}
+            <template v-if="waitingDays > 0">
+              · {{ t("task.waitingFor", { days: waitingDays }) }}
+            </template>
+            ·
+            {{
+              task.followUpDate
+                ? t("task.followUpOn", { date: shortDate(task.followUpDate) })
+                : t("task.noFollowUp")
+            }}
+          </span>
+          <span class="ml-auto flex shrink-0 items-center gap-0.5">
+            <button class="rounded-md px-1.5 py-0.5 hover:bg-info/10" @click="markReplied">
+              {{ t("task.replied") }}
+            </button>
+            <button class="rounded-md px-1.5 py-0.5 hover:bg-info/10" @click="openWaiting">
+              {{ t("task.changeFollowUp") }}
+            </button>
+          </span>
+        </div>
+        <button
+          v-else-if="task.status !== 'done'"
+          class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] text-base-content/40 hover:text-info"
+          @click="openWaiting"
+        >
+          <Hourglass :size="12" aria-hidden="true" />
+          {{ t("task.waitingNoName") }}
+        </button>
 
         <div
           v-if="!task.parentId"

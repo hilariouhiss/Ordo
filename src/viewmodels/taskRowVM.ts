@@ -1,4 +1,12 @@
-import { resumeTask, setTaskStatus, startTask, suspendTask, updateTaskPatch } from "../model/ipc";
+import {
+  resumeTask,
+  setTaskStatus,
+  startTask,
+  suspendTask,
+  updateTaskPatch,
+  waitTask,
+} from "../model/ipc";
+import { todayIso } from "../lib/dates";
 import { t } from "../lib/i18n";
 import type { Task } from "../model/types";
 import { undoVM } from "./undoVM";
@@ -12,6 +20,25 @@ export function createTaskRowVM() {
     return suspendTask(task.id, until, reason).then((updated) => {
       undoVM.pushUndo(t("undo.suspended", { title: task.title }), async () => {
         await resumeTask(task.id);
+      });
+      return updated;
+    });
+  }
+
+  /**
+   * Parks the task on a reply. The undo puts back what the wait replaced: a task that
+   * was not waiting comes back to the week, one that was keeps its old person and day.
+   * A day already gone is dropped instead of refused.
+   */
+  function wait(task: Task, personId: string | null, followUpDate: string | null): Promise<Task> {
+    return waitTask(task.id, personId, followUpDate).then((updated) => {
+      undoVM.pushUndo(t("undo.waiting", { title: task.title }), async () => {
+        if (!task.waiting) {
+          await resumeTask(task.id);
+          return;
+        }
+        const day = task.followUpDate && task.followUpDate >= todayIso() ? task.followUpDate : null;
+        await waitTask(task.id, task.waitingOnId, day);
       });
       return updated;
     });
@@ -49,7 +76,7 @@ export function createTaskRowVM() {
     });
   }
 
-  return { start, suspend, toggleDone, toggleSubtask };
+  return { start, suspend, wait, toggleDone, toggleSubtask };
 }
 
 export const taskRowVM = createTaskRowVM();

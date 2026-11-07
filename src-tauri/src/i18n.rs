@@ -77,10 +77,12 @@ pub fn reminder_headline(lang: Lang, kind: &str, due_today: bool, title: &str) -
         (Lang::Zh, "due_tomorrow", true) => format!("今天截止：{title}"),
         (Lang::Zh, "due_tomorrow", false) => format!("明天截止：{title}"),
         (Lang::Zh, "overdue", _) => format!("已逾期：{title}"),
+        (Lang::Zh, "follow_up", _) => format!("该催一下：{title}"),
         (Lang::Zh, _, _) => format!("该开始了：{title}"),
         (Lang::En, "due_tomorrow", true) => format!("Due today: {title}"),
         (Lang::En, "due_tomorrow", false) => format!("Due tomorrow: {title}"),
         (Lang::En, "overdue", _) => format!("Overdue: {title}"),
+        (Lang::En, "follow_up", _) => format!("Follow up: {title}"),
         (Lang::En, _, _) => format!("Time to start: {title}"),
     }
 }
@@ -279,6 +281,10 @@ mod tests {
             "该开始了：交底"
         );
         assert_eq!(
+            reminder_headline(Lang::Zh, "follow_up", false, "交底"),
+            "该催一下：交底"
+        );
+        assert_eq!(
             reminder_headline(Lang::En, "due_tomorrow", true, "Kickoff"),
             "Due today: Kickoff"
         );
@@ -293,6 +299,10 @@ mod tests {
         assert_eq!(
             reminder_headline(Lang::En, "suspend_start", false, "Kickoff"),
             "Time to start: Kickoff"
+        );
+        assert_eq!(
+            reminder_headline(Lang::En, "follow_up", false, "Kickoff"),
+            "Follow up: Kickoff"
         );
         assert_eq!(
             digest_body(Lang::Zh, 3, 1, &["交底".into(), "周会".into()], 1),

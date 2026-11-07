@@ -4,6 +4,7 @@ import {
   askNotice,
   askSuspend,
   askText,
+  askWaiting,
   closeDialog,
   dialogRequest,
   runWithNotice,
@@ -33,6 +34,27 @@ describe("dialog", () => {
 
   it("treats closing a suspend dialog as a cancel", async () => {
     const pending = askSuspend("挂起「交底」");
+    closeDialog(null);
+    await expect(pending).resolves.toBeNull();
+  });
+
+  it("asks who a task waits on and when to chase them", async () => {
+    const pending = askWaiting("等别人「交底」", {
+      personId: "u2",
+      followUpDate: "2026-11-15",
+    });
+    expect(dialogRequest.value).toEqual({
+      kind: "waiting",
+      title: "等别人「交底」",
+      personId: "u2",
+      followUpDate: "2026-11-15",
+    });
+    closeDialog({ personId: null, followUpDate: "" });
+    await expect(pending).resolves.toEqual({ personId: null, followUpDate: "" });
+  });
+
+  it("treats closing a waiting dialog as a cancel", async () => {
+    const pending = askWaiting("等别人「交底」", { personId: null, followUpDate: "" });
     closeDialog(null);
     await expect(pending).resolves.toBeNull();
   });

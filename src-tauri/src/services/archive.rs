@@ -88,7 +88,7 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
     // The work comes back with the umbrella; a child canceled on purpose stays canceled.
     tx.execute(
         "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
-                in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
+                in_week = CASE WHEN status = 'done' OR suspended OR waiting THEN 0 ELSE 1 END
          WHERE parent_id = ?2 AND deleted_at IS NULL",
         params![now, id],
     )
@@ -114,7 +114,7 @@ pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto,
         return Err("project_archived".into());
     }
     let sql = "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
-                    in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
+                    in_week = CASE WHEN status = 'done' OR suspended OR waiting THEN 0 ELSE 1 END
                WHERE ";
     let changed = tx
         .execute(&format!("{sql}id = ?2"), params![now, id])
@@ -420,6 +420,36 @@ mod tests {
         assert!(t.suspended_at.is_none());
         assert!(t.suspend_reason.is_none());
         assert!(week::list_suspended(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn restoring_a_waiting_task_clears_the_wait() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        let t = archive::restore_task(&c, "t1", NOW).unwrap();
+
+        assert!(t.in_week);
+        assert!(!t.waiting);
+        assert!(t.follow_up_date.is_none());
+        assert!(week::list_waiting(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn undoing_an_archive_keeps_a_waiting_task_waiting() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
+
+        let t = archive::unarchive_task(&c, "t1", NOW).unwrap();
+
+        assert!(t.waiting);
+        assert!(!t.in_week);
+        assert!(week::list(&c).unwrap().is_empty());
+        assert_eq!(week::list_waiting(&c).unwrap().len(), 1);
     }
 
     #[test]

@@ -155,6 +155,11 @@ pub async fn list_suspended(state: State<'_, AppState>) -> Result<Vec<TaskDto>, 
 }
 
 #[tauri::command]
+pub async fn list_waiting(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, |conn| crate::services::week::list_waiting(conn)).await
+}
+
+#[tauri::command]
 pub async fn resume_task(state: State<'_, AppState>, id: String) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
@@ -168,6 +173,26 @@ pub async fn start_task(state: State<'_, AppState>, id: String) -> Result<TaskDt
     let now = now_iso();
     with_db(&state, move |conn| {
         crate::services::week::start(conn, &id, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wait_task(
+    state: State<'_, AppState>,
+    id: String,
+    person_id: Option<String>,
+    follow_up_date: Option<String>,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::week::wait(
+            conn,
+            &id,
+            person_id.as_deref(),
+            follow_up_date.as_deref(),
+            &now,
+        )
     })
     .await
 }

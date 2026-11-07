@@ -7,6 +7,7 @@ import { addDoneRows, fillPlannedDays, groupPlannedDays, toPlanTask } from "../l
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
   listSuspended,
+  listWaiting,
   listWeek,
   listWeekDone,
   markNotificationsSeen,
@@ -14,6 +15,7 @@ import {
   placeTask,
   resumeTask,
   suspendTask,
+  waitTask,
   weekStats,
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
@@ -29,6 +31,8 @@ export function createWeekVM() {
     draft: "",
     loading: false,
     suspended: [] as Task[],
+    /** Waiting on someone's reply: out of the week, but still on the page. */
+    waiting: [] as Task[],
     stats: { added: 0, done: 0, delayed: 0 } as WeekStats,
   });
 
@@ -98,14 +102,16 @@ export function createWeekVM() {
     try {
       today.value = todayIso();
       const todayNow = today.value;
-      const [tasks, suspended, stats, done] = await Promise.all([
+      const [tasks, suspended, waiting, stats, done] = await Promise.all([
         listWeek(),
         listSuspended(),
+        listWaiting(),
         weekStats(todayNow),
         listWeekDone(todayNow),
       ]);
       state.tasks = tasks;
       state.suspended = suspended;
+      state.waiting = waiting;
       state.stats = stats;
       state.done = done;
     } finally {
@@ -160,6 +166,24 @@ export function createWeekVM() {
     }
   }
 
+  /** A reply arrived: the task rejoins the week, and undo puts the wait back. */
+  async function resumeWaiting(id: string): Promise<void> {
+    const parked = state.waiting.find((task) => task.id === id);
+    try {
+      await resumeTask(id);
+      if (parked) {
+        undoVM.pushUndo(t("undo.resumed", { title: parked.title }), async () => {
+          const day =
+            parked.followUpDate && parked.followUpDate >= todayIso() ? parked.followUpDate : null;
+          await waitTask(id, parked.waitingOnId, day);
+        });
+      }
+      await load();
+    } catch (e) {
+      void askNotice(t("common.actionFailed"), errorText(e));
+    }
+  }
+
   async function move(taskId: string, beforeId: string | null): Promise<void> {
     if (taskId === beforeId) return;
     try {
@@ -205,6 +229,7 @@ export function createWeekVM() {
     markSeen,
     capture,
     resume,
+    resumeWaiting,
     move,
     place,
     moveBy,

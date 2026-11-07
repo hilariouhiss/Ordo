@@ -2,10 +2,12 @@
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
-import { dialogRequest, runWithNotice } from "../../lib/dialog";
+import { askWaiting, dialogRequest, runWithNotice } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
+import { waitDefaults } from "../../lib/waiting";
+import { waitTask } from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
@@ -58,6 +60,24 @@ function onSuspendEnter(event: KeyboardEvent): void {
   void actSuspend();
 }
 
+/**
+ * The waiting form is the same dialog the rows use, so the pass needs no panel of its
+ * own: a confirmed wait advances the card through passVM without a second backend round.
+ */
+async function actWait(): Promise<void> {
+  const task = passVM.current.value;
+  if (!task || passVM.state.busy) return;
+  const draft = await askWaiting(
+    t("task.waitDialogTitle", { title: task.title }),
+    waitDefaults(task, appVM.state.people, todayIso()),
+  );
+  if (!draft) return;
+  const saved = await runWithNotice(() =>
+    waitTask(task.id, draft.personId, draft.followUpDate || null),
+  );
+  if (saved) passVM.markWaiting();
+}
+
 async function finish(): Promise<void> {
   if (!(await runWithNotice(() => passVM.finish()))) return;
   await weekVM.load();
@@ -100,6 +120,7 @@ function onKey(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "d") return void act("done");
   if (event.key.toLowerCase() === "x") return void act("cancel");
   if (event.key.toLowerCase() === "s") suspendOpen.value = true;
+  if (event.key.toLowerCase() === "w") void actWait();
   if (event.key.toLowerCase() === "e") split();
 }
 
@@ -183,6 +204,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ t("pass.suspend") }} <kbd class="kbd kbd-xs ml-1">S</kbd>
             </button>
             <button
+              class="btn rounded-lg border-info/40 bg-info/5 font-normal text-info"
+              @click="actWait"
+            >
+              {{ t("pass.wait") }} <kbd class="kbd kbd-xs ml-1">W</kbd>
+            </button>
+            <button
               class="btn rounded-lg border-base-300 bg-base-100 font-normal"
               @click="act('cancel')"
             >
@@ -247,6 +274,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 keep: passVM.state.counts.keep,
                 done: passVM.state.counts.done,
                 suspend: passVM.state.counts.suspend,
+                wait: passVM.state.counts.wait,
                 cancel: passVM.state.counts.cancel,
               })
             }}

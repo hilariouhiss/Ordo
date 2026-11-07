@@ -120,7 +120,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND status <> 'done' AND suspended = 0
+             WHERE in_week = 1 AND status <> 'done' AND suspended = 0 AND waiting = 0
                AND {}
              ORDER BY sort_order, id",
             tasks::VISIBLE_TASK_FILTER
@@ -187,7 +187,9 @@ pub fn suspend(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute(
         "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
-                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4
+                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4,
+                waiting = 0, waiting_on_id = NULL, follow_up_date = NULL,
+                waiting_since = NULL
          WHERE id = ?5",
         params![
             until,
@@ -201,7 +203,9 @@ pub fn suspend(
     // Parking an umbrella parks its work: otherwise the children stay on the week.
     tx.execute(
         "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
-                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4
+                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4,
+                waiting = 0, waiting_on_id = NULL, follow_up_date = NULL,
+                waiting_since = NULL
          WHERE parent_id = ?5 AND deleted_at IS NULL AND status <> 'done'",
         params![
             until,
@@ -210,6 +214,51 @@ pub fn suspend(
             now,
             task_id
         ],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    tasks::dto(conn, task_id).map_err(|e| e.to_string())
+}
+
+/// Parks a task on someone else's reply: it leaves the week, keeps who it waits on
+/// and the day to chase them, and stops being suspended. Open children wait with it,
+/// because it is the whole thing that is with someone else.
+pub fn wait(
+    conn: &Connection,
+    task_id: &str,
+    waiting_on_id: Option<&str>,
+    follow_up_date: Option<&str>,
+    now: &str,
+) -> Result<TaskDto, String> {
+    // An empty field from the UI means "not set", same as leaving it out.
+    let person = waiting_on_id.map(str::trim).filter(|value| !value.is_empty());
+    let follow_up = follow_up_date.map(str::trim).filter(|value| !value.is_empty());
+    let today = local_today(now)?;
+    if let Some(day) = follow_up {
+        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| "invalid_follow_up_date".to_string())?;
+        if date < today {
+            return Err("follow_up_past".into());
+        }
+    }
+    let since = today.format("%Y-%m-%d").to_string();
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE tasks SET in_week = 0, waiting = 1, waiting_on_id = ?1,
+                follow_up_date = ?2, waiting_since = COALESCE(waiting_since, ?3),
+                suspended = 0, suspended_until = NULL, suspended_at = NULL,
+                suspend_reason = NULL, updated_at = ?4
+         WHERE id = ?5",
+        params![person, follow_up, since, now, task_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE tasks SET in_week = 0, waiting = 1, waiting_on_id = ?1,
+                follow_up_date = ?2, waiting_since = COALESCE(waiting_since, ?3),
+                suspended = 0, suspended_until = NULL, suspended_at = NULL,
+                suspend_reason = NULL, updated_at = ?4
+         WHERE parent_id = ?5 AND deleted_at IS NULL AND status <> 'done'",
+        params![person, follow_up, since, now, task_id],
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
@@ -267,6 +316,21 @@ pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String>
             tasks::VISIBLE_TASK_FILTER
         ),
         &[&start, &today],
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub fn list_waiting(conn: &Connection) -> Result<Vec<TaskDto>, String> {
+    tasks::list_for(
+        conn,
+        &format!(
+            "SELECT id FROM tasks
+             WHERE waiting = 1 AND status <> 'done'
+               AND {}
+             ORDER BY follow_up_date IS NULL, follow_up_date, updated_at",
+            tasks::VISIBLE_TASK_FILTER
+        ),
+        &[],
     )
     .map_err(|e| e.to_string())
 }
@@ -373,12 +437,14 @@ pub fn place(
 
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let suspended: i64 = tx
-        .query_row("SELECT suspended FROM tasks WHERE id = ?1", [task_id], |r| {
-            r.get(0)
-        })
+    let parked: i64 = tx
+        .query_row(
+            "SELECT suspended OR waiting FROM tasks WHERE id = ?1",
+            [task_id],
+            |r| r.get(0),
+        )
         .map_err(|e| e.to_string())?;
-    if suspended == 1 {
+    if parked == 1 {
         resume(&tx, task_id, now)?;
     }
     crate::services::tasks::set_status(&tx, task_id, "doing", now)?;
@@ -1195,6 +1261,182 @@ mod tests {
         crate::services::tasks::set_status(&c, "t1", "done", "2026-10-24T06:00:00Z").unwrap();
         assert_eq!(week::stats(&c, "2026-10-24").unwrap().done, 0);
         assert!(week::list_done(&c, "2026-10-24").unwrap().is_empty());
+    }
+
+    #[test]
+    fn wait_parks_with_the_person_the_day_and_the_start() {
+        let c = db::open_in_memory().unwrap();
+        seed_known(&c);
+        week::capture_with_fields(&c, "交底", &crate::dto::CaptureFields::default(), NOW, "t1")
+            .unwrap();
+
+        let t = week::wait(&c, "t1", Some("u1"), Some("2026-11-02"), NOW).unwrap();
+
+        assert!(t.waiting);
+        assert!(!t.in_week);
+        assert!(!t.suspended);
+        assert_eq!(t.waiting_on_id.as_deref(), Some("u1"));
+        assert_eq!(t.follow_up_date.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.waiting_since.as_deref(), Some(local_date(NOW).as_str()));
+        let waiting: Vec<String> = week::list_waiting(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(waiting, vec!["t1"]);
+        assert!(week::list(&c).unwrap().is_empty(), "waiting leaves the week");
+    }
+
+    #[test]
+    fn wait_allows_an_empty_person_and_day() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        let t = week::wait(&c, "t1", None, None, NOW).unwrap();
+
+        assert!(t.waiting);
+        assert!(t.waiting_on_id.is_none());
+        assert!(t.follow_up_date.is_none());
+    }
+
+    #[test]
+    fn wait_keeps_the_day_the_wait_started() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+
+        let t = week::wait(&c, "t1", None, Some("2026-11-05"), "2026-10-21T09:00:00Z").unwrap();
+
+        assert_eq!(t.follow_up_date.as_deref(), Some("2026-11-05"));
+        assert_eq!(
+            t.waiting_since.as_deref(),
+            Some("2026-10-20"),
+            "moving the day to chase does not restart the wait"
+        );
+    }
+
+    #[test]
+    fn wait_rejects_a_past_or_invalid_day() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        assert_eq!(
+            week::wait(&c, "t1", None, Some("2026-10-19"), NOW).unwrap_err(),
+            "follow_up_past"
+        );
+        assert_eq!(
+            week::wait(&c, "t1", None, Some("周四"), NOW).unwrap_err(),
+            "invalid_follow_up_date"
+        );
+        assert!(!crate::repo::tasks::dto(&c, "t1").unwrap().waiting);
+    }
+
+    #[test]
+    fn wait_and_suspend_are_exclusive() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+
+        let t = week::wait(&c, "t1", None, Some("2026-11-03"), NOW).unwrap();
+
+        assert!(t.waiting);
+        assert!(!t.suspended);
+        assert!(t.suspended_until.is_none());
+        assert!(t.suspended_at.is_none());
+        assert!(t.suspend_reason.is_none());
+        assert!(week::list_suspended(&c).unwrap().is_empty());
+
+        let back = week::suspend(&c, "t1", Some("2026-11-04"), None, NOW).unwrap();
+        assert!(!back.waiting);
+        assert!(back.waiting_on_id.is_none());
+        assert!(back.follow_up_date.is_none());
+        assert!(back.waiting_since.is_none());
+        assert!(week::list_waiting(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn wait_cascades_to_live_children() {
+        let c = db::open_in_memory().unwrap();
+        seed_known(&c);
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "发邮件", NOW).unwrap();
+        let child_id = parent.children[0].id.clone();
+        crate::services::subtasks::add(&c, "t1", "归档", NOW).unwrap();
+        c.execute(
+            "UPDATE tasks SET status = 'done', in_week = 0 WHERE title = '归档'",
+            [],
+        )
+        .unwrap();
+
+        week::wait(&c, "t1", Some("u1"), Some("2026-11-05"), NOW).unwrap();
+
+        let child = crate::repo::tasks::dto(&c, &child_id).unwrap();
+        assert!(child.waiting);
+        assert!(!child.in_week);
+        assert_eq!(child.follow_up_date.as_deref(), Some("2026-11-05"));
+        let done: (i64, i64) = c
+            .query_row(
+                "SELECT waiting, in_week FROM tasks WHERE title = '归档'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(done, (0, 0), "a finished child is left alone");
+    }
+
+    #[test]
+    fn waiting_list_orders_by_the_follow_up_day() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "无日期", NOW, "t1").unwrap();
+        week::capture(&c, "后天", NOW, "t2").unwrap();
+        week::capture(&c, "明天", NOW, "t3").unwrap();
+        week::wait(&c, "t1", None, None, NOW).unwrap();
+        week::wait(&c, "t2", None, Some("2026-10-22"), NOW).unwrap();
+        week::wait(&c, "t3", None, Some("2026-10-21"), NOW).unwrap();
+
+        let ids: Vec<String> = week::list_waiting(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec!["t3", "t2", "t1"]);
+    }
+
+    #[test]
+    fn resume_and_place_bring_a_waiting_task_back() {
+        let c = db::open_in_memory().unwrap();
+        seed_known(&c);
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        week::capture(&c, "二", NOW, "t2").unwrap();
+        week::wait(&c, "t1", Some("u1"), Some("2026-11-02"), NOW).unwrap();
+        week::wait(&c, "t2", None, Some("2026-11-03"), NOW).unwrap();
+
+        let t = week::resume(&c, "t1", NOW).unwrap();
+        assert!(!t.waiting);
+        assert!(t.in_week);
+        assert!(t.waiting_on_id.is_none());
+        assert!(t.follow_up_date.is_none());
+        assert!(t.waiting_since.is_none());
+
+        week::place(&c, "t2", "2026-10-22", None, NOW).unwrap();
+        let t = crate::repo::tasks::dto(&c, "t2").unwrap();
+        assert!(!t.waiting);
+        assert!(t.in_week);
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
+    }
+
+    #[test]
+    fn start_brings_a_waiting_task_back() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+
+        let t = week::start(&c, "t1", NOW).unwrap();
+
+        assert_eq!(t.status, "doing");
+        assert!(!t.waiting);
+        assert!(t.in_week);
+        assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
     }
 
     #[test]

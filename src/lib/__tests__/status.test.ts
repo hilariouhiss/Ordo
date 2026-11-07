@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { canSuspendTask, statusDisplay } from "../status";
+import { canSuspendTask, canWaitTask, statusDisplay } from "../status";
 
 describe("statusDisplay", () => {
   it("shows a suspended task as paused even while its status is doing", () => {
@@ -17,6 +17,25 @@ describe("statusDisplay", () => {
 
   it("keeps a done task done", () => {
     expect(statusDisplay("done", true)).toBe("done");
+  });
+
+  it("shows waiting before any stored status, and before a stale suspension", () => {
+    expect(statusDisplay("doing", false, true)).toBe("waiting");
+    expect(statusDisplay("todo", false, true)).toBe("waiting");
+    expect(statusDisplay("todo", true, true)).toBe("waiting");
+    expect(statusDisplay("done", false, true)).toBe("done");
+  });
+});
+
+describe("canWaitTask", () => {
+  it("allows any open task, waiting or not suspended", () => {
+    expect(canWaitTask({ status: "todo", waiting: false })).toBe(true);
+    expect(canWaitTask({ status: "doing", waiting: false })).toBe(true);
+    expect(canWaitTask({ status: "doing", waiting: true })).toBe(true);
+  });
+
+  it("refuses a finished task only", () => {
+    expect(canWaitTask({ status: "done", waiting: false })).toBe(false);
   });
 });
 

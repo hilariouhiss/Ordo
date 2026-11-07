@@ -47,13 +47,18 @@ struct ParentRow {
     suspended_until: Option<String>,
     suspended_at: Option<String>,
     suspend_reason: Option<String>,
+    waiting: i64,
+    waiting_on_id: Option<String>,
+    follow_up_date: Option<String>,
+    waiting_since: Option<String>,
 }
 
 fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
     conn.query_row(
         "SELECT parent_id, project_id, category_id, owner_id, priority, time_exclusive,
                 expected_start_date, expected_finish_date,
-                suspended, suspended_until, suspended_at, suspend_reason
+                suspended, suspended_until, suspended_at, suspend_reason,
+                waiting, waiting_on_id, follow_up_date, waiting_since
          FROM tasks
          WHERE id = ?1 AND deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL",
         [id],
@@ -71,6 +76,10 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
                 suspended_until: r.get(9)?,
                 suspended_at: r.get(10)?,
                 suspend_reason: r.get(11)?,
+                waiting: r.get(12)?,
+                waiting_on_id: r.get(13)?,
+                follow_up_date: r.get(14)?,
+                waiting_since: r.get(15)?,
             })
         },
     )
@@ -108,16 +117,17 @@ pub(crate) fn insert_child(
     }
     let id = uuid::Uuid::new_v4().to_string();
     // A parked umbrella parks its new child too, so the child cannot leak onto the week.
-    let parked = parent.suspended == 1;
+    let parked = parent.suspended == 1 || parent.waiting == 1;
     conn.execute(
         "INSERT INTO tasks (id, title, parent_id, project_id, category_id, owner_id,
                             expected_start_date, expected_finish_date, status, in_week,
                             sort_order, effort_minutes, priority, time_exclusive,
                             suspended, suspended_until, suspended_at, suspend_reason,
+                            waiting, waiting_on_id, follow_up_date, waiting_since,
                             created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'todo', ?9,
                  (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?10, ?11, ?12,
-                 ?13, ?14, ?15, ?16, ?17, ?17)",
+                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?21)",
         params![
             id,
             title,
@@ -135,6 +145,10 @@ pub(crate) fn insert_child(
             parent.suspended_until,
             parent.suspended_at,
             parent.suspend_reason,
+            parent.waiting,
+            parent.waiting_on_id,
+            parent.follow_up_date,
+            parent.waiting_since,
             now
         ],
     )
@@ -212,7 +226,7 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
     if statuses.is_empty() {
         conn.execute(
             "UPDATE tasks SET status = 'todo',
-                    in_week = CASE WHEN suspended THEN 0 ELSE 1 END,
+                    in_week = CASE WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
                     started_at = NULL, actual_finish_at = NULL,
                     actual_effort_minutes = NULL, updated_at = ?1
              WHERE id = ?2",
@@ -268,8 +282,12 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
                 expected_finish_date = CASE WHEN ?11 THEN expected_finish_date ELSE ?3 END,
                 started_at = COALESCE(?4, started_at),
                 status = ?5,
-                in_week = CASE WHEN ?6 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
+                in_week = CASE WHEN ?6 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
                 suspended = CASE WHEN ?6 THEN 0 ELSE suspended END,
+                waiting = CASE WHEN ?6 THEN 0 ELSE waiting END,
+                waiting_on_id = CASE WHEN ?6 THEN NULL ELSE waiting_on_id END,
+                follow_up_date = CASE WHEN ?6 THEN NULL ELSE follow_up_date END,
+                waiting_since = CASE WHEN ?6 THEN NULL ELSE waiting_since END,
                 suspended_until = CASE WHEN ?6 THEN NULL ELSE suspended_until END,
                 suspended_at = CASE WHEN ?6 THEN NULL ELSE suspended_at END,
                 suspend_reason = CASE WHEN ?6 THEN NULL ELSE suspend_reason END,
@@ -484,6 +502,53 @@ mod tests {
         assert!(child.suspended);
         assert!(!child.in_week);
         assert!(week::list(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_new_subtask_of_a_waiting_umbrella_waits_too() {
+        let c = with_task();
+        add(&c, "t1", "收集", NOW).unwrap();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+
+        let parent = add(&c, "t1", "汇编", NOW).unwrap();
+
+        let child = parent
+            .children
+            .iter()
+            .find(|one| one.title == "汇编")
+            .unwrap();
+        assert!(child.waiting);
+        assert!(!child.in_week);
+        assert_eq!(child.follow_up_date.as_deref(), Some("2026-11-02"));
+        assert!(week::list(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_rollup_keeps_a_waiting_parent_out_of_the_week() {
+        let c = with_task();
+        add(&c, "t1", "收集", NOW).unwrap();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+
+        let parent = add(&c, "t1", "汇编", LATER).unwrap();
+
+        assert!(parent.waiting);
+        assert!(!parent.in_week);
+    }
+
+    #[test]
+    fn finishing_the_last_child_clears_the_waiting_parent() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+
+        tasks::set_status(&c, &child, "done", LATER).unwrap();
+
+        let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(parent.status, "done");
+        assert!(!parent.waiting);
+        assert!(parent.follow_up_date.is_none());
+        assert!(week::list_waiting(&c).unwrap().is_empty());
     }
 
     #[test]

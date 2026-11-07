@@ -6,10 +6,12 @@ vi.mock("../../model/ipc", () => ({
   capture: vi.fn(),
   listWeek: vi.fn(),
   listSuspended: vi.fn(),
+  listWaiting: vi.fn().mockResolvedValue([]),
   listWeekDone: vi.fn().mockResolvedValue([]),
   weekStats: vi.fn(),
   resumeTask: vi.fn(),
   suspendTask: vi.fn(),
+  waitTask: vi.fn(),
   markNotificationsSeen: vi.fn(),
   moveTask: vi.fn(),
   placeTask: vi.fn(),
@@ -21,6 +23,7 @@ import { closeDialog, dialogRequest } from "../../lib/dialog";
 import {
   capture,
   listSuspended,
+  listWaiting,
   listWeek,
   listWeekDone,
   markNotificationsSeen,
@@ -28,6 +31,7 @@ import {
   placeTask,
   resumeTask,
   suspendTask,
+  waitTask,
   weekStats,
 } from "../../model/ipc";
 import type { Task } from "../../model/types";
@@ -382,6 +386,69 @@ describe("weekVM plan", () => {
     const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
     await run();
     expect(suspendTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方");
+  });
+
+  it("loads the waiting list with the week", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listWaiting).mockResolvedValue([
+      task({ id: "w1", title: "等甲方", waiting: true, followUpDate: "2026-11-15" }),
+    ]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+
+    await vm.load();
+
+    expect(vm.state.waiting.map((one) => one.id)).toEqual(["w1"]);
+  });
+
+  it("mirrors a resume so undo restores the wait", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listWaiting).mockResolvedValue([
+      task({
+        id: "w1",
+        title: "交底",
+        waiting: true,
+        waitingOnId: "u2",
+        followUpDate: "2099-12-01",
+      }),
+    ]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(resumeTask).mockResolvedValue(task({ id: "w1" }));
+    const vm = createWeekVM();
+    await vm.load();
+
+    await vm.resumeWaiting("w1");
+
+    expect(resumeTask).toHaveBeenCalledWith("w1");
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
+    await run();
+    expect(waitTask).toHaveBeenCalledWith("w1", "u2", "2099-12-01");
+  });
+
+  it("undo of a waiting resume drops a follow-up day already gone", async () => {
+    vi.mocked(listWeek).mockResolvedValue([]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listWaiting).mockResolvedValue([
+      task({
+        id: "w1",
+        title: "交底",
+        waiting: true,
+        waitingOnId: "u2",
+        followUpDate: "2020-01-01",
+      }),
+    ]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    vi.mocked(resumeTask).mockResolvedValue(task({ id: "w1" }));
+    const vm = createWeekVM();
+    await vm.load();
+
+    await vm.resumeWaiting("w1");
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
+    await run();
+
+    expect(waitTask).toHaveBeenCalledWith("w1", "u2", null);
   });
 
   it("undo of a resume after the parked date only restores the parking", async () => {

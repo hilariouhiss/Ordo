@@ -6,17 +6,23 @@ export interface SuspendDraft {
   until: string;
 }
 
+export interface WaitingDraft {
+  personId: string | null;
+  followUpDate: string;
+}
+
 export type DialogRequest =
   | { kind: "text"; title: string; value: string }
   | { kind: "suspend"; title: string }
+  | { kind: "waiting"; title: string; personId: string | null; followUpDate: string }
   | { kind: "confirm"; title: string; message: string }
   | { kind: "notice"; title: string; message: string };
 
 export const dialogRequest = ref<DialogRequest | null>(null);
 
-let settle: ((answer: string | SuspendDraft | null) => void) | null = null;
+let settle: ((answer: string | SuspendDraft | WaitingDraft | null) => void) | null = null;
 
-function ask(request: DialogRequest): Promise<string | SuspendDraft | null> {
+function ask(request: DialogRequest): Promise<string | SuspendDraft | WaitingDraft | null> {
   // A second request must not overwrite the first resolver: that promise would never settle.
   closeDialog(null);
   dialogRequest.value = request;
@@ -25,7 +31,7 @@ function ask(request: DialogRequest): Promise<string | SuspendDraft | null> {
   });
 }
 
-export function closeDialog(answer: string | SuspendDraft | null): void {
+export function closeDialog(answer: string | SuspendDraft | WaitingDraft | null): void {
   dialogRequest.value = null;
   settle?.(answer);
   settle = null;
@@ -37,6 +43,10 @@ export function askText(title: string, value: string): Promise<string | null> {
 
 export function askSuspend(title: string): Promise<SuspendDraft | null> {
   return ask({ kind: "suspend", title }) as Promise<SuspendDraft | null>;
+}
+
+export function askWaiting(title: string, defaults: WaitingDraft): Promise<WaitingDraft | null> {
+  return ask({ kind: "waiting", title, ...defaults }) as Promise<WaitingDraft | null>;
 }
 
 export function askConfirm(title: string, message: string): Promise<boolean> {

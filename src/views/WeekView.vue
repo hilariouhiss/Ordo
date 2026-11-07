@@ -39,12 +39,14 @@ const {
   markSeen,
   capture,
   resume,
+  resumeWaiting,
   move,
   place,
   moveBy,
 } = weekVM;
 const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
 const suspendedOpen = computed(() => state.suspended.length > 0);
+const waitingOpen = computed(() => state.waiting.length > 0);
 const ganttView = computed(() => appVM.state.settings?.weekView === "gantt");
 
 const listEl = ref<HTMLElement | null>(null);
@@ -141,7 +143,9 @@ const dropTarget = computed(() => drag.target.value ?? poolDrag.target.value);
 const dragMoved = computed(() => drag.moved.value || poolDrag.moved.value);
 
 const draggingSuspended = computed(
-  () => draggingId.value !== null && state.suspended.some((task) => task.id === draggingId.value),
+  () =>
+    draggingId.value !== null &&
+    [...state.suspended, ...state.waiting].some((task) => task.id === draggingId.value),
 );
 /**
  * A parked task still needs somewhere to land. With the empty-day setting off the list
@@ -445,6 +449,44 @@ watch(
           class="mt-1.5 h-6 rounded-xl border border-dashed border-primary/50"
         ></div>
       </section>
+    </div>
+
+    <div v-if="waitingOpen" class="space-y-1.5">
+      <div class="px-1 text-[10.5px] font-medium tracking-wide text-base-content/40">
+        {{ t("week.waiting", { count: state.waiting.length }) }}
+      </div>
+      <ul class="space-y-1.5">
+        <TaskRow
+          v-for="task in state.waiting"
+          :key="task.id"
+          :task="task"
+          :style="{ opacity: draggingId === task.id ? 0.4 : undefined }"
+          @open="openTask"
+          @changed="refresh"
+        >
+          <template v-if="!ganttView" #leading>
+            <button
+              class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
+              :aria-label="t('week.reorderAria', { title: task.title })"
+              @click.stop
+              @pointerdown="startDrag($event, task.id)"
+              @pointermove="drag.move"
+              @pointerup="drag.end"
+              @pointercancel="drag.cancel"
+            >
+              <GripVertical :size="14" aria-hidden="true" />
+            </button>
+          </template>
+          <template #actions>
+            <button
+              class="grid h-5 place-items-center rounded-md px-1 text-[10.5px] text-primary hover:bg-base-200"
+              @click.stop="resumeWaiting(task.id)"
+            >
+              {{ t("task.replied") }}
+            </button>
+          </template>
+        </TaskRow>
+      </ul>
     </div>
 
     <div v-if="suspendedOpen" class="space-y-1.5">

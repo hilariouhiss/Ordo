@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 21;
+pub const LATEST: i64 = 22;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -506,6 +506,49 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch("DROP TABLE IF EXISTS steps")?;
         tx.pragma_update(None, "user_version", 21)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 22 {
+        // 等别人 is a parked state beside a suspension: the person whose reply the task
+        // waits on, and the day to chase them. Each column has its own guard so a
+        // half-applied step retries instead of dying on a duplicate.
+        let tx = conn.unchecked_transaction()?;
+        if !has_task_column(&tx, "waiting")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN waiting INTEGER NOT NULL DEFAULT 0")?;
+        }
+        if !has_task_column(&tx, "waiting_on_id")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN waiting_on_id TEXT
+                 REFERENCES people(id) ON DELETE SET NULL",
+            )?;
+        }
+        if !has_task_column(&tx, "follow_up_date")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN follow_up_date TEXT")?;
+        }
+        if !has_task_column(&tx, "waiting_since")? {
+            tx.execute_batch("ALTER TABLE tasks ADD COLUMN waiting_since TEXT")?;
+        }
+        // A CHECK cannot change in place, so the reminder kind list is rebuilt with every
+        // row carried over; the schedule index comes back with the renamed table.
+        tx.execute_batch(
+            "CREATE TABLE notifications_new (
+               id TEXT PRIMARY KEY,
+               task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+               kind TEXT NOT NULL CHECK (kind IN ('due_tomorrow','overdue','suspend_start','follow_up')),
+               due_key TEXT NOT NULL,
+               scheduled_for TEXT NOT NULL,
+               fired_at TEXT,
+               seen_at TEXT,
+               UNIQUE (task_id, kind, due_key)
+             );
+             INSERT INTO notifications_new SELECT * FROM notifications;
+             DROP TABLE notifications;
+             ALTER TABLE notifications_new RENAME TO notifications;
+             CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);",
+        )?;
+        tx.pragma_update(None, "user_version", 22)?;
         tx.commit()?;
     }
     Ok(())
@@ -1850,6 +1893,79 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn adds_waiting_columns_and_the_follow_up_notification_kind() {
+        let c = crate::db::open_in_memory().unwrap();
+        for column in ["waiting", "waiting_on_id", "follow_up_date", "waiting_since"] {
+            assert!(has_task_column(&c, column).unwrap(), "{column} is missing");
+        }
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        c.execute(
+            "INSERT INTO tasks (id, title, created_at, updated_at)
+             VALUES ('t', '甲', '2026-11-07T08:00:00Z', '2026-11-07T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for)
+             VALUES ('n', 't', 'follow_up', '2026-11-10', '2026-11-10T01:00:00Z')",
+            [],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn rebuilding_notifications_for_follow_up_keeps_old_rows() {
+        let c = crate::db::open_in_memory().unwrap();
+        // Put the table back to its pre-v22 shape, then replay the step.
+        c.execute_batch(
+            "CREATE TABLE notifications_old (
+               id TEXT PRIMARY KEY,
+               task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+               kind TEXT NOT NULL CHECK (kind IN ('due_tomorrow','overdue','suspend_start')),
+               due_key TEXT NOT NULL,
+               scheduled_for TEXT NOT NULL,
+               fired_at TEXT,
+               seen_at TEXT,
+               UNIQUE (task_id, kind, due_key)
+             );
+             INSERT INTO notifications_old SELECT * FROM notifications;
+             DROP TABLE notifications;
+             ALTER TABLE notifications_old RENAME TO notifications;
+             CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, created_at, updated_at)
+             VALUES ('t', '甲', '2026-11-07T08:00:00Z', '2026-11-07T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for)
+             VALUES ('n', 't', 'overdue', '2026-11-06', '2026-11-07T09:30:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 21).unwrap();
+
+        migrate(&c).unwrap();
+
+        let kept: String = c
+            .query_row("SELECT kind FROM notifications WHERE id = 'n'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, "overdue");
+        c.execute(
+            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for)
+             VALUES ('n2', 't', 'follow_up', '2026-11-10', '2026-11-10T01:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
     }
 
     #[test]

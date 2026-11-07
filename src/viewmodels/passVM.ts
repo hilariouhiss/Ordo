@@ -10,7 +10,7 @@ export function createPassVM() {
     index: 0,
     open: false,
     busy: false,
-    counts: { keep: 0, done: 0, suspend: 0, cancel: 0 },
+    counts: { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 },
   });
 
   const current = computed(() => state.queue[state.index] ?? null);
@@ -21,7 +21,7 @@ export function createPassVM() {
     if (!queue.length) return;
     state.queue = queue;
     state.index = 0;
-    state.counts = { keep: 0, done: 0, suspend: 0, cancel: 0 };
+    state.counts = { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 };
     state.open = true;
   }
 
@@ -42,13 +42,22 @@ export function createPassVM() {
     }
   }
 
+  /**
+   * The waiting dialog wrote the wait itself, so the card only needs to move on; the
+   * finish screen counts it like any other exit.
+   */
+  function markWaiting(): void {
+    state.counts.wait += 1;
+    state.index += 1;
+  }
+
   async function finish(): Promise<void> {
     const weekStart = await markPassDone(todayIso());
     if (appVM.state.settings) appVM.state.settings.lastPassWeek = weekStart;
     state.open = false;
     state.queue = [];
     state.index = 0;
-    state.counts = { keep: 0, done: 0, suspend: 0, cancel: 0 };
+    state.counts = { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 };
   }
 
   // The card on screen, for opening the task sheet without leaving the pass.
@@ -60,7 +69,7 @@ export function createPassVM() {
     state.open = false;
   }
 
-  return { state, current, start, resolve, finish, close, splitCurrent };
+  return { state, current, start, resolve, markWaiting, finish, close, splitCurrent };
 }
 
 export const passVM = createPassVM();

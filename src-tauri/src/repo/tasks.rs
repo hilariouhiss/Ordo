@@ -15,8 +15,9 @@ pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
 
 /// Bringing a parked task back always means the same five columns. Kept in one place so a
 /// new suspension field cannot be forgotten by one of the paths that resumes a task.
-pub(crate) const UNPARK: &str =
-    "in_week = 1, suspended = 0, suspended_until = NULL, suspended_at = NULL, suspend_reason = NULL";
+pub(crate) const UNPARK: &str = "in_week = 1, suspended = 0, suspended_until = NULL,
+     suspended_at = NULL, suspend_reason = NULL, waiting = 0, waiting_on_id = NULL,
+     follow_up_date = NULL, waiting_since = NULL";
 
 /// Archive lists keep a task inside its archived project; restoring the project comes first.
 pub(crate) const LIVE_PROJECT: &str = concat!(
@@ -61,7 +62,7 @@ pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND suspended = 0 AND {VISIBLE_TASK_FILTER}
+             WHERE in_week = 1 AND suspended = 0 AND waiting = 0 AND {VISIBLE_TASK_FILTER}
              ORDER BY sort_order, id"
         ),
         &[],
@@ -88,7 +89,8 @@ const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expect
             created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
             parent_id,
             (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL),
-            (SELECT title FROM tasks p WHERE p.id = tasks.parent_id)";
+            (SELECT title FROM tasks p WHERE p.id = tasks.parent_id),
+            waiting, waiting_on_id, follow_up_date, waiting_since";
 
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
     Ok(TaskDto {
@@ -110,6 +112,10 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         suspended: row.get::<_, i64>(15)? == 1,
         suspended_at: row.get(16)?,
         suspend_reason: row.get(17)?,
+        waiting: row.get::<_, i64>(30)? == 1,
+        waiting_on_id: row.get(31)?,
+        follow_up_date: row.get(32)?,
+        waiting_since: row.get(33)?,
         note: row.get(18)?,
         archived_at: row.get(19)?,
         canceled_at: row.get(20)?,
@@ -302,11 +308,15 @@ pub fn stored_status(conn: &Connection, id: &str) -> rusqlite::Result<String> {
 /// The status columns every completion and reopen shares. `?1` is the status, `?2`
 /// is "left the week", `?3` the stamp and `?4` the task id.
 const STATUS_SET: &str = "status = ?1,
-            in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 ELSE 1 END,
+            in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
             suspended = CASE WHEN ?2 THEN 0 ELSE suspended END,
             suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
             suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
-            suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END";
+            suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
+            waiting = CASE WHEN ?2 THEN 0 ELSE waiting END,
+            waiting_on_id = CASE WHEN ?2 THEN NULL ELSE waiting_on_id END,
+            follow_up_date = CASE WHEN ?2 THEN NULL ELSE follow_up_date END,
+            waiting_since = CASE WHEN ?2 THEN NULL ELSE waiting_since END";
 
 pub fn set_status(
     conn: &Connection,

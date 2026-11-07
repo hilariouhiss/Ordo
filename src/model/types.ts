@@ -146,6 +146,13 @@ export interface Task {
   suspended: boolean;
   suspendedAt: string | null;
   suspendReason: string | null;
+  /** Parked on someone else's reply: out of the week until the reply arrives. */
+  waiting: boolean;
+  waitingOnId: string | null;
+  /** Local `YYYY-MM-DD` to chase them; null means no reminder. */
+  followUpDate: string | null;
+  /** Local `YYYY-MM-DD` the wait started. */
+  waitingSince: string | null;
   note: string | null;
   archivedAt: string | null;
   canceledAt: string | null;

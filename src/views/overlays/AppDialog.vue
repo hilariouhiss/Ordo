@@ -6,11 +6,14 @@ import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion } from "../../lib/motion";
+import { appVM } from "../../viewmodels/appVM";
 import DateField from "../components/DateField.vue";
 
 const draft = ref("");
 const reasonDraft = ref("");
 const untilDraft = ref("");
+const waitPerson = ref("");
+const waitDate = ref("");
 const textInput = ref<HTMLInputElement | null>(null);
 const reasonInput = ref<HTMLInputElement | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
@@ -27,6 +30,11 @@ watch(dialogRequest, async (request) => {
     untilDraft.value = "";
     await nextTick();
     reasonInput.value?.focus();
+  } else if (request.kind === "waiting") {
+    waitPerson.value = request.personId ?? "";
+    waitDate.value = request.followUpDate;
+    await nextTick();
+    confirmButton.value?.focus();
   } else {
     confirmButton.value?.focus();
   }
@@ -45,6 +53,10 @@ function confirm(): void {
   }
   if (request.kind === "suspend") {
     closeDialog({ reason: reasonDraft.value.trim(), until: untilDraft.value });
+    return;
+  }
+  if (request.kind === "waiting") {
+    closeDialog({ personId: waitPerson.value || null, followUpDate: waitDate.value });
     return;
   }
   const value = draft.value.trim();
@@ -96,6 +108,33 @@ function onEnter(event: KeyboardEvent): void {
               @enter="confirm"
             />
           </label>
+        </template>
+        <template v-else-if="dialogRequest.kind === 'waiting'">
+          <label class="mt-3 block text-[11px] text-base-content/45">
+            {{ t("task.waitingOnLabel") }}
+            <select
+              v-model="waitPerson"
+              class="select select-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+            >
+              <option value="">{{ t("task.waitingOnNone") }}</option>
+              <option v-for="person in appVM.state.people" :key="person.id" :value="person.id">
+                {{ person.name }}
+              </option>
+            </select>
+          </label>
+          <label class="mt-2 block text-[11px] text-base-content/45">
+            {{ t("task.followUpLabel") }}
+            <DateField
+              v-model="waitDate"
+              :min="todayIso()"
+              :aria-label="t('task.followUpLabel')"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @enter="confirm"
+            />
+          </label>
+          <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            {{ t("task.waitingHint") }}
+          </p>
         </template>
         <input
           v-else-if="dialogRequest.kind === 'text'"

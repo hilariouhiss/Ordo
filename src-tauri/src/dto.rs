@@ -110,6 +110,13 @@ pub struct TaskDto {
     pub suspended: bool,
     pub suspended_at: Option<String>,
     pub suspend_reason: Option<String>,
+    /// Whether the task is parked waiting on someone else's reply.
+    pub waiting: bool,
+    pub waiting_on_id: Option<String>,
+    /// Local `YYYY-MM-DD` to chase the person; null means no reminder.
+    pub follow_up_date: Option<String>,
+    /// Local `YYYY-MM-DD` the wait started.
+    pub waiting_since: Option<String>,
     pub note: Option<String>,
     pub archived_at: Option<String>,
     pub canceled_at: Option<String>,
