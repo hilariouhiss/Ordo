@@ -550,6 +550,8 @@ export const zh = {
   "error.invalid_actual_time": "实际时间格式不对。",
   "error.actual_start_required": "先填实际开始，再记实际完成或实际耗时。",
   "error.rule_owns_finish": "周期任务的完成日由规则决定，不能手改。",
+  "error.parent_archived": "它所属的任务已归档，先恢复那个任务。",
+  "error.autostart_failed": "Windows 没接受开机启动设置，下次登录不会自动打开。",
 
   "error.invalid_project": "项目不存在或已删除。",
   "error.invalid_owner": "负责人不存在或已删除。",
@@ -1125,6 +1127,9 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_actual_time": "The actual time is not valid.",
   "error.actual_start_required": "Set an actual start before the actual finish or effort.",
   "error.rule_owns_finish": "A recurring task's day is set by its rule and can't be edited.",
+  "error.parent_archived": "Its own task is archived; restore that task first.",
+  "error.autostart_failed":
+    "Windows did not accept the startup setting; the app will not start at login.",
 
   "error.invalid_project": "That project no longer exists.",
   "error.invalid_owner": "That person no longer exists.",
@@ -1202,6 +1207,8 @@ const knownErrors = [
   "invalid_actual_time",
   "actual_start_required",
   "rule_owns_finish",
+  "parent_archived",
+  "autostart_failed",
   "invalid_project",
   "invalid_owner",
   "invalid_desk_pin",

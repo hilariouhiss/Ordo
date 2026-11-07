@@ -128,16 +128,23 @@ export function createStatsVM() {
     return { from: start, to: end };
   }
 
+  /** Replies from an older range must not overwrite the range the page now shows. */
+  let runId = 0;
+
   async function load(): Promise<void> {
+    const mine = ++runId;
     state.loading = true;
     try {
-      state.data = await statsOverview(state.from, state.to);
+      const data = await statsOverview(state.from, state.to);
+      if (mine !== runId) return;
+      state.data = data;
       state.failed = false;
     } catch (e) {
+      if (mine !== runId) return;
       state.failed = true;
       throw e;
     } finally {
-      state.loading = false;
+      if (mine === runId) state.loading = false;
     }
   }
 

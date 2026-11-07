@@ -38,6 +38,11 @@ export function usePointerDrag<T>(options: {
   /** The element that scrolls while the pointer sits near the window edge. */
   scroller: () => HTMLElement | null;
   drop: (id: string, target: T) => void;
+  /**
+   * Ends a drag: true when the pointer really moved. A view uses it to swallow the
+   * click that always follows, including when the release found no drop target.
+   */
+  onRelease?: (moved: boolean) => void;
 }): PointerDrag<T> {
   const id = ref<string | null>(null);
   const target = shallowRef<T | null>(null);
@@ -106,7 +111,9 @@ export function usePointerDrag<T>(options: {
   function end(): void {
     const rowId = id.value;
     const hit = target.value;
-    if (rowId !== null && moved.value && hit !== null) options.drop(rowId, hit);
+    const didMove = moved.value;
+    options.onRelease?.(didMove);
+    if (rowId !== null && didMove && hit !== null) options.drop(rowId, hit);
     cancel();
   }
 

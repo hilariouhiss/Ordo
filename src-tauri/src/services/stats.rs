@@ -2,6 +2,7 @@ use crate::dto::{
     CategoryProgressDto, DayStatsDto, ProjectSummaryDto, StatsOverviewDto, StatsSliceDto,
 };
 use crate::repo::projects;
+use crate::repo::tasks::VISIBLE_TASK_FILTER;
 use chrono::{NaiveDate, TimeDelta};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -40,7 +41,8 @@ fn parse_day(value: &str) -> Result<NaiveDate, String> {
 fn range_counts(conn: &Connection, from: &str, to: &str) -> Result<RangeCounts, String> {
     conn.query_row(
         &format!(
-            "SELECT COUNT(*), COALESCE(SUM(t.effort_minutes), 0),
+            "SELECT COUNT(*),
+                    COALESCE(SUM(COALESCE(t.actual_effort_minutes, t.effort_minutes)), 0),
                     COALESCE(SUM(t.expected_finish_date IS NOT NULL
                                  AND date(t.actual_finish_at, 'localtime') <= t.expected_finish_date), 0),
                     COALESCE(SUM(t.expected_finish_date IS NOT NULL), 0)
@@ -120,7 +122,8 @@ fn slices(conn: &Connection, from: &str, to: &str, by_project: bool) -> Result<V
     };
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT {id}, {name}, COUNT(*), COALESCE(SUM(t.effort_minutes), 0)
+            "SELECT {id}, {name}, COUNT(*),
+                    COALESCE(SUM(COALESCE(t.actual_effort_minutes, t.effort_minutes)), 0)
              FROM tasks t {join}
              WHERE {COMPLETED_FILTER}
                AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2
@@ -186,22 +189,23 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
 
     let (total, done): (i64, i64) = conn
         .query_row(
-            "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
-             WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL AND archived_at IS NULL",
+            &format!(
+                "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
+                 WHERE project_id = ?1 AND {VISIBLE_TASK_FILTER}"
+            ),
             [project_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
 
     let mut stmt = conn
-        .prepare(
-            "SELECT c.id, c.name, COUNT(t.id), COALESCE(SUM(t.status = 'done'), 0)
-             FROM tasks t JOIN categories c ON c.id = t.category_id
-             WHERE t.project_id = ?1 AND t.deleted_at IS NULL AND t.canceled_at IS NULL
-               AND t.archived_at IS NULL AND c.deleted_at IS NULL
+        .prepare(&format!(
+            "SELECT c.id, c.name, COUNT(tasks.id), COALESCE(SUM(tasks.status = 'done'), 0)
+             FROM tasks JOIN categories c ON c.id = tasks.category_id
+             WHERE tasks.project_id = ?1 AND {VISIBLE_TASK_FILTER} AND c.deleted_at IS NULL
              GROUP BY c.id, c.name, c.sort_order
-             ORDER BY c.sort_order",
-        )
+             ORDER BY c.sort_order"
+        ))
         .map_err(|e| e.to_string())?;
     let by_category: Vec<CategoryProgressDto> = stmt
         .query_map([project_id], |r| {
@@ -234,12 +238,11 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
 
     let mut totals: HashMap<String, (i64, i64)> = HashMap::new();
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT project_id, COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
-             WHERE project_id IS NOT NULL AND deleted_at IS NULL AND canceled_at IS NULL
-               AND archived_at IS NULL
-             GROUP BY project_id",
-        )
+             WHERE project_id IS NOT NULL AND {VISIBLE_TASK_FILTER}
+             GROUP BY project_id"
+        ))
         .map_err(|e| e.to_string())?;
     let counters = stmt
         .query_map([], |r| {
@@ -257,14 +260,14 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
 
     let mut by_category: HashMap<String, Vec<CategoryProgressDto>> = HashMap::new();
     let mut stmt = conn
-        .prepare(
-            "SELECT t.project_id, c.id, c.name, COUNT(t.id), COALESCE(SUM(t.status = 'done'), 0)
-             FROM tasks t JOIN categories c ON c.id = t.category_id
-             WHERE t.project_id IS NOT NULL AND t.deleted_at IS NULL AND t.canceled_at IS NULL
-               AND t.archived_at IS NULL AND c.deleted_at IS NULL
-             GROUP BY t.project_id, c.id, c.name, c.sort_order
-             ORDER BY c.sort_order",
-        )
+        .prepare(&format!(
+            "SELECT tasks.project_id, c.id, c.name, COUNT(tasks.id),
+                    COALESCE(SUM(tasks.status = 'done'), 0)
+             FROM tasks JOIN categories c ON c.id = tasks.category_id
+             WHERE tasks.project_id IS NOT NULL AND {VISIBLE_TASK_FILTER} AND c.deleted_at IS NULL
+             GROUP BY tasks.project_id, c.id, c.name, c.sort_order
+             ORDER BY c.sort_order"
+        ))
         .map_err(|e| e.to_string())?;
     let grouped = stmt
         .query_map([], |r| {
@@ -557,5 +560,69 @@ mod tests {
             assert_eq!(listed.category_id, direct.category_id);
             assert_eq!((listed.total, listed.done), (direct.total, direct.done));
         }
+    }
+
+    #[test]
+    fn project_progress_counts_leaves_not_umbrellas() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        let category = categories::list(&c).unwrap()[0].id.clone();
+        week::capture(&c, "交付", NOW, "p").unwrap();
+        c.execute(
+            "UPDATE tasks SET project_id = ?1, category_id = ?2 WHERE id = 'p'",
+            rusqlite::params![p.id, category],
+        )
+        .unwrap();
+        crate::services::subtasks::add(&c, "p", "收集", NOW).unwrap();
+        let parent = crate::services::subtasks::add(&c, "p", "汇编", NOW).unwrap();
+        let first = parent.children[0].id.clone();
+
+        let summary = stats::summary(&c, &p.id).unwrap();
+        assert_eq!(
+            (summary.total, summary.done),
+            (2, 0),
+            "the umbrella is not a third item of work"
+        );
+        assert_eq!(
+            summary
+                .by_category
+                .iter()
+                .map(|row| (row.total, row.done))
+                .collect::<Vec<_>>(),
+            vec![(2, 0)]
+        );
+
+        crate::services::tasks::set_status(&c, &first, "done", NOW).unwrap();
+
+        let summary = stats::summary(&c, &p.id).unwrap();
+        assert_eq!((summary.total, summary.done), (2, 1));
+        let listed = stats::list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == p.id)
+            .unwrap();
+        assert_eq!((listed.total, listed.done), (2, 1));
+        let category_row = listed
+            .by_category
+            .iter()
+            .find(|row| row.category_id == category)
+            .unwrap();
+        assert_eq!((category_row.total, category_row.done), (2, 1));
+    }
+
+    #[test]
+    fn completed_minutes_use_the_recorded_effort() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::services::tasks::set_status(&c, "t1", "doing", "2026-10-20T09:00:00Z").unwrap();
+        let done =
+            crate::services::tasks::set_status(&c, "t1", "done", "2026-10-20T09:30:00Z").unwrap();
+        assert_eq!(done.actual_effort_minutes, Some(30));
+
+        let overview = stats::overview(&c, "2026-10-19", "2026-10-21").unwrap();
+
+        assert_eq!(overview.completed, 1);
+        assert_eq!(overview.completed_minutes, 30);
+        assert_eq!(overview.by_category[0].minutes, 30);
     }
 }

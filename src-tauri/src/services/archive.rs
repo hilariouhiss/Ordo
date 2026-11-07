@@ -26,6 +26,17 @@ pub fn archive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
+/// A task inside an archived project is hidden from every list, so it cannot come back alone.
+fn project_is_archived(conn: &Connection, id: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks t JOIN projects p ON p.id = t.project_id
+         WHERE t.id = ?1 AND p.archived_at IS NOT NULL",
+        [id],
+        |r| r.get::<_, i64>(0).map(|count| count > 0),
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// The latest live subtask, which is the one a restored umbrella continues from.
 fn last_live_child(conn: &Connection, id: &str) -> Result<Option<String>, String> {
     conn.query_row(
@@ -42,16 +53,20 @@ fn last_live_child(conn: &Connection, id: &str) -> Result<Option<String>, String
 pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     // The week hides archived projects, so a task restored into one would be lost from every list.
-    let project_archived: i64 = tx
+    if project_is_archived(&tx, id)? {
+        return Err("project_archived".into());
+    }
+    // A canceled subtask comes back with its umbrella, never as live work under a filed parent.
+    let parent_archived: i64 = tx
         .query_row(
-            "SELECT COUNT(*) FROM tasks t JOIN projects p ON p.id = t.project_id
+            "SELECT COUNT(*) FROM tasks t JOIN tasks p ON p.id = t.parent_id
              WHERE t.id = ?1 AND p.archived_at IS NOT NULL",
             [id],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
-    if project_archived > 0 {
-        return Err("project_archived".into());
+    if parent_archived > 0 {
+        return Err("parent_archived".into());
     }
     let was_done = tasks::stored_status(&tx, id).map_err(|e| e.to_string())? == "done";
     tasks::restore(&tx, id, now).map_err(|e| e.to_string())?;
@@ -79,6 +94,10 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
 /// back finished and out of the week instead of turning into open work again.
 pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    // Undoing an archive must not put the task back where no list can show it.
+    if project_is_archived(&tx, id)? {
+        return Err("project_archived".into());
+    }
     let sql = "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
                     in_week = CASE WHEN status = 'done' OR suspended THEN 0 ELSE 1 END
                WHERE ";
@@ -508,6 +527,28 @@ mod tests {
     }
 
     #[test]
+    fn a_canceled_child_of_an_archived_umbrella_waits_for_the_umbrella() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "p").unwrap();
+        let parent = crate::services::subtasks::add(&c, "p", "收集", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        week::resolve(&c, &child, week::PassAction::Cancel, None, None, NOW).unwrap();
+        archive::archive_task(&c, "p", NOW).unwrap();
+
+        // Archived with the umbrella: restoring the child alone would leave live work
+        // under a filed parent.
+        assert!(archive::list(&c, None).unwrap().canceled.is_empty());
+        assert_eq!(
+            archive::restore_task(&c, &child, NOW).unwrap_err(),
+            "parent_archived"
+        );
+        assert!(week::list(&c).unwrap().is_empty());
+
+        archive::restore_task(&c, "p", NOW).unwrap();
+        assert_eq!(archive::list(&c, None).unwrap().canceled.len(), 1);
+    }
+
+    #[test]
     fn restoring_a_done_umbrella_reopens_its_last_subtask() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
@@ -604,6 +645,31 @@ mod tests {
         assert!(back.in_week);
         assert_eq!(back.status, "todo");
         assert!(back.archived_at.is_none());
+    }
+
+    #[test]
+    fn undoing_an_archive_into_an_archived_project_is_refused() {
+        let c = db::open_in_memory().unwrap();
+        let p = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET project_id = ?1 WHERE id = 't1'",
+            [&p.id],
+        )
+        .unwrap();
+        archive::archive_task(&c, "t1", NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+
+        assert_eq!(
+            archive::unarchive_task(&c, "t1", NOW).unwrap_err(),
+            "project_archived"
+        );
+        let archived: Option<String> = c
+            .query_row("SELECT archived_at FROM tasks WHERE id = 't1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(archived.is_some());
     }
 
     #[test]

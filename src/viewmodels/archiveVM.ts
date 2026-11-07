@@ -24,12 +24,17 @@ export function createArchiveVM() {
     loading: false,
   });
 
+  /** Replies from an older query must not overwrite the results the box now shows. */
+  let runId = 0;
+
   async function load(): Promise<void> {
+    const mine = ++runId;
     state.loading = true;
     try {
-      state.data = await listArchive(state.query.trim() || null);
+      const data = await listArchive(state.query.trim() || null);
+      if (mine === runId) state.data = data;
     } finally {
-      state.loading = false;
+      if (mine === runId) state.loading = false;
     }
   }
 

@@ -460,11 +460,14 @@ pub fn run() {
           == "true";
       // Writing the Run key on every launch is wasted startup work.
       if app.autolaunch().is_enabled().unwrap_or(false) != autostart {
-          let _ = if autostart {
+          let result = if autostart {
               app.autolaunch().enable()
           } else {
               app.autolaunch().disable()
           };
+          if let Err(e) = result {
+              note_error(app.handle(), &format!("自动启动设置失败：{e}"));
+          }
       }
       for target in ShortcutTarget::ALL {
           let saved = crate::repo::settings::get(&conn, target.settings_key())

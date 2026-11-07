@@ -81,11 +81,14 @@ fn apply_if_unchanged(
 }
 
 fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -> Result<TaskDto, String> {
+    // One transaction: a fill is a set of linked writes, so a failed tag must not leave
+    // the project, owner or membership half-applied.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let (before_category, current_project, current_owner): (
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = conn
+    ) = tx
         .query_row(
             "SELECT category_id, project_id, owner_id FROM tasks WHERE id = ?1",
             [task_id],
@@ -96,8 +99,8 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
     // store; the enrichment must not add a member for a value it is not using.
     let effective_project = current_project.as_deref().or(enrichment.project_id.as_deref());
     let effective_owner = current_owner.as_deref().or(enrichment.owner_id.as_deref());
-    crate::services::projects::ensure_member(conn, effective_project, effective_owner, now)?;
-    conn.execute(
+    crate::services::projects::ensure_member(&tx, effective_project, effective_owner, now)?;
+    tx.execute(
         "UPDATE tasks SET
             project_id = COALESCE(project_id, ?1),
             category_id = COALESCE(category_id, ?2),
@@ -117,19 +120,19 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
     // A background fill hands a default-owned task to its specialty owner, but never
     // steals one the user already assigned.
     if enrichment.category_id.is_some() && before_category.is_none() {
-        let task = crate::repo::tasks::dto(conn, task_id).map_err(|e| e.to_string())?;
-        let me = crate::repo::people::me_id(conn).map_err(|e| e.to_string())?;
+        let task = crate::repo::tasks::dto(&tx, task_id).map_err(|e| e.to_string())?;
+        let me = crate::repo::people::me_id(&tx).map_err(|e| e.to_string())?;
         let default_owned = match me {
             Some(me) => task.owner_id.as_deref() == Some(me.as_str()),
             None => task.owner_id.is_none(),
         };
         if default_owned {
             if let Some(owner) = crate::services::projects::assigned_owner(
-                conn,
+                &tx,
                 task.project_id.as_deref(),
                 task.category_id.as_deref(),
             )? {
-                crate::repo::tasks::set_owner(conn, task_id, &owner, now)
+                crate::repo::tasks::set_owner(&tx, task_id, &owner, now)
                     .map_err(|e| e.to_string())?;
             }
         }
@@ -137,19 +140,20 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
 
     for tag in &enrichment.tags {
         let created = crate::repo::tags::find_or_create(
-            conn,
+            &tx,
             &uuid::Uuid::new_v4().to_string(),
             tag,
             now,
         )
         .map_err(|e| e.to_string())?;
-        conn.execute(
+        tx.execute(
             "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?1, ?2)",
             params![task_id, created.id],
         )
         .map_err(|e| e.to_string())?;
     }
 
+    tx.commit().map_err(|e| e.to_string())?;
     crate::repo::tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
@@ -454,5 +458,37 @@ mod tests {
         // Running the same enrichment twice must not duplicate the tag.
         apply(&c, "t1", &enrichment, "2026-10-21T00:00:01Z").unwrap();
         assert_eq!(crate::repo::tasks::dto(&c, "t1").unwrap().tags.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_tag_write_rolls_the_whole_fill_back() {
+        let c = crate::db::open_in_memory().unwrap();
+        let project = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        let outsider = crate::repo::people::create(&c, "u-outsider", "外人", NOW).unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute("UPDATE tasks SET owner_id = NULL WHERE id = 't1'", [])
+            .unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_tag BEFORE INSERT ON task_tags
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let enrichment = Enrichment {
+            project_id: Some(project.id.clone()),
+            owner_id: Some(outsider.id.clone()),
+            tags: vec!["fix".into()],
+            ..Default::default()
+        };
+
+        assert!(apply(&c, "t1", &enrichment, LATER).is_err());
+
+        let task = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert!(task.project_id.is_none(), "the project link must roll back");
+        assert!(task.owner_id.is_none(), "the owner must roll back");
+        assert!(task.tags.is_empty(), "the tag must roll back");
+        assert!(
+            !crate::repo::projects::is_member(&c, &project.id, &outsider.id).unwrap(),
+            "the auto-added member must roll back"
+        );
     }
 }

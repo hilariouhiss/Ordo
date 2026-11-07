@@ -86,13 +86,16 @@ const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
       : listEl.value
     )?.closest("main") ?? null,
   drop: (id, target) => {
-    // A drag ends with a click; the sheet must not open too.
-    poolDragged.value = true;
-    window.setTimeout(() => (poolDragged.value = false), 0);
     const beforeId = ganttView.value
       ? target.beforeId
       : anchorFor(shownDays.value, target.day, target.beforeId);
     void place(id, target.day, beforeId);
+  },
+  onRelease: (moved) => {
+    // A drag ends with a click, even one released outside every day.
+    if (!moved) return;
+    poolDragged.value = true;
+    window.setTimeout(() => (poolDragged.value = false), 0);
   },
 });
 const poolDraggingId = poolDrag.id;

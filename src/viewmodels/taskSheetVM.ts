@@ -30,21 +30,32 @@ export interface TaskForm {
   actualEffortMinutes: number;
 }
 
-/** A task as the sheet's draft: every stored field the editor shows. */
-export function formOf(task: Task): TaskForm {
+/**
+ * The fields a task with subtasks takes from them, never from the draft. One list, so
+ * the initial form, the diff and the way back all agree on what a draft may not own.
+ */
+const DERIVED_FIELDS = [
+  "expectedStartDate",
+  "expectedFinishDate",
+  "expectedFinishPicked",
+  "effortMinutes",
+  "status",
+  "actualStartDate",
+  "actualStartTime",
+  "actualFinishDate",
+  "actualFinishTime",
+  "actualEffortMinutes",
+] as const satisfies readonly (keyof TaskForm)[];
+
+type DerivedField = (typeof DERIVED_FIELDS)[number];
+
+/** The stored task as a draft, refreshed from the children where they own a field. */
+function derivedFields(task: Task): Pick<TaskForm, DerivedField> {
   return {
-    title: task.title,
-    projectId: task.projectId,
-    categoryId: task.categoryId,
-    ownerId: task.ownerId,
     expectedStartDate: task.expectedStartDate ?? "",
     expectedFinishDate: task.expectedFinishDate ?? "",
     expectedFinishPicked: false,
-    note: task.note ?? "",
-    tags: task.tags.map((tag) => tag.name),
     effortMinutes: task.effortMinutes,
-    priority: task.priority,
-    exclusive: task.exclusive,
     status: task.status,
     actualStartDate: task.actualStartAt ? localDate(task.actualStartAt) : "",
     actualStartTime: localTime(task.actualStartAt) || "09:00",
@@ -52,6 +63,21 @@ export function formOf(task: Task): TaskForm {
     actualFinishTime: localTime(task.actualFinishAt) || "09:00",
     actualEffortMinutes: task.actualEffortMinutes ?? 0,
   };
+}
+
+/** A task as the sheet's draft: every stored field the editor shows. */
+export function formOf(task: Task): TaskForm {
+  const editable: Omit<TaskForm, DerivedField> = {
+    title: task.title,
+    projectId: task.projectId,
+    categoryId: task.categoryId,
+    ownerId: task.ownerId,
+    note: task.note ?? "",
+    tags: task.tags.map((tag) => tag.name),
+    priority: task.priority,
+    exclusive: task.exclusive,
+  };
+  return { ...editable, ...derivedFields(task) };
 }
 
 /**
@@ -269,16 +295,7 @@ export function createTaskSheetVM() {
 
   /** The fields a task with subtasks takes from them, never from the draft. */
   function applyDerived(form: TaskForm, task: Task): void {
-    form.expectedStartDate = task.expectedStartDate ?? "";
-    form.expectedFinishDate = task.expectedFinishDate ?? "";
-    form.expectedFinishPicked = false;
-    form.effortMinutes = task.effortMinutes;
-    form.status = task.status;
-    form.actualStartDate = task.actualStartAt ? localDate(task.actualStartAt) : "";
-    form.actualStartTime = localTime(task.actualStartAt) || "09:00";
-    form.actualFinishDate = task.actualFinishAt ? localDate(task.actualFinishAt) : "";
-    form.actualFinishTime = localTime(task.actualFinishAt) || "09:00";
-    form.actualEffortMinutes = task.actualEffortMinutes ?? 0;
+    Object.assign(form, derivedFields(task));
   }
 
   async function saveSheet(): Promise<boolean> {

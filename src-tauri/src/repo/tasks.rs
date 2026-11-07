@@ -6,8 +6,8 @@ use rusqlite::{params, Connection};
 /// with live subtasks is an umbrella: its work is the children, so it is never planned or
 /// reminded on its own.
 pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
-    "canceled_at IS NULL AND archived_at IS NULL AND deleted_at IS NULL ",
-    "AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p ",
+    "tasks.canceled_at IS NULL AND tasks.archived_at IS NULL AND tasks.deleted_at IS NULL ",
+    "AND (tasks.project_id IS NULL OR EXISTS (SELECT 1 FROM projects p ",
     "WHERE p.id = tasks.project_id AND p.archived_at IS NULL)) ",
     "AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = tasks.id ",
     "AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.canceled_at IS NULL)"
@@ -552,8 +552,16 @@ pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result
 
 /// Canceled work keeps its subtasks: a subtask canceled in the weekly pass is restored from
 /// here, and the umbrella it belongs to is not listed beside it (only leaves are canceled).
+/// While the umbrella itself is archived the subtask waits with it; restoring the child
+/// alone would leave live work under a filed parent.
 pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
-    list_where(conn, "canceled_at IS NOT NULL", query, true)
+    list_where(
+        conn,
+        "canceled_at IS NOT NULL AND (parent_id IS NULL OR NOT EXISTS
+           (SELECT 1 FROM tasks p WHERE p.id = tasks.parent_id AND p.archived_at IS NOT NULL))",
+        query,
+        true,
+    )
 }
 pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     list_where(

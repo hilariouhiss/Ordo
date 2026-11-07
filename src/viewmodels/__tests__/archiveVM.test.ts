@@ -30,10 +30,20 @@ import {
   restoreProject,
   restoreTask,
 } from "../../model/ipc";
+import type { ArchiveData } from "../../model/types";
 import { createArchiveVM } from "../archiveVM";
 import { undoVM } from "../undoVM";
 
 const empty = { projects: [], tasks: [], canceled: [], done: [] };
+
+function archiveWith(id: string, title: string): ArchiveData {
+  return {
+    projects: [],
+    tasks: [{ id, title, archivedAt: null, canceledAt: null }],
+    canceled: [],
+    done: [],
+  };
+}
 
 describe("archiveVM", () => {
   afterEach(() => {
@@ -85,5 +95,22 @@ describe("archiveVM", () => {
 
     expect(dialogRequest.value?.kind).toBe("notice");
     expect(dialogRequest.value?.title).toBe(t("common.refreshFailed"));
+  });
+
+  it("keeps the newest archive when the older reply arrives last", async () => {
+    let resolveOld!: (value: ArchiveData) => void;
+    let resolveNew!: (value: ArchiveData) => void;
+    vi.mocked(listArchive)
+      .mockReturnValueOnce(new Promise((resolve) => (resolveOld = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNew = resolve)));
+
+    const vm = createArchiveVM();
+    const oldLoad = vm.load();
+    const newLoad = vm.load();
+    resolveNew(archiveWith("new", "新"));
+    resolveOld(archiveWith("old", "旧"));
+    await Promise.all([oldLoad, newLoad]);
+
+    expect(vm.state.data.tasks[0]?.id).toBe("new");
   });
 });

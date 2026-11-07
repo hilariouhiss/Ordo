@@ -58,13 +58,6 @@ pub async fn set_settings(
             return Err("invalid_ai_base_url".into());
         }
     }
-    if let Some(autostart) = patch.autostart {
-        let _ = if autostart {
-            app.autolaunch().enable()
-        } else {
-            app.autolaunch().disable()
-        };
-    }
     if let Some(views) = patch.saved_task_views.as_deref() {
         if !crate::repo::settings::valid_saved_views(views) {
             return Err("invalid_saved_views".into());
@@ -74,6 +67,19 @@ pub async fn set_settings(
         if !(0..=crate::repo::settings::LEAD_MAX_MINUTES).contains(&lead) {
             return Err("invalid_reminder_lead".into());
         }
+    }
+    // Only after every field passed validation: the OS change cannot be undone by the
+    // rejected DB write. Store the flag only once Windows accepted it too.
+    if let Some(autostart) = patch.autostart {
+        let result = if autostart {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        };
+        result.map_err(|e| {
+            eprintln!("自动启动设置失败：{e}");
+            format!("autostart_failed: {e}")
+        })?;
     }
     let language_requested = patch.language.is_some();
     let desk_requested = patch.desk_enabled.is_some();

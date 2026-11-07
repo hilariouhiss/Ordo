@@ -56,15 +56,18 @@ const drag: PointerDrag<BoardDrop> = usePointerDrag<BoardDrop>({
   targetOf: ({ x, y }) => boardDropAt(boardEl.value, x, y, activeDeck.value),
   scroller: () => boardEl.value?.closest("main") ?? null,
   drop: (id, target) => {
-    // A drag ends with a click; the sheet must not open too.
-    dragged.value = true;
-    window.setTimeout(() => (dragged.value = false), 0);
     // Dropping back before the card itself changes nothing.
     if (target.beforeId === id) return;
     const beforeId = anchorFor(panels.value, target.day, target.beforeId);
     // A day the task already covers keeps its start; only the manual order changes.
     if (coverage.value.get(id)?.has(target.day)) void weekVM.move(id, beforeId);
     else void weekVM.place(id, target.day, beforeId);
+  },
+  onRelease: (moved) => {
+    // A drag ends with a click, even one released outside every panel.
+    if (!moved) return;
+    dragged.value = true;
+    window.setTimeout(() => (dragged.value = false), 0);
   },
 });
 const draggingId = computed(() => drag.id.value);

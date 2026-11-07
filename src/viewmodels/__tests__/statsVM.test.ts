@@ -177,4 +177,21 @@ describe("statsVM", () => {
     expect(vm.busiest.value).toBeNull();
     expect(vm.projects.value).toEqual([]);
   });
+
+  it("keeps the newest range when the older reply arrives last", async () => {
+    let resolveOld!: (value: StatsOverview) => void;
+    let resolveNew!: (value: StatsOverview) => void;
+    vi.mocked(statsOverview)
+      .mockReturnValueOnce(new Promise((resolve) => (resolveOld = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNew = resolve)));
+
+    const vm = createStatsVM();
+    const oldRange = vm.setCustom("2026-10-01", "2026-10-20");
+    const newRange = vm.setPreset("12w");
+    resolveNew(overview({ completed: 2 }));
+    resolveOld(overview({ completed: 1 }));
+    await Promise.all([oldRange, newRange]);
+
+    expect(vm.data.value.completed).toBe(2);
+  });
 });
