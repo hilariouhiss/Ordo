@@ -34,10 +34,13 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
     if person.is_me {
         return Err("cannot_delete_me".into());
     }
+    // A removed subtask keeps its row, so a hidden owner must not block the delete.
     let used: i64 = conn
-        .query_row("SELECT COUNT(*) FROM tasks WHERE owner_id = ?1", [id], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT COUNT(*) FROM tasks WHERE owner_id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| r.get(0),
+        )
         .map_err(|e| e.to_string())?;
     if used > 0 {
         return Err("person_in_use".into());
@@ -111,6 +114,27 @@ mod tests {
             .unwrap();
 
         assert_eq!(people::delete(&c, &li.id).unwrap_err(), "person_in_use");
+    }
+
+    #[test]
+    fn a_removed_subtask_does_not_keep_its_owner_in_use() {
+        let c = db::open_in_memory().unwrap();
+        let li = people::create(&c, "老李", NOW).unwrap();
+        let parent = week::capture(&c, "交底", NOW, "t1").unwrap();
+        let with_child = crate::services::subtasks::add(&c, &parent.id, "收集", NOW).unwrap();
+        let child_id = with_child.children[0].id.clone();
+        c.execute(
+            "UPDATE tasks SET owner_id = ?1 WHERE id = ?2",
+            [&li.id, &child_id],
+        )
+        .unwrap();
+
+        // Removing a subtask leaves the row behind, but nothing the user can see still
+        // owns the person; the delete must not be blocked by a hidden row.
+        crate::services::subtasks::remove(&c, &child_id, NOW).unwrap();
+        people::delete(&c, &li.id).unwrap();
+
+        assert!(people_repo::get(&c, &li.id).is_err());
     }
 
     #[test]
