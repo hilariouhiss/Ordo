@@ -180,6 +180,40 @@ pub fn overview(conn: &Connection, from: &str, to: &str) -> Result<StatsOverview
     })
 }
 
+/// Per-category progress tagged with the project it belongs to: one query for a single
+/// project or for all of them, so the page and the list can never drift apart.
+fn category_progress(
+    conn: &Connection,
+    project_id: Option<&str>,
+) -> Result<Vec<(String, CategoryProgressDto)>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT tasks.project_id, c.id, c.name, COUNT(tasks.id),
+                    COALESCE(SUM(tasks.status = 'done'), 0)
+             FROM tasks JOIN categories c ON c.id = tasks.category_id
+             WHERE tasks.project_id IS NOT NULL AND (?1 IS NULL OR tasks.project_id = ?1)
+               AND {VISIBLE_TASK_FILTER} AND c.deleted_at IS NULL
+             GROUP BY tasks.project_id, c.id, c.name, c.sort_order
+             ORDER BY c.sort_order"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([project_id], |r| {
+            Ok((
+                r.get(0)?,
+                CategoryProgressDto {
+                    category_id: r.get(1)?,
+                    name: r.get(2)?,
+                    total: r.get(3)?,
+                    done: r.get(4)?,
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())
+}
+
 pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto, String> {
     let project = projects::dto(conn, project_id).map_err(|e| e.to_string())?;
 
@@ -194,27 +228,10 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
         )
         .map_err(|e| e.to_string())?;
 
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT c.id, c.name, COUNT(tasks.id), COALESCE(SUM(tasks.status = 'done'), 0)
-             FROM tasks JOIN categories c ON c.id = tasks.category_id
-             WHERE tasks.project_id = ?1 AND {VISIBLE_TASK_FILTER} AND c.deleted_at IS NULL
-             GROUP BY c.id, c.name, c.sort_order
-             ORDER BY c.sort_order"
-        ))
-        .map_err(|e| e.to_string())?;
-    let by_category: Vec<CategoryProgressDto> = stmt
-        .query_map([project_id], |r| {
-            Ok(CategoryProgressDto {
-                category_id: r.get(0)?,
-                name: r.get(1)?,
-                total: r.get(2)?,
-                done: r.get(3)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
+    let by_category = category_progress(conn, Some(project_id))?
+        .into_iter()
+        .map(|(_, category)| category)
+        .collect();
 
     Ok(ProjectSummaryDto {
         id: project.id,
@@ -255,31 +272,7 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
     }
 
     let mut by_category: HashMap<String, Vec<CategoryProgressDto>> = HashMap::new();
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT tasks.project_id, c.id, c.name, COUNT(tasks.id),
-                    COALESCE(SUM(tasks.status = 'done'), 0)
-             FROM tasks JOIN categories c ON c.id = tasks.category_id
-             WHERE tasks.project_id IS NOT NULL AND {VISIBLE_TASK_FILTER} AND c.deleted_at IS NULL
-             GROUP BY tasks.project_id, c.id, c.name, c.sort_order
-             ORDER BY c.sort_order"
-        ))
-        .map_err(|e| e.to_string())?;
-    let grouped = stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                CategoryProgressDto {
-                    category_id: r.get(1)?,
-                    name: r.get(2)?,
-                    total: r.get(3)?,
-                    done: r.get(4)?,
-                },
-            ))
-        })
-        .map_err(|e| e.to_string())?;
-    for row in grouped {
-        let (project_id, category) = row.map_err(|e| e.to_string())?;
+    for (project_id, category) in category_progress(conn, None)? {
         by_category.entry(project_id).or_default().push(category);
     }
 
