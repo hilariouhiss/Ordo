@@ -185,37 +185,15 @@ pub fn suspend(
         }
     }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
-                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4,
-                waiting = 0, waiting_on_id = NULL, follow_up_date = NULL,
-                waiting_since = NULL
-         WHERE id = ?5",
-        params![
-            until,
-            reason,
-            today.format("%Y-%m-%d").to_string(),
-            now,
-            task_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let parked_on = today.format("%Y-%m-%d").to_string();
+    let park = tasks::Park::Suspended {
+        until,
+        reason,
+        at: Some(&parked_on),
+    };
+    tasks::write_park_in(&tx, task_id, park, now, false).map_err(|e| e.to_string())?;
     // Parking an umbrella parks its work: otherwise the children stay on the week.
-    tx.execute(
-        "UPDATE tasks SET in_week = 0, suspended = 1, suspended_until = ?1,
-                suspend_reason = ?2, suspended_at = ?3, updated_at = ?4,
-                waiting = 0, waiting_on_id = NULL, follow_up_date = NULL,
-                waiting_since = NULL
-         WHERE parent_id = ?5 AND deleted_at IS NULL AND status <> 'done'",
-        params![
-            until,
-            reason,
-            today.format("%Y-%m-%d").to_string(),
-            now,
-            task_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    tasks::write_park_in(&tx, task_id, park, now, true).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
@@ -243,24 +221,13 @@ pub fn wait(
     }
     let since = today.format("%Y-%m-%d").to_string();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "UPDATE tasks SET in_week = 0, waiting = 1, waiting_on_id = ?1,
-                follow_up_date = ?2, waiting_since = COALESCE(waiting_since, ?3),
-                suspended = 0, suspended_until = NULL, suspended_at = NULL,
-                suspend_reason = NULL, updated_at = ?4
-         WHERE id = ?5",
-        params![person, follow_up, since, now, task_id],
-    )
-    .map_err(|e| e.to_string())?;
-    tx.execute(
-        "UPDATE tasks SET in_week = 0, waiting = 1, waiting_on_id = ?1,
-                follow_up_date = ?2, waiting_since = COALESCE(waiting_since, ?3),
-                suspended = 0, suspended_until = NULL, suspended_at = NULL,
-                suspend_reason = NULL, updated_at = ?4
-         WHERE parent_id = ?5 AND deleted_at IS NULL AND status <> 'done'",
-        params![person, follow_up, since, now, task_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let park = tasks::Park::Waiting {
+        on: person,
+        follow_up,
+        since: Some(&since),
+    };
+    tasks::write_park_in(&tx, task_id, park, now, false).map_err(|e| e.to_string())?;
+    tasks::write_park_in(&tx, task_id, park, now, true).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
@@ -364,25 +331,17 @@ pub fn resume(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, St
 
 /// Brings a parked task and its subtasks back together.
 fn unpark(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
+    tasks::write_park_in(conn, task_id, tasks::Park::InWeek, now, false)
+        .map_err(|e| e.to_string())?;
     conn.execute(
-        &format!(
-            "UPDATE tasks SET {}, updated_at = ?1,
-                    sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks)
-             WHERE id = ?2",
-            tasks::UNPARK
-        ),
+        "UPDATE tasks SET sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
+                updated_at = ?1
+         WHERE id = ?2",
         params![now, task_id],
     )
     .map_err(|e| e.to_string())?;
-    conn.execute(
-        &format!(
-            "UPDATE tasks SET {}, updated_at = ?1
-             WHERE parent_id = ?2 AND status <> 'done'",
-            tasks::UNPARK
-        ),
-        params![now, task_id],
-    )
-    .map_err(|e| e.to_string())?;
+    tasks::write_park_in(conn, task_id, tasks::Park::InWeek, now, true)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -402,18 +361,17 @@ pub fn place(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let changed = tx
         .execute(
-            &format!(
-                "UPDATE tasks SET expected_start_date = ?1, {}, updated_at = ?2
-                 WHERE id = ?3 AND canceled_at IS NULL AND archived_at IS NULL
-                   AND deleted_at IS NULL AND status <> 'done'",
-                tasks::UNPARK
-            ),
+            "UPDATE tasks SET expected_start_date = ?1, updated_at = ?2
+             WHERE id = ?3 AND canceled_at IS NULL AND archived_at IS NULL
+               AND deleted_at IS NULL AND status <> 'done'",
             params![day, now, task_id],
         )
         .map_err(|e| e.to_string())?;
     if changed == 0 {
         return Err("task_not_found".into());
     }
+    tasks::write_park_in(&tx, task_id, tasks::Park::InWeek, now, false)
+        .map_err(|e| e.to_string())?;
     let orders = crate::services::tasks::order_changes(&tx, task_id, before_id)?;
     crate::repo::tasks::write_orders_in(&tx, &orders).map_err(|e| e.to_string())?;
     // A drop moves the finish by the same rule a start edit uses, so dropping work on a

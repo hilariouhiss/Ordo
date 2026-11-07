@@ -116,18 +116,13 @@ pub(crate) fn insert_child(
         return Err("nesting_too_deep".into());
     }
     let id = uuid::Uuid::new_v4().to_string();
-    // A parked umbrella parks its new child too, so the child cannot leak onto the week.
-    let parked = parent.suspended == 1 || parent.waiting == 1;
     conn.execute(
         "INSERT INTO tasks (id, title, parent_id, project_id, category_id, owner_id,
-                            expected_start_date, expected_finish_date, status, in_week,
+                            expected_start_date, expected_finish_date, status,
                             sort_order, effort_minutes, priority, time_exclusive,
-                            suspended, suspended_until, suspended_at, suspend_reason,
-                            waiting, waiting_on_id, follow_up_date, waiting_since,
                             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'todo', ?9,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?10, ?11, ?12,
-                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?21)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'todo',
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?9, ?10, ?11, ?12, ?12)",
         params![
             id,
             title,
@@ -137,22 +132,28 @@ pub(crate) fn insert_child(
             parent.owner_id,
             parent.expected_start_date,
             parent.expected_finish_date,
-            if parked { 0 } else { 1 },
             effort,
             parent.priority,
             parent.time_exclusive,
-            parent.suspended,
-            parent.suspended_until,
-            parent.suspended_at,
-            parent.suspend_reason,
-            parent.waiting,
-            parent.waiting_on_id,
-            parent.follow_up_date,
-            parent.waiting_since,
             now
         ],
     )
     .map_err(|e| e.to_string())?;
+    // A parked umbrella parks its new child too, so the child cannot leak onto the week.
+    let park = match (parent.waiting, parent.suspended) {
+        (1, _) => tasks::Park::Waiting {
+            on: parent.waiting_on_id.as_deref(),
+            follow_up: parent.follow_up_date.as_deref(),
+            since: parent.waiting_since.as_deref(),
+        },
+        (0, 1) => tasks::Park::Suspended {
+            until: parent.suspended_until.as_deref(),
+            reason: parent.suspend_reason.as_deref(),
+            at: parent.suspended_at.as_deref(),
+        },
+        _ => tasks::Park::InWeek,
+    };
+    tasks::write_park_in(conn, &id, park, now, false).map_err(|e| e.to_string())?;
     Ok(id)
 }
 

@@ -13,11 +13,67 @@ pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
     "AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.canceled_at IS NULL)"
 );
 
-/// Bringing a parked task back always means the same five columns. Kept in one place so a
-/// new suspension field cannot be forgotten by one of the paths that resumes a task.
-pub(crate) const UNPARK: &str = "in_week = 1, suspended = 0, suspended_until = NULL,
-     suspended_at = NULL, suspend_reason = NULL, waiting = 0, waiting_on_id = NULL,
-     follow_up_date = NULL, waiting_since = NULL";
+/// How a task is parked. Every write of the parked columns goes through
+/// [write_park_in], so the list below is the only place a new parked field is added.
+#[derive(Clone, Copy)]
+pub(crate) enum Park<'a> {
+    /// Back on the week, nothing parked.
+    InWeek,
+    /// Out of the week until a day, for a reason, parked on a local date.
+    Suspended {
+        until: Option<&'a str>,
+        reason: Option<&'a str>,
+        at: Option<&'a str>,
+    },
+    /// Out of the week until someone replies; since keeps the day the wait started.
+    Waiting {
+        on: Option<&'a str>,
+        follow_up: Option<&'a str>,
+        since: Option<&'a str>,
+    },
+}
+
+/// Writes the parked columns for one task, or for every open child of it. The caller owns
+/// the transaction. A task already waiting keeps the day it started waiting.
+pub(crate) fn write_park_in(
+    conn: &Connection,
+    task_id: &str,
+    park: Park<'_>,
+    now: &str,
+    children: bool,
+) -> rusqlite::Result<()> {
+    let since_expr = match park {
+        Park::Waiting { .. } => "COALESCE(waiting_since, ?9)",
+        _ => "?9",
+    };
+    let target = if children {
+        "parent_id = ?11 AND deleted_at IS NULL AND status <> 'done'"
+    } else {
+        "id = ?11"
+    };
+    let (in_week, suspended, until, at, reason, waiting, on, follow_up, since) = match park {
+        Park::InWeek => (1, 0, None, None, None, 0, None, None, None),
+        Park::Suspended { until, reason, at } => (0, 1, until, at, reason, 0, None, None, None),
+        Park::Waiting {
+            on,
+            follow_up,
+            since,
+        } => (0, 0, None, None, None, 1, on, follow_up, since),
+    };
+    conn.execute(
+        &format!(
+            "UPDATE tasks SET
+                in_week = ?1, suspended = ?2, suspended_until = ?3, suspended_at = ?4,
+                suspend_reason = ?5, waiting = ?6, waiting_on_id = ?7, follow_up_date = ?8,
+                waiting_since = {since_expr}, updated_at = ?10
+             WHERE {target}"
+        ),
+        params![
+            in_week, suspended, until, at, reason, waiting, on, follow_up, since, now, task_id
+        ],
+    )?;
+    Ok(())
+}
 
 /// Archive lists keep a task inside its archived project; restoring the project comes first.
 pub(crate) const LIVE_PROJECT: &str = concat!(
@@ -306,7 +362,9 @@ pub fn stored_status(conn: &Connection, id: &str) -> rusqlite::Result<String> {
 }
 
 /// The status columns every completion and reopen shares. `?1` is the status, `?2`
-/// is "left the week", `?3` the stamp and `?4` the task id.
+/// is "left the week", `?3` the stamp and `?4` the task id. The parked half repeats the
+/// columns `Park` lists on purpose: clearing them depends on leaving the week, which a
+/// whole-state write cannot express. Add a parked field here as well as there.
 const STATUS_SET: &str = "status = ?1,
             in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
             suspended = CASE WHEN ?2 THEN 0 ELSE suspended END,
@@ -480,19 +538,17 @@ pub fn archive(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
 
 pub fn restore(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     conn.execute(
-        &format!(
-            "UPDATE tasks SET archived_at = NULL, canceled_at = NULL, {UNPARK},
-                  sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
-                  status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
-                  actual_finish_at = CASE WHEN status = 'done' THEN NULL ELSE actual_finish_at END,
-                  actual_effort_minutes = CASE WHEN status = 'done' THEN NULL
-                                               ELSE actual_effort_minutes END,
-                  updated_at = ?1
-             WHERE id = ?2"
-        ),
+        "UPDATE tasks SET archived_at = NULL, canceled_at = NULL,
+              sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks),
+              status = CASE WHEN status = 'done' THEN 'doing' ELSE status END,
+              actual_finish_at = CASE WHEN status = 'done' THEN NULL ELSE actual_finish_at END,
+              actual_effort_minutes = CASE WHEN status = 'done' THEN NULL
+                                           ELSE actual_effort_minutes END,
+              updated_at = ?1
+         WHERE id = ?2",
         params![now, id],
     )?;
-    Ok(())
+    write_park_in(conn, id, Park::InWeek, now, false)
 }
 
 pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<()> {
