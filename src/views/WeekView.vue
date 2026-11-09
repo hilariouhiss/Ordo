@@ -9,7 +9,7 @@ import { t, type MessageKey } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
-import { anchorFor, boardDropAt, coveredDays, listDropAt } from "../lib/weekDrop";
+import { anchorFor, coveredDays, ganttDropAt, listDropAt } from "../lib/weekDrop";
 import type { Task, WeekView } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
@@ -79,18 +79,19 @@ const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
   // card lands exactly where a bar or a row would.
   targetOf: ({ x, y }) => {
     if (ganttView.value) {
-      const board = document.querySelector<HTMLElement>("[data-gantt-board]");
-      if (!board) return null;
-      // The stack sits below the board, so only a pointer inside it reads as a day.
-      const box = board.getBoundingClientRect();
+      const grid = document.querySelector<HTMLElement>("[data-gantt-grid]");
+      if (!grid) return null;
+      // The stack sits below the grid, so only a pointer inside it reads as a day.
+      const box = grid.getBoundingClientRect();
       if (y < box.top || y >= box.bottom) return null;
-      return boardDropAt(board, x, y);
+      const drop = ganttDropAt(grid, x, y, week.value.length);
+      return drop ? { day: week.value[drop.column], beforeId: drop.before } : null;
     }
     return listDropAt(listEl.value, y);
   },
   scroller: () =>
     (ganttView.value
-      ? document.querySelector<HTMLElement>("[data-gantt-board]")
+      ? document.querySelector<HTMLElement>("[data-gantt-grid]")
       : listEl.value
     )?.closest("main") ?? null,
   drop: (id, target) => {
@@ -109,6 +110,12 @@ const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
 const poolDraggingId = poolDrag.id;
 const poolTarget = poolDrag.target;
 const poolMoved = poolDrag.moved;
+/** The gantt column under the stacked card, when the card hovers a day of the week. */
+const poolColumn = computed(() => {
+  const day = poolTarget.value?.day;
+  const index = day ? week.value.indexOf(day) : -1;
+  return index >= 0 ? index : null;
+});
 /**
  * The stack's enter/exit. Movement there is margin-driven (the step-aside transition), so
  * layout is off; the card being dragged stays dimmed instead of animating to full opacity.
@@ -389,7 +396,8 @@ watch(
       :dates="week"
       :today="today"
       :outside-moved="poolMoved"
-      :outside-target="poolTarget"
+      :outside-column="poolColumn"
+      :outside-before="poolTarget?.beforeId ?? null"
       @changed="refresh"
     />
 

@@ -3,9 +3,9 @@ import type { Task } from "../../model/types";
 import {
   addDoneRows,
   fillPlannedDays,
+  groupLanes,
   groupPlannedDays,
   toPlanTask,
-  weekPanels,
   type PlannedDay,
 } from "../plan";
 import { planSchedule, type PlannedTask } from "../schedule";
@@ -294,53 +294,74 @@ describe("addDoneRows", () => {
   });
 });
 
-describe("weekPanels", () => {
+describe("groupLanes", () => {
   const WEEK = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
 
-  it("keeps every day a column while none has passed", () => {
-    const panels = weekPanels([], WEEK, "2026-10-19");
+  it("gives each task one lane in manual order with the columns it covers", () => {
+    const tasks = [
+      task("b", 480, { sortOrder: 0, expectedStartDate: "2026-10-21" }),
+      task("a", 960, { sortOrder: 1 }),
+    ];
+    const days = groupPlannedDays(
+      tasks,
+      planSchedule(tasks.map(toPlanTask), TODAY),
+      TODAY,
+      "2026-10-23",
+    );
+    const lanes = groupLanes(days, WEEK);
 
-    expect(panels.map((panel) => panel.date)).toEqual(WEEK);
-    expect(panels.every((panel) => !panel.stacked)).toBe(true);
-    expect(panels.every((panel) => panel.rows.length === 0)).toBe(true);
+    expect(lanes.map((lane) => lane.task.id)).toEqual(["b", "a"]);
+    expect(lanes[0]).toMatchObject({ from: 2, to: 2 });
+    expect(lanes[1]).toMatchObject({ from: 1, to: 2 });
+    expect(lanes[1].row).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
   });
 
-  it("stacks a cleared past day and keeps today onward as columns", () => {
-    const panels = weekPanels([], WEEK, "2026-10-21");
+  it("keeps a finished task in its sort position", () => {
+    const open = task("open", 480, { sortOrder: 0 });
+    const days = groupPlannedDays(
+      [open],
+      planSchedule([toPlanTask(open)], TODAY),
+      TODAY,
+      "2026-10-23",
+    );
+    const finished = task("done", 480, {
+      sortOrder: 1,
+      status: "done",
+      expectedStartDate: "2026-10-21",
+      actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
+    });
+    const merged = groupLanes(addDoneRows(days, [finished], WEEK, TODAY), WEEK);
 
-    expect(panels.map((panel) => panel.stacked)).toEqual([true, true, false, false, false]);
-    // An existing group is reused, not rebuilt.
-    expect(panels[3].date).toBe("2026-10-22");
+    expect(merged.map((lane) => lane.task.id)).toEqual(["open", "done"]);
+    expect(merged[1]).toMatchObject({ from: 2, to: 2, row: { history: true } });
   });
 
-  it("keeps a past day that still holds work as a column", () => {
-    const panels = weekPanels([day("2026-10-19", 1)], WEEK, "2026-10-23");
+  it("draws a finished bar over its actual workdays", () => {
+    const finished = task("done", 480, {
+      status: "done",
+      actualStartAt: new Date(2026, 9, 19, 15).toISOString(),
+      actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
+    });
+    const lanes = groupLanes(addDoneRows([], [finished], WEEK, TODAY), WEEK);
 
-    expect(panels[0]).toMatchObject({ date: "2026-10-19", stacked: false });
-    expect(panels[0].rows).toHaveLength(1);
-    expect(panels.slice(1, 4).every((panel) => panel.stacked)).toBe(true);
+    expect(lanes[0]).toMatchObject({
+      from: 0,
+      to: 2,
+      row: { history: true, spans: true, days: 3 },
+    });
   });
 
-  it("stacks a past day whose work is all finished", () => {
-    const panels = weekPanels([day("2026-10-19", 2, true)], WEEK, "2026-10-23");
+  it("clips a task the week end clamps onto Friday", () => {
+    const tasks = [task("late", 1440, { sortOrder: 0, expectedStartDate: "2026-11-10" })];
+    const days = groupPlannedDays(
+      tasks,
+      planSchedule(tasks.map(toPlanTask), TODAY),
+      TODAY,
+      "2026-10-23",
+    );
+    const lanes = groupLanes(days, WEEK);
 
-    expect(panels[0].stacked).toBe(true);
-    expect(panels[0].rows).toHaveLength(2);
-  });
-
-  it("opens only the past days that still hold work", () => {
-    const days = [day("2026-10-19", 1), day("2026-10-20", 1, true), day("2026-10-21", 2)];
-    const panels = weekPanels(days, WEEK, "2026-10-23");
-
-    expect(panels.map((panel) => panel.stacked)).toEqual([false, true, false, true, false]);
-    expect(panels[2].rows).toHaveLength(2);
-  });
-
-  it("stacks every past day when the week is already behind", () => {
-    const panels = weekPanels([], WEEK, "2026-10-26");
-
-    expect(panels).toHaveLength(5);
-    expect(panels.every((panel) => panel.stacked)).toBe(true);
+    expect(lanes[0]).toMatchObject({ from: 4, to: 4, row: { clamped: true } });
   });
 });
 

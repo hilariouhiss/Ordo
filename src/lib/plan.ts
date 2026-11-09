@@ -104,24 +104,38 @@ export function groupPlannedDays(
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** One board panel: a day plus whether it reads as a rail. */
-export interface WeekPanel extends PlannedDay {
-  /** A past day with nothing left to do: only its 44px rail shows. */
-  stacked: boolean;
+/** One task as the gantt draws it: a bar across the columns it covers. */
+export interface WeekLane {
+  task: Task;
+  row: PlannedRow;
+  /** 0-based column of the first and last week workday the bar covers. */
+  from: number;
+  to: number;
 }
 
 /**
- * The board's days in date order, each marked with how it reads. A past day still holding
- * open work keeps a full column so the leftovers stay visible; a past day already cleared
- * keeps only its rail and stacks with the cleared days beside it. A date the planner left
- * out still gets an empty panel, so it stays a drop target.
+ * Folds the planned days back into one lane per task: the columns it covers and the row
+ * it reads with. Manual order decides the lane order, finished ones included, so a done
+ * task stays where it was instead of moving to a separate group.
  */
-export function weekPanels(days: PlannedDay[], dates: string[], today: string): WeekPanel[] {
-  const known = new Map(days.map((day) => [day.date, day]));
-  return dates.map((date) => {
-    const panel = known.get(date) ?? plannedDay(date, today);
-    return { ...panel, stacked: date < today && !panel.rows.some((row) => !row.history) };
-  });
+export function groupLanes(days: PlannedDay[], dates: string[]): WeekLane[] {
+  const lanes = new Map<string, WeekLane>();
+  for (const day of days) {
+    const column = dates.indexOf(day.date);
+    if (column < 0) continue;
+    for (const row of day.rows) {
+      const lane = lanes.get(row.task.id);
+      if (!lane) {
+        lanes.set(row.task.id, { task: row.task, row, from: column, to: column });
+        continue;
+      }
+      lane.from = Math.min(lane.from, column);
+      lane.to = Math.max(lane.to, column);
+    }
+  }
+  return [...lanes.values()].sort(
+    (a, b) => a.task.sortOrder - b.task.sortOrder || a.task.id.localeCompare(b.task.id),
+  );
 }
 
 /**
