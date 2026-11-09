@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { resolveTheme, systemTheme, type ThemeWindow } from "../theme";
+import { applyTheme, resolveTheme, systemTheme, type ThemeWindow } from "../theme";
 
 describe("resolveTheme", () => {
   it("follows the setting when it names a theme", () => {
@@ -16,6 +16,71 @@ describe("resolveTheme", () => {
     expect(resolveTheme(undefined, true)).toBe("dark");
     expect(resolveTheme(null, false)).toBe("light");
     expect(resolveTheme("purple", true)).toBe("dark");
+  });
+});
+
+describe("applyTheme", () => {
+  /** A page stub: the real one cross-fades through the View Transitions API. */
+  function stubPage(reduceMotion = false) {
+    const dataset: Record<string, string> = {};
+    const state = { transitions: 0 };
+    const doc = {
+      documentElement: { dataset },
+      startViewTransition: (paint: () => void) => {
+        state.transitions += 1;
+        paint();
+      },
+    };
+    const globals = globalThis as Record<string, unknown>;
+    const previous = { document: globals.document, window: globals.window };
+    globals.document = doc;
+    globals.window = { matchMedia: () => ({ matches: reduceMotion }) };
+    return {
+      dataset,
+      state,
+      restore: () => {
+        globals.document = previous.document;
+        globals.window = previous.window;
+      },
+    };
+  }
+
+  it("paints the first theme without a transition", () => {
+    const page = stubPage();
+    try {
+      applyTheme("dark");
+      expect(page.dataset.theme).toBe("soft-dark");
+      expect(page.state.transitions).toBe(0);
+    } finally {
+      page.restore();
+    }
+  });
+
+  it("cross-fades a later change and snaps back on the same value", () => {
+    const page = stubPage();
+    try {
+      applyTheme("dark");
+      applyTheme("light");
+      expect(page.dataset.theme).toBe("soft");
+      expect(page.state.transitions).toBe(1);
+
+      applyTheme("light");
+      expect(page.state.transitions).toBe(1);
+    } finally {
+      page.restore();
+    }
+  });
+
+  it("switches without the cross-fade when motion is reduced", () => {
+    const page = stubPage(true);
+    try {
+      applyTheme("dark");
+      applyTheme("light");
+      expect(page.dataset.theme).toBe("soft");
+      expect(page.state.transitions).toBe(0);
+    } finally {
+      page.restore();
+    }
   });
 });
 

@@ -33,7 +33,26 @@ export async function systemTheme(
   return mediaDark ? "dark" : "light";
 }
 
-/** Paints the page. The native frame is set by the caller, since pinning it changes the media query. */
+/**
+ * Paints the page. The native frame is set by the caller, since pinning it changes the media
+ * query. After the first paint a change goes through a view transition, so light/dark
+ * cross-fades instead of snapping.
+ */
 export function applyTheme(theme: AppliedTheme): void {
-  document.documentElement.dataset.theme = theme === "dark" ? "soft-dark" : "soft";
+  const html = document.documentElement;
+  const name = theme === "dark" ? "soft-dark" : "soft";
+  const paint = () => {
+    html.dataset.theme = name;
+  };
+  const changing = html.dataset.theme !== undefined && html.dataset.theme !== name;
+  if (changing && !reducedMotion() && typeof document.startViewTransition === "function") {
+    document.startViewTransition(paint);
+    return;
+  }
+  paint();
+}
+
+/** Motion sickness wins over the cross-fade; the theme still switches. */
+function reducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
