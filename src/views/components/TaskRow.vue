@@ -14,6 +14,7 @@ import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
+import ParentBadge from "./ParentBadge.vue";
 import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
@@ -217,6 +218,7 @@ async function suspend(): Promise<void> {
           >
             {{ task.title }}
           </span>
+          <ParentBadge v-if="task.parentTitle" :title="task.parentTitle" class="max-w-32" />
           <span
             v-if="showProject && task.projectName"
             class="badge badge-soft badge-primary badge-xs max-w-32"

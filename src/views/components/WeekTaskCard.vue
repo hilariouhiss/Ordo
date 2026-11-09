@@ -11,6 +11,7 @@ import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
+import ParentBadge from "./ParentBadge.vue";
 import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
@@ -195,13 +196,7 @@ function reorder(delta: -1 | 1): void {
       <span v-if="row.conflict" class="badge badge-soft badge-error badge-xs shrink-0">
         {{ t("task.notFit") }}
       </span>
-      <span
-        v-if="task.parentTitle"
-        class="badge badge-soft badge-primary badge-xs max-w-20 shrink-0"
-        :title="t('task.parentTask', { title: task.parentTitle })"
-      >
-        <span class="min-w-0 truncate">{{ task.parentTitle }}</span>
-      </span>
+      <ParentBadge v-if="task.parentTitle" :title="task.parentTitle" class="max-w-20" />
       <span
         v-if="task.projectName"
         class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
