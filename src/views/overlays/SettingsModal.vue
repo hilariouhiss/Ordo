@@ -250,14 +250,6 @@ onUnmounted(() => {
             <button
               role="tab"
               class="tab"
-              :class="{ 'tab-active': vm.state.tab === 'ai' }"
-              @click="vm.state.tab = 'ai'"
-            >
-              AI
-            </button>
-            <button
-              role="tab"
-              class="tab"
               :class="{ 'tab-active': vm.state.tab === 'general' }"
               @click="vm.state.tab = 'general'"
             >
@@ -270,6 +262,14 @@ onUnmounted(() => {
               @click="vm.state.tab = 'data'"
             >
               {{ t("app.tabData") }}
+            </button>
+            <button
+              role="tab"
+              class="tab"
+              :class="{ 'tab-active': vm.state.tab === 'ai' }"
+              @click="vm.state.tab = 'ai'"
+            >
+              AI
             </button>
           </div>
 

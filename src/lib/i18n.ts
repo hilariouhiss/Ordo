@@ -390,7 +390,7 @@ export const zh = {
 
   "settings.theme": "外观",
   "settings.language": "语言",
-  "settings.themeSystem": "跟随系统",
+  "settings.themeSystem": "系统",
   "settings.themeLight": "浅色",
   "settings.themeDark": "深色",
   "settings.autostart": "开机自启",

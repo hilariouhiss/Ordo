@@ -8,7 +8,7 @@ export type SettingsTab = "ai" | "general" | "data";
 export function createSettingsVM() {
   const state = reactive({
     open: false,
-    tab: "ai" as SettingsTab,
+    tab: "general" as SettingsTab,
     backupPath: "",
     exportPath: "",
     busy: false,
@@ -18,7 +18,7 @@ export function createSettingsVM() {
   function open(): void {
     state.open = true;
     state.error = "";
-    state.tab = "ai";
+    state.tab = "general";
   }
 
   function close(): void {
