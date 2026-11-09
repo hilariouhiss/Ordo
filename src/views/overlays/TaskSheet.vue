@@ -3,7 +3,7 @@ import { ArrowLeft, Hourglass, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { localDate, shortDate, todayIso } from "../../lib/dates";
-import { askWaiting } from "../../lib/dialog";
+import { askConfirm, askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -295,6 +295,13 @@ async function toggleSubtask(child: Task): Promise<void> {
 }
 
 async function removeSubtask(child: Task): Promise<void> {
+  if (
+    !(await askConfirm(
+      t("task.deleteSubtaskTitle"),
+      t("task.deleteSubtaskMessage", { title: child.title }),
+    ))
+  )
+    return;
   taskSheetVM.state.error = null;
   try {
     taskSheetVM.applyTask(await deleteSubtask(child.id));
