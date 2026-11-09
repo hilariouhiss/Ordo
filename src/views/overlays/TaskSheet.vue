@@ -422,12 +422,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
-  <!-- Close on press outside: a click that ends a title drag-select targets the backdrop. -->
   <motion.div
     v-bind="backdropMotion"
     class="window-scrim fixed inset-0 z-60 flex justify-end bg-neutral/40"
     @mousedown.left.self="closeSheet()"
   >
+    <!-- Close on press outside: a click that ends a title drag-select targets the backdrop. -->
     <motion.aside
       v-bind="sheetPanelMotion"
       class="window-edge-panel flex h-full w-full max-w-[480px] flex-col overflow-y-auto bg-base-100 p-5 shadow-2xl"
