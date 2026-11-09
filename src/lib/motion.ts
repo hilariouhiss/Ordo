@@ -74,6 +74,15 @@ export function pageDirection(
   return pageRank(to) >= pageRank(from) ? 1 : -1;
 }
 
+/** The list and the gantt trade places; each slides in and out on its own side. */
+export function weekViewMotion(side: 1 | -1) {
+  return {
+    initial: { opacity: 0, x: side * 24 },
+    animate: { opacity: 1, x: 0, transition: springSnappy },
+    exit: { opacity: 0, x: side * 20, transition: { duration: 0.12, ease: easeOut } },
+  };
+}
+
 export function pageMotion(direction: number) {
   return {
     initial: { opacity: 0, x: direction * 24 },

@@ -6,9 +6,10 @@ import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { formatEffort } from "../lib/effort";
 import { t, type MessageKey } from "../lib/i18n";
-import { listItemMotion } from "../lib/motion";
+import { listItemMotion, weekViewMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
+import { prefersReducedMotion } from "../lib/windowMotion";
 import { anchorFor, coveredDays, ganttDropAt, listDropAt } from "../lib/weekDrop";
 import type { Task, WeekView } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
@@ -54,6 +55,10 @@ const weekViewOptions: { value: WeekView; key: MessageKey }[] = [
   { value: "list", key: "settings.weekViewList" },
   { value: "gantt", key: "settings.weekViewGantt" },
 ];
+/** The two views trade places sideways: the gantt lives right of the list. */
+const reducedMotion = prefersReducedMotion();
+const listSwap = reducedMotion ? {} : weekViewMotion(-1);
+const ganttSwap = reducedMotion ? {} : weekViewMotion(1);
 
 const listEl = ref<HTMLElement | null>(null);
 /** The list's drag: threshold, the day and row under the pointer, edge auto-scroll. */
@@ -320,10 +325,7 @@ watch(
 </script>
 
 <template>
-  <section
-    class="space-y-2"
-    :class="{ 'flex grow flex-col': ganttView, 'select-none': draggingId }"
-  >
+  <section class="flex grow flex-col space-y-2" :class="{ 'select-none': draggingId }">
     <div v-if="passNeeded" class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5">
       <span class="text-[12.5px]">{{ t("week.passNeeded") }}</span>
       <span class="text-[11px] text-base-content/45">{{
@@ -383,110 +385,126 @@ watch(
       </div>
     </div>
 
-    <p
-      v-if="emptyWeek && !(ganttView && laterTasks.length)"
-      class="px-1 text-[13px] text-base-content/40"
-    >
-      {{ t("week.empty") }}
-    </p>
-
-    <WeekGantt
-      v-else-if="ganttView && (days.some((day) => day.rows.length) || laterTasks.length)"
-      :days="days"
-      :dates="week"
-      :today="today"
-      :outside-moved="poolMoved"
-      :outside-column="poolColumn"
-      :outside-before="poolTarget?.beforeId ?? null"
-      @changed="refresh"
-    />
-
-    <div v-if="!ganttView && shownDays.length" ref="listEl" :class="{ 'select-none': draggingId }">
-      <section
-        v-for="day in shownDays"
-        :key="day.date"
-        :data-day="day.date"
-        :class="{ 'opacity-75': day.isPast }"
+    <AnimatePresence mode="wait" :initial="false">
+      <motion.div
+        v-if="ganttView && (days.some((day) => day.rows.length) || laterTasks.length)"
+        key="gantt"
+        v-bind="ganttSwap"
+        class="flex grow flex-col"
       >
-        <div class="flex items-center gap-2 px-1 pt-1.5 pb-1 text-[10.5px] text-base-content/40">
-          <span class="font-medium">{{ day.weekday }}</span>
-          <span>{{ shortDate(day.date) }}</span>
-          <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
-            t("week.today")
-          }}</span>
-          <span v-else-if="day.isPast" class="badge badge-ghost badge-xs">{{
-            t("week.past")
-          }}</span>
-          <span v-if="dayLoad(day.date)" class="ml-auto text-[10px] text-base-content/40">
-            {{ t("week.dayLoad", { hours: dayLoad(day.date) }) }}
-          </span>
-          <span
-            v-if="dragMoved && dropTarget?.day === day.date"
-            class="text-[10px] text-primary"
-            :class="{ 'ml-auto': !dayLoad(day.date) }"
-          >
-            {{ t("week.dropDay") }}
-          </span>
-        </div>
-        <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
-          <TaskRow
-            v-for="row in day.rows"
-            :key="row.task.id"
-            :task="row.task"
-            :readonly="row.history === true"
-            :plan="{
-              start: row.start,
-              end: row.end,
-              spans: row.spans,
-              days: row.days,
-              clamped: row.clamped,
-              conflict: row.conflict,
-            }"
-            :data-task-id="row.history ? undefined : row.task.id"
-            :drop-line="
-              dragMoved &&
-              dropTarget?.day === day.date &&
-              dropTarget.beforeId === row.task.id &&
-              draggingId !== row.task.id
-            "
-            :style="{ opacity: draggingId === row.task.id ? 0.4 : undefined }"
-            @open="openTask"
-            @changed="refresh"
-          >
-            <template v-if="!row.history" #leading>
-              <button
-                class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
-                :aria-label="t('week.reorderAria', { title: row.task.title })"
-                @click.stop
-                @pointerdown="startDrag($event, row.task.id)"
-                @pointermove="drag.move"
-                @pointerup="drag.end"
-                @pointercancel="drag.cancel"
-                @keydown.up.prevent="onMoveBy(row.task.id, -1)"
-                @keydown.down.prevent="onMoveBy(row.task.id, 1)"
-              >
-                <GripVertical :size="14" aria-hidden="true" />
-              </button>
-            </template>
-          </TaskRow>
-        </AnimatePresence>
-        <div
-          v-if="!day.rows.length"
-          class="mt-0.5 flex h-9 items-center justify-center rounded-xl border border-dashed text-[10.5px]"
-          :class="
-            dragMoved && dropTarget?.day === day.date
-              ? 'border-primary/60 bg-primary/5 text-primary'
-              : 'border-base-content/15 text-base-content/30'
-          "
+        <WeekGantt
+          :days="days"
+          :dates="week"
+          :today="today"
+          :outside-moved="poolMoved"
+          :outside-column="poolColumn"
+          :outside-before="poolTarget?.beforeId ?? null"
+          @changed="refresh"
+        />
+      </motion.div>
+
+      <motion.div v-else key="list" v-bind="listSwap">
+        <p
+          v-if="emptyWeek && !(ganttView && laterTasks.length)"
+          class="px-1 text-[13px] text-base-content/40"
         >
-          {{ dragMoved ? t("week.dropDay") : t("week.emptyDay") }}
-        </div>
+          {{ t("week.empty") }}
+        </p>
+
         <div
-          v-else-if="dragMoved && dropTarget?.day === day.date && dropTarget.beforeId === null"
-          class="mt-1.5 h-6 rounded-xl border border-dashed border-primary/50"
-        ></div>
-      </section>
-    </div>
+          v-if="!ganttView && shownDays.length"
+          ref="listEl"
+          :class="{ 'select-none': draggingId }"
+        >
+          <section
+            v-for="day in shownDays"
+            :key="day.date"
+            :data-day="day.date"
+            :class="{ 'opacity-75': day.isPast }"
+          >
+            <div
+              class="flex items-center gap-2 px-1 pt-1.5 pb-1 text-[10.5px] text-base-content/40"
+            >
+              <span class="font-medium">{{ day.weekday }}</span>
+              <span>{{ shortDate(day.date) }}</span>
+              <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
+                t("week.today")
+              }}</span>
+              <span v-else-if="day.isPast" class="badge badge-ghost badge-xs">{{
+                t("week.past")
+              }}</span>
+              <span v-if="dayLoad(day.date)" class="ml-auto text-[10px] text-base-content/40">
+                {{ t("week.dayLoad", { hours: dayLoad(day.date) }) }}
+              </span>
+              <span
+                v-if="dragMoved && dropTarget?.day === day.date"
+                class="text-[10px] text-primary"
+                :class="{ 'ml-auto': !dayLoad(day.date) }"
+              >
+                {{ t("week.dropDay") }}
+              </span>
+            </div>
+            <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
+              <TaskRow
+                v-for="row in day.rows"
+                :key="row.task.id"
+                :task="row.task"
+                :readonly="row.history === true"
+                :plan="{
+                  start: row.start,
+                  end: row.end,
+                  spans: row.spans,
+                  days: row.days,
+                  clamped: row.clamped,
+                  conflict: row.conflict,
+                }"
+                :data-task-id="row.history ? undefined : row.task.id"
+                :drop-line="
+                  dragMoved &&
+                  dropTarget?.day === day.date &&
+                  dropTarget.beforeId === row.task.id &&
+                  draggingId !== row.task.id
+                "
+                :style="{ opacity: draggingId === row.task.id ? 0.4 : undefined }"
+                @open="openTask"
+                @changed="refresh"
+              >
+                <template v-if="!row.history" #leading>
+                  <button
+                    class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
+                    :aria-label="t('week.reorderAria', { title: row.task.title })"
+                    @click.stop
+                    @pointerdown="startDrag($event, row.task.id)"
+                    @pointermove="drag.move"
+                    @pointerup="drag.end"
+                    @pointercancel="drag.cancel"
+                    @keydown.up.prevent="onMoveBy(row.task.id, -1)"
+                    @keydown.down.prevent="onMoveBy(row.task.id, 1)"
+                  >
+                    <GripVertical :size="14" aria-hidden="true" />
+                  </button>
+                </template>
+              </TaskRow>
+            </AnimatePresence>
+            <div
+              v-if="!day.rows.length"
+              class="mt-0.5 flex h-9 items-center justify-center rounded-xl border border-dashed text-[10.5px]"
+              :class="
+                dragMoved && dropTarget?.day === day.date
+                  ? 'border-primary/60 bg-primary/5 text-primary'
+                  : 'border-base-content/15 text-base-content/30'
+              "
+            >
+              {{ dragMoved ? t("week.dropDay") : t("week.emptyDay") }}
+            </div>
+            <div
+              v-else-if="dragMoved && dropTarget?.day === day.date && dropTarget.beforeId === null"
+              class="mt-1.5 h-6 rounded-xl border border-dashed border-primary/50"
+            ></div>
+          </section>
+        </div>
+      </motion.div>
+    </AnimatePresence>
 
     <div v-if="waitingOpen" class="space-y-1.5">
       <div class="px-1 text-[10.5px] font-medium tracking-wide text-base-content/40">
