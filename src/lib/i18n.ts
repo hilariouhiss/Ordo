@@ -406,8 +406,6 @@ export const zh = {
   "settings.digest": "每日汇总",
   "settings.digestHint":
     "每天 09:00 汇总今天到期和已逾期的任务，当天没有就不发；点通知打开本周页。",
-  "settings.weekViewHint":
-    "列表按天堆任务卡片；甘特图一条任务一行、按天横排任务条，拖条形改开始日。",
   "settings.shortcut": "迷你窗口快捷键",
   "settings.deskShortcut": "桌面小窗快捷键",
   "settings.mainShortcut": "主窗口快捷键",
@@ -1001,8 +999,6 @@ export const en: Record<MessageKey, string> = {
   "settings.digest": "Daily digest",
   "settings.digestHint":
     "Every day at 09:00, one summary of what is due today or already late; nothing on a quiet day. Tapping it opens the week page.",
-  "settings.weekViewHint":
-    "The list stacks cards by day; the gantt gives each task one row and a bar across the days it covers. Drag a bar to change its start day.",
   "settings.weekShowEmptyDays": "Show unplanned weekdays",
   "settings.weekShowEmptyDaysHint":
     "List today through Friday even when the planner leaves a day empty, so a task can be dragged onto it.",

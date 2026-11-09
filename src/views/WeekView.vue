@@ -5,14 +5,15 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { formatEffort } from "../lib/effort";
-import { t } from "../lib/i18n";
+import { t, type MessageKey } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
 import { anchorFor, boardDropAt, coveredDays, listDropAt } from "../lib/weekDrop";
-import type { Task } from "../model/types";
+import type { Task, WeekView } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { passVM } from "../viewmodels/passVM";
+import { settingsVM } from "../viewmodels/settingsVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import { weekVM } from "../viewmodels/weekVM";
@@ -47,7 +48,12 @@ const {
 const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
 const suspendedOpen = computed(() => state.suspended.length > 0);
 const waitingOpen = computed(() => state.waiting.length > 0);
-const ganttView = computed(() => appVM.state.settings?.weekView === "gantt");
+const weekView = computed(() => appVM.state.settings?.weekView ?? "list");
+const ganttView = computed(() => weekView.value === "gantt");
+const weekViewOptions: { value: WeekView; key: MessageKey }[] = [
+  { value: "list", key: "settings.weekViewList" },
+  { value: "gantt", key: "settings.weekViewGantt" },
+];
 
 const listEl = ref<HTMLElement | null>(null);
 /** The list's drag: threshold, the day and row under the pointer, edge auto-scroll. */
@@ -326,25 +332,48 @@ watch(
 
     <CaptureBar v-model="state.draft" @submit="capture" />
 
-    <div
-      v-if="planEnd"
-      class="flex flex-wrap items-center gap-2 px-1 text-[10.5px] text-base-content/45"
-      aria-live="polite"
-    >
-      <span>
-        {{
-          t("week.planEnd", {
-            date: shortDate(planEnd),
-            weekday: planEnd ? weekdayLabel(planEnd) : "",
-          })
-        }}
-      </span>
-      <span v-if="conflictCount" class="badge badge-soft badge-error badge-xs">
-        {{ t("week.conflict", { count: conflictCount }) }}
-      </span>
-      <span v-if="overloadDates.length" class="badge badge-soft badge-warning badge-xs">
-        {{ t("week.overloaded", { dates: overloadText }) }}
-      </span>
+    <div class="flex items-center gap-2 px-1">
+      <div
+        v-if="planEnd"
+        class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[10.5px] text-base-content/45"
+        aria-live="polite"
+      >
+        <span>
+          {{
+            t("week.planEnd", {
+              date: shortDate(planEnd),
+              weekday: planEnd ? weekdayLabel(planEnd) : "",
+            })
+          }}
+        </span>
+        <span v-if="conflictCount" class="badge badge-soft badge-error badge-xs">
+          {{ t("week.conflict", { count: conflictCount }) }}
+        </span>
+        <span v-if="overloadDates.length" class="badge badge-soft badge-warning badge-xs">
+          {{ t("week.overloaded", { dates: overloadText }) }}
+        </span>
+      </div>
+      <div
+        role="tablist"
+        :aria-label="t('settings.weekView')"
+        class="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-base-300 bg-base-100 p-0.5"
+      >
+        <button
+          v-for="option in weekViewOptions"
+          :key="option.value"
+          role="tab"
+          :aria-selected="weekView === option.value"
+          class="rounded-md px-2.5 py-1 text-[10.5px] leading-none"
+          :class="
+            weekView === option.value
+              ? 'bg-primary/10 font-medium text-primary'
+              : 'text-base-content/45 hover:text-base-content'
+          "
+          @click="settingsVM.save({ weekView: option.value })"
+        >
+          {{ t(option.key) }}
+        </button>
+      </div>
     </div>
 
     <p
