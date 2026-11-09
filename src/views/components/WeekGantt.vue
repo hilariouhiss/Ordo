@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Hourglass, Pause, Play } from "@lucide/vue";
+import { CornerDownRight, Hourglass, Pause, Play } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import { shortDate, shortDateTime, todayIso, weekdayLabel } from "../../lib/dates";
 import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
@@ -15,7 +15,6 @@ import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import { weekVM } from "../../viewmodels/weekVM";
-import ParentBadge from "./ParentBadge.vue";
 import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
@@ -328,6 +327,16 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                     :waiting="lane.task.waiting"
                   />
                 </span>
+                <template v-if="lane.task.parentTitle">
+                  <span
+                    class="flex min-w-0 max-w-32 shrink items-center gap-1 text-[11px] opacity-60"
+                    :title="t('task.parentTask', { title: lane.task.parentTitle })"
+                  >
+                    <CornerDownRight :size="10" aria-hidden="true" class="shrink-0" />
+                    <span class="min-w-0 truncate">{{ lane.task.parentTitle }}</span>
+                  </span>
+                  <span class="h-2.5 w-px shrink-0 bg-current opacity-20" aria-hidden="true"></span>
+                </template>
                 <span
                   class="truncate text-[13.5px]"
                   :class="{ 'text-base-content/40 line-through': isDone(lane) }"
@@ -377,11 +386,6 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 >
                   {{ t("task.notFit") }}
                 </span>
-                <ParentBadge
-                  v-if="lane.task.parentTitle"
-                  :title="lane.task.parentTitle"
-                  class="max-w-20"
-                />
                 <span
                   v-if="lane.task.projectName"
                   class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
