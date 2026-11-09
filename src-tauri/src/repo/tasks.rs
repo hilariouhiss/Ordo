@@ -193,7 +193,7 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
     let ids = [id.to_owned()];
     let mut tasks = load_rows(conn, &ids)?;
-    attach_tags_delays(conn, &mut tasks, &ids)?;
+    attach_tags_delays(conn, &mut tasks, &ids, true)?;
     attach_children(conn, &mut tasks, &ids)?;
     tasks.pop().ok_or(rusqlite::Error::QueryReturnedNoRows)
 }
@@ -236,7 +236,7 @@ fn load_chunk(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<TaskDto
     if tasks.len() != ids.len() {
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
-    attach_tags_delays(conn, &mut tasks, ids)?;
+    attach_tags_delays(conn, &mut tasks, ids, false)?;
     attach_children(conn, &mut tasks, ids)?;
     Ok(tasks)
 }
@@ -287,7 +287,7 @@ fn attach_children(
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
     let mut children = load_rows(conn, &child_ids)?;
-    attach_tags_delays(conn, &mut children, &child_ids)?;
+    attach_tags_delays(conn, &mut children, &child_ids, false)?;
     for child in children {
         if let Some(parent) = child.parent_id.as_deref() {
             if let Some(&position) = index.get(parent) {
@@ -298,11 +298,13 @@ fn attach_children(
     Ok(())
 }
 
-/// Fills the tag and delay lists in one query each, keyed back by task id.
+/// Fills the tag list, and optionally the delay list, keyed back by task id. Lists skip
+/// delays: only the single-task load the sheet uses renders them.
 fn attach_tags_delays(
     conn: &Connection,
     tasks: &mut [TaskDto],
     ids: &[String],
+    with_delays: bool,
 ) -> rusqlite::Result<()> {
     if ids.is_empty() {
         return Ok(());
@@ -334,6 +336,9 @@ fn attach_tags_delays(
         }
     }
 
+    if !with_delays {
+        return Ok(());
+    }
     let mut delays = conn.prepare(&format!(
         "SELECT id, task_id, kind, old_due, new_due, reason, created_at FROM delays
          WHERE task_id IN ({placeholders}) ORDER BY task_id, created_at"
@@ -670,7 +675,8 @@ mod tests {
 
         let loaded: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(loaded, vec!["t3", "t1", "t2"]);
-        assert_eq!(tasks[0].delays.len(), 1);
+        // The list path no longer carries delay history; the sheet asks for it separately.
+        assert!(tasks[0].delays.is_empty());
         assert_eq!(tasks[1].tags[0].name, "fix");
         assert_eq!(tasks[2].children[0].title, "收集");
         // Each task must get only its own children, not the neighbouring ones.
@@ -725,6 +731,16 @@ mod tests {
 
         // A caller asking for a row that vanished must see an error, not a short list.
         assert!(dtos(&c, &ids).is_err());
+    }
+
+    #[test]
+    fn week_lists_leave_delay_history_to_the_single_task_load() {
+        let c = db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::services::deliverables::add_note(&c, "t1", "等甲方", NOW).unwrap();
+
+        assert!(list_week(&c).unwrap()[0].delays.is_empty());
+        assert_eq!(dto(&c, "t1").unwrap().delays.len(), 1);
     }
 
     #[test]
