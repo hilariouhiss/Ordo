@@ -187,7 +187,7 @@ watch(
     </div>
 
     <AnimatePresence>
-      <TaskSheet v-if="taskSheetVM.state.openId" />
+      <TaskSheet v-if="taskSheetVM.state.openId" key="task-sheet" />
     </AnimatePresence>
   </section>
 </template>

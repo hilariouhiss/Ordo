@@ -245,9 +245,8 @@ export function createTaskSheetVM() {
 
   function close(): void {
     state.openId = null;
-    state.task = null;
-    state.form = null;
-    state.note = "";
+    // Task and draft stay: the sheet slides out with its content instead of flashing empty,
+    // and the next open replaces both anyway. The stack must not survive into that open.
     state.stack = [];
   }
 

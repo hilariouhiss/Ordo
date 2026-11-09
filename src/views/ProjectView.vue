@@ -196,7 +196,7 @@ watch(
     <SummaryLine :text="vm.summaryLine.value" :copied="vm.state.copied" @copy="vm.copySummary" />
 
     <AnimatePresence>
-      <TaskSheet v-if="taskSheetVM.state.openId" />
+      <TaskSheet v-if="taskSheetVM.state.openId" key="task-sheet" />
     </AnimatePresence>
     <AnimatePresence>
       <ProjectSettings v-if="settingsOpen" :id="props.id" @close="closeSettings" />

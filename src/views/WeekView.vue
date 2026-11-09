@@ -641,7 +641,7 @@ watch(
     </div>
 
     <AnimatePresence>
-      <TaskSheet v-if="taskSheetVM.state.openId" />
+      <TaskSheet v-if="taskSheetVM.state.openId" key="task-sheet" />
     </AnimatePresence>
     <AnimatePresence>
       <WeeklyPass v-if="passVM.state.open" />

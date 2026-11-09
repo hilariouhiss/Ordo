@@ -29,7 +29,7 @@ export const modalPanelMotion = {
 export const sheetPanelMotion = {
   initial: { x: 72 },
   animate: { x: 0, transition: springSoft },
-  exit: { x: 40, transition: { duration: 0.16, ease: easeOut } },
+  exit: { x: 56, opacity: 0, transition: { duration: 0.18, ease: easeOut } },
 };
 
 export const screenColumnMotion = {

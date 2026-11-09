@@ -420,7 +420,7 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
     </AnimatePresence>
 
     <AnimatePresence>
-      <TaskSheet v-if="taskSheetVM.state.openId" />
+      <TaskSheet v-if="taskSheetVM.state.openId" key="task-sheet" />
     </AnimatePresence>
   </section>
 </template>

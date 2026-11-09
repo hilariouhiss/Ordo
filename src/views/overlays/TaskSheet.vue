@@ -454,23 +454,14 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           {{ t("task.parentTask", { title: task.parentTitle ?? "" }) }}
         </button>
 
-        <div class="flex items-start gap-2">
-          <textarea
-            ref="titleInput"
-            v-model="form.title"
-            rows="1"
-            class="min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-[17px] font-semibold leading-snug outline-none focus:border-primary/60"
-            :aria-label="t('task.title')"
-            @keydown.enter="onTitleEnter"
-          ></textarea>
-          <button
-            class="mt-2 shrink-0 text-base-content/30"
-            :aria-label="t('common.close')"
-            @click="closeSheet()"
-          >
-            <X :size="15" aria-hidden="true" />
-          </button>
-        </div>
+        <textarea
+          ref="titleInput"
+          v-model="form.title"
+          rows="1"
+          class="min-w-0 w-full resize-none overflow-hidden rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-[17px] font-semibold leading-snug outline-none focus:border-primary/60"
+          :aria-label="t('task.title')"
+          @keydown.enter="onTitleEnter"
+        ></textarea>
 
         <label class="mt-2 block text-[11px] text-base-content/45">
           {{ t("task.description") }}
