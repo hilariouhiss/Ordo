@@ -543,7 +543,8 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
                seen_at TEXT,
                UNIQUE (task_id, kind, due_key)
              );
-             INSERT INTO notifications_new SELECT * FROM notifications;
+             INSERT INTO notifications_new (id, task_id, kind, due_key, scheduled_for, fired_at, seen_at)
+             SELECT id, task_id, kind, due_key, scheduled_for, fired_at, seen_at FROM notifications;
              DROP TABLE notifications;
              ALTER TABLE notifications_new RENAME TO notifications;
              CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);",
@@ -1964,6 +1965,45 @@ mod tests {
             [],
         )
         .unwrap();
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn rebuilding_notifications_keeps_rows_from_a_table_with_an_extra_column() {
+        let c = crate::db::open_in_memory().unwrap();
+        // A ledger written by an older build carries a column this schema dropped.
+        c.execute_batch("ALTER TABLE notifications ADD COLUMN dismissed_at TEXT")
+            .unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, created_at, updated_at)
+             VALUES ('t', '甲', '2026-11-07T08:00:00Z', '2026-11-07T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for, dismissed_at)
+             VALUES ('n', 't', 'overdue', '2026-11-06', '2026-11-07T09:30:00Z',
+                     '2026-11-07T09:31:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 21).unwrap();
+
+        migrate(&c).unwrap();
+
+        let kept: String = c
+            .query_row("SELECT kind FROM notifications WHERE id = 'n'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, "overdue");
+        let dropped: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('notifications') WHERE name = 'dismissed_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dropped, 0, "the stale column is not carried over");
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
     }
