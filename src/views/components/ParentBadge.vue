@@ -2,16 +2,17 @@
 import { CornerDownRight } from "@lucide/vue";
 import { t } from "../../lib/i18n";
 
-/** A subtask's parent, so a row of leaves still says which task it belongs to. */
+/** A subtask's parent, drawn as a breadcrumb before the title. */
 defineProps<{ title: string }>();
 </script>
 
 <template>
   <span
-    class="badge badge-xs max-w-32 shrink-0 gap-1 border-0 bg-base-content/5 ps-1.5 text-base-content/60"
+    class="flex min-w-0 shrink items-center gap-1 text-[11px] opacity-60"
     :title="t('task.parentTask', { title })"
   >
-    <CornerDownRight :size="10" aria-hidden="true" class="shrink-0 opacity-60" />
+    <CornerDownRight :size="10" aria-hidden="true" class="shrink-0" />
     <span class="min-w-0 truncate">{{ title }}</span>
+    <span class="h-2.5 w-px shrink-0 bg-current opacity-20" aria-hidden="true"></span>
   </span>
 </template>

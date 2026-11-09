@@ -212,13 +212,13 @@ async function suspend(): Promise<void> {
       </span>
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2.5">
+          <ParentBadge v-if="task.parentTitle" :title="task.parentTitle" class="max-w-32" />
           <span
             class="text-[13px]"
             :class="{ 'text-base-content/40 line-through': task.status === 'done' }"
           >
             {{ task.title }}
           </span>
-          <ParentBadge v-if="task.parentTitle" :title="task.parentTitle" class="max-w-32" />
           <span
             v-if="showProject && task.projectName"
             class="badge badge-soft badge-primary badge-xs max-w-32"
