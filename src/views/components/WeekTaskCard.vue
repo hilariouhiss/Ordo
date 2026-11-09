@@ -219,7 +219,7 @@ function reorder(delta: -1 | 1): void {
     </div>
     <div
       v-if="!compact && !readonly"
-      class="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-base-100/90 px-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
+      class="absolute top-1 right-1.5 flex items-center gap-0.5 rounded-md bg-base-100/90 px-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
     >
       <button
         v-if="canStart"
