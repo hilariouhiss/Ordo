@@ -34,6 +34,7 @@ import {
   type TaskForm,
 } from "../../viewmodels/taskSheetVM";
 import { undoVM } from "../../viewmodels/undoVM";
+import ChipSelect from "../components/ChipSelect.vue";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
 
@@ -266,8 +267,53 @@ function closeSheet(): void {
   taskSheetVM.close();
 }
 
-function onPriorityChange(event: Event): void {
-  form.value.priority = (event.target as HTMLSelectElement).value as Priority;
+/** The four attribute chips speak strings; an empty value is the "none" entry. */
+const NONE = "";
+
+const projectOptions = computed(() => [
+  { value: NONE, label: t("task.noProject") },
+  ...appVM.state.projects.map((project) => ({ value: project.id, label: project.name })),
+]);
+const categoryOptions = computed(() => [
+  { value: NONE, label: t("common.uncategorized") },
+  ...appVM.state.categories.map((category) => ({ value: category.id, label: category.name })),
+]);
+const ownerOptions = computed(() => {
+  const options = [
+    { value: NONE, label: t("task.unassigned") },
+    ...candidates.value.map((person) => ({ value: person.id, label: person.name })),
+  ];
+  // Switching project can leave an owner the new project does not list; keep their name.
+  const current = form.value.ownerId;
+  if (current && !options.some((option) => option.value === current)) {
+    options.push({
+      value: current,
+      label: appVM.state.people.find((person) => person.id === current)?.name ?? "",
+    });
+  }
+  return options;
+});
+const priorityOptions = computed(() => [
+  { value: "high", label: t("task.priorityHigh") },
+  { value: "normal", label: t("task.priorityNormal") },
+  { value: "low", label: t("task.priorityLow") },
+]);
+
+function setProject(id: string): void {
+  form.value.projectId = id || null;
+  void onProjectChange();
+}
+
+function setCategory(id: string): void {
+  form.value.categoryId = id || null;
+}
+
+function setOwner(id: string): void {
+  form.value.ownerId = id || null;
+}
+
+function setPriority(value: string): void {
+  form.value.priority = value as Priority;
 }
 
 function addTag(): void {
@@ -577,53 +623,42 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <span class="px-2.5">{{ t("task.priority") }}</span>
         </div>
         <div class="mt-1 flex overflow-hidden rounded-lg border border-base-300 bg-base-100">
-          <select
-            v-model="form.projectId"
-            class="select select-sm min-w-0 flex-[1.15] rounded-none border-0 bg-base-100 pl-2.5"
-            @change="onProjectChange"
-          >
-            <option :value="null">{{ t("task.noProject") }}</option>
-            <option v-for="project in appVM.state.projects" :key="project.id" :value="project.id">
-              {{ project.name }}
-            </option>
-          </select>
-          <select
-            v-model="form.categoryId"
-            class="select select-sm min-w-0 flex-[0.85] rounded-none border-0 border-l border-base-300 bg-base-100 pl-2.5"
-          >
-            <option :value="null">{{ t("common.uncategorized") }}</option>
-            <option v-for="c in appVM.state.categories" :key="c.id" :value="c.id">
-              {{ c.name }}
-            </option>
-          </select>
-          <select
-            v-model="form.ownerId"
-            class="select select-sm min-w-0 flex-[0.8] rounded-none border-0 border-l border-base-300 bg-base-100 pl-2.5"
-          >
-            <option :value="null">{{ t("task.unassigned") }}</option>
-            <option
-              v-if="form.ownerId && !candidates.some((p) => p.id === form.ownerId)"
-              :value="form.ownerId"
-            >
-              {{ appVM.state.people.find((p) => p.id === form.ownerId)?.name }}
-            </option>
-            <option v-for="p in candidates" :key="p.id" :value="p.id">
-              {{ p.name }}
-            </option>
-          </select>
-          <select
-            :value="form.priority"
-            class="select select-sm min-w-0 flex-[0.6] rounded-none border-0 border-l border-base-300 bg-base-100 pl-2.5"
-            @change="onPriorityChange"
-          >
-            <option value="high">{{ t("task.priorityHigh") }}</option>
-            <option value="normal">{{ t("task.priorityNormal") }}</option>
-            <option value="low">{{ t("task.priorityLow") }}</option>
-          </select>
+          <ChipSelect
+            :model-value="form.projectId ?? NONE"
+            :options="projectOptions"
+            :label="t('task.project')"
+            class="select-sm min-w-0 flex-[1.15] rounded-none border-0 pl-2.5"
+            style="padding-inline: 10px 6px"
+            @update:model-value="setProject"
+          />
+          <ChipSelect
+            :model-value="form.categoryId ?? NONE"
+            :options="categoryOptions"
+            :label="t('task.category')"
+            class="select-sm min-w-0 flex-[0.85] rounded-none border-0 border-l border-base-300 pl-2.5"
+            style="padding-inline: 10px 6px"
+            @update:model-value="setCategory"
+          />
+          <ChipSelect
+            :model-value="form.ownerId ?? NONE"
+            :options="ownerOptions"
+            :label="t('task.owner')"
+            class="select-sm min-w-0 flex-[0.8] rounded-none border-0 border-l border-base-300 pl-2.5"
+            style="padding-inline: 10px 6px"
+            @update:model-value="setOwner"
+          />
+          <ChipSelect
+            :model-value="form.priority"
+            :options="priorityOptions"
+            :label="t('task.priority')"
+            class="select-sm min-w-0 flex-[0.6] rounded-none border-0 border-l border-base-300 pl-2.5"
+            style="padding-inline: 10px 6px"
+            @update:model-value="setPriority"
+          />
         </div>
 
         <!-- Expected and actual share one grid, so both rows keep the same columns. -->
-        <div class="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-x-2">
+        <div class="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-x-2 gap-y-2">
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.expectedStart") }}
             <DateField
@@ -660,8 +695,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               @update:model-value="onFinishPicked"
             />
           </label>
-          <div class="col-span-3 mt-2 h-px bg-base-300"></div>
-
           <label class="block text-[11px] text-base-content/45">
             {{ t("task.actualStart") }}
             <DateField
