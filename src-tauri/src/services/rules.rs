@@ -442,6 +442,79 @@ mod tests {
     }
 
     #[test]
+    fn deleting_an_occurrence_through_the_archive_does_not_recreate_it() {
+        let c = db::open_in_memory().unwrap();
+        let day = weekday(2026, 10, 20);
+        let rule = save(&c, &input("报销", vec![day], "09:00"), NOW).unwrap();
+        materialize(&c, at(2026, 10, 20, 10, 0)).unwrap();
+        let task_id: String = c
+            .query_row("SELECT id FROM tasks WHERE rule_id = ?1", [&rule.id], |r| r.get(0))
+            .unwrap();
+        // The pass can cancel today's occurrence; the archive tab then offers delete.
+        crate::services::week::resolve(
+            &c,
+            &task_id,
+            crate::services::week::PassAction::Cancel,
+            None,
+            None,
+            NOW,
+        )
+        .unwrap();
+
+        crate::services::archive::delete_task(&c, &task_id, NOW).unwrap();
+
+        assert!(materialize(&c, at(2026, 10, 20, 11, 0)).unwrap().is_empty());
+        let live: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE rule_id = ?1 AND deleted_at IS NULL",
+                [&rule.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, 0, "the deleted occurrence must stay a tombstone");
+    }
+
+    #[test]
+    fn deleting_an_occurrence_drops_its_pending_reminders() {
+        let c = db::open_in_memory().unwrap();
+        let day = weekday(2026, 10, 20);
+        let rule = save(&c, &input("报销", vec![day], "09:00"), NOW).unwrap();
+        materialize(&c, at(2026, 10, 20, 10, 0)).unwrap();
+        let task_id: String = c
+            .query_row("SELECT id FROM tasks WHERE rule_id = ?1", [&rule.id], |r| r.get(0))
+            .unwrap();
+        c.execute(
+            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for, fired_at)
+             VALUES ('n1', ?1, 'due_tomorrow', '2026-10-20', '2026-10-20T09:00:00Z', ?2)",
+            rusqlite::params![&task_id, NOW],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO reminder_snoozes (task_id, fire_at) VALUES (?1, '2026-10-20T09:00:00Z')",
+            [&task_id],
+        )
+        .unwrap();
+        crate::services::week::resolve(
+            &c,
+            &task_id,
+            crate::services::week::PassAction::Cancel,
+            None,
+            None,
+            NOW,
+        )
+        .unwrap();
+
+        crate::services::archive::delete_task(&c, &task_id, NOW).unwrap();
+
+        for table in ["notifications", "reminder_snoozes"] {
+            let left: i64 = c
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(left, 0, "{table} must not keep a reminder for a deleted task");
+        }
+    }
+
+    #[test]
     fn a_rule_remembers_its_category_and_exclusive_flag() {
         let c = db::open_in_memory().unwrap();
         let category = crate::repo::categories::list(&c).unwrap()[0].id.clone();

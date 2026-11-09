@@ -44,8 +44,9 @@ pub async fn unarchive_task(state: State<'_, AppState>, id: String) -> Result<Ta
 
 #[tauri::command]
 pub async fn delete_task(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::archive::delete_task(conn, &id)
+        crate::services::archive::delete_task(conn, &id, &now)
     })
     .await
 }

@@ -132,21 +132,52 @@ pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto,
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
 
-pub fn delete_task(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_task(conn: &Connection, id: &str, now: &str) -> Result<(), String> {
     let row = conn.query_row(
-        "SELECT archived_at, canceled_at FROM tasks WHERE id = ?1",
+        "SELECT archived_at, canceled_at, rule_id FROM tasks WHERE id = ?1",
         [id],
         |r| {
             Ok((
                 r.get::<_, Option<String>>(0)?,
                 r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
             ))
         },
     );
     match row {
         // Deleting is the last step: an active task has to be archived (or canceled) first.
-        Ok((archived, canceled)) if archived.is_none() && canceled.is_none() => {
+        Ok((archived, canceled, _)) if archived.is_none() && canceled.is_none() => {
             Err("task_not_archived".into())
+        }
+        // A rule occurrence must leave a tombstone, or the generator recreates it.
+        Ok((_, _, Some(_))) => {
+            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+            let changed = tx
+                .execute(
+                    "UPDATE tasks SET deleted_at = ?1, in_week = 0, updated_at = ?1
+                     WHERE (id = ?2 OR parent_id = ?2) AND deleted_at IS NULL",
+                    rusqlite::params![now, id],
+                )
+                .map_err(|e| e.to_string())?;
+            if changed == 0 {
+                return Err("task_not_found".into());
+            }
+            // A hard delete used to take these with it; a hidden task must not leave
+            // an unread toast that opens nothing.
+            tx.execute(
+                "DELETE FROM notifications WHERE task_id IN
+                   (SELECT id FROM tasks WHERE id = ?1 OR parent_id = ?1)",
+                [id],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute(
+                "DELETE FROM reminder_snoozes WHERE task_id IN
+                   (SELECT id FROM tasks WHERE id = ?1 OR parent_id = ?1)",
+                [id],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(())
         }
         Ok(_) => tasks::delete(conn, id).map_err(|e| e.to_string()),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
@@ -194,7 +225,7 @@ mod tests {
         crate::services::deliverables::add_note(&c, "t1", "等回复", NOW).unwrap();
         archive::archive_task(&c, "t1", NOW).unwrap();
 
-        archive::delete_task(&c, "t1").unwrap();
+        archive::delete_task(&c, "t1", NOW).unwrap();
         let children: i64 = c
             .query_row(
                 "SELECT COUNT(*) FROM tasks WHERE parent_id='t1'",
@@ -242,12 +273,12 @@ mod tests {
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
         assert_eq!(
-            archive::delete_task(&c, "t1").unwrap_err(),
+            archive::delete_task(&c, "t1", NOW).unwrap_err(),
             "task_not_archived"
         );
 
         crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
-        archive::delete_task(&c, "t1").unwrap();
+        archive::delete_task(&c, "t1", NOW).unwrap();
         let left: i64 = c
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();
@@ -269,7 +300,7 @@ mod tests {
         )
         .unwrap();
 
-        archive::delete_task(&c, "t1").unwrap();
+        archive::delete_task(&c, "t1", NOW).unwrap();
         let left: i64 = c
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();
