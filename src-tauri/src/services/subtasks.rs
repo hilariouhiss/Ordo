@@ -281,7 +281,7 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
         "UPDATE tasks SET effort_minutes = ?1,
                 expected_start_date = ?2,
                 expected_finish_date = CASE WHEN ?11 THEN expected_finish_date ELSE ?3 END,
-                started_at = COALESCE(?4, started_at),
+                started_at = ?4,
                 status = ?5,
                 in_week = CASE WHEN ?6 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
                 suspended = CASE WHEN ?6 THEN 0 ELSE suspended END,
@@ -620,6 +620,25 @@ mod tests {
         assert!(parent.actual_finish_at.is_none());
         assert!(parent.actual_effort_minutes.is_none());
         assert!(parent.in_week);
+    }
+
+    #[test]
+    fn removing_one_started_child_leaves_the_parent_unstarted() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集清单", NOW).unwrap();
+        let first = parent.children[0].id.clone();
+        add(&c, "t1", "汇编初稿", NOW).unwrap();
+        tasks::set_status(&c, &first, "doing", NOW).unwrap();
+        assert!(crate::repo::tasks::dto(&c, "t1").unwrap().actual_start_at.is_some());
+
+        remove(&c, &first, LATER).unwrap();
+
+        let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(parent.status, "todo");
+        assert!(
+            parent.actual_start_at.is_none(),
+            "no live child has started, so the umbrella has not either"
+        );
     }
 
     #[test]
