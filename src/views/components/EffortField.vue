@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import {
-  bestEffortUnit,
-  effortAmountIn,
-  parseEffortAmount,
-  type EffortUnit,
-} from "../../lib/effort";
+import { bestEffortUnit, parseEffortAmount, type EffortUnit } from "../../lib/effort";
 import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import ChipSelect from "./ChipSelect.vue";
@@ -27,8 +22,6 @@ const amount = ref("");
 const unit = ref<EffortUnit>("minutes");
 /** The pair on screen is the draft; the model only changes when the field is left. */
 let editing = false;
-/** Whether the amount text is the user's own, not a converted display. */
-const typed = ref(false);
 
 /** The sheet passes "actual effort" so the field is not announced as the estimate. */
 const fieldLabel = computed(() => props.label ?? t("task.effort"));
@@ -54,19 +47,16 @@ const unitClass = computed(() =>
 function show(minutes: number): void {
   if (props.optional && minutes <= 0) {
     amount.value = "";
-    typed.value = false;
     return;
   }
   if (props.allowZero && minutes === 0) {
     amount.value = "0";
     unit.value = "minutes";
-    typed.value = false;
     return;
   }
   const value = bestEffortUnit(minutes);
   amount.value = String(value.amount);
   unit.value = value.unit;
-  typed.value = false;
 }
 
 watch(
@@ -104,10 +94,6 @@ function onFocus(): void {
   inputEl.value?.select();
 }
 
-function onInput(): void {
-  typed.value = true;
-}
-
 /** Focus inside the unit popup still belongs to this field: the panel is teleported. */
 function isUnitPopupFocus(node: EventTarget | null): boolean {
   return node instanceof Element && node.closest('[role="listbox"]') !== null;
@@ -121,18 +107,16 @@ function onFocusOut(event: FocusEvent): void {
   commit();
 }
 
+/** The number stays as it is; only what it counts changes. Switching never converts. */
 function onUnit(next: string): void {
   const nextUnit = next as EffortUnit;
   if (nextUnit === unit.value) return;
-  if (typed.value) {
-    // The typed number is read in the newly chosen unit.
-    unit.value = nextUnit;
-    return;
-  }
-  // Browsing the unit of a committed value only changes how it is shown.
-  const minutes = parseEffortAmount(amount.value, unit.value) ?? model.value;
   unit.value = nextUnit;
-  amount.value = effortAmountIn(minutes, nextUnit);
+  // Pin the pair on screen: the model takes the new reading, but nothing is redrawn in
+  // another unit until the field is left.
+  editing = true;
+  const minutes = parseEffortAmount(amount.value, nextUnit);
+  if (minutes !== null && minutes !== model.value) model.value = minutes;
 }
 
 function onEnter(event: KeyboardEvent): void {
@@ -158,7 +142,6 @@ function onEnter(event: KeyboardEvent): void {
       :disabled="props.disabled"
       :aria-label="fieldLabel"
       :class="inputClass"
-      @input="onInput"
       @focus="onFocus"
       @keydown.enter="onEnter"
     />
