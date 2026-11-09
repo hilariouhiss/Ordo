@@ -1,6 +1,6 @@
 use crate::dto::TaskDto;
 use crate::repo::{delays, tasks};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
 
 /// Records why a task is late. The expected finish itself is derived from the estimate
@@ -31,6 +31,23 @@ pub fn add_note(conn: &Connection, task_id: &str, reason: &str, now: &str) -> Re
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
+/// Rewrites the reason on a record already in the ledger; a blank reason clears it.
+pub fn set_reason(conn: &Connection, delay_id: &str, reason: &str) -> Result<TaskDto, String> {
+    let reason = reason.trim();
+    let task_id: String = conn
+        .query_row(
+            "SELECT task_id FROM delays WHERE id = ?1",
+            [delay_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or("delay_not_found")?;
+    let value = if reason.is_empty() { None } else { Some(reason) };
+    delays::set_reason(conn, delay_id, value).map_err(|e| e.to_string())?;
+    tasks::dto(conn, &task_id).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::db;
@@ -54,6 +71,28 @@ mod tests {
         assert_eq!(ds.len(), 1);
         assert_eq!(ds[0].kind, "overdue_note");
         assert_eq!(ds[0].reason.as_deref(), Some("等甲方回数据"));
+    }
+
+    #[test]
+    fn a_reason_can_be_rewritten_and_cleared() {
+        let c = with_finish();
+        crate::services::deliverables::add_note(&c, "t1", "等甲方回数据", NOW).unwrap();
+        let id = crate::repo::tasks::dto(&c, "t1").unwrap().delays[0].id.clone();
+
+        let task = crate::services::deliverables::set_reason(&c, &id, "  需求临时改 ").unwrap();
+        assert_eq!(task.delays[0].reason.as_deref(), Some("需求临时改"));
+
+        let task = crate::services::deliverables::set_reason(&c, &id, "   ").unwrap();
+        assert!(task.delays[0].reason.is_none(), "a blank reason clears the note");
+    }
+
+    #[test]
+    fn an_unknown_record_is_rejected() {
+        let c = with_finish();
+        assert_eq!(
+            crate::services::deliverables::set_reason(&c, "nope", "慢").unwrap_err(),
+            "delay_not_found"
+        );
     }
 
     #[test]

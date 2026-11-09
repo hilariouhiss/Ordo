@@ -19,3 +19,10 @@ pub fn insert(
     Ok(())
 }
 
+/// Rewrites one record's reason; `None` clears it, because a blank reason is a real state.
+pub fn set_reason(conn: &Connection, id: &str, reason: Option<&str>) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE delays SET reason = ?2 WHERE id = ?1",
+        params![id, reason],
+    )
+}

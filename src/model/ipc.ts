@@ -144,6 +144,11 @@ export function suspendTask(
 export function addDelayNote(id: string, reason: string): Promise<Task> {
   return invoke<Task>("add_delay_note", { id, reason });
 }
+
+/** Rewrites one delay record's reason; an empty string clears it. */
+export function setDelayReason(delayId: string, reason: string): Promise<Task> {
+  return invoke<Task>("set_delay_reason", { id: delayId, reason });
+}
 export function listProjects(): Promise<ProjectSummary[]> {
   return invoke<ProjectSummary[]>("list_projects");
 }

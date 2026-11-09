@@ -224,6 +224,18 @@ pub async fn add_delay_note(
     .await
 }
 #[tauri::command]
+pub async fn set_delay_reason(
+    state: State<'_, AppState>,
+    id: String,
+    reason: String,
+) -> Result<TaskDto, String> {
+    with_db(&state, move |conn| {
+        crate::services::deliverables::set_reason(conn, &id, &reason)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn list_project_tasks(
     state: State<'_, AppState>,
     project_id: String,

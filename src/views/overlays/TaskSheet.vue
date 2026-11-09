@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Hourglass, X } from "@lucide/vue";
+import { ArrowLeft, Hourglass, Pencil, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { localDate, shortDate, todayIso } from "../../lib/dates";
@@ -19,12 +19,13 @@ import {
   getTask,
   ownerCandidates,
   resumeTask,
+  setDelayReason,
   setTaskStatus,
   unarchiveTask,
   waitTask,
 } from "../../model/ipc";
 import { daysSince, overdueDays } from "../../model/mappers";
-import type { Person, Priority, Status, Task } from "../../model/types";
+import type { Delay, Person, Priority, Status, Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import {
   formFinish,
@@ -63,6 +64,10 @@ const childrenEffort = computed(
   () => task.value?.children.reduce((sum, child) => sum + child.effortMinutes, 0) ?? 0,
 );
 const backTitle = computed(() => taskSheetVM.state.stack.at(-1)?.task.title ?? "");
+
+const editingDelayId = ref<string | null>(null);
+const delayDraft = ref("");
+const delayInput = ref<HTMLInputElement | null>(null);
 
 const candidates = ref<Person[]>([]);
 const subtaskDraft = ref("");
@@ -132,6 +137,37 @@ async function markReplied(): Promise<void> {
         current.followUpDate && current.followUpDate >= todayIso() ? current.followUpDate : null;
       await waitTask(current.id, current.waitingOnId, day);
     });
+  } catch (e) {
+    taskSheetVM.state.error = String(e);
+  }
+}
+
+function setDelayInput(element: unknown): void {
+  delayInput.value = element instanceof HTMLInputElement ? element : null;
+}
+
+async function editDelay(delay: Delay): Promise<void> {
+  editingDelayId.value = delay.id;
+  delayDraft.value = delay.reason ?? "";
+  await nextTick();
+  delayInput.value?.focus();
+  delayInput.value?.select();
+}
+
+function cancelDelay(): void {
+  editingDelayId.value = null;
+}
+
+/** A delay record is written already, so its reason lands at once, like the waiting strip. */
+async function commitDelay(): Promise<void> {
+  const id = editingDelayId.value;
+  const current = task.value;
+  if (!id || !current) return;
+  editingDelayId.value = null;
+  const reason = delayDraft.value.trim();
+  if (reason === (current.delays.find((delay) => delay.id === id)?.reason ?? "")) return;
+  try {
+    taskSheetVM.applyTask(await setDelayReason(id, reason));
   } catch (e) {
     taskSheetVM.state.error = String(e);
   }
@@ -415,6 +451,16 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           >
             {{ t(option.key) }}
           </button>
+          <button
+            v-if="task.waiting || task.status !== 'done'"
+            class="btn btn-xs rounded-md font-normal"
+            :class="
+              task.waiting ? 'border-0 bg-info text-info-content' : 'border-base-300 bg-base-100'
+            "
+            @click="openWaiting"
+          >
+            {{ t("task.waitingNoName") }}
+          </button>
         </div>
 
         <div
@@ -444,7 +490,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </span>
         </div>
         <button
-          v-else-if="task.status !== 'done'"
+          v-else-if="hasSubtasks && task.status !== 'done'"
           class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] text-base-content/40 hover:text-info"
           @click="openWaiting"
         >
@@ -521,139 +567,134 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           @keydown.enter="onSubtaskKey"
         />
 
-        <div class="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2">
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.project") }}
-            <select
-              v-model="form.projectId"
-              class="select select-sm mt-1 w-full rounded-md border-base-300"
-              @change="onProjectChange"
+        <!-- One frame for the four attributes, the way the effort field joins amount + unit. -->
+        <div
+          class="mt-3 grid grid-cols-[1.15fr_0.85fr_0.8fr_0.6fr] text-[11px] text-base-content/45"
+        >
+          <span class="px-2.5">{{ t("task.project") }}</span>
+          <span class="px-2.5">{{ t("task.category") }}</span>
+          <span class="px-2.5">{{ t("task.owner") }}</span>
+          <span class="px-2.5">{{ t("task.priority") }}</span>
+        </div>
+        <div class="mt-1 flex overflow-hidden rounded-lg border border-base-300 bg-base-100">
+          <select
+            v-model="form.projectId"
+            class="select select-sm min-w-0 flex-[1.15] rounded-none border-0 bg-base-100 pl-2.5"
+            @change="onProjectChange"
+          >
+            <option :value="null">{{ t("task.noProject") }}</option>
+            <option v-for="project in appVM.state.projects" :key="project.id" :value="project.id">
+              {{ project.name }}
+            </option>
+          </select>
+          <select
+            v-model="form.categoryId"
+            class="select select-sm min-w-0 flex-[0.85] rounded-none border-0 border-l border-base-300 bg-base-100 pl-2.5"
+          >
+            <option :value="null">{{ t("common.uncategorized") }}</option>
+            <option v-for="c in appVM.state.categories" :key="c.id" :value="c.id">
+              {{ c.name }}
+            </option>
+          </select>
+          <select
+            v-model="form.ownerId"
+            class="select select-sm min-w-0 flex-[0.8] rounded-none border-0 border-l border-base-300 bg-base-100 pl-2.5"
+          >
+            <option :value="null">{{ t("task.unassigned") }}</option>
+            <option
+              v-if="form.ownerId && !candidates.some((p) => p.id === form.ownerId)"
+              :value="form.ownerId"
             >
-              <option :value="null">{{ t("task.noProject") }}</option>
-              <option v-for="project in appVM.state.projects" :key="project.id" :value="project.id">
-                {{ project.name }}
-              </option>
-            </select>
-          </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.category") }}
-            <select
-              v-model="form.categoryId"
-              class="select select-sm mt-1 w-full rounded-md border-base-300"
-            >
-              <option :value="null">{{ t("common.uncategorized") }}</option>
-              <option v-for="c in appVM.state.categories" :key="c.id" :value="c.id">
-                {{ c.name }}
-              </option>
-            </select>
-          </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.owner") }}
-            <select
-              v-model="form.ownerId"
-              class="select select-sm mt-1 w-full rounded-md border-base-300"
-            >
-              <option :value="null">{{ t("task.unassigned") }}</option>
-              <option
-                v-if="form.ownerId && !candidates.some((p) => p.id === form.ownerId)"
-                :value="form.ownerId"
-              >
-                {{ appVM.state.people.find((p) => p.id === form.ownerId)?.name }}
-              </option>
-              <option v-for="p in candidates" :key="p.id" :value="p.id">
-                {{ p.name }}
-              </option>
-            </select>
-          </label>
-          <label class="block text-[11px] text-base-content/45">
-            {{ t("task.priority") }}
-            <select
-              :value="form.priority"
-              class="select select-sm mt-1 w-full rounded-md border-base-300"
-              @change="onPriorityChange"
-            >
-              <option value="high">{{ t("task.priorityHigh") }}</option>
-              <option value="normal">{{ t("task.priorityNormal") }}</option>
-              <option value="low">{{ t("task.priorityLow") }}</option>
-            </select>
-          </label>
+              {{ appVM.state.people.find((p) => p.id === form.ownerId)?.name }}
+            </option>
+            <option v-for="p in candidates" :key="p.id" :value="p.id">
+              {{ p.name }}
+            </option>
+          </select>
+          <select
+            :value="form.priority"
+            class="select select-sm min-w-0 flex-[0.6] rounded-none border-0 border-l border-base-300 bg-base-100 pl-2.5"
+            @change="onPriorityChange"
+          >
+            <option value="high">{{ t("task.priorityHigh") }}</option>
+            <option value="normal">{{ t("task.priorityNormal") }}</option>
+            <option value="low">{{ t("task.priorityLow") }}</option>
+          </select>
         </div>
 
         <!-- Expected and actual share one grid, so both rows keep the same columns. -->
-        <div class="mt-2.5 rounded-lg border border-base-300 px-3 py-2">
-          <div class="grid grid-cols-[1fr_auto_1fr] items-start gap-x-2">
-            <label class="block text-[11px] text-base-content/45">
-              {{ t("task.expectedStart") }}
-              <DateField
-                v-model="form.expectedStartDate"
+        <div class="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-x-2">
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.expectedStart") }}
+            <DateField
+              v-model="form.expectedStartDate"
+              :disabled="locked"
+              class="input input-sm mt-1 w-full rounded-md border-base-300"
+              @update:model-value="refreshFinishPreview"
+            />
+          </label>
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.effort") }}
+            <div class="mt-1">
+              <EffortField
+                v-model="form.effortMinutes"
                 :disabled="locked"
-                class="input input-sm mt-1 w-full rounded-md border-base-300"
                 @update:model-value="refreshFinishPreview"
               />
-            </label>
-            <label class="block text-[11px] text-base-content/45">
-              {{ t("task.effort") }}
-              <div class="mt-1">
-                <EffortField
-                  v-model="form.effortMinutes"
-                  :disabled="locked"
-                  @update:model-value="refreshFinishPreview"
-                />
-              </div>
-            </label>
-            <label class="block text-[11px] text-base-content/45">
-              {{ t("task.expectedFinish") }}
-              <span
-                v-if="locked"
-                class="input input-sm mt-1 flex w-full items-center rounded-md border-base-300 bg-base-200/30 tabular-nums text-base-content/60"
-              >
-                {{ shortDate(form.expectedFinishDate) || t("common.none") }}
-                <template v-if="ruleOwned">· {{ task.expectedFinishTime }}</template>
-              </span>
-              <DateField
-                v-else
-                v-model="form.expectedFinishDate"
-                :min="finishMin"
-                class="input input-sm mt-1 w-full rounded-md border-base-300"
-                @update:model-value="onFinishPicked"
-              />
-            </label>
-            <div class="col-span-3 mt-2 h-px bg-base-300"></div>
+            </div>
+          </label>
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.expectedFinish") }}
+            <span
+              v-if="locked"
+              class="input input-sm mt-1 flex w-full items-center rounded-md border-base-300 bg-base-200/30 tabular-nums text-base-content/60"
+            >
+              {{ shortDate(form.expectedFinishDate) || t("common.none") }}
+              <template v-if="ruleOwned">· {{ task.expectedFinishTime }}</template>
+            </span>
+            <DateField
+              v-else
+              v-model="form.expectedFinishDate"
+              :min="finishMin"
+              class="input input-sm mt-1 w-full rounded-md border-base-300"
+              @update:model-value="onFinishPicked"
+            />
+          </label>
+          <div class="col-span-3 mt-2 h-px bg-base-300"></div>
 
-            <label class="block text-[11px] text-base-content/45">
-              {{ t("task.actualStart") }}
-              <DateField
-                v-model="form.actualStartDate"
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.actualStart") }}
+            <DateField
+              v-model="form.actualStartDate"
+              :disabled="derived"
+              class="input input-sm mt-1 w-full rounded-md border-base-300"
+              @update:model-value="onActualEdit('start')"
+            />
+          </label>
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.actualEffort") }}
+            <div class="mt-1">
+              <EffortField
+                v-model="form.actualEffortMinutes"
+                optional
                 :disabled="derived"
-                class="input input-sm mt-1 w-full rounded-md border-base-300"
-                @update:model-value="onActualEdit('start')"
+                :label="t('task.actualEffort')"
+                @update:model-value="onActualEdit('effort')"
               />
-            </label>
-            <label class="block text-[11px] text-base-content/45">
-              {{ t("task.actualEffort") }}
-              <div class="mt-1">
-                <EffortField
-                  v-model="form.actualEffortMinutes"
-                  optional
-                  :disabled="derived"
-                  :label="t('task.actualEffort')"
-                  @update:model-value="onActualEdit('effort')"
-                />
-              </div>
-            </label>
-            <label class="block text-[11px] text-base-content/45">
-              {{ t("task.actualFinish") }}
-              <DateField
-                v-model="form.actualFinishDate"
-                :disabled="derived"
-                class="input input-sm mt-1 w-full rounded-md border-base-300"
-                @update:model-value="onActualEdit('finish')"
-              />
-            </label>
-            <p v-if="derived" class="col-span-3 mt-1 text-[10.5px] text-base-content/45">
-              {{ t("task.subtasksRolledUp") }}
-            </p>
-          </div>
+            </div>
+          </label>
+          <label class="block text-[11px] text-base-content/45">
+            {{ t("task.actualFinish") }}
+            <DateField
+              v-model="form.actualFinishDate"
+              :disabled="derived"
+              class="input input-sm mt-1 w-full rounded-md border-base-300"
+              @update:model-value="onActualEdit('finish')"
+            />
+          </label>
+          <p v-if="derived" class="col-span-3 mt-1 text-[10.5px] text-base-content/45">
+            {{ t("task.subtasksRolledUp") }}
+          </p>
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-1.5">
@@ -707,18 +748,37 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <div class="text-[11px] font-medium tracking-wide text-base-content/40">
             {{ t("task.delays") }}
           </div>
-          <div
-            v-for="d in task.delays"
-            :key="d.id"
-            class="mt-1 rounded-lg border border-base-300 px-3 py-1.5 text-[11px] text-base-content/60"
-          >
-            <span class="tabular-nums text-base-content/40">
-              {{ shortDate(localDate(d.createdAt)) }}
-            </span>
-            {{ d.reason || t("task.noReason") }}
-            <span v-if="d.kind === 'reschedule'" class="text-base-content/40">
-              · {{ shortDate(d.oldDue) }} → {{ shortDate(d.newDue) }}
-            </span>
+          <div v-for="d in task.delays" :key="d.id" class="mt-1">
+            <div
+              v-if="editingDelayId === d.id"
+              class="flex items-center rounded-lg border border-primary/60 px-3 py-1 text-[11px]"
+            >
+              <input
+                :ref="setDelayInput"
+                v-model="delayDraft"
+                class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-base-content/35"
+                :placeholder="t('task.delayReason')"
+                :aria-label="t('task.delayReason')"
+                @blur="commitDelay"
+                @keydown.enter.prevent="commitDelay"
+                @keydown.esc.stop="cancelDelay"
+              />
+            </div>
+            <button
+              v-else
+              class="flex w-full items-center gap-1.5 rounded-lg border border-base-300 px-3 py-1.5 text-left text-[11px] text-base-content/60 hover:border-primary/50"
+              :title="t('task.delayReason')"
+              @click="editDelay(d)"
+            >
+              <span class="shrink-0 tabular-nums text-base-content/40">
+                {{ shortDate(localDate(d.createdAt)) }}
+              </span>
+              <span class="min-w-0 truncate">{{ d.reason || t("task.noReason") }}</span>
+              <span v-if="d.kind === 'reschedule'" class="shrink-0 text-base-content/40">
+                · {{ shortDate(d.oldDue) }} → {{ shortDate(d.newDue) }}
+              </span>
+              <Pencil :size="11" class="ml-auto shrink-0 text-base-content/25" aria-hidden="true" />
+            </button>
           </div>
         </div>
 
