@@ -65,10 +65,11 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         }
         // A daylight-saving gap means this clock time does not exist that day; skip the
         // task instead of failing every other reminder in the scan.
-        let timed = expected_finish_time
+        // The deadline is the task's own time, or the end of its finish day.
+        let deadline = match expected_finish_time
             .as_deref()
-            .and_then(|raw| NaiveTime::parse_from_str(raw, "%H:%M").ok());
-        let moment = match timed {
+            .and_then(|raw| NaiveTime::parse_from_str(raw, "%H:%M").ok())
+        {
             Some(at) => match local_at(due_date, at.hour(), at.minute()) {
                 Ok(moment) => moment,
                 Err(_) => continue,
@@ -78,28 +79,19 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
                 Err(_) => continue,
             },
         };
-        // Without a lead the untimed reminder keeps its day-before slot; a lead pulls
-        // both kinds forward from the task's own moment.
-        let scheduled = if lead == 0 && timed.is_none() {
-            match local_at(due_date - Duration::days(1), 17, 30) {
-                Ok(advance) => advance,
-                Err(_) => continue,
+        // The advance reminder sits exactly the lead before that deadline; 0 turns it off.
+        if lead > 0 && due_date >= today {
+            let scheduled = deadline - Duration::minutes(lead);
+            if scheduled <= now && recent(scheduled, now) && created_before_slot(created, scheduled)
+            {
+                out.push(Candidate {
+                    task_id: task_id.clone(),
+                    kind: "due_tomorrow",
+                    due_key: due.clone(),
+                    scheduled_for: scheduled,
+                    record: true,
+                });
             }
-        } else {
-            moment - Duration::minutes(lead)
-        };
-        if due_date >= today
-            && scheduled <= now
-            && recent(scheduled, now)
-            && created_before_slot(created, scheduled)
-        {
-            out.push(Candidate {
-                task_id: task_id.clone(),
-                kind: "due_tomorrow",
-                due_key: due.clone(),
-                scheduled_for: scheduled,
-                record: true,
-            });
         }
         // The task is overdue only after its own day ends; the notice belongs to
         // the next day's 17:30, or the first launch after that.
@@ -359,15 +351,16 @@ mod tests {
     }
 
     #[test]
-    fn advance_reminder_fires_at_1730() {
+    fn advance_reminder_fires_an_hour_before_the_deadline() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-21");
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        // A date-only deadline is the end of its finish day; the default lead is 60 minutes.
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].kind, "due_tomorrow");
         assert_eq!(
             cands[0].scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
-            "2026-10-20 17:30"
+            "2026-10-21 16:30"
         );
     }
 
@@ -376,7 +369,7 @@ mod tests {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-21");
         assert!(
-            crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 29))
+            crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 29))
                 .unwrap()
                 .is_empty()
         );
@@ -479,10 +472,15 @@ mod tests {
     #[test]
     fn a_deadline_derived_after_its_slot_does_not_catch_up() {
         let c = crate::db::open_in_memory().unwrap();
-        // Captured today with a one-hour estimate: the finish is today, but the
-        // "tomorrow's deadline" slot from yesterday evening was never theirs.
-        crate::services::week::capture(&c, "买螺丝", "2026-10-20T08:00:00Z", "t1").unwrap();
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 8, 0)).unwrap();
+        // Captured at 18:00 with a finish that same day: the 16:30 slot was never theirs.
+        let created = at(2026, 10, 20, 18, 0).with_timezone(&chrono::Utc).to_rfc3339();
+        crate::services::week::capture(&c, "买螺丝", &created, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET expected_finish_date = '2026-10-20' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 18, 5)).unwrap();
         assert!(
             cands.iter().all(|candidate| candidate.task_id != "t1"),
             "a freshly captured task must not toast for a slot that already passed"
@@ -493,7 +491,7 @@ mod tests {
     fn an_older_deadline_still_reminds() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-21");
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
         assert!(cands.iter().any(|c| c.task_id == "t1" && c.kind == "due_tomorrow"));
     }
 
@@ -509,7 +507,7 @@ mod tests {
             c.execute(sql, []).unwrap();
         }
 
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
 
         assert_eq!(cands.len(), 1, "only the subtask carries the reminder");
         assert_ne!(cands[0].task_id, "t1");
@@ -570,7 +568,7 @@ mod tests {
         )
         .unwrap();
 
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
         assert!(
             cands
                 .iter()
@@ -597,11 +595,11 @@ mod tests {
         .unwrap();
         crate::repo::projects::set_archived(&c, &project.id, true, NOW).unwrap();
 
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
         assert!(cands.iter().all(|c| c.task_id != "t1"));
 
         task_with_due(&c, "t2", "2026-10-21");
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
         assert!(
             cands
                 .iter()
@@ -619,20 +617,21 @@ mod tests {
     }
 
     #[test]
-    fn a_timed_reminder_waits_for_its_own_minute() {
+    fn a_timed_reminder_waits_for_its_own_slot() {
         let c = crate::db::open_in_memory().unwrap();
         timed_task(&c, "t1", "2026-10-20", "13:30");
 
-        let early = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 13, 29)).unwrap();
+        // The default lead pulls a 13:30 deadline back to 12:30.
+        let early = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 12, 29)).unwrap();
         assert!(early.is_empty());
 
-        let on_time = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 13, 30)).unwrap();
+        let on_time = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 12, 30)).unwrap();
         assert_eq!(on_time.len(), 1);
         assert_eq!(on_time[0].task_id, "t1");
         assert_eq!(on_time[0].due_key, "2026-10-20");
         assert_eq!(
             on_time[0].scheduled_for.format("%H:%M").to_string(),
-            "13:30"
+            "12:30"
         );
     }
 
@@ -693,12 +692,22 @@ mod tests {
 
         // 17:00 on the due day, not the 17:30 of the day before.
         assert_eq!(scheduled(&c, at(2026, 10, 20, 17, 1)), ["2026-10-20 17:00"]);
-        // A whole day of lead is the built-in slot again.
+        // A whole day of lead lands on the old day-before slot.
         lead(&c, 1440);
         assert_eq!(scheduled(&c, at(2026, 10, 19, 17, 31)), ["2026-10-19 17:30"]);
-        // No lead keeps the day-before slot.
+        // No lead means no advance reminder at all.
         lead(&c, 0);
-        assert_eq!(scheduled(&c, at(2026, 10, 19, 17, 31)), ["2026-10-19 17:30"]);
+        assert!(scheduled(&c, at(2026, 10, 19, 17, 31)).is_empty());
+    }
+
+    #[test]
+    fn a_zero_lead_leaves_only_the_overdue_notice() {
+        let c = crate::db::open_in_memory().unwrap();
+        task_with_due(&c, "t1", "2026-10-20");
+        lead(&c, 0);
+
+        assert!(scheduled(&c, at(2026, 10, 20, 17, 31)).is_empty());
+        assert_eq!(scheduled(&c, at(2026, 10, 21, 17, 31)), ["2026-10-21 17:30"]);
     }
 
     #[test]
@@ -986,15 +995,15 @@ mod tests {
     fn an_edit_after_the_reminder_slot_still_reminds() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-21");
-        // The user edits the title after the 17:30 slot; only the deadline changing later
+        // The user edits the title after the 16:30 slot; only the deadline changing later
         // may cancel the catch-up, not any edit at all.
         c.execute(
-            "UPDATE tasks SET updated_at = '2026-10-20T18:00:00Z' WHERE id = 't1'",
+            "UPDATE tasks SET updated_at = '2026-10-21T08:00:00Z' WHERE id = 't1'",
             [],
         )
         .unwrap();
 
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 18, 1)).unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 16, 31)).unwrap();
 
         assert!(
             cands

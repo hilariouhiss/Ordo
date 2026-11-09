@@ -2,6 +2,10 @@ use crate::dto::{SavedTaskViewDto, SettingsDto, TaskFilterDto};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
+/// A task's own deadline minus this is when the advance reminder fires; 0 means no
+/// advance reminder at all, so the default has to be a real lead rather than "off".
+pub const DEFAULT_REMINDER_LEAD_MINUTES: i64 = 60;
+
 pub fn get_all(conn: &Connection) -> rusqlite::Result<HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -129,13 +133,13 @@ pub fn valid_ai_base_url(value: &str) -> bool {
     }
 }
 
-/// How long before a task's own moment reminders fire; 0 keeps the built-in times.
+/// How long before a task's own deadline the advance reminder fires; 0 turns it off.
 pub fn reminder_lead_minutes(conn: &Connection) -> i64 {
     get(conn, "reminders.lead_minutes")
         .ok()
         .flatten()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(0)
+        .unwrap_or(DEFAULT_REMINDER_LEAD_MINUTES)
         .clamp(0, crate::limits::LIMITS.reminder_lead_minutes)
 }
 
@@ -223,7 +227,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .cloned()
             .unwrap_or_else(|| "list".into()),
         saved_task_views: parse_saved_views(map.get(SAVED_VIEWS_KEY).map(String::as_str)),
-        reminders_lead_minutes: num(&map, "reminders.lead_minutes", 0)
+        reminders_lead_minutes: num(&map, "reminders.lead_minutes", DEFAULT_REMINDER_LEAD_MINUTES)
             .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
         reminders_digest: flag(&map, "reminders.digest", true),
     })
@@ -281,6 +285,18 @@ mod tests {
 
         set(&c, "week.view", "board").unwrap();
         assert_eq!(dto(&c).unwrap().week_view, "list");
+    }
+
+    #[test]
+    fn the_reminder_lead_defaults_to_an_hour() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert_eq!(dto(&c).unwrap().reminders_lead_minutes, 60);
+        assert_eq!(reminder_lead_minutes(&c), 60);
+
+        // A stored 0 is an explicit "no advance reminder", not the default.
+        set(&c, "reminders.lead_minutes", "0").unwrap();
+        assert_eq!(dto(&c).unwrap().reminders_lead_minutes, 0);
+        assert_eq!(reminder_lead_minutes(&c), 0);
     }
 
     #[test]

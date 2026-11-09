@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 22;
+pub const LATEST: i64 = 23;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -550,6 +550,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
              CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);",
         )?;
         tx.pragma_update(None, "user_version", 22)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 23 {
+        // A stored 0 used to mean "keep the built-in times"; it now means "don't
+        // remind early", and the default (one hour before the deadline) lives on. Drop
+        // the legacy row so nobody's reminders silently stop after the upgrade.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM settings WHERE key = 'reminders.lead_minutes' AND value = '0'",
+            [],
+        )?;
+        tx.pragma_update(None, "user_version", 23)?;
         tx.commit()?;
     }
     Ok(())
@@ -2006,6 +2020,32 @@ mod tests {
         assert_eq!(dropped, 0, "the stale column is not carried over");
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn a_legacy_zero_reminder_lead_keeps_reminders_on() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::repo::settings::set(&c, "reminders.lead_minutes", "0").unwrap();
+        c.pragma_update(None, "user_version", 22).unwrap();
+
+        migrate(&c).unwrap();
+
+        // The row is dropped so the new default (an hour before the deadline) applies;
+        // keeping 0 would have silently turned every advance reminder off.
+        assert_eq!(crate::repo::settings::reminder_lead_minutes(&c), 60);
+        let stored = crate::repo::settings::get(&c, "reminders.lead_minutes").unwrap();
+        assert!(stored.is_none());
+    }
+
+    #[test]
+    fn a_reminder_lead_other_than_zero_survives_the_upgrade() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::repo::settings::set(&c, "reminders.lead_minutes", "30").unwrap();
+        c.pragma_update(None, "user_version", 22).unwrap();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(crate::repo::settings::reminder_lead_minutes(&c), 30);
     }
 
     #[test]

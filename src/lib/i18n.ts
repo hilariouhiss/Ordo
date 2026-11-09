@@ -37,6 +37,7 @@ export const zh = {
   "nav.templates": "模板",
 
   "app.settings": "设置",
+  "app.themeAria": "外观：{mode}，点击切换",
   "app.settingsTitle": "设置",
   "app.tabGeneral": "通用",
   "app.tabData": "数据",
@@ -388,35 +389,23 @@ export const zh = {
   "pass.backToWeek": "回到本周",
 
   "settings.language": "语言",
-  "settings.languageHint": "未手动选择时跟随系统语言，选择后固定。",
-  "settings.theme": "外观",
   "settings.themeSystem": "跟随系统",
   "settings.themeLight": "浅色",
   "settings.themeDark": "深色",
   "settings.autostart": "开机自启",
   "settings.deskControls": "小窗内变更任务状态",
-  "settings.deskControlsHint": "开启后小窗里可直接开始、挂起、完成；小窗挂起不填日期和原因。",
   "settings.weekShowEmptyDays": "本周页面显示未安排的星期",
-  "settings.weekShowEmptyDaysHint": "开启后今天到本周五的空白天也列出来，可以把任务拖到某一天。",
   "settings.weekView": "本周视图",
   "settings.weekViewList": "列表",
   "settings.weekViewGantt": "甘特图",
   "settings.reminderLead": "提前提醒",
-  "settings.reminderLeadHint":
-    "留空就按现在的时刻（带时刻的任务准时提醒、只有日期的任务在前一天 17:30）；填 30 分钟就都提前半小时。",
   "settings.digest": "每日汇总",
-  "settings.digestHint":
-    "每天 09:00 汇总今天到期和已逾期的任务，当天没有就不发；点通知打开本周页。",
   "settings.shortcut": "迷你窗口快捷键",
   "settings.deskShortcut": "桌面小窗快捷键",
   "settings.mainShortcut": "主窗口快捷键",
-  "settings.deskShortcutHint":
-    "小窗置底或隐藏时按下叫到最前；失焦后回到原样，收起的小条先展开、失焦再收回。主窗口形态下不生效。",
   "settings.shortcutRecording": "按下带 Ctrl 或 Win 的组合键…",
   "settings.shortcutChange": "改",
   "settings.shortcutWarning": "没换成：{error}",
-  "settings.weekStart": "周起点",
-  "settings.monday": "周一",
   "settings.backupDaily": "每日自动备份",
   "settings.backupKeep": "保留 {days} 天，至少最近 7 份",
   "settings.backupNow": "立即备份",
@@ -437,8 +426,7 @@ export const zh = {
   "settings.aiOk": "连接正常（{ms}ms）",
   "settings.aiFailed": "失败：{error}",
   "settings.aiUnknown": "未知错误",
-  "settings.aiNote":
-    "只补项目/分类/负责人/标签，不猜日期。关掉后完全离线，捕获照样能用。key 存在 Windows 凭据管理器里，不进导出。",
+  "settings.aiNote": "只补项目/分类/负责人/标签，不猜日期；key 存在 Windows 凭据管理器。",
   "settings.aiEnabledOn": "开启",
   "settings.aiEnabledOff": "关闭",
 
@@ -626,6 +614,7 @@ export const en: Record<MessageKey, string> = {
   "nav.templates": "Templates",
 
   "app.settings": "Settings",
+  "app.themeAria": "Theme: {mode}, click to switch",
   "app.settingsTitle": "Settings",
   "app.tabGeneral": "General",
   "app.tabData": "Data",
@@ -984,37 +973,23 @@ export const en: Record<MessageKey, string> = {
   "pass.backToWeek": "Back to this week",
 
   "settings.language": "Language",
-  "settings.languageHint": "Follows the system language until you pick one; your choice sticks.",
-  "settings.theme": "Appearance",
   "settings.themeSystem": "System",
   "settings.themeLight": "Light",
   "settings.themeDark": "Dark",
   "settings.autostart": "Launch at startup",
   "settings.deskControls": "Change status from the widget",
-  "settings.deskControlsHint":
-    "Start, park and complete tasks right in the widget; parking there skips the date and reason.",
   "settings.weekView": "Week view",
   "settings.weekViewList": "List",
   "settings.weekViewGantt": "Gantt",
   "settings.reminderLead": "Remind earlier",
-  "settings.reminderLeadHint":
-    "Leave empty for the built-in times (timed tasks at their moment, dated tasks the evening before at 17:30); 30 minutes pulls both half an hour earlier.",
   "settings.digest": "Daily digest",
-  "settings.digestHint":
-    "Every day at 09:00, one summary of what is due today or already late; nothing on a quiet day. Tapping it opens the week page.",
   "settings.weekShowEmptyDays": "Show unplanned weekdays",
-  "settings.weekShowEmptyDaysHint":
-    "List today through Friday even when the planner leaves a day empty, so a task can be dragged onto it.",
   "settings.shortcut": "Mini window shortcut",
   "settings.deskShortcut": "Week widget shortcut",
   "settings.mainShortcut": "Main window shortcut",
-  "settings.deskShortcutHint":
-    "Brings the widget forward when it is behind other windows or hidden; on focus loss it returns to that state, expanding a docked tab first. It does nothing in the main window.",
   "settings.shortcutRecording": "Press a shortcut with Ctrl or Win…",
   "settings.shortcutChange": "Change",
   "settings.shortcutWarning": "Not applied: {error}",
-  "settings.weekStart": "Week starts",
-  "settings.monday": "Monday",
   "settings.backupDaily": "Daily backup",
   "settings.backupKeep": "Keep {days} days, at least the newest 7",
   "settings.backupNow": "Back up now",
@@ -1036,7 +1011,7 @@ export const en: Record<MessageKey, string> = {
   "settings.aiFailed": "Failed: {error}",
   "settings.aiUnknown": "Unknown error",
   "settings.aiNote":
-    "Fills only project, category, owner and tags; it never guesses dates. Off means fully offline; capture still works. The key lives in Windows Credential Manager and is never exported.",
+    "Fills only project, category, owner and tags; the key lives in Windows Credential Manager.",
   "settings.aiEnabledOn": "On",
   "settings.aiEnabledOff": "Off",
 

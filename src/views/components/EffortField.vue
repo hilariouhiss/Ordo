@@ -14,6 +14,8 @@ import ChipSelect from "./ChipSelect.vue";
 const props = defineProps<{
   compact?: boolean;
   optional?: boolean;
+  /** `allowZero` keeps 0 a real value instead (the advance reminder uses it as "off"). */
+  allowZero?: boolean;
   label?: string;
   disabled?: boolean;
 }>();
@@ -55,6 +57,12 @@ function show(minutes: number): void {
     typed.value = false;
     return;
   }
+  if (props.allowZero && minutes === 0) {
+    amount.value = "0";
+    unit.value = "minutes";
+    typed.value = false;
+    return;
+  }
   const value = bestEffortUnit(minutes);
   amount.value = String(value.amount);
   unit.value = value.unit;
@@ -70,6 +78,13 @@ watch(
 );
 
 function commit(): void {
+  const text = amount.value.trim();
+  // Zero is the caller's own value here, not the field's empty state.
+  if (props.allowZero && text !== "" && Number(text) === 0) {
+    if (model.value !== 0) model.value = 0;
+    show(0);
+    return;
+  }
   const minutes = parseEffortAmount(amount.value, unit.value);
   if (minutes === null) {
     if (props.optional && !amount.value.trim()) {

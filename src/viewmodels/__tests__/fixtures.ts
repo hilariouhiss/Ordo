@@ -21,7 +21,7 @@ export const defaultSettings: Settings = {
   weekShowEmptyDays: true,
   weekView: "list",
   savedTaskViews: [],
-  remindersLeadMinutes: 0,
+  remindersLeadMinutes: 60,
   remindersDigest: true,
 };
 
