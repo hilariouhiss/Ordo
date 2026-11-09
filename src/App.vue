@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Monitor, Moon, PanelRight, Search, Settings, Sun } from "@lucide/vue";
+import { Moon, PanelRight, Search, Settings, Sun } from "@lucide/vue";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -7,7 +7,7 @@ import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { askNotice, dialogRequest } from "./lib/dialog";
-import { errorText, setLanguage, t, type MessageKey } from "./lib/i18n";
+import { errorText, setLanguage, t } from "./lib/i18n";
 import { createShortcut, isEditableTarget, searchShortcut, undoShortcut } from "./lib/keys";
 import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
@@ -15,7 +15,6 @@ import {
   systemPrefersDark,
   systemTheme,
   type AppliedTheme,
-  type ThemePref,
   type ThemeWindow,
 } from "./lib/theme";
 import { appVM } from "./viewmodels/appVM";
@@ -53,25 +52,16 @@ const navItems = computed(
     ] as const,
 );
 
-/** The header button cycles these three; each names itself in the title tooltip. */
-const themeOrder: ThemePref[] = ["system", "light", "dark"];
-const themeLabels: Record<ThemePref, MessageKey> = {
-  system: "settings.themeSystem",
-  light: "settings.themeLight",
-  dark: "settings.themeDark",
-};
-const themePref = computed<ThemePref>(() => {
-  const saved = appVM.state.settings?.theme;
-  return saved === "light" || saved === "dark" ? saved : "system";
-});
-const themeIcon = computed(() =>
-  themePref.value === "light" ? Sun : themePref.value === "dark" ? Moon : Monitor,
+/** What the page is painted with right now, which is what the header button shows. */
+const appliedTheme = ref<AppliedTheme>("light");
+const themeIcon = computed(() => (appliedTheme.value === "dark" ? Moon : Sun));
+const themeLabel = computed(() =>
+  t(appliedTheme.value === "dark" ? "settings.themeDark" : "settings.themeLight"),
 );
-const themeLabel = computed(() => t(themeLabels[themePref.value]));
 
+/** The button only flips the two explicit themes; "follow the system" lives in settings. */
 function cycleTheme(): void {
-  const next = themeOrder[(themeOrder.indexOf(themePref.value) + 1) % themeOrder.length];
-  void settingsVM.save({ theme: next });
+  void settingsVM.save({ theme: appliedTheme.value === "dark" ? "light" : "dark" });
 }
 
 const router = useRouter();
@@ -233,6 +223,7 @@ async function syncTheme(): Promise<void> {
   }
   if (run !== themeRun) return;
   applyTheme(theme);
+  appliedTheme.value = theme;
   if (isTauri()) {
     void emitTo("capture", "theme:changed", theme);
   }

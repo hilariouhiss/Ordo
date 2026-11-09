@@ -126,6 +126,6 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 改全局快捷键失败时必须回滚旧键（`services/shortcut.rs`），不要留下半失效状态。
 - 通知按钮（「1 小时后」/「明天 09:00」）只有在**注册了 action type 且存在 Rust `on_action` handler** 时才会出现（插件在 `has_listeners()` 为真时才走 tracked 路径，按钮来自 `register_action_types`）；改提醒的显示方式时别把这两件事拆开。点击通知正文与点按钮都走同一个 handler，汇总通知的目标是「本周页」而不是任务。
 - 主窗口的 `html`/`body` 是 `overflow: hidden`（`src/style.css`）：从窗口边缘滑入的固定定位抽屉（任务浮层）在动画途中会越过视口，Chrome 把这段溢出算成文档滚动条，滚动条高度又从 `100vh` 里扣掉，整个界面就会「上移几像素」抖一下；别把这条当成多余的样式删掉。
-- 主题：主窗口标题栏右端（和搜索/桌面小窗/设置同一行）有一个循环按钮，按「跟随系统 → 浅色 → 深色 → 跟随系统」切换，图标是 Monitor/Sun/Moon（`@lucide/vue`），写库走 `settingsVM.save({ theme })`，设置窗口里不再有外观一栏；`applyTheme` 首次上色直接画，之后再换主题用 `document.startViewTransition` 交叉淡入（`prefers-reduced-motion: reduce` 时直接切，不淡），所以浅/深切换是渐变的；只有显式选了浅/深色才 `setTheme` 钉原生窗口；`setTheme` 会经 wry 把 WebView 的 `prefers-color-scheme` 一起钉住，所以“跟随系统”必须 `setTheme(null)` 后读 `theme()` 的系统值，不要用 `matchMedia`。
+- 主题：主窗口标题栏右端（和搜索/桌面小窗/设置同一行）有一个按钮，只在明/暗之间互切（图标按当前实际配色显示 Sun/Moon，`@lucide/vue`；「跟随系统」时点它会把主题定死成当前的反面），写库走 `settingsVM.save({ theme })`；要选「跟随系统」得去设置 → 通用 → 外观（三档：跟随系统 / 浅色 / 深色）；`applyTheme` 首次上色直接画，之后再换主题用 `document.startViewTransition` 交叉淡入（`prefers-reduced-motion: reduce` 时直接切，不淡），所以浅/深切换是渐变的；只有显式选了浅/深色才 `setTheme` 钉原生窗口；`setTheme` 会经 wry 把 WebView 的 `prefers-color-scheme` 一起钉住，所以“跟随系统”必须 `setTheme(null)` 后读 `theme()` 的系统值，不要用 `matchMedia`。
 - Windows 通知收进通知中心后再点，系统不会告诉 Ordo 是哪一条；只有提示条还在屏幕上时点击才能定位任务。这是平台限制，不是待修 bug。
 - `docs/superpowers/specs/2026-10-20-ordo-architecture.md` 是草案，和代码有出入（例如托盘在 `lib.rs`、主题在 `src/style.css`）；以源码为准。

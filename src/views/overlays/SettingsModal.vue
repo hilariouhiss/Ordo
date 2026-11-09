@@ -2,14 +2,21 @@
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { errorText, t, type Language } from "../../lib/i18n";
+import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
 import { REMINDER_LEAD_MAX_MINUTES } from "../../lib/limits";
 import { recordShortcut } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion, panelSwapMotion } from "../../lib/motion";
+import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
 import EffortField from "../components/EffortField.vue";
+
+const themeOptions: { value: ThemePref; key: MessageKey }[] = [
+  { value: "system", key: "settings.themeSystem" },
+  { value: "light", key: "settings.themeLight" },
+  { value: "dark", key: "settings.themeDark" },
+];
 
 // Each language names itself, so the switch reads from either side.
 const languageOptions: { value: Language; label: string }[] = [
@@ -360,6 +367,24 @@ onUnmounted(() => {
 
                 <div v-else-if="vm.state.tab === 'general'" class="mt-4 rounded-xl bg-base-200 p-4">
                   <div class="flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.theme") }}</span>
+                    <span class="flex gap-1.5">
+                      <button
+                        v-for="option in themeOptions"
+                        :key="option.value"
+                        class="btn btn-xs rounded-md border-base-300 font-normal"
+                        :class="
+                          settings.theme === option.value
+                            ? 'border-0 bg-primary text-primary-content'
+                            : 'bg-base-100'
+                        "
+                        @click="vm.save({ theme: option.value })"
+                      >
+                        {{ t(option.key) }}
+                      </button>
+                    </span>
+                  </div>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
                     <span>{{ t("settings.language") }}</span>
                     <span class="flex gap-1.5">
                       <button

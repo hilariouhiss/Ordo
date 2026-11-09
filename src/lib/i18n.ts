@@ -388,6 +388,7 @@ export const zh = {
   "pass.counts": "继续 {keep} · 完成 {done} · 挂起 {suspend} · 等别人 {wait} · 取消 {cancel}",
   "pass.backToWeek": "回到本周",
 
+  "settings.theme": "外观",
   "settings.language": "语言",
   "settings.themeSystem": "跟随系统",
   "settings.themeLight": "浅色",
@@ -972,6 +973,7 @@ export const en: Record<MessageKey, string> = {
   "pass.counts": "Keep {keep} · Done {done} · Suspend {suspend} · Waiting {wait} · Cancel {cancel}",
   "pass.backToWeek": "Back to this week",
 
+  "settings.theme": "Appearance",
   "settings.language": "Language",
   "settings.themeSystem": "System",
   "settings.themeLight": "Light",
