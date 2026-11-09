@@ -473,6 +473,22 @@ describe("weekVM plan", () => {
     await run();
     expect(suspendTask).toHaveBeenLastCalledWith("t1", null, "等甲方");
   });
+
+  it("moveBy picks the visible neighbour, not a task planned for next week", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "t1" }),
+      task({ id: "later", expectedStartDate: "2026-10-26" }),
+      task({ id: "t2" }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    await vm.moveBy("t2", -1);
+
+    expect(moveTask).toHaveBeenCalledWith("t2", "t1");
+  });
 });
 
 describe("weekVM plan across a week boundary", () => {
