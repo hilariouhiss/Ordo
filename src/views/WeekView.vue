@@ -10,6 +10,7 @@ import { listItemMotion, weekViewMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
 import { prefersReducedMotion } from "../lib/windowMotion";
+import ViewSwitch from "./components/ViewSwitch.vue";
 import { anchorFor, coveredDays, ganttDropAt, listDropAt } from "../lib/weekDrop";
 import type { Task, WeekView } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
@@ -51,10 +52,13 @@ const suspendedOpen = computed(() => state.suspended.length > 0);
 const waitingOpen = computed(() => state.waiting.length > 0);
 const weekView = computed(() => appVM.state.settings?.weekView ?? "list");
 const ganttView = computed(() => weekView.value === "gantt");
-const weekViewOptions: { value: WeekView; key: MessageKey }[] = [
-  { value: "list", key: "settings.weekViewList" },
-  { value: "gantt", key: "settings.weekViewGantt" },
-];
+const weekViewOptions = computed<{ value: WeekView; label: string }[]>(() => [
+  { value: "list", label: t("settings.weekViewList") },
+  { value: "gantt", label: t("settings.weekViewGantt") },
+]);
+function saveWeekView(next: string): void {
+  void settingsVM.save({ weekView: next as WeekView });
+}
 /** The two views trade places sideways: the gantt lives right of the list. */
 const reducedMotion = prefersReducedMotion();
 const listSwap = reducedMotion ? {} : weekViewMotion(-1);
@@ -362,27 +366,13 @@ watch(
           {{ t("week.overloaded", { dates: overloadText }) }}
         </span>
       </div>
-      <div
-        role="tablist"
-        :aria-label="t('settings.weekView')"
-        class="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-base-300 bg-base-100 p-0.5"
-      >
-        <button
-          v-for="option in weekViewOptions"
-          :key="option.value"
-          role="tab"
-          :aria-selected="weekView === option.value"
-          class="rounded-md px-2.5 py-1 text-[10.5px] leading-none"
-          :class="
-            weekView === option.value
-              ? 'bg-primary/10 font-medium text-primary'
-              : 'text-base-content/45 hover:text-base-content'
-          "
-          @click="settingsVM.save({ weekView: option.value })"
-        >
-          {{ t(option.key) }}
-        </button>
-      </div>
+      <ViewSwitch
+        class="ml-auto"
+        :label="t('settings.weekView')"
+        :options="weekViewOptions"
+        :model-value="weekView"
+        @update:model-value="saveWeekView"
+      />
     </div>
 
     <AnimatePresence mode="wait" :initial="false">
