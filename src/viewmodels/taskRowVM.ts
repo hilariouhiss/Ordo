@@ -44,6 +44,28 @@ export function createTaskRowVM() {
     });
   }
 
+  /**
+   * Back from a park. The undo puts the task where it came from: a suspended task is
+   * parked again on the same day and reason, a waiting one keeps its person and day. A
+   * date already gone is dropped instead of refused.
+   */
+  function resume(task: Task): Promise<Task> {
+    return resumeTask(task.id).then((updated) => {
+      undoVM.pushUndo(t("undo.resumed", { title: task.title }), async () => {
+        if (task.waiting) {
+          const day =
+            task.followUpDate && task.followUpDate >= todayIso() ? task.followUpDate : null;
+          await waitTask(task.id, task.waitingOnId, day);
+          return;
+        }
+        const until =
+          task.suspendedUntil && task.suspendedUntil >= todayIso() ? task.suspendedUntil : null;
+        await suspendTask(task.id, until, task.suspendReason);
+      });
+      return updated;
+    });
+  }
+
   function toggleDone(task: Task): Promise<Task> {
     const previous = task.status;
     const next = previous === "done" ? "todo" : "done";
@@ -76,7 +98,7 @@ export function createTaskRowVM() {
     });
   }
 
-  return { start, suspend, wait, toggleDone, toggleSubtask };
+  return { start, suspend, wait, resume, toggleDone, toggleSubtask };
 }
 
 export const taskRowVM = createTaskRowVM();

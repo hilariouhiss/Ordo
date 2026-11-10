@@ -5,6 +5,13 @@ vi.mock("../../model/ipc", () => ({
   updateTaskPatch: vi.fn(),
   addDelayNote: vi.fn(),
   setTaskStatus: vi.fn(),
+  addMember: vi.fn(),
+  addSubtask: vi.fn(),
+  archiveTask: vi.fn(),
+  deleteSubtask: vi.fn(),
+  ownerCandidates: vi.fn().mockResolvedValue([]),
+  setDelayReason: vi.fn(),
+  unarchiveTask: vi.fn(),
 }));
 
 import { addDelayNote, getTask, setTaskStatus, updateTaskPatch } from "../../model/ipc";

@@ -9,6 +9,8 @@ vi.mock("../../model/ipc", () => ({
   startTask: vi.fn(),
   suspendTask: vi.fn(),
   resumeTask: vi.fn(),
+  updateTaskPatch: vi.fn(),
+  waitTask: vi.fn(),
 }));
 vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 

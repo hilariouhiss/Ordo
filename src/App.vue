@@ -196,8 +196,8 @@ watch(
   () => windowModeVM.state.mode,
   (mode) => {
     if (mode !== "full") return;
-    void weekVM.load();
-    void tasksVM.load();
+    weekVM.reload();
+    tasksVM.reload();
   },
 );
 
@@ -267,16 +267,16 @@ onMounted(async () => {
   );
   if (isTauri()) {
     await listen("capture:created", () => {
-      void weekVM.load().catch(() => {});
-      void tasksVM.load();
+      weekVM.reload();
+      tasksVM.reload();
       // The mini window can create a project with `#name`; its id has to reach the
       // pickers here too, not just the task lists.
       void appVM.load().catch(() => {});
     });
     await listen("ai:enriched", () => {
       void appVM.load();
-      void weekVM.load();
-      void tasksVM.load();
+      weekVM.reload();
+      tasksVM.reload();
     });
     await listen<string>("reminder:open", (event) => {
       void showTask(event.payload);

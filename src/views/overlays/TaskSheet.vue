@@ -11,21 +11,8 @@ import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/moti
 import { currentSubtask } from "../../lib/subtasks";
 import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
 import { waitDefaults, waitingOnName } from "../../lib/waiting";
-import {
-  addMember,
-  addSubtask,
-  archiveTask,
-  deleteSubtask,
-  getTask,
-  ownerCandidates,
-  resumeTask,
-  setDelayReason,
-  setTaskStatus,
-  unarchiveTask,
-  waitTask,
-} from "../../model/ipc";
 import { daysSince, overdueDays } from "../../model/mappers";
-import type { Delay, Person, Priority, Status, Task } from "../../model/types";
+import type { Delay, Priority, Status, Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import {
   formFinish,
@@ -33,7 +20,6 @@ import {
   taskSheetVM,
   type TaskForm,
 } from "../../viewmodels/taskSheetVM";
-import { undoVM } from "../../viewmodels/undoVM";
 import ChipSelect from "../components/ChipSelect.vue";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
@@ -70,7 +56,6 @@ const editingDelayId = ref<string | null>(null);
 const delayDraft = ref("");
 const delayInput = ref<HTMLInputElement | null>(null);
 
-const candidates = ref<Person[]>([]);
 const subtaskDraft = ref("");
 const tagDraft = ref("");
 const titleInput = ref<HTMLTextAreaElement | null>(null);
@@ -111,36 +96,12 @@ async function openWaiting(): Promise<void> {
     waitDefaults(current, appVM.state.people, todayIso()),
   );
   if (!draft) return;
-  try {
-    taskSheetVM.applyTask(await waitTask(current.id, draft.personId, draft.followUpDate || null));
-    undoVM.pushUndo(t("undo.waiting", { title: current.title }), async () => {
-      if (current.waiting) {
-        const day =
-          current.followUpDate && current.followUpDate >= todayIso() ? current.followUpDate : null;
-        await waitTask(current.id, current.waitingOnId, day);
-      } else {
-        await resumeTask(current.id);
-      }
-    });
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+  await taskSheetVM.waitFor(draft.personId, draft.followUpDate || null);
 }
 
 /** A reply arrived: the task rejoins the week, and undo parks it on the same wait. */
-async function markReplied(): Promise<void> {
-  const current = task.value;
-  if (!current) return;
-  try {
-    taskSheetVM.applyTask(await resumeTask(current.id));
-    undoVM.pushUndo(t("undo.resumed", { title: current.title }), async () => {
-      const day =
-        current.followUpDate && current.followUpDate >= todayIso() ? current.followUpDate : null;
-      await waitTask(current.id, current.waitingOnId, day);
-    });
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+function markReplied(): void {
+  void taskSheetVM.markReplied();
 }
 
 function setDelayInput(element: unknown): void {
@@ -162,29 +123,18 @@ function cancelDelay(): void {
 /** A delay record is written already, so its reason lands at once, like the waiting strip. */
 async function commitDelay(): Promise<void> {
   const id = editingDelayId.value;
-  const current = task.value;
-  if (!id || !current) return;
+  if (!id) return;
   editingDelayId.value = null;
-  const reason = delayDraft.value.trim();
-  if (reason === (current.delays.find((delay) => delay.id === id)?.reason ?? "")) return;
-  try {
-    taskSheetVM.applyTask(await setDelayReason(id, reason));
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+  await taskSheetVM.saveDelayReason(id, delayDraft.value);
 }
 
-async function refreshCandidates(projectId: string | null): Promise<void> {
-  candidates.value = await ownerCandidates(projectId);
-}
-
-// A new task (or the way back to a parent) loads its own owner candidates; the draft is the
-// view model's, so re-reading the same task must not clear what the user typed.
+// A new task (or the way back to a parent) clears the two inline drafts; the draft itself
+// is the view model's, so re-reading the same task must not clear what the user typed.
 let seededFor: string | null = null;
 
 watch(
   () => task.value?.id ?? null,
-  async (id) => {
+  (id) => {
     if (!id) {
       seededFor = null;
       return;
@@ -193,15 +143,17 @@ watch(
     seededFor = id;
     subtaskDraft.value = "";
     tagDraft.value = "";
-    await refreshCandidates(task.value?.projectId ?? null);
   },
   { immediate: true },
 );
 
 async function onProjectChange(): Promise<void> {
-  await refreshCandidates(form.value.projectId);
+  await taskSheetVM.refreshMembers(form.value.projectId);
   // Switching project is an explicit choice: drop an owner the new project does not know.
-  if (form.value.ownerId && !candidates.value.some((person) => person.id === form.value.ownerId)) {
+  if (
+    form.value.ownerId &&
+    !taskSheetVM.state.members.some((person) => person.id === form.value.ownerId)
+  ) {
     form.value.ownerId = null;
   }
 }
@@ -210,22 +162,7 @@ async function save(): Promise<void> {
   if (!task.value) return;
   // A focused field still owes the draft its value; leaving it commits first.
   (document.activeElement as HTMLElement | null)?.blur();
-  try {
-    if (
-      form.value.projectId &&
-      form.value.ownerId &&
-      !candidates.value.some((p) => p.id === form.value.ownerId)
-    ) {
-      await addMember(form.value.projectId, form.value.ownerId, null);
-    }
-    if (await taskSheetVM.saveSheet()) {
-      // A saved subtask goes back to the umbrella it belongs to instead of closing the sheet.
-      if (taskSheetVM.state.stack.length) await taskSheetVM.back();
-      else taskSheetVM.close();
-    }
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+  await taskSheetVM.save();
 }
 
 function setStatus(status: Status): void {
@@ -281,7 +218,7 @@ const categoryOptions = computed(() => [
 const ownerOptions = computed(() => {
   const options = [
     { value: NONE, label: t("task.unassigned") },
-    ...candidates.value.map((person) => ({ value: person.id, label: person.name })),
+    ...taskSheetVM.state.members.map((person) => ({ value: person.id, label: person.name })),
   ];
   // Switching project can leave an owner the new project does not list; keep their name.
   const current = form.value.ownerId;
@@ -328,34 +265,13 @@ function removeTag(name: string): void {
   form.value.tags = form.value.tags.filter((tag) => tag !== name);
 }
 
-async function archive(): Promise<void> {
-  const current = task.value;
-  if (!current) return;
-  taskSheetVM.state.error = null;
-  try {
-    await archiveTask(current.id);
-    undoVM.pushUndo(t("undo.archivedTask", { title: current.title }), async () => {
-      // Only the archive flag; restoring through the archive page would reopen finished work.
-      await unarchiveTask(current.id);
-    });
-    taskSheetVM.close();
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+function archive(): void {
+  void taskSheetVM.archive();
 }
 
 /** Adds a subtask at once: the rollup it changes is what the grid shows. */
 async function submitSubtask(): Promise<void> {
-  const parent = task.value;
-  const title = subtaskDraft.value.trim();
-  if (!parent || !title) return;
-  taskSheetVM.state.error = null;
-  try {
-    taskSheetVM.applyTask(await addSubtask(parent.id, title));
-    subtaskDraft.value = "";
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+  if (await taskSheetVM.submitSubtask(subtaskDraft.value)) subtaskDraft.value = "";
 }
 
 function onSubtaskKey(event: KeyboardEvent): void {
@@ -364,16 +280,8 @@ function onSubtaskKey(event: KeyboardEvent): void {
 }
 
 /** A subtask is a task: ticking it is a status change, and the parent follows. */
-async function toggleSubtask(child: Task): Promise<void> {
-  const parent = task.value;
-  if (!parent) return;
-  taskSheetVM.state.error = null;
-  try {
-    await setTaskStatus(child.id, child.status === "done" ? "todo" : "done");
-    taskSheetVM.applyTask(await getTask(parent.id));
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+function toggleSubtask(child: Task): void {
+  void taskSheetVM.toggleSubtask(child);
 }
 
 async function removeSubtask(child: Task): Promise<void> {
@@ -384,12 +292,7 @@ async function removeSubtask(child: Task): Promise<void> {
     ))
   )
     return;
-  taskSheetVM.state.error = null;
-  try {
-    taskSheetVM.applyTask(await deleteSubtask(child.id));
-  } catch (e) {
-    taskSheetVM.state.error = String(e);
-  }
+  await taskSheetVM.removeSubtask(child);
 }
 
 function openSubtask(child: Task): void {

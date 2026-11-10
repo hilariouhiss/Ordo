@@ -5,7 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { formatEffort } from "../lib/effort";
-import { t, type MessageKey } from "../lib/i18n";
+import { t } from "../lib/i18n";
 import { listItemMotion, weekViewMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
@@ -38,7 +38,7 @@ const {
   overloadDates,
   conflictCount,
   passNeeded,
-  load,
+  reload,
   markSeen,
   capture,
   resume,
@@ -65,10 +65,36 @@ const listSwap = reducedMotion ? {} : weekViewMotion(-1);
 const ganttSwap = reducedMotion ? {} : weekViewMotion(1);
 
 const listEl = ref<HTMLElement | null>(null);
+
+/** The element a drag scrolls while the pointer nears an edge, in either view. */
+function dragScroller(): HTMLElement | null {
+  return (
+    (ganttView.value
+      ? document.querySelector<HTMLElement>("[data-gantt-grid]")
+      : listEl.value
+    )?.closest("main") ?? null
+  );
+}
+
+/**
+ * Where a pointer lands: a day block in the list, a column in the gantt. Both drags go
+ * through this one rule, so a row and a stacked card always agree on the spot.
+ */
+function dropTargetAt(x: number, y: number): { day: string; beforeId: string | null } | null {
+  if (!ganttView.value) return listDropAt(listEl.value, y);
+  const grid = document.querySelector<HTMLElement>("[data-gantt-grid]");
+  if (!grid) return null;
+  // The stack sits below the grid, so only a pointer inside it reads as a day.
+  const box = grid.getBoundingClientRect();
+  if (y < box.top || y >= box.bottom) return null;
+  const drop = ganttDropAt(grid, x, y, week.value.length);
+  return drop ? { day: week.value[drop.column], beforeId: drop.before } : null;
+}
+
 /** The list's drag: threshold, the day and row under the pointer, edge auto-scroll. */
 const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
-  targetOf: ({ y }) => listDropAt(listEl.value, y),
-  scroller: () => listEl.value?.closest("main") ?? null,
+  targetOf: ({ x, y }) => dropTargetAt(x, y),
+  scroller: dragScroller,
   drop: (id, target) => {
     // The anchor is read while the drag still counts as live: a suspended drag may have
     // filled days that disappear again as soon as it ends.
@@ -84,25 +110,9 @@ const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
  */
 const poolDragged = ref(false);
 const poolDrag = usePointerDrag<{ day: string; beforeId: string | null }>({
-  // The list and the gantt measure differently; both go through the shared helpers, so a
-  // card lands exactly where a bar or a row would.
-  targetOf: ({ x, y }) => {
-    if (ganttView.value) {
-      const grid = document.querySelector<HTMLElement>("[data-gantt-grid]");
-      if (!grid) return null;
-      // The stack sits below the grid, so only a pointer inside it reads as a day.
-      const box = grid.getBoundingClientRect();
-      if (y < box.top || y >= box.bottom) return null;
-      const drop = ganttDropAt(grid, x, y, week.value.length);
-      return drop ? { day: week.value[drop.column], beforeId: drop.before } : null;
-    }
-    return listDropAt(listEl.value, y);
-  },
-  scroller: () =>
-    (ganttView.value
-      ? document.querySelector<HTMLElement>("[data-gantt-grid]")
-      : listEl.value
-    )?.closest("main") ?? null,
+  // The stack drops through the same rule the rows do, so a card lands where a row would.
+  targetOf: ({ x, y }) => dropTargetAt(x, y),
+  scroller: dragScroller,
   drop: (id, target) => {
     const beforeId = ganttView.value
       ? target.beforeId
@@ -218,14 +228,14 @@ function checkDay(): void {
 function onWindowFocus(): void {
   if (draggingId.value) return;
   void appVM.load();
-  void load();
+  reload();
   void markSeen();
 }
 
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   window.addEventListener("focus", onWindowFocus);
-  void load();
+  reload();
   // Seeing this page is what clears the tray's unread count; other pages do not.
   void markSeen();
   dayTick = window.setInterval(checkDay, DAY_TICK_MS);
@@ -243,7 +253,7 @@ watch(
   (open, previous) => {
     if (previous && !open) {
       void appVM.load();
-      void load();
+      reload();
     }
   },
 );
@@ -251,7 +261,7 @@ watch(
 watch(
   () => taskSheetVM.state.openId,
   (open) => {
-    if (!open) void load();
+    if (!open) reload();
   },
 );
 
@@ -318,12 +328,12 @@ function laterStart(task: Task): string {
 }
 
 function refresh(): void {
-  void load();
+  reload();
 }
 watch(
   () => undoVM.state.revision,
   () => {
-    void weekVM.load();
+    weekVM.reload();
   },
 );
 </script>

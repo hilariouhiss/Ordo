@@ -2,19 +2,10 @@ import { computed, reactive } from "vue";
 import { todayIso } from "../lib/dates";
 import { groupPlannedDays, toPlanTask } from "../lib/plan";
 import { planSchedule } from "../lib/schedule";
-import {
-  getSettings,
-  listWeek,
-  resumeTask,
-  setSettings,
-  setTaskStatus,
-  startTask,
-  suspendTask,
-} from "../model/ipc";
-import { t } from "../lib/i18n";
+import { getSettings, listWeek, setSettings } from "../model/ipc";
 import type { DeskPin, Settings, Task } from "../model/types";
 import { appVM } from "./appVM";
-import { undoVM } from "./undoVM";
+import { taskRowVM } from "./taskRowVM";
 
 export function createDeskVM() {
   const state = reactive({
@@ -72,24 +63,19 @@ export function createDeskVM() {
     }
   }
 
+  // The row actions (and their undo) have one home; the widget only wraps them with its
+  // own busy guard and reload.
   async function start(task: Task): Promise<void> {
-    await run(() => startTask(task.id));
+    await run(() => taskRowVM.start(task));
   }
 
   /** The widget parks without a review date or reason; the main window keeps the full dialog. */
   async function suspend(task: Task): Promise<void> {
-    if (!(await run(() => suspendTask(task.id, null, null)))) return;
-    undoVM.pushUndo(t("undo.suspended", { title: task.title }), async () => {
-      await resumeTask(task.id);
-    });
+    await run(() => taskRowVM.suspend(task, null, null));
   }
 
   async function complete(task: Task): Promise<void> {
-    const previous = task.status;
-    if (!(await run(() => setTaskStatus(task.id, "done")))) return;
-    undoVM.pushUndo(t("undo.completed", { title: task.title }), async () => {
-      await setTaskStatus(task.id, previous);
-    });
+    await run(() => taskRowVM.toggleDone(task));
   }
 
   async function setPin(pin: DeskPin): Promise<void> {

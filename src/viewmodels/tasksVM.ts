@@ -81,17 +81,31 @@ export function createTasksVM() {
     return isEmpty.value ? groups : groups.filter((group) => group.tasks.length > 0);
   });
 
+  /** The newest load wins: a slower, older reply must not put the page back. */
+  let loadRun = 0;
+  let doneRun = 0;
+
   async function load(): Promise<void> {
+    const run = ++loadRun;
     state.loading = true;
     try {
-      state.tasks = await listAllTasks();
+      const tasks = await listAllTasks();
+      if (run !== loadRun) return;
+      state.tasks = tasks;
     } finally {
-      state.loading = false;
+      if (run === loadRun) state.loading = false;
     }
   }
 
+  /** A background refresh: a failure keeps the last good list on screen. */
+  function reload(): void {
+    void load().catch(() => {});
+  }
+
   async function loadDone(): Promise<void> {
-    state.done = await listDoneTasks(state.doneQuery.trim() || null);
+    const run = ++doneRun;
+    const done = await listDoneTasks(state.doneQuery.trim() || null);
+    if (run === doneRun) state.done = done;
   }
 
   async function setMode(mode: "open" | "done"): Promise<void> {
@@ -208,6 +222,7 @@ export function createTasksVM() {
     activeViewId,
     sections,
     load,
+    reload,
     loadDone,
     setMode,
     restoreDone,

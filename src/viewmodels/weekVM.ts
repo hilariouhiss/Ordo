@@ -14,14 +14,12 @@ import {
   moveTask,
   placeTask,
   resumeTask,
-  suspendTask,
-  waitTask,
   weekStats,
 } from "../model/ipc";
 import type { Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
 import { saveCapture } from "./captureSave";
-import { undoVM } from "./undoVM";
+import { taskRowVM } from "./taskRowVM";
 
 export function createWeekVM() {
   const state = reactive({
@@ -99,7 +97,11 @@ export function createWeekVM() {
     return last !== week.value[0] && state.tasks.length > 0;
   });
 
+  /** The newest load wins: a slower, older reply must not put the page back. */
+  let loadRun = 0;
+
   async function load(): Promise<void> {
+    const run = ++loadRun;
     state.loading = true;
     try {
       today.value = todayIso();
@@ -111,14 +113,20 @@ export function createWeekVM() {
         weekStats(todayNow),
         listWeekDone(todayNow),
       ]);
+      if (run !== loadRun) return;
       state.tasks = tasks;
       state.suspended = suspended;
       state.waiting = waiting;
       state.stats = stats;
       state.done = done;
     } finally {
-      state.loading = false;
+      if (run === loadRun) state.loading = false;
     }
+  }
+
+  /** A background refresh: a failure keeps the last good lists on screen. */
+  function reload(): void {
+    void load().catch(() => {});
   }
 
   /**
@@ -147,39 +155,15 @@ export function createWeekVM() {
     }
   }
 
+  /**
+   * Back from a park. The action and its undo live in `taskRowVM`, shared with the row
+   * buttons, so the two entry points cannot drift apart.
+   */
   async function resume(id: string): Promise<void> {
-    const parked = state.suspended.find((task) => task.id === id);
+    const parked = [...state.suspended, ...state.waiting].find((task) => task.id === id);
     try {
-      await resumeTask(id);
-      if (parked) {
-        undoVM.pushUndo(t("undo.resumed", { title: parked.title }), async () => {
-          // A review date already in the past cannot be written back; the park itself is
-          // what the undo restores, so keep it without the date instead of failing.
-          const until =
-            parked.suspendedUntil && parked.suspendedUntil >= todayIso()
-              ? parked.suspendedUntil
-              : null;
-          await suspendTask(id, until, parked.suspendReason);
-        });
-      }
-      await load();
-    } catch (e) {
-      void askNotice(t("common.actionFailed"), errorText(e));
-    }
-  }
-
-  /** A reply arrived: the task rejoins the week, and undo puts the wait back. */
-  async function resumeWaiting(id: string): Promise<void> {
-    const parked = state.waiting.find((task) => task.id === id);
-    try {
-      await resumeTask(id);
-      if (parked) {
-        undoVM.pushUndo(t("undo.resumed", { title: parked.title }), async () => {
-          const day =
-            parked.followUpDate && parked.followUpDate >= todayIso() ? parked.followUpDate : null;
-          await waitTask(id, parked.waitingOnId, day);
-        });
-      }
+      if (parked) await taskRowVM.resume(parked);
+      else await resumeTask(id);
       await load();
     } catch (e) {
       void askNotice(t("common.actionFailed"), errorText(e));
@@ -232,7 +216,9 @@ export function createWeekVM() {
     markSeen,
     capture,
     resume,
-    resumeWaiting,
+    /** The waiting strip's reply button is the same action. */
+    resumeWaiting: resume,
+    reload,
     move,
     place,
     moveBy,

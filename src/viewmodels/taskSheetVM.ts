@@ -1,9 +1,24 @@
 import { reactive } from "vue";
 import { localDate, localTime, stampOfLocal, todayIso } from "../lib/dates";
 import { EFFORT_MAX_MINUTES } from "../lib/effort";
+import { t } from "../lib/i18n";
 import { finishForEffort, timingAnchor } from "../lib/timing";
-import { addDelayNote, getTask, setTaskStatus, updateTaskPatch } from "../model/ipc";
-import type { Priority, Status, Task, TaskPatch } from "../model/types";
+import {
+  addDelayNote,
+  addMember,
+  addSubtask,
+  archiveTask,
+  deleteSubtask,
+  getTask,
+  ownerCandidates,
+  setDelayReason,
+  setTaskStatus,
+  unarchiveTask,
+  updateTaskPatch,
+} from "../model/ipc";
+import type { Person, Priority, Status, Task, TaskPatch } from "../model/types";
+import { taskRowVM } from "./taskRowVM";
+import { undoVM } from "./undoVM";
 
 /** What the task sheet holds while it is open. Nothing here reaches the database before Save. */
 export interface TaskForm {
@@ -213,6 +228,8 @@ export function createTaskSheetVM() {
     form: null as TaskForm | null,
     /** The overdue note typed in the sheet, still unsaved. */
     note: "",
+    /** Who may own the task in the draft's project, so the picker and the save agree. */
+    members: [] as Person[],
     loading: false,
     error: null as string | null,
   });
@@ -228,6 +245,7 @@ export function createTaskSheetVM() {
         state.task = task;
         state.form = formOf(task);
         state.note = "";
+        await refreshMembers(task.projectId);
       }
     } catch (e) {
       if (state.openId === id) {
@@ -282,6 +300,15 @@ export function createTaskSheetVM() {
     }
   }
 
+  /** Who can own the task in this project; a failed read keeps the previous list. */
+  async function refreshMembers(projectId: string | null): Promise<void> {
+    try {
+      state.members = await ownerCandidates(projectId);
+    } catch {
+      // The picker keeps what it had; the backend still refuses an owner it cannot accept.
+    }
+  }
+
   /** Takes a fresh copy of the open task, keeping the draft's editable fields. */
   function applyTask(task: Task): void {
     if (!state.form) {
@@ -321,7 +348,140 @@ export function createTaskSheetVM() {
     }
   }
 
-  return { state, open, close, drill, back, applyTask, saveSheet };
+  /** Files the open task; the undo only clears the flag, so finished work stays finished. */
+  async function archive(): Promise<void> {
+    const task = state.task;
+    if (!task) return;
+    state.error = null;
+    try {
+      await archiveTask(task.id);
+      undoVM.pushUndo(t("undo.archivedTask", { title: task.title }), async () => {
+        await unarchiveTask(task.id);
+      });
+      close();
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** Adds a subtask at once: the rollup it changes is what the grid shows. */
+  async function submitSubtask(title: string): Promise<boolean> {
+    const parent = state.task;
+    const text = title.trim();
+    if (!parent || !text) return false;
+    state.error = null;
+    try {
+      applyTask(await addSubtask(parent.id, text));
+      return true;
+    } catch (e) {
+      state.error = String(e);
+      return false;
+    }
+  }
+
+  /** A subtask is a task: ticking it is a status change, and the parent follows. */
+  async function toggleSubtask(child: Task): Promise<void> {
+    const parent = state.task;
+    if (!parent) return;
+    state.error = null;
+    try {
+      await setTaskStatus(child.id, child.status === "done" ? "todo" : "done");
+      applyTask(await getTask(parent.id));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  async function removeSubtask(child: Task): Promise<void> {
+    state.error = null;
+    try {
+      applyTask(await deleteSubtask(child.id));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** Parks the open task on a reply; the caller already asked who and until when. */
+  async function waitFor(waitingOnId: string | null, followUpDate: string | null): Promise<void> {
+    const current = state.task;
+    if (!current) return;
+    state.error = null;
+    try {
+      applyTask(await taskRowVM.wait(current, waitingOnId, followUpDate));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** A reply arrived: the task rejoins the week, and the undo puts the wait back. */
+  async function markReplied(): Promise<void> {
+    const current = state.task;
+    if (!current) return;
+    state.error = null;
+    try {
+      applyTask(await taskRowVM.resume(current));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** A delay record is written already, so its reason lands at once, like the waiting strip. */
+  async function saveDelayReason(delayId: string, reason: string): Promise<void> {
+    const current = state.task;
+    if (!current) return;
+    const text = reason.trim();
+    if (text === (current.delays.find((delay) => delay.id === delayId)?.reason ?? "")) return;
+    state.error = null;
+    try {
+      applyTask(await setDelayReason(delayId, text));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** Saves the draft; a saved subtask steps back to its umbrella instead of closing. */
+  async function save(): Promise<boolean> {
+    const form = state.form;
+    if (!state.task || !form) return false;
+    state.error = null;
+    try {
+      // A picked owner must join the project first: that is also where the service hands
+      // them the categories they are responsible for.
+      if (
+        form.projectId &&
+        form.ownerId &&
+        !state.members.some((person) => person.id === form.ownerId)
+      ) {
+        await addMember(form.projectId, form.ownerId, null);
+      }
+      if (!(await saveSheet())) return false;
+      if (state.stack.length) await back();
+      else close();
+      return true;
+    } catch (e) {
+      state.error = String(e);
+      return false;
+    }
+  }
+
+  return {
+    state,
+    open,
+    close,
+    drill,
+    back,
+    applyTask,
+    refreshMembers,
+    saveSheet,
+    save,
+    archive,
+    submitSubtask,
+    toggleSubtask,
+    removeSubtask,
+    waitFor,
+    markReplied,
+    saveDelayReason,
+  };
 }
 
 export const taskSheetVM = createTaskSheetVM();

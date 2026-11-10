@@ -5,7 +5,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { askConfirm, askText } from "../lib/dialog";
 import { localDate, shortDate } from "../lib/dates";
 import { t } from "../lib/i18n";
-import { panelSwapMotion, weekViewMotion } from "../lib/motion";
+import { listItemMotion, panelSwapMotion, weekViewMotion } from "../lib/motion";
 import { prefersReducedMotion } from "../lib/windowMotion";
 import { NONE_GROUP_KEY, type TaskGroup } from "../lib/taskGroups";
 import type { Priority, Task } from "../model/types";
@@ -66,7 +66,7 @@ async function removeDone(task: { id: string; title: string }): Promise<void> {
 watch(
   () => taskSheetVM.state.openId,
   (open) => {
-    if (!open && tasksVM.state.mode === "done") void tasksVM.loadDone();
+    if (!open && tasksVM.state.mode === "done") void tasksVM.loadDone().catch(() => {});
   },
 );
 const savedViews = computed(() => tasksVM.savedViews.value);
@@ -167,14 +167,14 @@ onMounted(() => void tasksVM.load());
 watch(
   () => taskSheetVM.state.openId,
   (open) => {
-    if (!open) void tasksVM.load();
+    if (!open) tasksVM.reload();
   },
 );
 // The same reload the week, archive and project pages do, so undo is visible here too.
 watch(
   () => undoVM.state.revision,
   () => {
-    void tasksVM.load();
+    tasksVM.reload();
   },
 );
 
@@ -185,7 +185,7 @@ function openTask(task: Task): void {
 }
 
 function refresh(): void {
-  void tasksVM.load();
+  tasksVM.reload();
 }
 
 function groupListId(key: string): string {

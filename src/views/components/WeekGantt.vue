@@ -121,7 +121,11 @@ const canStart = (lane: WeekLane): boolean =>
   (lane.task.status === "todo" || lane.task.suspended);
 const canSuspend = (lane: WeekLane): boolean => canSuspendTask(lane.task);
 const canWait = (lane: WeekLane): boolean => canWaitTask(lane.task);
-const waitingName = (lane: WeekLane): string | null => waitingOnName(lane.task, appVM.state.people);
+/** The waiting line: who it waits on, or the wording for a person already removed. */
+const waitingLabel = (lane: WeekLane): string => {
+  const name = waitingOnName(lane.task, appVM.state.people);
+  return name ? t("task.waitingOn", { name }) : t("task.waitingNoName");
+};
 const doneLabel = (lane: WeekLane): string =>
   t(isDone(lane) ? "task.reopenAria" : "task.doneAria", { title: lane.task.title });
 const waitLabel = (lane: WeekLane): string =>
@@ -413,11 +417,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                   v-if="lane.task.waiting"
                   class="badge badge-soft badge-info badge-xs shrink-0"
                 >
-                  {{
-                    waitingName(lane)
-                      ? t("task.waitingOn", { name: waitingName(lane) })
-                      : t("task.waitingNoName")
-                  }}
+                  {{ waitingLabel(lane) }}
                 </span>
                 <span
                   v-if="!lane.task.exclusive"

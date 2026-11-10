@@ -7,7 +7,7 @@ import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
 import { waitDefaults } from "../../lib/waiting";
-import { waitTask } from "../../model/ipc";
+import { taskRowVM } from "../../viewmodels/taskRowVM";
 import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
@@ -73,7 +73,7 @@ async function actWait(): Promise<void> {
   );
   if (!draft) return;
   const saved = await runWithNotice(() =>
-    waitTask(task.id, draft.personId, draft.followUpDate || null),
+    taskRowVM.wait(task, draft.personId, draft.followUpDate || null),
   );
   if (saved) passVM.markWaiting();
 }
