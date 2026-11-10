@@ -226,13 +226,34 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
           v-for="(date, index) in dates"
           :key="date"
           class="flex min-w-0 flex-col justify-center gap-0.5 border-l border-base-300/70 px-3 py-1 first:border-l-0"
-          :class="{ 'bg-base-200/60': date < today, 'bg-primary/[0.07]': date === today }"
+          :class="{
+            'bg-base-200/60': date < today,
+            'bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]': date === today,
+          }"
         >
           <span class="flex min-w-0 items-center gap-1.5">
-            <span class="text-[11.5px] font-medium text-base-content/55">{{
-              weekdayLabel(date)
-            }}</span>
-            <span class="text-[11px] text-base-content/40">{{ shortDate(date) }}</span>
+            <span
+              class="text-[11.5px] font-medium"
+              :class="
+                date === today
+                  ? 'text-primary'
+                  : date < today
+                    ? 'text-base-content/35'
+                    : 'text-base-content/55'
+              "
+              >{{ weekdayLabel(date) }}</span
+            >
+            <span
+              class="text-[11px]"
+              :class="
+                date === today
+                  ? 'text-primary/80'
+                  : date < today
+                    ? 'text-base-content/35'
+                    : 'text-base-content/40'
+              "
+              >{{ shortDate(date) }}</span
+            >
             <span v-if="date === today" class="badge badge-soft badge-primary badge-xs">{{
               t("week.today")
             }}</span>
@@ -263,7 +284,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
             class="border-l border-base-300/60 first:border-l-0"
             :class="{
               'bg-base-200/50': date < today,
-              'bg-primary/[0.05]': date === today,
+              'bg-primary/[0.06] shadow-[inset_2px_0_0_var(--color-primary)]': date === today,
               'border-x border-dashed border-primary/40 bg-primary/[0.06]':
                 targetMoved && targetColumn === index,
             }"
@@ -274,7 +295,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
           v-for="lane in lanes"
           :key="lane.task.id"
           :data-lane="lane.task.id"
-          class="group flex h-14 shrink-0 border-t border-base-300/60 first:border-t-0"
+          class="group flex min-h-14 shrink-0 border-t border-base-300/60 first:border-t-0"
           :class="{
             'shadow-[inset_0_2px_0_var(--color-primary)]':
               targetMoved && dropBefore === lane.task.id && draggingId !== lane.task.id,
@@ -283,7 +304,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
           <div class="relative grid flex-1 grid-cols-5">
             <div v-for="date in dates" :key="date" class="row-start-1"></div>
             <div
-              class="relative z-10 row-start-1 mx-[3px] my-auto flex h-12 flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-3 transition-[border-color,background-color,box-shadow] duration-150 hover:border-current/50 hover:shadow-sm"
+              class="relative z-10 row-start-1 mx-[3px] my-auto flex flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-3 py-1 transition-[border-color,background-color,box-shadow] duration-150 hover:border-current/50 hover:shadow-sm"
               :class="[skin(lane), { 'opacity-40': draggingId === lane.task.id }]"
               :style="columnOf(lane)"
               role="button"
@@ -306,6 +327,9 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 :style="{ left: `${(tick * 100) / (lane.to - lane.from + 1)}%` }"
                 aria-hidden="true"
               ></span>
+              <div v-if="lane.task.parentTitle" class="flex min-w-0">
+                <ParentBadge :title="lane.task.parentTitle" />
+              </div>
               <div class="relative flex min-w-0 items-center gap-1.5">
                 <button
                   v-if="canComplete(lane)"
@@ -328,11 +352,6 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                     :waiting="lane.task.waiting"
                   />
                 </span>
-                <ParentBadge
-                  v-if="lane.task.parentTitle"
-                  :title="lane.task.parentTitle"
-                  class="max-w-32"
-                />
                 <span
                   class="truncate text-[13.5px]"
                   :class="{ 'text-base-content/40 line-through': isDone(lane) }"
