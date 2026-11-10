@@ -46,14 +46,17 @@ describe("planSchedule", () => {
 
   it("flags a finish after the due date and not one on it", () => {
     const plan = planSchedule(
-      [
-        t("late", 1, { expectedFinishDate: "2026-10-19" }),
-        t("fit", 1, { expectedFinishDate: "2026-10-21" }),
-      ],
+      [t("late", 2, { expectedFinishDate: TODAY }), t("fit", 1, { expectedFinishDate: TODAY })],
       TODAY,
     );
-    expect(plan[0].conflict).toBe(true);
-    expect(plan[1].conflict).toBe(false);
+    expect(plan[0]).toMatchObject({ start: TODAY, end: "2026-10-21", conflict: true });
+    expect(plan[1]).toMatchObject({ start: TODAY, end: TODAY, conflict: false });
+  });
+
+  it("does not flag a due date the plan has already passed", () => {
+    const plan = planSchedule([t("overdue", 1, { expectedFinishDate: "2026-10-19" })], TODAY);
+
+    expect(plan[0]).toMatchObject({ start: TODAY, end: TODAY, conflict: false });
   });
 
   it("treats a missing or zero effort as one hour", () => {

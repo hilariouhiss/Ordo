@@ -11,10 +11,18 @@ vi.mock("../../model/ipc", () => ({
   deleteSubtask: vi.fn(),
   ownerCandidates: vi.fn().mockResolvedValue([]),
   setDelayReason: vi.fn(),
+  deferTask: vi.fn(),
   unarchiveTask: vi.fn(),
 }));
 
-import { addDelayNote, addMember, getTask, setTaskStatus, updateTaskPatch } from "../../model/ipc";
+import {
+  addDelayNote,
+  addMember,
+  deferTask,
+  getTask,
+  setTaskStatus,
+  updateTaskPatch,
+} from "../../model/ipc";
 import { isoOf, stampOfLocal } from "../../lib/dates";
 import { createTaskSheetVM, diffTask, formFinish, formOf, syncActualPreview } from "../taskSheetVM";
 import { task } from "./fixtures";
@@ -32,6 +40,26 @@ describe("taskSheetVM", () => {
 
     expect(vm.state.task?.id).toBe("t1");
     expect(vm.state.form?.title).toBe("交底");
+  });
+
+  it("defers the open task and follows the new dates", async () => {
+    const before = task({ id: "t1", expectedFinishDate: "2026-10-09", effortMinutes: 240 });
+    const after = task({
+      id: "t1",
+      expectedFinishDate: "2026-11-25",
+      effortMinutes: 27 * 480,
+    });
+    vi.mocked(getTask).mockResolvedValue(before);
+    vi.mocked(deferTask).mockResolvedValue(after);
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    await vm.defer("2026-11-25", "等甲方");
+
+    expect(deferTask).toHaveBeenCalledWith("t1", "2026-11-25", "等甲方");
+    expect(vm.state.task?.expectedFinishDate).toBe("2026-11-25");
+    expect(vm.state.form?.expectedFinishDate).toBe("2026-11-25");
+    expect(vm.state.form?.effortMinutes).toBe(27 * 480);
   });
 
   it("ignores an open whose read lands after a newer one", async () => {

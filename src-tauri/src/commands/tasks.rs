@@ -212,6 +212,20 @@ pub async fn suspend_task(
 }
 
 #[tauri::command]
+pub async fn defer_task(
+    state: State<'_, AppState>,
+    id: String,
+    finish: String,
+    reason: String,
+) -> Result<TaskDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::deliverables::defer(conn, &id, &finish, &reason, &now)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn add_delay_note(
     state: State<'_, AppState>,
     id: String,

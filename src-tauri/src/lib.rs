@@ -513,6 +513,7 @@ pub fn run() {
       commands::tasks::suspend_task,
       commands::tasks::wait_task,
       commands::tasks::add_delay_note,
+      commands::tasks::defer_task,
       commands::tasks::set_delay_reason,
       commands::tasks::list_project_tasks,
       commands::projects::list_projects,

@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { ArrowLeft, Hourglass, Pencil, X } from "@lucide/vue";
+import { ArrowLeft, CalendarClock, Hourglass, Pencil, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { localDate, shortDate, todayIso } from "../../lib/dates";
-import { askConfirm, askWaiting } from "../../lib/dialog";
+import { addDays, localDate, shortDate, todayIso } from "../../lib/dates";
+import { askConfirm, askDefer, askSuspend, askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { currentSubtask } from "../../lib/subtasks";
-import { effortForFinish, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
+import { canSuspendTask } from "../../lib/status";
+import {
+  effortForFinish,
+  timingAnchor,
+  workdayOnOrBefore,
+  workdayOnOrAfter,
+} from "../../lib/timing";
 import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Delay, Priority, Status, Task } from "../../model/types";
@@ -23,6 +29,7 @@ import {
 import ChipSelect from "../components/ChipSelect.vue";
 import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
+import StatusDot from "../components/StatusDot.vue";
 
 const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "todo", key: "task.statusTodo" },
@@ -80,6 +87,30 @@ watch(
 );
 
 const late = computed(() => overdueDays(task.value?.expectedFinishDate ?? null, todayIso()));
+const canSuspend = computed(() => (task.value ? canSuspendTask(task.value) : false));
+/** A rule owns its day and an umbrella derives its dates, so neither can be deferred. */
+const canDefer = computed(
+  () =>
+    !!task.value &&
+    !derived.value &&
+    !ruleOwned.value &&
+    task.value.status !== "done" &&
+    !!task.value.expectedFinishDate,
+);
+const suspendBadge = computed(() => {
+  const current = task.value;
+  if (!current) return "";
+  return current.suspendedAt
+    ? t("task.suspendedFor", { days: daysSince(current.suspendedAt, todayIso()) })
+    : t("task.suspendedNoDate");
+});
+/** The first day a delay may move the finish to: after the stored one, never before today. */
+const deferMin = computed(() => {
+  const today = todayIso();
+  const old = task.value?.expectedFinishDate ?? "";
+  const floor = old ? addDays(old, 1) : today;
+  return workdayOnOrAfter(floor > today ? floor : today);
+});
 const waitingName = computed(() =>
   task.value ? waitingOnName(task.value, appVM.state.people) : null,
 );
@@ -102,6 +133,32 @@ async function openWaiting(): Promise<void> {
 /** A reply arrived: the task rejoins the week, and undo parks it on the same wait. */
 function markReplied(): void {
   void taskSheetVM.markReplied();
+}
+
+/** Parks the open task; the strip that replaces the row's buttons shows why and since when. */
+async function suspendTask(): Promise<void> {
+  const current = task.value;
+  if (!current) return;
+  const draft = await askSuspend(t("task.suspendAria", { title: current.title }));
+  if (!draft) return;
+  await taskSheetVM.suspend(draft.until || null, draft.reason || null);
+}
+
+function resumeTask(): void {
+  void taskSheetVM.resume();
+}
+
+/** Pushes the finish later and records why; the estimate grows to cover the new span. */
+async function deferTask(): Promise<void> {
+  const current = task.value;
+  if (!current) return;
+  const draft = await askDefer(t("task.deferAria", { title: current.title }), {
+    finish: deferMin.value,
+    min: deferMin.value,
+    oldFinish: current.expectedFinishDate ?? "",
+  });
+  if (!draft) return;
+  await taskSheetVM.defer(draft.finish, draft.reason);
 }
 
 function setDelayInput(element: unknown): void {
@@ -381,25 +438,65 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <button
             v-for="option in statusOptions"
             :key="option.value"
-            class="btn btn-xs rounded-md border-base-300 font-normal"
+            class="btn btn-xs grid size-7 place-items-center rounded-md p-0"
             :class="
               form.status === option.value
-                ? 'border-0 bg-primary text-primary-content'
-                : 'bg-base-100'
+                ? 'border-primary/40 bg-primary/10'
+                : 'border-base-300 bg-base-100'
             "
+            :title="t(option.key)"
+            :aria-label="t(option.key)"
             @click="setStatus(option.value)"
           >
-            {{ t(option.key) }}
+            <StatusDot :status="option.value" />
+          </button>
+          <button
+            v-if="canSuspend"
+            class="btn btn-xs grid size-7 place-items-center rounded-md border-base-300 bg-base-100 p-0 hover:bg-warning/10"
+            :title="t('task.suspend')"
+            :aria-label="t('task.suspend')"
+            @click="suspendTask"
+          >
+            <StatusDot :status="task.status" suspended />
           </button>
           <button
             v-if="task.waiting || task.status !== 'done'"
-            class="btn btn-xs rounded-md font-normal"
-            :class="
-              task.waiting ? 'border-0 bg-info text-info-content' : 'border-base-300 bg-base-100'
-            "
+            class="btn btn-xs grid size-7 place-items-center rounded-md p-0"
+            :class="task.waiting ? 'border-info/40 bg-info/10' : 'border-base-300 bg-base-100'"
+            :title="t('task.waitingNoName')"
+            :aria-label="t('task.waitingNoName')"
             @click="openWaiting"
           >
-            {{ t("task.waitingNoName") }}
+            <Hourglass :size="14" aria-hidden="true" />
+          </button>
+          <span class="grow"></span>
+          <button
+            v-if="canDefer"
+            class="btn btn-xs grid size-7 place-items-center rounded-md border-primary/30 bg-primary/5 p-0 text-primary"
+            :title="t('task.defer')"
+            :aria-label="t('task.defer')"
+            @click="deferTask"
+          >
+            <CalendarClock :size="14" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div
+          v-if="task.suspended"
+          class="mt-2 flex items-center gap-1.5 rounded-lg bg-warning/10 px-2.5 py-1.5 text-[11px] text-warning"
+        >
+          <StatusDot :status="task.status" suspended class="shrink-0" />
+          <span class="min-w-0 truncate">
+            {{ suspendBadge }} · {{ task.suspendReason || t("task.noReason") }}
+            <template v-if="task.suspendedUntil">
+              · {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
+            </template>
+          </span>
+          <button
+            class="ml-auto shrink-0 rounded-md px-1.5 py-0.5 hover:bg-warning/10"
+            @click="resumeTask"
+          >
+            {{ t("task.resume") }}
           </button>
         </div>
 

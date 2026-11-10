@@ -96,6 +96,10 @@ function endOf(start: Start, need: number): string {
  * shared tasks never block each other. Exclusive tasks claim days in plan order:
  * the earlier start goes first, and an explicit start date beats the manual queue
  * on the same day. `weekStart` lets a start before today still count.
+ *
+ * A due date only counts while the plan can still reach it. Once it is in the past the
+ * row is late, not unplannable: the inequality would stay true however the queue moves,
+ * and the row already says how many days overdue it is.
  */
 export function planSchedule(
   tasks: PlanTask[],
@@ -134,7 +138,10 @@ export function planSchedule(
       start: row.slot.day,
       end: row.end,
       startHour: row.slot.hour,
-      conflict: task.expectedFinishDate !== null && row.end > task.expectedFinishDate,
+      conflict:
+        task.expectedFinishDate !== null &&
+        task.expectedFinishDate >= start &&
+        row.end > task.expectedFinishDate,
     };
   });
 }

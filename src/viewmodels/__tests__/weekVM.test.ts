@@ -252,13 +252,20 @@ describe("weekVM plan", () => {
 
   it("counts a finish after the due date, not one on it", async () => {
     const vm = await loadedWith([
-      task({ id: "late", expectedFinishDate: "2026-10-19" }),
+      task({ id: "late", effortMinutes: 960, expectedFinishDate: "2026-10-20" }),
       task({ id: "fit", expectedFinishDate: "2026-10-21" }),
     ]);
 
     expect(vm.conflictCount.value).toBe(1);
     expect(vm.days.value[0].rows[0].conflict).toBe(true);
     expect(vm.days.value[0].rows[1].conflict).toBe(false);
+  });
+
+  it("stops calling a due date the plan already passed unplannable", async () => {
+    const vm = await loadedWith([task({ id: "overdue", expectedFinishDate: "2026-10-19" })]);
+
+    expect(vm.conflictCount.value).toBe(0);
+    expect(vm.days.value[0].rows[0].conflict).toBe(false);
   });
 
   it("uses the task's own start date", async () => {

@@ -150,6 +150,11 @@ export function addDelayNote(id: string, reason: string): Promise<Task> {
 export function setDelayReason(delayId: string, reason: string): Promise<Task> {
   return invoke<Task>("set_delay_reason", { id: delayId, reason });
 }
+
+/** Moves the finish later, grows the estimate to match, and records why. */
+export function deferTask(id: string, finish: string, reason: string): Promise<Task> {
+  return invoke<Task>("defer_task", { id, finish, reason });
+}
 export function listProjects(): Promise<ProjectSummary[]> {
   return invoke<ProjectSummary[]>("list_projects");
 }

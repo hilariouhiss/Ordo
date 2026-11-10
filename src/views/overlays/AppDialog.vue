@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
 import { nextTick, reactive, ref, watch } from "vue";
-import { todayIso } from "../../lib/dates";
+import { shortDate, todayIso } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -12,6 +12,8 @@ import DateField from "../components/DateField.vue";
 const draft = ref("");
 const reasonDraft = ref("");
 const untilDraft = ref("");
+const deferDate = ref("");
+const deferReason = ref("");
 const waitPerson = ref("");
 const waitDate = ref("");
 const client = reactive({ name: "", contact: "", phone: "", note: "" });
@@ -37,6 +39,11 @@ watch(dialogRequest, async (request) => {
   } else if (request.kind === "waiting") {
     waitPerson.value = request.personId ?? "";
     waitDate.value = request.followUpDate;
+    await nextTick();
+    confirmButton.value?.focus();
+  } else if (request.kind === "defer") {
+    deferDate.value = request.finish;
+    deferReason.value = "";
     await nextTick();
     confirmButton.value?.focus();
   } else if (request.kind === "client") {
@@ -73,6 +80,11 @@ function confirm(): void {
   }
   if (request.kind === "waiting") {
     closeDialog({ personId: waitPerson.value || null, followUpDate: waitDate.value });
+    return;
+  }
+  if (request.kind === "defer") {
+    if (!deferDate.value) return;
+    closeDialog({ finish: deferDate.value, reason: deferReason.value.trim() });
     return;
   }
   if (request.kind === "client") {
@@ -167,6 +179,36 @@ function onEnter(event: KeyboardEvent): void {
           </label>
           <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
             {{ t("task.waitingHint") }}
+          </p>
+        </template>
+        <template v-else-if="dialogRequest.kind === 'defer'">
+          <label class="mt-3 block text-[11px] text-base-content/45">
+            {{ t("task.deferFinishLabel") }}
+            <DateField
+              v-model="deferDate"
+              :min="dialogRequest.min"
+              :aria-label="t('task.deferFinishLabel')"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @enter="confirm"
+            />
+          </label>
+          <label class="mt-2 block text-[11px] text-base-content/45">
+            {{ t("task.deferReasonLabel") }}
+            <input
+              v-model="deferReason"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              :placeholder="t('task.deferReasonPlaceholder')"
+              @keydown.enter="onEnter"
+            />
+          </label>
+          <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            {{ t("task.deferHint") }}
+            <span v-if="deferDate" class="mt-0.5 block">{{
+              t("task.deferRecordHint", {
+                from: shortDate(dialogRequest.oldFinish),
+                to: shortDate(deferDate),
+              })
+            }}</span>
           </p>
         </template>
         <template v-else-if="dialogRequest.kind === 'person'">

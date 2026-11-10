@@ -11,6 +11,12 @@ export interface WaitingDraft {
   followUpDate: string;
 }
 
+/** A delay: the new finish day plus why it moved. */
+export interface DeferDraft {
+  finish: string;
+  reason: string;
+}
+
 /** The person record a dialog edits: name plus the categories they are responsible for. */
 export interface PersonDraft {
   name: string;
@@ -29,6 +35,13 @@ export type DialogRequest =
   | { kind: "text"; title: string; value: string }
   | { kind: "suspend"; title: string }
   | { kind: "waiting"; title: string; personId: string | null; followUpDate: string }
+  | {
+      kind: "defer";
+      title: string;
+      finish: string;
+      min: string;
+      oldFinish: string;
+    }
   | ({ kind: "client"; title: string } & ClientDraft)
   | ({ kind: "person"; title: string } & PersonDraft)
   | { kind: "confirm"; title: string; message: string }
@@ -36,7 +49,14 @@ export type DialogRequest =
 
 export const dialogRequest = ref<DialogRequest | null>(null);
 
-type DialogAnswer = string | SuspendDraft | WaitingDraft | ClientDraft | PersonDraft | null;
+type DialogAnswer =
+  | string
+  | SuspendDraft
+  | WaitingDraft
+  | DeferDraft
+  | ClientDraft
+  | PersonDraft
+  | null;
 
 let settle: ((answer: DialogAnswer) => void) | null = null;
 
@@ -65,6 +85,13 @@ export function askSuspend(title: string): Promise<SuspendDraft | null> {
 
 export function askWaiting(title: string, defaults: WaitingDraft): Promise<WaitingDraft | null> {
   return ask({ kind: "waiting", title, ...defaults }) as Promise<WaitingDraft | null>;
+}
+
+export function askDefer(
+  title: string,
+  defaults: { finish: string; min: string; oldFinish: string },
+): Promise<DeferDraft | null> {
+  return ask({ kind: "defer", title, ...defaults }) as Promise<DeferDraft | null>;
 }
 
 export function askClient(title: string, defaults: ClientDraft): Promise<ClientDraft | null> {

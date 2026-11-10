@@ -8,6 +8,7 @@ import {
   addMember,
   addSubtask,
   archiveTask,
+  deferTask,
   deleteSubtask,
   getTask,
   ownerCandidates,
@@ -403,6 +404,42 @@ export function createTaskSheetVM() {
     }
   }
 
+  /** Parks the open task; the caller already asked why and when to look again. */
+  async function suspend(until: string | null, reason: string | null): Promise<void> {
+    const current = state.task;
+    if (!current) return;
+    state.error = null;
+    try {
+      applyTask(await taskRowVM.suspend(current, until, reason));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** Back from a park, with the row action's undo. */
+  async function resume(): Promise<void> {
+    const current = state.task;
+    if (!current) return;
+    state.error = null;
+    try {
+      applyTask(await taskRowVM.resume(current));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
+  /** Moves the finish later and records why; the draft's dates follow the fresh task. */
+  async function defer(finish: string, reason: string): Promise<void> {
+    const current = state.task;
+    if (!current) return;
+    state.error = null;
+    try {
+      applyTask(await deferTask(current.id, finish, reason));
+    } catch (e) {
+      state.error = String(e);
+    }
+  }
+
   /** Parks the open task on a reply; the caller already asked who and until when. */
   async function waitFor(waitingOnId: string | null, followUpDate: string | null): Promise<void> {
     const current = state.task;
@@ -480,6 +517,9 @@ export function createTaskSheetVM() {
     submitSubtask,
     toggleSubtask,
     removeSubtask,
+    suspend,
+    resume,
+    defer,
     waitFor,
     markReplied,
     saveDelayReason,

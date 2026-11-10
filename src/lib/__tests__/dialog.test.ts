@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   askConfirm,
+  askDefer,
   askNotice,
   askSuspend,
   askText,
@@ -51,6 +52,33 @@ describe("dialog", () => {
     });
     closeDialog({ personId: null, followUpDate: "" });
     await expect(pending).resolves.toEqual({ personId: null, followUpDate: "" });
+  });
+
+  it("asks for the new finish and why it moved", async () => {
+    const pending = askDefer("延期「交底」", {
+      finish: "2026-11-25",
+      min: "2026-11-20",
+      oldFinish: "2026-11-18",
+    });
+    expect(dialogRequest.value).toEqual({
+      kind: "defer",
+      title: "延期「交底」",
+      finish: "2026-11-25",
+      min: "2026-11-20",
+      oldFinish: "2026-11-18",
+    });
+    closeDialog({ finish: "2026-11-25", reason: "等甲方" });
+    await expect(pending).resolves.toEqual({ finish: "2026-11-25", reason: "等甲方" });
+  });
+
+  it("treats closing a defer dialog as a cancel", async () => {
+    const pending = askDefer("延期「交底」", {
+      finish: "2026-11-25",
+      min: "2026-11-20",
+      oldFinish: "2026-11-18",
+    });
+    closeDialog(null);
+    await expect(pending).resolves.toBeNull();
   });
 
   it("treats closing a waiting dialog as a cancel", async () => {
