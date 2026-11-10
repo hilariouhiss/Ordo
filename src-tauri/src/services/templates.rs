@@ -21,7 +21,8 @@ pub fn save(conn: &Connection, input: &TemplateInput, now: &str) -> Result<Templ
         }
         None => {
             let id = Uuid::new_v4().to_string();
-            templates::insert(conn, &id, &template, now).map_err(|e| e.to_string())?;
+            let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+            templates::insert(conn, &id, &template, &scope, now).map_err(|e| e.to_string())?;
             load(conn, &id)
         }
     }
@@ -50,7 +51,7 @@ pub fn create_task(
     };
     // One transaction: a failed subtask insert must not leave a task with half its flow.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    week::capture_rows(&tx, &template.name, &fields, now, task_id)?;
+    week::capture_rows(&tx, &template.name, &fields, Some(&template.scope), now, task_id)?;
     // CaptureFields carries nothing for these three, so they land after the row exists.
     tx.execute(
         "UPDATE tasks SET category_id = ?1, time_exclusive = ?2, note = ?3, updated_at = ?4
@@ -268,5 +269,31 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(tasks, 0);
+    }
+
+    #[test]
+    fn a_personal_template_makes_a_personal_task() {
+        let c = db::open_in_memory().unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        let template = save(&c, &input("周末", vec!["买菜"]), NOW).unwrap();
+        create_task(&c, &template.id, NOW, "t1").unwrap();
+
+        let scope: String = c
+            .query_row("SELECT scope FROM tasks WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(scope, crate::repo::settings::MODE_PERSONAL);
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+        assert!(crate::repo::templates::list(&c).unwrap().is_empty());
     }
 }

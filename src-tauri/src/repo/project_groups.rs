@@ -2,9 +2,12 @@ use crate::dto::ProjectGroupDto;
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<ProjectGroupDto>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, contact, phone, note FROM project_groups ORDER BY created_at, id",
-    )?;
+    let mode = crate::repo::settings::mode(conn)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, name, contact, phone, note FROM project_groups
+         WHERE {} ORDER BY created_at, id",
+        crate::repo::scope_eq("project_groups", &mode)
+    ))?;
     let rows = stmt.query_map([], |r| {
         Ok(ProjectGroupDto {
             id: r.get(0)?,
@@ -33,10 +36,15 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<ProjectGroupDto> {
     )
 }
 
-pub fn find_by_name(conn: &Connection, name: &str) -> rusqlite::Result<Option<ProjectGroupDto>> {
+pub fn find_by_name(
+    conn: &Connection,
+    name: &str,
+    mode: &str,
+) -> rusqlite::Result<Option<ProjectGroupDto>> {
     conn.query_row(
-        "SELECT id, name, contact, phone, note FROM project_groups WHERE name = ?1 LIMIT 1",
-        [name],
+        "SELECT id, name, contact, phone, note FROM project_groups
+         WHERE name = ?1 AND scope = ?2 LIMIT 1",
+        rusqlite::params![name, mode],
         |r| {
             Ok(ProjectGroupDto {
                 id: r.get(0)?,
@@ -62,13 +70,21 @@ pub fn insert(
     conn: &Connection,
     id: &str,
     name: &str,
+    scope: &str,
     now: &str,
 ) -> rusqlite::Result<ProjectGroupDto> {
     conn.execute(
-        "INSERT INTO project_groups (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
-        params![id, name, now],
+        "INSERT INTO project_groups (id, name, scope, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![id, name, scope, now],
     )?;
     get(conn, id)
+}
+
+/// The world a client belongs to, so a project cannot borrow one from the other side.
+pub fn scope_of(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT scope FROM project_groups WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
 }
 
 pub fn update(

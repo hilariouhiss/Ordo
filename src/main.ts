@@ -3,7 +3,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createApp } from "vue";
 import { setLanguage, type Language } from "./lib/i18n";
-import { applyTheme, resolveTheme, systemPrefersDark } from "./lib/theme";
+import { applyTheme, resolveTheme, systemPrefersDark, themeName } from "./lib/theme";
 import { getSettings } from "./model/ipc";
 import App from "./App.vue";
 import { router } from "./router";
@@ -13,17 +13,19 @@ import CaptureView from "./views/CaptureView.vue";
 // preference to the OS, so English/dark systems no longer flash the defaults.
 let language: Language = navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 let theme = "system";
+let mode: "work" | "personal" = "work";
 if (isTauri()) {
   try {
     const settings = await getSettings();
     if (settings.language === "zh" || settings.language === "en") language = settings.language;
     theme = settings.theme;
+    mode = settings.mode;
   } catch {
     // The app applies the setting after mounting if this early read fails.
   }
 }
 setLanguage(language);
-applyTheme(resolveTheme(theme, systemPrefersDark()));
+applyTheme(themeName(resolveTheme(theme, systemPrefersDark()), mode));
 
 const label = isTauri() ? getCurrentWindow().label : "";
 // The main window paints its own surface; style.css keeps the page behind it transparent.

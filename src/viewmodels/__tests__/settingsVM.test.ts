@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../../model/ipc", () => ({ setSettings: vi.fn() }));
+vi.mock("../../model/ipc", () => ({ setSettings: vi.fn(), setMode: vi.fn() }));
 
-import { setSettings } from "../../model/ipc";
+import { setMode, setSettings } from "../../model/ipc";
 import { createSettingsVM } from "../settingsVM";
 import { defaultSettings } from "./fixtures";
 
@@ -20,5 +20,14 @@ describe("settingsVM", () => {
       remindersLeadMinutes: 30,
       remindersDigest: false,
     });
+  });
+
+  it("switches the mode through the dedicated command", async () => {
+    vi.mocked(setMode).mockResolvedValue({ ...defaultSettings, mode: "personal" });
+    const vm = createSettingsVM();
+
+    await expect(vm.switchMode("personal")).resolves.toBe(true);
+
+    expect(vi.mocked(setMode)).toHaveBeenCalledWith("personal");
   });
 });

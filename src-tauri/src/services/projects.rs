@@ -9,9 +9,10 @@ pub fn create(conn: &Connection, name: &str, now: &str) -> Result<ProjectDto, St
         return Err("empty_project_name".into());
     }
     let id = Uuid::new_v4().to_string();
+    let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     // One transaction, so a failed member insert cannot leave a project with nobody in it.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    insert_with_me(&tx, &id, name, now)?;
+    insert_with_me(&tx, &id, name, &scope, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     projects::dto(conn, &id).map_err(|e| e.to_string())
 }
@@ -24,11 +25,14 @@ pub fn find_or_create(conn: &Connection, name: &str, now: &str) -> Result<String
     if name.is_empty() {
         return Err("empty_project_name".into());
     }
-    if let Some(id) = projects::find_active_by_name(conn, name).map_err(|e| e.to_string())? {
+    let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+    if let Some(id) =
+        projects::find_active_by_name(conn, name, &scope).map_err(|e| e.to_string())?
+    {
         return Ok(id);
     }
     let id = Uuid::new_v4().to_string();
-    insert_with_me(conn, &id, name, now)?;
+    insert_with_me(conn, &id, name, &scope, now)?;
     Ok(id)
 }
 
@@ -36,6 +40,7 @@ fn insert_with_me(
     conn: &Connection,
     id: &str,
     name: &str,
+    scope: &str,
     now: &str,
 ) -> Result<(), String> {
     let me = people::list(conn)
@@ -43,7 +48,7 @@ fn insert_with_me(
         .into_iter()
         .find(|p| p.is_me)
         .ok_or("no_me")?;
-    projects::insert(conn, id, name, now).map_err(|e| e.to_string())?;
+    projects::insert(conn, id, name, scope, now).map_err(|e| e.to_string())?;
     projects::add_member(conn, id, &me.id, now).map_err(|e| e.to_string())
 }
 
@@ -66,6 +71,7 @@ pub fn update(
         if !project_groups::exists(conn, group_id).map_err(|e| e.to_string())? {
             return Err("invalid_group".into());
         }
+        same_scope(conn, id, group_id)?;
     }
     projects::update(conn, id, name, group_id, priority, now).map_err(|e| e.to_string())?;
     projects::dto(conn, id).map_err(|e| e.to_string())
@@ -80,7 +86,21 @@ pub fn set_group(
     if !project_groups::exists(conn, group_id).map_err(|e| e.to_string())? {
         return Err("invalid_group".into());
     }
+    same_scope(conn, id, group_id)?;
     projects::set_group(conn, id, group_id, now).map_err(|e| e.to_string())
+}
+
+/// A client and a project only meet inside one world; the pickers filter already, this
+/// guards a hand-written call or a stale form.
+fn same_scope(conn: &Connection, project_id: &str, group_id: &str) -> Result<(), String> {
+    let project = projects::scope_of(conn, project_id).map_err(|e| e.to_string())?;
+    let group = project_groups::scope_of(conn, group_id).map_err(|e| e.to_string())?;
+    if let (Some(project), Some(group)) = (project, group) {
+        if project != group {
+            return Err("invalid_group".into());
+        }
+    }
+    Ok(())
 }
 
 pub fn create_group(
@@ -92,13 +112,14 @@ pub fn create_group(
     if name.is_empty() {
         return Err("empty_group_name".into());
     }
-    if project_groups::find_by_name(conn, name)
+    let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+    if project_groups::find_by_name(conn, name, &scope)
         .map_err(|e| e.to_string())?
         .is_some()
     {
         return Err("group_exists".into());
     }
-    project_groups::insert(conn, &Uuid::new_v4().to_string(), name, now)
+    project_groups::insert(conn, &Uuid::new_v4().to_string(), name, &scope, now)
         .map_err(|e| e.to_string())
 }
 
@@ -110,7 +131,10 @@ pub fn rename_group(conn: &Connection, id: &str, name: &str, now: &str) -> Resul
     if !project_groups::exists(conn, id).map_err(|e| e.to_string())? {
         return Err("invalid_group".into());
     }
-    if let Some(existing) = project_groups::find_by_name(conn, name).map_err(|e| e.to_string())? {
+    let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+    if let Some(existing) =
+        project_groups::find_by_name(conn, name, &scope).map_err(|e| e.to_string())?
+    {
         if existing.id != id {
             return Err("group_exists".into());
         }
@@ -140,7 +164,10 @@ pub fn update_group(
     if !project_groups::exists(conn, id).map_err(|e| e.to_string())? {
         return Err("invalid_group".into());
     }
-    if let Some(existing) = project_groups::find_by_name(conn, name).map_err(|e| e.to_string())? {
+    let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+    if let Some(existing) =
+        project_groups::find_by_name(conn, name, &scope).map_err(|e| e.to_string())?
+    {
         if existing.id != id {
             return Err("group_exists".into());
         }
@@ -826,6 +853,94 @@ mod tests {
         assert_eq!(
             projects::set_group(&c, &project.id, "missing", NOW).unwrap_err(),
             "invalid_group"
+        );
+    }
+
+    #[test]
+    fn new_projects_and_clients_belong_to_the_active_mode() {
+        let c = db::open_in_memory().unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+
+        let project = projects::create(&c, "生活", NOW).unwrap();
+        let group = projects::create_group(&c, "家庭", NOW).unwrap();
+
+        assert_eq!(
+            crate::repo::projects::scope_of(&c, &project.id).unwrap().as_deref(),
+            Some(crate::repo::settings::MODE_PERSONAL)
+        );
+        assert_eq!(
+            crate::repo::project_groups::scope_of(&c, &group.id)
+                .unwrap()
+                .as_deref(),
+            Some(crate::repo::settings::MODE_PERSONAL)
+        );
+    }
+
+    #[test]
+    fn a_project_cannot_take_a_client_from_the_other_mode() {
+        let c = db::open_in_memory().unwrap();
+        let company = projects::create(&c, "项目", NOW).unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        let personal_group = projects::create_group(&c, "家庭", NOW).unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+
+        assert_eq!(
+            projects::set_group(&c, &company.id, &personal_group.id, NOW).unwrap_err(),
+            "invalid_group"
+        );
+    }
+
+    #[test]
+    fn a_personal_capture_never_reuses_a_company_project() {
+        let c = db::open_in_memory().unwrap();
+        let company = projects::create(&c, "生活", NOW).unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+
+        let task = crate::services::week::capture_with_project(
+            &c,
+            "买菜",
+            &crate::dto::CaptureFields::default(),
+            Some("生活"),
+            NOW,
+            "t1",
+        )
+        .unwrap();
+
+        let project_id = task.project_id.expect("the capture created its project");
+        assert_ne!(project_id, company.id);
+        assert_eq!(
+            crate::repo::projects::scope_of(&c, &project_id).unwrap().as_deref(),
+            Some(crate::repo::settings::MODE_PERSONAL)
+        );
+        assert_eq!(
+            crate::repo::projects::find_active_by_name(
+                &c,
+                "生活",
+                crate::repo::settings::MODE_WORK,
+            )
+            .unwrap()
+            .as_deref(),
+            Some(company.id.as_str())
         );
     }
 }

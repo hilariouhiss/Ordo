@@ -10,13 +10,14 @@ use std::collections::HashMap;
 /// with a real completion stamp. Archiving is filing, not undoing, so archived
 /// tasks and tasks inside archived projects still count. Reopening a task clears
 /// its stamp, which is why only the latest completion of a task can be counted.
-fn completed_filter() -> String {
+fn completed_filter(mode: &str) -> String {
     format!(
         "t.deleted_at IS NULL AND t.canceled_at IS NULL \
          AND t.status = 'done' AND t.actual_finish_at IS NOT NULL \
-         AND {}",
+         AND {} AND {}",
         // A finished umbrella only adds its children up; counting it would count the work twice.
-        crate::repo::tasks::no_live_child("t")
+        crate::repo::tasks::no_live_child("t"),
+        crate::repo::scope_eq("t", mode)
     )
 }
 
@@ -35,7 +36,7 @@ fn parse_day(value: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "invalid_stats_range".to_string())
 }
 
-fn range_counts(conn: &Connection, from: &str, to: &str) -> Result<RangeCounts, String> {
+fn range_counts(conn: &Connection, from: &str, to: &str, mode: &str) -> Result<RangeCounts, String> {
     conn.query_row(
         &format!(
             "SELECT COUNT(*),
@@ -46,7 +47,7 @@ fn range_counts(conn: &Connection, from: &str, to: &str) -> Result<RangeCounts, 
              FROM tasks t
              WHERE {}
                AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2",
-            completed_filter()
+            completed_filter(mode)
         ),
         [from, to],
         |r| {
@@ -61,19 +62,26 @@ fn range_counts(conn: &Connection, from: &str, to: &str) -> Result<RangeCounts, 
     .map_err(|e| e.to_string())
 }
 
-fn created_count(conn: &Connection, from: &str, to: &str) -> Result<i64, String> {
+fn created_count(conn: &Connection, from: &str, to: &str, mode: &str) -> Result<i64, String> {
     conn.query_row(
-        "SELECT COUNT(*) FROM tasks
-         WHERE deleted_at IS NULL AND date(created_at, 'localtime') BETWEEN ?1 AND ?2",
+        &format!(
+            "SELECT COUNT(*) FROM tasks
+             WHERE deleted_at IS NULL AND {} AND date(created_at, 'localtime') BETWEEN ?1 AND ?2",
+            crate::repo::scope_eq("tasks", mode)
+        ),
         [from, to],
         |r| r.get(0),
     )
     .map_err(|e| e.to_string())
 }
 
-fn delayed_count(conn: &Connection, from: &str, to: &str) -> Result<i64, String> {
+fn delayed_count(conn: &Connection, from: &str, to: &str, mode: &str) -> Result<i64, String> {
     conn.query_row(
-        "SELECT COUNT(*) FROM delays WHERE date(created_at, 'localtime') BETWEEN ?1 AND ?2",
+        &format!(
+            "SELECT COUNT(*) FROM delays d JOIN tasks t ON t.id = d.task_id
+             WHERE date(d.created_at, 'localtime') BETWEEN ?1 AND ?2 AND {}",
+            crate::repo::scope_eq("t", mode)
+        ),
         [from, to],
         |r| r.get(0),
     )
@@ -81,7 +89,7 @@ fn delayed_count(conn: &Connection, from: &str, to: &str) -> Result<i64, String>
 }
 
 /// Completions and additions per local day, skipping the days neither happened.
-fn daily(conn: &Connection, from: &str, to: &str) -> Result<Vec<DayStatsDto>, String> {
+fn daily(conn: &Connection, from: &str, to: &str, mode: &str) -> Result<Vec<DayStatsDto>, String> {
     let mut stmt = conn
         .prepare(&format!(
             "SELECT day, SUM(completed), SUM(created) FROM (
@@ -92,10 +100,11 @@ fn daily(conn: &Connection, from: &str, to: &str) -> Result<Vec<DayStatsDto>, St
                 UNION ALL
                 SELECT date(created_at, 'localtime'), 0, 1
                 FROM tasks
-                WHERE deleted_at IS NULL
+                WHERE deleted_at IS NULL AND {}
                   AND date(created_at, 'localtime') BETWEEN ?1 AND ?2
              ) GROUP BY day ORDER BY day",
-            completed_filter()
+            completed_filter(mode),
+            crate::repo::scope_eq("tasks", mode)
         ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -113,7 +122,7 @@ fn daily(conn: &Connection, from: &str, to: &str) -> Result<Vec<DayStatsDto>, St
 
 /// Completed work per project or category, largest first. Names come from a left
 /// join so a soft-deleted category still labels its history.
-fn slices(conn: &Connection, from: &str, to: &str, by_project: bool) -> Result<Vec<StatsSliceDto>, String> {
+fn slices(conn: &Connection, from: &str, to: &str, by_project: bool, mode: &str) -> Result<Vec<StatsSliceDto>, String> {
     let (id, name, join) = if by_project {
         ("t.project_id", "p.name", "LEFT JOIN projects p ON p.id = t.project_id")
     } else {
@@ -128,7 +137,7 @@ fn slices(conn: &Connection, from: &str, to: &str, by_project: bool) -> Result<V
                AND date(t.actual_finish_at, 'localtime') BETWEEN ?1 AND ?2
              GROUP BY {id}
              ORDER BY COUNT(*) DESC, 4 DESC, 2",
-            completed_filter()
+            completed_filter(mode)
         ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -158,27 +167,28 @@ pub fn overview(conn: &Connection, from: &str, to: &str) -> Result<StatsOverview
     }
     let from = format_day(start);
     let to = format_day(end);
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
 
-    let current = range_counts(conn, &from, &to)?;
+    let current = range_counts(conn, &from, &to, &mode)?;
     let previous_from = format_day(start - TimeDelta::days(days));
     let previous_to = format_day(start - TimeDelta::days(1));
-    let previous = range_counts(conn, &previous_from, &previous_to)?;
+    let previous = range_counts(conn, &previous_from, &previous_to, &mode)?;
 
     Ok(StatsOverviewDto {
         completed: current.completed,
-        created: created_count(conn, &from, &to)?,
+        created: created_count(conn, &from, &to, &mode)?,
         completed_minutes: current.minutes,
         on_time: current.on_time,
         with_due: current.with_due,
-        delayed: delayed_count(conn, &from, &to)?,
-        daily: daily(conn, &from, &to)?,
-        by_project: slices(conn, &from, &to, true)?,
-        by_category: slices(conn, &from, &to, false)?,
+        delayed: delayed_count(conn, &from, &to, &mode)?,
+        daily: daily(conn, &from, &to, &mode)?,
+        by_project: slices(conn, &from, &to, true, &mode)?,
+        by_category: slices(conn, &from, &to, false, &mode)?,
         previous_completed: previous.completed,
         previous_minutes: previous.minutes,
         previous_on_time: previous.on_time,
         previous_with_due: previous.with_due,
-        previous_delayed: delayed_count(conn, &previous_from, &previous_to)?,
+        previous_delayed: delayed_count(conn, &previous_from, &previous_to, &mode)?,
         from,
         to,
     })
@@ -189,6 +199,7 @@ pub fn overview(conn: &Connection, from: &str, to: &str) -> Result<StatsOverview
 fn category_progress(
     conn: &Connection,
     project_id: Option<&str>,
+    mode: &str,
 ) -> Result<Vec<(String, CategoryProgressDto)>, String> {
     let mut stmt = conn
         .prepare(&format!(
@@ -196,10 +207,11 @@ fn category_progress(
                     COALESCE(SUM(tasks.status = 'done'), 0)
              FROM tasks JOIN categories c ON c.id = tasks.category_id
              WHERE tasks.project_id IS NOT NULL AND (?1 IS NULL OR tasks.project_id = ?1)
-               AND {} AND c.deleted_at IS NULL
+               AND {} AND {} AND c.deleted_at IS NULL
              GROUP BY tasks.project_id, c.id, c.name, c.sort_order
              ORDER BY c.sort_order",
-            crate::repo::tasks::visible_task_filter("tasks")
+            crate::repo::tasks::visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", mode)
         ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -222,19 +234,21 @@ fn category_progress(
 pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto, String> {
     let project = projects::dto(conn, project_id).map_err(|e| e.to_string())?;
 
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     let (total, done): (i64, i64) = conn
         .query_row(
             &format!(
                 "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
-                 WHERE project_id = ?1 AND {}",
-                crate::repo::tasks::visible_task_filter("tasks")
+                 WHERE project_id = ?1 AND {} AND {}",
+                crate::repo::tasks::visible_task_filter("tasks"),
+                crate::repo::scope_eq("tasks", &mode)
             ),
             [project_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
 
-    let by_category = category_progress(conn, Some(project_id))?
+    let by_category = category_progress(conn, Some(project_id), &mode)?
         .into_iter()
         .map(|(_, category)| category)
         .collect();
@@ -255,13 +269,15 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
 pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
     let projects = projects::list_brief(conn).map_err(|e| e.to_string())?;
 
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     let mut totals: HashMap<String, (i64, i64)> = HashMap::new();
     let mut stmt = conn
         .prepare(&format!(
             "SELECT project_id, COUNT(*), COALESCE(SUM(status = 'done'), 0) FROM tasks
-             WHERE project_id IS NOT NULL AND {}
+             WHERE project_id IS NOT NULL AND {} AND {}
              GROUP BY project_id",
-            crate::repo::tasks::visible_task_filter("tasks")
+            crate::repo::tasks::visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", &mode)
         ))
         .map_err(|e| e.to_string())?;
     let counters = stmt
@@ -279,7 +295,7 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
     }
 
     let mut by_category: HashMap<String, Vec<CategoryProgressDto>> = HashMap::new();
-    for (project_id, category) in category_progress(conn, None)? {
+    for (project_id, category) in category_progress(conn, None, &mode)? {
         by_category.entry(project_id).or_default().push(category);
     }
 
@@ -620,5 +636,34 @@ mod tests {
         assert_eq!(overview.completed, 1);
         assert_eq!(overview.completed_minutes, 30);
         assert_eq!(overview.by_category[0].minutes, 30);
+    }
+
+    #[test]
+    fn the_overview_counts_only_the_active_mode() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "公司完成", NOW, "t-work").unwrap();
+        crate::services::tasks::set_status(&c, "t-work", "doing", "2026-10-20T09:00:00Z").unwrap();
+        crate::services::tasks::set_status(&c, "t-work", "done", "2026-10-20T09:30:00Z").unwrap();
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        week::capture(&c, "个人完成", NOW, "t-personal").unwrap();
+        crate::services::tasks::set_status(&c, "t-personal", "doing", "2026-10-20T10:00:00Z")
+            .unwrap();
+        crate::services::tasks::set_status(&c, "t-personal", "done", "2026-10-20T11:00:00Z")
+            .unwrap();
+
+        let overview = stats::overview(&c, "2026-10-19", "2026-10-21").unwrap();
+        assert_eq!(overview.completed, 1);
+        assert_eq!(overview.created, 1);
+        assert_eq!(overview.completed_minutes, 60);
+        assert_eq!(overview.daily.iter().map(|d| d.completed).sum::<i64>(), 1);
+
+        let listed = stats::list(&c).unwrap();
+        assert!(listed.is_empty(), "a personal-only ledger has no company projects");
     }
 }

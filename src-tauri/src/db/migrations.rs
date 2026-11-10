@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 25;
+pub const LATEST: i64 = 26;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -598,6 +598,32 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 25)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 26 {
+        // 个人模式: every row belongs to one of two worlds. Old rows become the company's,
+        // so upgrading never moves anything into the new mode. Each column is guarded so a
+        // crash mid-step retries instead of dying on a duplicate.
+        let tx = conn.unchecked_transaction()?;
+        for table in ["tasks", "projects", "task_rules", "task_templates", "project_groups"] {
+            // A half-built test ledger may be missing a table; skip it instead of failing
+            // the whole upgrade.
+            if has_table(&tx, table)? && !has_column(&tx, table, "scope")? {
+                tx.execute_batch(&format!(
+                    "ALTER TABLE {table} ADD COLUMN scope TEXT NOT NULL DEFAULT 'work'
+                     CHECK (scope IN ('work','personal'))"
+                ))?;
+            }
+        }
+        if has_table(&tx, "tasks")? {
+            tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_scope ON tasks(scope)")?;
+        }
+        if has_table(&tx, "projects")? {
+            tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_projects_scope ON projects(scope)")?;
+        }
+        tx.pragma_update(None, "user_version", 26)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -954,6 +980,40 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
         assert_eq!(rows, vec![("a".to_string(), 1, 480), ("b".to_string(), 2, 480)]);
+    }
+
+    #[test]
+    fn upgrades_old_rows_into_the_company_scope() {
+        let c = v3_database();
+        c.execute(
+            "INSERT INTO projects (id, name, created_at, updated_at)
+             VALUES ('p-old', '旧项目', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let (task_scope, project_scope): (String, String) = c
+            .query_row(
+                "SELECT (SELECT scope FROM tasks WHERE id = 'a'),
+                        (SELECT scope FROM projects WHERE id = 'p-old')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((task_scope.as_str(), project_scope.as_str()), ("work", "work"));
+
+        // The other world is allowed; the CHECK still refuses a typo.
+        c.execute(
+            "INSERT INTO tasks (id, title, scope, created_at, updated_at)
+             VALUES ('p1', '个人', 'personal', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute("UPDATE tasks SET scope = 'team' WHERE id = 'p1'", [])
+            .is_err());
     }
 
     fn v2_database() -> rusqlite::Connection {

@@ -16,7 +16,7 @@ import {
   resumeTask,
   weekStats,
 } from "../model/ipc";
-import type { Task, WeekStats } from "../model/types";
+import type { Mode, Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
 import { saveCapture } from "./captureSave";
 import { taskRowVM } from "./taskRowVM";
@@ -36,6 +36,8 @@ export function createWeekVM() {
 
   /** The page's own idea of today; load() refreshes it so a window left open past midnight follows. */
   const today = ref(todayIso());
+  /** The mode the lists on screen were loaded under; a switch lands before they reload. */
+  const loadedMode = ref<Mode | null>(null);
   const week = computed(() => weekWorkdays(today.value));
   const weekEnd = computed(() => week.value[week.value.length - 1]);
   /** A task the user planned after this week is next week's work: not on the page, not in its numbers. */
@@ -92,6 +94,9 @@ export function createWeekVM() {
   });
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {
+    // Settings switch first, the lists follow; reading the other mode's pass state next
+    // to this mode's tasks would flash the banner until the reload lands.
+    if (loadedMode.value !== (appVM.state.settings?.mode ?? "work")) return false;
     const last = appVM.state.settings?.lastPassWeek ?? "";
     // The pass belongs to the week on screen; on a weekend that is the coming one.
     return last !== week.value[0] && state.tasks.length > 0;
@@ -103,6 +108,8 @@ export function createWeekVM() {
   async function load(): Promise<void> {
     const run = ++loadRun;
     state.loading = true;
+    // The reply describes this mode's ledger even if settings move on mid-flight.
+    const requestedMode = appVM.state.settings?.mode ?? "work";
     try {
       today.value = todayIso();
       const todayNow = today.value;
@@ -119,6 +126,7 @@ export function createWeekVM() {
       state.waiting = waiting;
       state.stats = stats;
       state.done = done;
+      loadedMode.value = requestedMode;
     } finally {
       if (run === loadRun) state.loading = false;
     }

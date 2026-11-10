@@ -79,6 +79,10 @@ pub fn update_patch(
         crate::services::timing::write_finish_in(&tx, id, finish, now)?;
     }
     crate::repo::tasks::apply_patch_in(&tx, id, &patch, now).map_err(|e| e.to_string())?;
+    // A task follows the project it was just moved to, or the two lists would disagree.
+    if let Some(Some(_)) = &patch.project_id {
+        crate::repo::tasks::sync_scope_from_project(&tx, id).map_err(|e| e.to_string())?;
+    }
     // A picked finish owns the date; an estimate or start edit derives it otherwise.
     // An explicit clear stays cleared even when the same edit moves the estimate.
     let finish_cleared = matches!(patch.expected_finish_date.as_ref(), Some(None));

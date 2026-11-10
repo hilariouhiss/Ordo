@@ -24,6 +24,11 @@ export const defaultSettings: Settings = {
   savedTaskViews: [],
   remindersLeadMinutes: 60,
   remindersDigest: true,
+  mode: "work",
+  modeAuto: false,
+  modeWorkAt: "09:00",
+  modePersonalAt: "18:00",
+  modeDays: [1, 2, 3, 4, 5],
 };
 
 export function task(over: Partial<Task> = {}): Task {

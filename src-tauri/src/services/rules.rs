@@ -25,7 +25,8 @@ pub fn save(conn: &Connection, input: &RuleInput, now: &str) -> Result<RuleDto, 
         }
         None => {
             let id = Uuid::new_v4().to_string();
-            rules::insert(conn, &id, &rule, now).map_err(|e| e.to_string())?;
+            let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+            rules::insert(conn, &id, &rule, &scope, now).map_err(|e| e.to_string())?;
             load(conn, &id)
         }
     }
@@ -202,11 +203,11 @@ fn insert_generated(
         "INSERT INTO tasks (id, title, project_id, category_id, owner_id, priority,
                             expected_finish_date, expected_finish_time, effort_minutes,
                             time_exclusive, status, in_week, carry_count,
-                            sort_order, rule_id, created_at, updated_at)
+                            sort_order, rule_id, scope, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4,
                  COALESCE(?5, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
                  ?6, ?7, ?8, ?9, ?10, 'todo', 1, 0,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?11, ?12, ?12)",
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?11, ?12, ?13, ?13)",
         params![
             id,
             rule.title,
@@ -219,6 +220,7 @@ fn insert_generated(
             rule.effort_minutes,
             rule.exclusive as i64,
             rule.id,
+            rule.scope,
             stamp
         ],
     )
@@ -598,5 +600,36 @@ mod tests {
         assert_eq!(remove(&c, &rule.id, NOW).unwrap_err(), "rule_not_found");
         let rows = generated(&c, &rule.id);
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn a_personal_rule_makes_personal_tasks() {
+        let c = db::open_in_memory().unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        let day = weekday(2026, 10, 20);
+        let rule = save(&c, &input("散步", vec![day], "09:00"), NOW).unwrap();
+        materialize(&c, at(2026, 10, 20, 10, 0)).unwrap();
+
+        let scope: String = c
+            .query_row(
+                "SELECT scope FROM tasks WHERE rule_id = ?1",
+                [&rule.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(scope, crate::repo::settings::MODE_PERSONAL);
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+        assert!(crate::repo::rules::list(&c).unwrap().is_empty());
     }
 }

@@ -5,6 +5,7 @@ use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Utc};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
@@ -103,7 +104,7 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     // Everything that touches the ledger happens under this one lock; notifications and
     // the tray are updated after it is released, so a slow OS call cannot stall the app.
-    let (lang, toasts, digest, unread) = {
+    let (lang, toasts, digest, unread, mode_switch) = {
         let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
         crate::services::export::record_error(&conn, backup_error);
         let lang = crate::i18n::from_conn(&conn);
@@ -116,6 +117,9 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         }
         // Rules turn into real task rows first, so today's timed task can remind below.
         let _ = crate::services::rules::materialize(&conn, now);
+        // The mode schedule rides this tick instead of a second thread; a broken row
+        // must not stop reminders.
+        let mode_switch = crate::services::mode::apply(&conn, now).unwrap_or(None);
         let candidates = rules::candidates(&conn, now)?;
         let today = now.format("%Y-%m-%d").to_string();
         let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -160,8 +164,13 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             );
         }
         let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
-        (lang, toasts, digest, unread)
+        (lang, toasts, digest, unread, mode_switch)
     };
+
+    // Emitted after the lock is released: both windows refresh from one event.
+    if let Some(mode) = mode_switch {
+        let _ = app.emit("mode:changed", mode);
+    }
 
     let (shown, folded) = split_toasts(toasts);
     if !shown.is_empty() || digest.is_some() {

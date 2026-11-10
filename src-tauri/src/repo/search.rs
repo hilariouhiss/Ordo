@@ -9,6 +9,7 @@ pub fn search(conn: &Connection, query: &str) -> rusqlite::Result<Vec<SearchHitD
         return Ok(Vec::new());
     }
     let pattern = crate::repo::like_pattern(query);
+    let mode = crate::repo::settings::mode(conn)?;
     let mut hits = Vec::new();
 
     // Active tasks first, then finished, archived and canceled ones. The project
@@ -18,7 +19,7 @@ pub fn search(conn: &Connection, query: &str) -> rusqlite::Result<Vec<SearchHitD
                 (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL),
                 status, archived_at, canceled_at
          FROM tasks
-         WHERE deleted_at IS NULL AND {} AND title LIKE ?1 ESCAPE '!'
+         WHERE deleted_at IS NULL AND {} AND {} AND title LIKE ?1 ESCAPE '!'
          ORDER BY CASE
              WHEN archived_at IS NULL AND canceled_at IS NULL AND status <> 'done' THEN 0
              WHEN archived_at IS NULL AND canceled_at IS NULL THEN 1
@@ -26,7 +27,8 @@ pub fn search(conn: &Connection, query: &str) -> rusqlite::Result<Vec<SearchHitD
              ELSE 3 END,
              updated_at DESC
          LIMIT 40",
-        crate::repo::tasks::LIVE_PROJECT
+        crate::repo::tasks::LIVE_PROJECT,
+        crate::repo::scope_eq("tasks", &mode)
     ))?;
     let rows = tasks.query_map([&pattern], |row| {
         let status: String = row.get(3)?;
@@ -54,12 +56,13 @@ pub fn search(conn: &Connection, query: &str) -> rusqlite::Result<Vec<SearchHitD
     }
 
     // Archived projects belong to the archive page, which has its own search.
-    let mut projects = conn.prepare(
+    let mut projects = conn.prepare(&format!(
         "SELECT id, name FROM projects
-         WHERE deleted_at IS NULL AND archived_at IS NULL AND name LIKE ?1 ESCAPE '!'
+         WHERE deleted_at IS NULL AND archived_at IS NULL AND {} AND name LIKE ?1 ESCAPE '!'
          ORDER BY updated_at DESC
          LIMIT 10",
-    )?;
+        crate::repo::scope_eq("projects", &mode)
+    ))?;
     let rows = projects.query_map([&pattern], |row| {
         Ok(SearchHitDto {
             kind: "project".into(),
@@ -173,5 +176,33 @@ mod tests {
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
         assert!(search(&c, "   ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_only_returns_the_active_mode() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "公司交底", NOW, "t-work").unwrap();
+        projects::create(&c, "公司项目", NOW).unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        let personal_project = projects::create(&c, "个人项目", NOW).unwrap();
+        week::capture(&c, "个人交底", NOW, "t-personal").unwrap();
+
+        assert_eq!(ids(&search(&c, "交底").unwrap()), vec!["t-personal"]);
+        assert_eq!(ids(&search(&c, "项目").unwrap()), vec![personal_project.id.clone()]);
+        assert!(search(&c, "公司项目").unwrap().is_empty());
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+        assert_eq!(ids(&search(&c, "交底").unwrap()), vec!["t-work"]);
+        assert!(search(&c, "个人项目").unwrap().is_empty());
     }
 }

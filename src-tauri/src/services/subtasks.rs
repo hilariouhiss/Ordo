@@ -41,6 +41,7 @@ struct ParentRow {
     owner_id: Option<String>,
     priority: String,
     time_exclusive: i64,
+    scope: String,
     expected_start_date: Option<String>,
     expected_finish_date: Option<String>,
     suspended: i64,
@@ -56,7 +57,7 @@ struct ParentRow {
 fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
     conn.query_row(
         "SELECT parent_id, project_id, category_id, owner_id, priority, time_exclusive,
-                expected_start_date, expected_finish_date,
+                scope, expected_start_date, expected_finish_date,
                 suspended, suspended_until, suspended_at, suspend_reason,
                 waiting, waiting_on_id, follow_up_date, waiting_since
          FROM tasks
@@ -70,16 +71,17 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
                 owner_id: r.get(3)?,
                 priority: r.get(4)?,
                 time_exclusive: r.get(5)?,
-                expected_start_date: r.get(6)?,
-                expected_finish_date: r.get(7)?,
-                suspended: r.get(8)?,
-                suspended_until: r.get(9)?,
-                suspended_at: r.get(10)?,
-                suspend_reason: r.get(11)?,
-                waiting: r.get(12)?,
-                waiting_on_id: r.get(13)?,
-                follow_up_date: r.get(14)?,
-                waiting_since: r.get(15)?,
+                scope: r.get(6)?,
+                expected_start_date: r.get(7)?,
+                expected_finish_date: r.get(8)?,
+                suspended: r.get(9)?,
+                suspended_until: r.get(10)?,
+                suspended_at: r.get(11)?,
+                suspend_reason: r.get(12)?,
+                waiting: r.get(13)?,
+                waiting_on_id: r.get(14)?,
+                follow_up_date: r.get(15)?,
+                waiting_since: r.get(16)?,
             })
         },
     )
@@ -119,10 +121,11 @@ pub(crate) fn insert_child(
     conn.execute(
         "INSERT INTO tasks (id, title, parent_id, project_id, category_id, owner_id,
                             expected_start_date, expected_finish_date, status,
-                            sort_order, effort_minutes, priority, time_exclusive,
+                            sort_order, effort_minutes, priority, time_exclusive, scope,
                             created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'todo',
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?9, ?10, ?11, ?12, ?12)",
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?9, ?10, ?11, ?12,
+                 ?13, ?13)",
         params![
             id,
             title,
@@ -135,6 +138,7 @@ pub(crate) fn insert_child(
             effort,
             parent.priority,
             parent.time_exclusive,
+            parent.scope,
             now
         ],
     )

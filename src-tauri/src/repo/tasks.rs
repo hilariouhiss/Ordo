@@ -130,6 +130,7 @@ pub fn insert(
     id: &str,
     title: &str,
     fields: &CaptureFields,
+    scope: &str,
     finish: &str,
     now: &str,
 ) -> rusqlite::Result<()> {
@@ -137,12 +138,12 @@ pub fn insert(
     conn.execute(
         "INSERT INTO tasks (id, title, project_id, owner_id, priority, expected_finish_date,
                             effort_minutes, status, in_week, carry_count, sort_order, created_at,
-                            updated_at, time_exclusive)
+                            updated_at, time_exclusive, scope)
          VALUES (?1, ?2, ?3,
                  COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
                  COALESCE(?5, 'normal'), ?6, COALESCE(?7, 480),
                  'todo', 1, 0,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8, 1)",
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8, 1, ?9)",
         params![
             id,
             title,
@@ -151,33 +152,51 @@ pub fn insert(
             fields.priority.as_deref(),
             finish,
             fields.effort_minutes,
-            now
+            now,
+            scope
         ],
     )?;
     Ok(())
 }
 
+/// A task lives in its project's world once it has one; the sheet and the AI fill can
+/// both point a task at another project, so every such write ends with this.
+pub fn sync_scope_from_project(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET scope = (SELECT scope FROM projects WHERE id = tasks.project_id)
+         WHERE id = ?1 AND project_id IS NOT NULL",
+        [id],
+    )?;
+    Ok(())
+}
+
 pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
+    let mode = crate::repo::settings::mode(conn)?;
     list_for(
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND suspended = 0 AND waiting = 0 AND {}
+             WHERE in_week = 1 AND suspended = 0 AND waiting = 0 AND {} AND {}
              ORDER BY sort_order, id",
-            visible_task_filter("tasks")
+            visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", &mode)
         ),
         &[],
     )
 }
 
 pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
+    let mode = crate::repo::settings::mode(conn)?;
     list_for(
         conn,
-        "SELECT id FROM tasks
-         WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
-           AND status <> 'done' AND parent_id IS NULL
-         ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
-                  expected_finish_date IS NULL, expected_finish_date, created_at",
+        &format!(
+            "SELECT id FROM tasks
+             WHERE deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
+               AND status <> 'done' AND parent_id IS NULL AND {}
+             ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
+                      expected_finish_date IS NULL, expected_finish_date, created_at",
+            crate::repo::scope_eq("tasks", &mode)
+        ),
         &[],
     )
 }
@@ -575,12 +594,16 @@ pub fn set_owner(conn: &Connection, id: &str, owner_id: &str, now: &str) -> rusq
 }
 
 pub fn list_project(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<TaskDto>> {
+    let mode = crate::repo::settings::mode(conn)?;
     list_for(
         conn,
-        "SELECT id FROM tasks
-         WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
-           AND archived_at IS NULL AND parent_id IS NULL
-         ORDER BY expected_finish_date IS NULL, expected_finish_date, created_at",
+        &format!(
+            "SELECT id FROM tasks
+             WHERE project_id = ?1 AND deleted_at IS NULL AND canceled_at IS NULL
+               AND archived_at IS NULL AND parent_id IS NULL AND {}
+             ORDER BY expected_finish_date IS NULL, expected_finish_date, created_at",
+            crate::repo::scope_eq("tasks", &mode)
+        ),
         &[&project_id],
     )
 }
@@ -644,13 +667,15 @@ fn list_where(
 ) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     let top_level = if include_children { "" } else { "parent_id IS NULL AND " };
     let pattern = query.map(crate::repo::like_pattern);
+    let mode = crate::repo::settings::mode(conn)?;
     let sql = format!(
         "SELECT id, title, archived_at, canceled_at, actual_finish_at FROM tasks
-         WHERE deleted_at IS NULL AND {top_level}{} AND {LIVE_PROJECT}
+         WHERE deleted_at IS NULL AND {top_level}{} AND {LIVE_PROJECT} AND {}
            AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC
          LIMIT {ARCHIVE_LIMIT}",
-        condition
+        condition,
+        crate::repo::scope_eq("tasks", &mode)
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([pattern], |r| {
@@ -834,5 +859,83 @@ mod tests {
         }
 
         assert_eq!(list_archived(&c, None).unwrap().len(), 1000);
+    }
+
+    #[test]
+    fn task_lists_only_show_the_active_mode() {
+        let c = db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "公司任务", NOW, "t-work").unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        crate::services::week::capture(&c, "个人任务", NOW, "t-personal").unwrap();
+
+        let ids = |rows: Vec<TaskDto>| -> Vec<String> { rows.into_iter().map(|t| t.id).collect() };
+        assert_eq!(ids(list_week(&c).unwrap()), vec!["t-personal"]);
+        assert_eq!(ids(list_all_active(&c).unwrap()), vec!["t-personal"]);
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+        assert_eq!(ids(list_week(&c).unwrap()), vec!["t-work"]);
+        assert_eq!(ids(list_all_active(&c).unwrap()), vec!["t-work"]);
+    }
+
+    #[test]
+    fn archive_lists_follow_the_mode() {
+        let c = db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "归档的公司任务", NOW, "t-archived").unwrap();
+        crate::services::week::capture(&c, "完成的公司任务", NOW, "t-done").unwrap();
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        crate::services::week::capture(&c, "取消的个人任务", NOW, "t-canceled").unwrap();
+
+        c.execute(
+            "UPDATE tasks SET archived_at = ?1 WHERE id = 't-archived'",
+            [NOW],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET status = 'done', actual_finish_at = ?1, in_week = 0
+             WHERE id = 't-done'",
+            [NOW],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE tasks SET canceled_at = ?1, in_week = 0 WHERE id = 't-canceled'",
+            [NOW],
+        )
+        .unwrap();
+
+        // Company mode sees its own filed and finished rows, not the personal cancellation.
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+        assert_eq!(list_archived(&c, None).unwrap()[0].id, "t-archived");
+        assert_eq!(list_done(&c, None).unwrap()[0].id, "t-done");
+        assert!(list_canceled(&c, None).unwrap().is_empty());
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        assert!(list_archived(&c, None).unwrap().is_empty());
+        assert!(list_done(&c, None).unwrap().is_empty());
+        assert_eq!(list_canceled(&c, None).unwrap()[0].id, "t-canceled");
     }
 }

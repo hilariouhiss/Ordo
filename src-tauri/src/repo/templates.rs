@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 const COLUMNS: &str = "id, name, project_id, category_id, owner_id, priority, effort_minutes, \
-                       time_exclusive, note";
+                       time_exclusive, note, scope";
 
 fn to_dto(conn: &Connection, row: &rusqlite::Row<'_>) -> rusqlite::Result<TemplateDto> {
     let id: String = row.get(0)?;
@@ -18,6 +18,7 @@ fn to_dto(conn: &Connection, row: &rusqlite::Row<'_>) -> rusqlite::Result<Templa
         effort_minutes: row.get(6)?,
         exclusive: row.get::<_, i64>(7)? == 1,
         note: row.get(8)?,
+        scope: row.get(9)?,
     })
 }
 
@@ -30,9 +31,12 @@ fn steps_of(conn: &Connection, template_id: &str) -> rusqlite::Result<Vec<String
 }
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<TemplateDto>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id FROM task_templates WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE",
-    )?;
+    let mode = crate::repo::settings::mode(conn)?;
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT id FROM task_templates WHERE deleted_at IS NULL AND {} \
+         ORDER BY name COLLATE NOCASE",
+        crate::repo::scope_eq("task_templates", &mode)
+    ))?;
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -58,13 +62,16 @@ pub fn insert(
     conn: &Connection,
     id: &str,
     template: &TemplateInput,
+    scope: &str,
     now: &str,
 ) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO task_templates (id, name, project_id, category_id, owner_id, priority,
-                                     effort_minutes, time_exclusive, note, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, 'normal'), COALESCE(?7, 480), ?8, ?9, ?10, ?10)",
+                                     effort_minutes, time_exclusive, note, scope, created_at,
+                                     updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, 'normal'), COALESCE(?7, 480), ?8, ?9, ?10,
+                 ?11, ?11)",
         params![
             id,
             template.name.trim(),
@@ -75,6 +82,7 @@ pub fn insert(
             template.effort_minutes,
             template.exclusive.unwrap_or(true) as i64,
             template.note.as_deref(),
+            scope,
             now
         ],
     )?;

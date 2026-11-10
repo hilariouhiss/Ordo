@@ -16,6 +16,15 @@ pub mod keys {
     pub const BACKUP_ERROR: &str = "backup_error";
     pub const TRAY_HINT_SEEN: &str = "tray_hint_seen";
     pub const LAST_PASS_WEEK: &str = "last_pass_week";
+    pub const LAST_PASS_WEEK_PERSONAL: &str = "last_pass_week.personal";
+    /// "work" (company) or "personal"; absent means work.
+    pub const MODE: &str = "mode.active";
+    pub const MODE_AUTO: &str = "mode.auto";
+    pub const MODE_WORK_AT: &str = "mode.work_at";
+    pub const MODE_PERSONAL_AT: &str = "mode.personal_at";
+    pub const MODE_DAYS: &str = "mode.days";
+    /// The UTC stamp of the last manual switch; older schedule points lose to it.
+    pub const MODE_OVERRIDE_AT: &str = "mode.override_at";
     pub const AI_ENABLED: &str = "ai.enabled";
     pub const AI_BASE_URL: &str = "ai.base_url";
     pub const AI_MODEL: &str = "ai.model";
@@ -88,6 +97,61 @@ fn num(map: &HashMap<String, String>, key: &str, default: i64) -> i64 {
 
 fn opt_num(map: &HashMap<String, String>, key: &str) -> Option<i64> {
     map.get(key).and_then(|v| v.parse().ok())
+}
+
+/// The two worlds the ledger can show.
+pub const MODE_WORK: &str = "work";
+pub const MODE_PERSONAL: &str = "personal";
+pub const DEFAULT_MODE_WORK_AT: &str = "09:00";
+pub const DEFAULT_MODE_PERSONAL_AT: &str = "18:00";
+pub const DEFAULT_MODE_DAYS: [u32; 5] = [1, 2, 3, 4, 5];
+
+pub fn valid_mode(value: &str) -> bool {
+    matches!(value, MODE_WORK | MODE_PERSONAL)
+}
+
+/// An unknown or missing value reads as the company, so a hand-edited row cannot
+/// hide every list behind a mode no screen shows.
+pub fn normalize_mode(value: Option<&str>) -> &'static str {
+    match value {
+        Some(MODE_PERSONAL) => MODE_PERSONAL,
+        _ => MODE_WORK,
+    }
+}
+
+pub fn mode_from_map(map: &HashMap<String, String>) -> &'static str {
+    normalize_mode(map.get(keys::MODE).map(String::as_str))
+}
+
+/// The mode every list filters by.
+pub fn mode(conn: &Connection) -> rusqlite::Result<String> {
+    Ok(mode_from_map(&get_all(conn)?).to_string())
+}
+
+/// The stored "1,2,3" day set; junk entries are dropped rather than failing a read.
+pub fn parse_mode_days(raw: &str) -> Vec<u32> {
+    let mut days: Vec<u32> = raw
+        .split(',')
+        .filter_map(|part| part.trim().parse().ok())
+        .filter(|day| (1..=7).contains(day))
+        .collect();
+    days.sort_unstable();
+    days.dedup();
+    days
+}
+
+pub fn format_mode_days(days: &[u32]) -> String {
+    days.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// "HH:MM" as the schedule stores it; a hand-edited "9:00" still reads back canonical.
+pub fn normalize_mode_time(value: &str) -> Option<String> {
+    chrono::NaiveTime::parse_from_str(value.trim(), "%H:%M")
+        .ok()
+        .map(|time| time.format("%H:%M").to_string())
 }
 
 pub fn valid_desk_pin(value: &str) -> bool {
@@ -191,6 +255,19 @@ pub fn desk_enabled(conn: &Connection) -> bool {
 
 pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
     let map = get_all(conn)?;
+    let active_mode = mode_from_map(&map);
+    // The weekly pass is a per-mode ritual: clearing the company's pass must not
+    // silence the personal queue for the same week.
+    let pass_key = if active_mode == MODE_PERSONAL {
+        keys::LAST_PASS_WEEK_PERSONAL
+    } else {
+        keys::LAST_PASS_WEEK
+    };
+    let mode_days = map
+        .get(keys::MODE_DAYS)
+        .map(|raw| parse_mode_days(raw))
+        .filter(|days| !days.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODE_DAYS.to_vec());
     Ok(SettingsDto {
         language: normalize_language(map.get(keys::LANGUAGE).map(String::as_str)).into(),
         ai_enabled: flag(&map, keys::AI_ENABLED, false),
@@ -220,7 +297,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get(keys::BACKUP_ERROR)
             .cloned()
             .filter(|v| !v.is_empty()),
-        last_pass_week: map.get(keys::LAST_PASS_WEEK).cloned().unwrap_or_default(),
+        last_pass_week: map.get(pass_key).cloned().unwrap_or_default(),
         shortcut_warning: map
             .get("shortcut_warning")
             .cloned()
@@ -259,6 +336,17 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
         reminders_lead_minutes: num(&map, keys::REMINDER_LEAD_MINUTES, DEFAULT_REMINDER_LEAD_MINUTES)
             .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
         reminders_digest: flag(&map, keys::REMINDERS_DIGEST, true),
+        mode: active_mode.to_string(),
+        mode_auto: flag(&map, keys::MODE_AUTO, false),
+        mode_work_at: map
+            .get(keys::MODE_WORK_AT)
+            .and_then(|value| normalize_mode_time(value))
+            .unwrap_or_else(|| DEFAULT_MODE_WORK_AT.into()),
+        mode_personal_at: map
+            .get(keys::MODE_PERSONAL_AT)
+            .and_then(|value| normalize_mode_time(value))
+            .unwrap_or_else(|| DEFAULT_MODE_PERSONAL_AT.into()),
+        mode_days,
     })
 }
 
@@ -445,5 +533,49 @@ mod tests {
             ..view
         };
         assert!(!valid_saved_view(&long));
+    }
+
+    #[test]
+    fn the_mode_defaults_to_work_and_roundtrips() {
+        let c = crate::db::open_in_memory().unwrap();
+        let s = dto(&c).unwrap();
+        assert_eq!(s.mode, MODE_WORK);
+        assert!(!s.mode_auto);
+        assert_eq!(s.mode_work_at, DEFAULT_MODE_WORK_AT);
+        assert_eq!(s.mode_personal_at, DEFAULT_MODE_PERSONAL_AT);
+        assert_eq!(s.mode_days, DEFAULT_MODE_DAYS.to_vec());
+
+        set(&c, keys::MODE, MODE_PERSONAL).unwrap();
+        set(&c, keys::MODE_AUTO, "true").unwrap();
+        set(&c, keys::MODE_WORK_AT, "10:30").unwrap();
+        set(&c, keys::MODE_DAYS, "6, 7,6").unwrap();
+        let s = dto(&c).unwrap();
+        assert_eq!(s.mode, MODE_PERSONAL);
+        assert!(s.mode_auto);
+        assert_eq!(s.mode_work_at, "10:30");
+        assert_eq!(s.mode_days, vec![6, 7]);
+
+        // A hand-edited or older value falls back instead of hiding every list.
+        set(&c, keys::MODE, "team").unwrap();
+        assert_eq!(mode(&c).unwrap(), MODE_WORK);
+        set(&c, keys::MODE_WORK_AT, "9:00").unwrap();
+        assert_eq!(dto(&c).unwrap().mode_work_at, DEFAULT_MODE_WORK_AT);
+        set(&c, keys::MODE_DAYS, "0,9,x").unwrap();
+        assert_eq!(dto(&c).unwrap().mode_days, DEFAULT_MODE_DAYS.to_vec());
+    }
+
+    #[test]
+    fn the_weekly_pass_is_remembered_per_mode() {
+        let c = crate::db::open_in_memory().unwrap();
+        set(&c, keys::LAST_PASS_WEEK, "2026-10-19").unwrap();
+        assert_eq!(dto(&c).unwrap().last_pass_week, "2026-10-19");
+
+        set(&c, keys::MODE, MODE_PERSONAL).unwrap();
+        assert_eq!(dto(&c).unwrap().last_pass_week, "");
+        set(&c, keys::LAST_PASS_WEEK_PERSONAL, "2026-10-26").unwrap();
+        assert_eq!(dto(&c).unwrap().last_pass_week, "2026-10-26");
+
+        set(&c, keys::MODE, MODE_WORK).unwrap();
+        assert_eq!(dto(&c).unwrap().last_pass_week, "2026-10-19");
     }
 }

@@ -547,6 +547,7 @@ pub fn run() {
       commands::archive::unarchive_task,
       commands::archive::delete_task,
       commands::meta::get_settings,
+      commands::meta::set_mode,
       commands::window::set_window_rect,
       commands::meta::set_settings,
       commands::meta::export_json,

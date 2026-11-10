@@ -67,6 +67,16 @@ pub struct SettingsDto {
     pub reminders_lead_minutes: i64,
     /// Whether the daily 09:00 digest fires.
     pub reminders_digest: bool,
+    /// The mode the lists are filtered by; "work" when unset.
+    pub mode: String,
+    /// Whether the schedule switches the mode on its own.
+    pub mode_auto: bool,
+    /// Local "HH:MM" the schedule switches back to the company.
+    pub mode_work_at: String,
+    /// Local "HH:MM" the schedule switches to the personal world.
+    pub mode_personal_at: String,
+    /// ISO weekdays the schedule runs on, Monday = 1 … Sunday = 7.
+    pub mode_days: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -314,6 +324,9 @@ pub struct TaskPatch {
 pub struct RuleDto {
     pub id: String,
     pub title: String,
+    /// The world the generated tasks belong to; the UI never sends this back.
+    #[serde(skip_serializing)]
+    pub scope: String,
     /// ISO weekdays, Monday = 1 … Sunday = 7.
     pub weekdays: Vec<u32>,
     /// Local "HH:MM".
@@ -356,6 +369,9 @@ pub struct RuleInput {
 pub struct TemplateDto {
     pub id: String,
     pub name: String,
+    /// The world a task made from this template belongs to.
+    #[serde(skip_serializing)]
+    pub scope: String,
     pub project_id: Option<String>,
     pub category_id: Option<String>,
     pub owner_id: Option<String>,
@@ -437,6 +453,10 @@ pub struct SettingsPatch {
     pub saved_task_views: Option<Vec<SavedTaskViewDto>>,
     pub reminders_lead_minutes: Option<i64>,
     pub reminders_digest: Option<bool>,
+    pub mode_auto: Option<bool>,
+    pub mode_work_at: Option<String>,
+    pub mode_personal_at: Option<String>,
+    pub mode_days: Option<Vec<u32>>,
 }
 
 /// A task-page filter saved under a name. The filter itself is a plain value

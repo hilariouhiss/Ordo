@@ -1,12 +1,25 @@
 use crate::dto::{PersonDto, ProjectDto, ProjectMemberDto};
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub fn insert(conn: &Connection, id: &str, name: &str, now: &str) -> rusqlite::Result<()> {
+pub fn insert(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    scope: &str,
+    now: &str,
+) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
-        params![id, name, now],
+        "INSERT INTO projects (id, name, scope, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![id, name, scope, now],
     )?;
     Ok(())
+}
+
+/// The world a project belongs to; callers only ever pass an existing id.
+pub fn scope_of(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT scope FROM projects WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
 }
 
 pub fn update(
@@ -129,13 +142,18 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
 /// Whether the project exists at all, archived or not. Rule and template config
 /// may keep pointing at a project that was archived after the fact.
 /// The first live project carrying this name, so a repeat `#name` capture reuses it.
-pub fn find_active_by_name(conn: &Connection, name: &str) -> rusqlite::Result<Option<String>> {
+pub fn find_active_by_name(
+    conn: &Connection,
+    name: &str,
+    mode: &str,
+) -> rusqlite::Result<Option<String>> {
     conn.query_row(
         "SELECT id FROM projects
          WHERE name = ?1 COLLATE NOCASE AND archived_at IS NULL AND deleted_at IS NULL
+           AND scope = ?2
          ORDER BY created_at
          LIMIT 1",
-        [name],
+        params![name, mode],
         |row| row.get(0),
     )
     .optional()
@@ -173,9 +191,13 @@ pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
 }
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
-    let mut stmt = conn.prepare(
-        "SELECT id FROM projects WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY created_at",
-    )?;
+    let mode = crate::repo::settings::mode(conn)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id FROM projects
+         WHERE archived_at IS NULL AND deleted_at IS NULL AND {}
+         ORDER BY created_at",
+        crate::repo::scope_eq("projects", &mode)
+    ))?;
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -190,10 +212,13 @@ fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<ProjectDto>> 
 /// Every live project in its row shape but without members: a project list that never
 /// shows them should not pay one member query per project.
 pub fn list_brief(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
-    let mut stmt = conn.prepare(
+    let mode = crate::repo::settings::mode(conn)?;
+    let mut stmt = conn.prepare(&format!(
         "SELECT id, name, group_id, priority FROM projects
-         WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY created_at",
-    )?;
+         WHERE archived_at IS NULL AND deleted_at IS NULL AND {}
+         ORDER BY created_at",
+        crate::repo::scope_eq("projects", &mode)
+    ))?;
     let rows = stmt.query_map([], |r| {
         Ok(ProjectDto {
             id: r.get(0)?,
@@ -349,11 +374,14 @@ pub fn member_people(conn: &Connection, project_id: &str) -> rusqlite::Result<Ve
 }
 pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ProjectDto>> {
     let pattern = query.map(crate::repo::like_pattern);
-    let mut stmt = conn.prepare(
+    let mode = crate::repo::settings::mode(conn)?;
+    let mut stmt = conn.prepare(&format!(
         "SELECT id FROM projects
-         WHERE archived_at IS NOT NULL AND deleted_at IS NULL AND (?1 IS NULL OR name LIKE ?1 ESCAPE '!')
+         WHERE archived_at IS NOT NULL AND deleted_at IS NULL AND {}
+           AND (?1 IS NULL OR name LIKE ?1 ESCAPE '!')
          ORDER BY archived_at DESC",
-    )?;
+        crate::repo::scope_eq("projects", &mode)
+    ))?;
     let ids: Vec<String> = stmt
         .query_map([pattern], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -371,7 +399,7 @@ mod tests {
     #[test]
     fn archiving_stamps_the_time_and_restoring_clears_it() {
         let c = db::open_in_memory().unwrap();
-        insert(&c, "p1", "项目", NOW).unwrap();
+        insert(&c, "p1", "项目", crate::repo::settings::MODE_WORK, NOW).unwrap();
 
         set_archived(&c, "p1", true, NOW).unwrap();
         assert_eq!(dto(&c, "p1").unwrap().archived_at.as_deref(), Some(NOW));
@@ -382,7 +410,7 @@ mod tests {
 
     fn project_with_two_tasks() -> Connection {
         let c = db::open_in_memory().unwrap();
-        insert(&c, "p1", "项目", NOW).unwrap();
+        insert(&c, "p1", "项目", crate::repo::settings::MODE_WORK, NOW).unwrap();
         for id in ["t1", "t2"] {
             week::capture(&c, id, NOW, id).unwrap();
             c.execute(

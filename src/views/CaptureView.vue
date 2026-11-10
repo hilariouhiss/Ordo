@@ -9,8 +9,14 @@ import { todayIso } from "../lib/dates";
 import { errorText, setLanguage, t, type Language } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { miniPopupHeight } from "../lib/pickerWindow";
-import { applyTheme, resolveTheme, systemPrefersDark, type AppliedTheme } from "../lib/theme";
-import type { CaptureFields } from "../model/types";
+import {
+  applyTheme,
+  resolveTheme,
+  systemPrefersDark,
+  themeName,
+  type ThemeName,
+} from "../lib/theme";
+import type { CaptureFields, Mode } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { createCaptureDraftVM } from "../viewmodels/captureDraftVM";
 import { createCaptureVM } from "../viewmodels/captureVM";
@@ -38,6 +44,7 @@ const card = ref<HTMLElement | null>(null);
 let unlisten: (() => void) | null = null;
 let unlistenTheme: (() => void) | null = null;
 let unlistenLanguage: (() => void) | null = null;
+let unlistenMode: (() => void) | null = null;
 let blurTimer: ReturnType<typeof setTimeout> | undefined;
 let observer: ResizeObserver | null = null;
 let lastHeight = 0;
@@ -110,6 +117,16 @@ async function refreshContext(): Promise<void> {
   }
 }
 
+/** A separate document, so it paints its own copy of the mode's palette. */
+function paintTheme(): void {
+  applyTheme(
+    themeName(
+      resolveTheme(appVM.state.settings?.theme ?? "system", systemPrefersDark()),
+      appVM.state.settings?.mode ?? "work",
+    ),
+  );
+}
+
 onMounted(async () => {
   await nextTick();
   input.value?.focus();
@@ -122,14 +139,17 @@ onMounted(async () => {
     void fitWindow();
   });
   // A separate document: it gets the theme once now, and again whenever it changes.
-  unlistenTheme = await listen<AppliedTheme>("theme:changed", (event) => {
+  unlistenTheme = await listen<ThemeName>("theme:changed", (event) => {
     applyTheme(event.payload);
+  });
+  unlistenMode = await listen<Mode>("mode:changed", () => {
+    void refreshContext().then(paintTheme);
   });
   unlistenLanguage = await listen<Language>("language:changed", (event) => {
     setLanguage(event.payload);
   });
   await refreshContext();
-  applyTheme(resolveTheme(appVM.state.settings?.theme ?? "system", systemPrefersDark()));
+  paintTheme();
   setLanguage(appVM.state.settings?.language ?? "zh");
   window.addEventListener("blur", onBlur);
   window.addEventListener("focus", onFocus);
@@ -140,6 +160,7 @@ onUnmounted(() => {
   unlisten?.();
   unlistenTheme?.();
   unlistenLanguage?.();
+  unlistenMode?.();
   window.removeEventListener("blur", onBlur);
   window.removeEventListener("focus", onFocus);
 });

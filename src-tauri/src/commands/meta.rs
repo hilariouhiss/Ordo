@@ -1,7 +1,7 @@
 use crate::dto::{BootstrapDto, SettingsDto, SettingsPatch};
 use crate::state::{with_db, AppState};
 use rusqlite::Connection;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 pub fn build_bootstrap(conn: &Connection) -> Result<BootstrapDto, String> {
     Ok(BootstrapDto {
@@ -75,6 +75,15 @@ fn save_settings(
             keys::REMINDERS_DIGEST,
             patch.reminders_digest.map(|v| v.to_string()),
         ),
+        (keys::MODE_AUTO, patch.mode_auto.map(|v| v.to_string())),
+        (keys::MODE_WORK_AT, patch.mode_work_at),
+        (keys::MODE_PERSONAL_AT, patch.mode_personal_at),
+        (
+            keys::MODE_DAYS,
+            patch
+                .mode_days
+                .map(|days| crate::repo::settings::format_mode_days(&days)),
+        ),
     ];
     for (key, value) in sets {
         if let Some(value) = value {
@@ -86,13 +95,45 @@ fn save_settings(
     Ok(settings)
 }
 
+/// The schedule is stored canonical: "9:00" becomes "09:00", days are sorted and
+/// deduplicated, and two identical points are refused.
+fn normalize_mode_fields(patch: &mut SettingsPatch) -> Result<(), String> {
+    if let Some(time) = patch.mode_work_at.take() {
+        patch.mode_work_at = Some(
+            crate::repo::settings::normalize_mode_time(&time)
+                .ok_or_else(|| "invalid_time".to_string())?,
+        );
+    }
+    if let Some(time) = patch.mode_personal_at.take() {
+        patch.mode_personal_at = Some(
+            crate::repo::settings::normalize_mode_time(&time)
+                .ok_or_else(|| "invalid_time".to_string())?,
+        );
+    }
+    if let Some(days) = patch.mode_days.as_mut() {
+        days.retain(|day| (1..=7).contains(day));
+        days.sort_unstable();
+        days.dedup();
+        if days.is_empty() {
+            return Err("invalid_mode_days".into());
+        }
+    }
+    if let (Some(work), Some(personal)) = (&patch.mode_work_at, &patch.mode_personal_at) {
+        if work == personal {
+            return Err("same_mode_time".into());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_settings(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-    patch: SettingsPatch,
+    mut patch: SettingsPatch,
 ) -> Result<SettingsDto, String> {
     use tauri_plugin_autostart::ManagerExt;
+    normalize_mode_fields(&mut patch)?;
     if let Some(language) = patch.language.as_deref() {
         if !crate::repo::settings::valid_language(language) {
             return Err("invalid_language".into());
@@ -170,6 +211,28 @@ pub async fn set_settings(
     Ok(settings)
 }
 
+/// A manual switch outranks the schedule until another point arrives; every window
+/// hears about it so the palette and lists change together.
+#[tauri::command]
+pub async fn set_mode(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    mode: String,
+) -> Result<SettingsDto, String> {
+    if !crate::repo::settings::valid_mode(&mode) {
+        return Err("invalid_mode".into());
+    }
+    let now = crate::now_iso();
+    let event_mode = mode.clone();
+    let settings = with_db(&state, move |conn| {
+        crate::services::mode::set_manual(conn, &mode, &now).map_err(|e| e.to_string())?;
+        crate::repo::settings::dto(conn).map_err(|e| e.to_string())
+    })
+    .await?;
+    let _ = app.emit("mode:changed", event_mode);
+    Ok(settings)
+}
+
 #[tauri::command]
 pub async fn export_json(
     app: tauri::AppHandle,
@@ -211,6 +274,8 @@ pub async fn backup_now(
 
 #[cfg(test)]
 mod tests {
+    use crate::dto::SettingsPatch;
+
     #[test]
     fn settings_roundtrip() {
         let c = crate::db::open_in_memory().unwrap();
@@ -228,6 +293,58 @@ mod tests {
 
         crate::repo::settings::set(&c, "backup_error", "").unwrap();
         assert!(crate::repo::settings::dto(&c).unwrap().backup_error.is_none());
+    }
+
+    #[test]
+    fn mode_settings_are_normalized_and_stored() {
+        let c = crate::db::open_in_memory().unwrap();
+        let mut patch = SettingsPatch {
+            mode_auto: Some(true),
+            mode_work_at: Some("9:05".into()),
+            mode_personal_at: Some("18:30".into()),
+            mode_days: Some(vec![7, 6, 6]),
+            ..Default::default()
+        };
+        super::normalize_mode_fields(&mut patch).unwrap();
+        assert_eq!(patch.mode_work_at.as_deref(), Some("09:05"));
+        assert_eq!(patch.mode_days, Some(vec![6, 7]));
+
+        let saved = super::save_settings(&c, patch, None).unwrap();
+        assert!(saved.mode_auto);
+        assert_eq!(saved.mode_work_at, "09:05");
+        assert_eq!(saved.mode_personal_at, "18:30");
+        assert_eq!(saved.mode_days, vec![6, 7]);
+    }
+
+    #[test]
+    fn a_bad_mode_schedule_is_refused_before_it_is_saved() {
+        let mut empty = SettingsPatch {
+            mode_days: Some(vec![]),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::normalize_mode_fields(&mut empty).unwrap_err(),
+            "invalid_mode_days"
+        );
+
+        let mut same = SettingsPatch {
+            mode_work_at: Some("09:00".into()),
+            mode_personal_at: Some("9:00".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::normalize_mode_fields(&mut same).unwrap_err(),
+            "same_mode_time"
+        );
+
+        let mut broken = SettingsPatch {
+            mode_work_at: Some("25:00".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::normalize_mode_fields(&mut broken).unwrap_err(),
+            "invalid_time"
+        );
     }
 
     #[test]

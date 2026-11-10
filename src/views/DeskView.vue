@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Maximize2, Pause, Pin, Play } from "@lucide/vue";
+import { Briefcase, House, Maximize2, Pause, Pin, Play } from "@lucide/vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
@@ -28,7 +28,9 @@ import { flatRect, prefersReducedMotion, tweenRect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
 import { deskLeftButtonDown, setWindowRect } from "../model/ipc";
 import type { Task } from "../model/types";
+import { appVM } from "../viewmodels/appVM";
 import { deskVM } from "../viewmodels/deskVM";
+import { settingsVM } from "../viewmodels/settingsVM";
 import { undoVM } from "../viewmodels/undoVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
 import StatusDot from "./components/StatusDot.vue";
@@ -59,6 +61,12 @@ const collapsed = ref(false);
 const moving = ref(false);
 const edge = ref<DeskEdge | null>(null);
 const pin = computed(() => state.pin);
+const mode = computed(() => appVM.state.settings?.mode ?? "work");
+/** The widget has no room for a segmented control, so one tap flips worlds. */
+function toggleMode(): void {
+  void settingsVM.switchMode(mode.value === "personal" ? "work" : "personal");
+}
+watch(mode, () => void vm.load());
 /** A newer tween overtook an async animation continuation. */
 let animRun = 0;
 /** A hotkey summoned the widget; put this state back when it loses focus. */
@@ -516,6 +524,20 @@ watch(
           }}</span>
           <span class="text-[10.5px] text-base-content/40">{{ t("desk.count", { count }) }}</span>
           <div class="ml-auto flex items-center gap-0.5">
+            <button
+              type="button"
+              class="grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              :title="mode === 'personal' ? t('mode.work') : t('mode.personal')"
+              :aria-label="t('desk.switchModeAria')"
+              :aria-pressed="mode === 'personal'"
+              @click="toggleMode"
+            >
+              <component
+                :is="mode === 'personal' ? House : Briefcase"
+                :size="13"
+                aria-hidden="true"
+              />
+            </button>
             <button
               type="button"
               class="grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"

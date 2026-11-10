@@ -1,5 +1,8 @@
 export type ThemePref = "light" | "dark" | "system";
 export type AppliedTheme = "light" | "dark";
+export type ThemeMode = "work" | "personal";
+/** The daisyUI palette painted on the page. */
+export type ThemeName = "soft" | "soft-dark" | "personal" | "personal-dark";
 
 /** The part of the Tauri window the theme code needs, so tests can fake it. */
 export interface ThemeWindow {
@@ -11,6 +14,12 @@ export interface ThemeWindow {
 export function resolveTheme(pref: string | null | undefined, systemDark: boolean): AppliedTheme {
   if (pref === "light" || pref === "dark") return pref;
   return systemDark ? "dark" : "light";
+}
+
+/** One palette per mode and brightness, so the two worlds never share a surface. */
+export function themeName(brightness: AppliedTheme, mode: ThemeMode): ThemeName {
+  if (mode === "personal") return brightness === "dark" ? "personal-dark" : "personal";
+  return brightness === "dark" ? "soft-dark" : "soft";
 }
 
 export function systemPrefersDark(): boolean {
@@ -35,12 +44,11 @@ export async function systemTheme(
 
 /**
  * Paints the page. The native frame is set by the caller, since pinning it changes the media
- * query. After the first paint a change goes through a view transition, so light/dark
- * cross-fades instead of snapping.
+ * query. After the first paint a change goes through a view transition, so theme changes
+ * cross-fade instead of snapping.
  */
-export function applyTheme(theme: AppliedTheme): void {
+export function applyTheme(name: ThemeName): void {
   const html = document.documentElement;
-  const name = theme === "dark" ? "soft-dark" : "soft";
   const paint = () => {
     html.dataset.theme = name;
   };

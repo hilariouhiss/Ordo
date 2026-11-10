@@ -3,6 +3,8 @@ import type { TaskGrouping } from "../lib/taskGroups";
 import type { ThemePref } from "../lib/theme";
 
 export type Status = "todo" | "doing" | "done";
+/** The two worlds the ledger shows: the company and personal life. */
+export type Mode = "work" | "personal";
 export type Priority = "high" | "normal" | "low";
 export type DeskPin = "top" | "bottom";
 export type WeekView = "list" | "gantt";
@@ -88,6 +90,16 @@ export interface Settings {
   remindersLeadMinutes: number;
   /** Whether the daily 09:00 digest fires. */
   remindersDigest: boolean;
+  /** The world the lists are filtered by. */
+  mode: Mode;
+  /** Whether the schedule switches the mode on its own. */
+  modeAuto: boolean;
+  /** Local "HH:MM" the schedule switches back to the company. */
+  modeWorkAt: string;
+  /** Local "HH:MM" the schedule switches to the personal world. */
+  modePersonalAt: string;
+  /** ISO weekdays the schedule runs on, Monday = 1 … Sunday = 7. */
+  modeDays: number[];
 }
 
 export interface ProjectMember {

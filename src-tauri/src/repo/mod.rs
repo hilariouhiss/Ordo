@@ -1,4 +1,10 @@
 /// Escapes LIKE metacharacters so a search is a literal substring match.
+/// The SQL condition that keeps a list inside one mode. The mode is always the
+/// validated settings::mode value, so interpolating it cannot inject anything.
+pub(crate) fn scope_eq(alias: &str, mode: &str) -> String {
+    format!("{alias}.scope = '{mode}'")
+}
+
 pub(crate) fn like_pattern(query: &str) -> String {
     let escaped = query
         .replace('!', "!!")

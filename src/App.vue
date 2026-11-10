@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Moon, PanelRight, Search, Settings, Sun } from "@lucide/vue";
+import { Briefcase, House, Moon, PanelRight, Search, Settings, Sun } from "@lucide/vue";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -14,15 +14,19 @@ import {
   applyTheme,
   systemPrefersDark,
   systemTheme,
+  themeName,
   type AppliedTheme,
   type ThemeWindow,
 } from "./lib/theme";
+import type { Mode } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
+import { archiveVM } from "./viewmodels/archiveVM";
 import { passVM } from "./viewmodels/passVM";
 import { projectsVM } from "./viewmodels/projectsVM";
 import { quickCreateVM } from "./viewmodels/quickCreateVM";
 import { searchVM } from "./viewmodels/searchVM";
 import { settingsVM } from "./viewmodels/settingsVM";
+import { statsVM } from "./viewmodels/statsVM";
 import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
 import { templatesVM } from "./viewmodels/templatesVM";
@@ -55,6 +59,17 @@ const navItems = computed(
 
 /** What the page is painted with right now, which is what the header button shows. */
 const appliedTheme = ref<AppliedTheme>("light");
+/** What the header shows and the lists are filtered by. */
+const mode = computed<Mode>(() => appVM.state.settings?.mode ?? "work");
+const modeOptions = computed(() => [
+  { value: "work" as const, label: t("mode.work"), icon: Briefcase },
+  { value: "personal" as const, label: t("mode.personal"), icon: House },
+]);
+
+function switchMode(next: Mode): void {
+  if (next === mode.value || !appVM.state.ready || windowModeVM.state.phase !== "idle") return;
+  void settingsVM.switchMode(next);
+}
 const themeIcon = computed(() => (appliedTheme.value === "dark" ? Moon : Sun));
 const themeLabel = computed(() =>
   t(appliedTheme.value === "dark" ? "settings.themeDark" : "settings.themeLight"),
@@ -223,11 +238,24 @@ async function syncTheme(): Promise<void> {
     theme = await systemTheme(win, systemPrefersDark());
   }
   if (run !== themeRun) return;
-  applyTheme(theme);
+  const name = themeName(theme, appVM.state.settings?.mode ?? "work");
+  applyTheme(name);
   appliedTheme.value = theme;
   if (isTauri()) {
-    void emitTo("capture", "theme:changed", theme);
+    void emitTo("capture", "theme:changed", name);
   }
+}
+
+/** Both a manual switch and the schedule land here; every mode-filtered list reloads. */
+function refreshAfterModeChange(): void {
+  void appVM.load().catch(() => {});
+  weekVM.reload();
+  tasksVM.reload();
+  projectsVM.load().catch(() => {});
+  templatesVM.load().catch(() => {});
+  archiveVM.load().catch(() => {});
+  void statsVM.refresh();
+  if (searchVM.state.open) void searchVM.run();
 }
 
 /** Created hidden so the first frame the user sees is painted, themed and resolved. */
@@ -265,6 +293,16 @@ onMounted(async () => {
     () => appVM.state.settings?.theme,
     () => void syncTheme(),
   );
+  watch(mode, (next, before) => {
+    // The first load only seeds the value; a real switch repaints and reloads.
+    if (!before || before === next) return;
+    void syncTheme();
+    refreshAfterModeChange();
+    if (route.name === "project") {
+      projectsVM.closeSettings();
+      void router.push("/projects");
+    }
+  });
   if (isTauri()) {
     await listen("capture:created", () => {
       weekVM.reload();
@@ -277,6 +315,11 @@ onMounted(async () => {
       void appVM.load();
       weekVM.reload();
       tasksVM.reload();
+    });
+    await listen<Mode>("mode:changed", (event) => {
+      const settings = appVM.state.settings;
+      if (settings) settings.mode = event.payload;
+      else void appVM.load().catch(() => {});
     });
     await listen<string>("reminder:open", (event) => {
       void showTask(event.payload);
@@ -304,6 +347,9 @@ onMounted(async () => {
       settingsVM.open();
     });
   }
+  // A schedule switch can land while this window boots and emit before the listener
+  // above exists; one more read catches it without waiting for the next point.
+  void appVM.load().catch(() => {});
 });
 
 onUnmounted(() => {
@@ -362,6 +408,26 @@ onUnmounted(() => {
             </LayoutGroup>
             <div class="ml-auto flex h-full items-center gap-2">
               <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+              <div class="join" role="group" :aria-label="t('settings.modeCurrent')">
+                <button
+                  v-for="option in modeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="btn btn-xs join-item rounded-md border-base-300 font-normal transition-colors"
+                  :class="
+                    mode === option.value
+                      ? 'border-0 bg-primary text-primary-content'
+                      : 'bg-base-100 text-base-content/60 hover:text-base-content'
+                  "
+                  :aria-pressed="mode === option.value"
+                  :title="option.label"
+                  :disabled="!appVM.state.ready || windowModeVM.state.phase !== 'idle'"
+                  @click="switchMode(option.value)"
+                >
+                  <component :is="option.icon" :size="12" aria-hidden="true" />
+                  <span>{{ option.label }}</span>
+                </button>
+              </div>
               <button
                 class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
                 :aria-label="t('search.openAria')"

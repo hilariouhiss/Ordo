@@ -116,6 +116,8 @@ fn apply(conn: &Connection, task_id: &str, enrichment: &Enrichment, now: &str) -
         ],
     )
     .map_err(|e| e.to_string())?;
+    // An AI-filled project carries a world with it, like a hand edit does.
+    crate::repo::tasks::sync_scope_from_project(&tx, task_id).map_err(|e| e.to_string())?;
 
     // A background fill hands a default-owned task to its specialty owner, but never
     // steals one the user already assigned.

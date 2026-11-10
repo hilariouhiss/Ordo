@@ -3,6 +3,7 @@ use rusqlite::Connection;
 
 pub mod archive;
 pub mod deliverables;
+pub mod mode;
 pub mod export;
 pub mod people;
 pub mod projects;

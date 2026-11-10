@@ -2,7 +2,7 @@ use crate::dto::{RuleDto, RuleInput};
 use rusqlite::{params, Connection, OptionalExtension};
 
 const COLUMNS: &str = "id, title, weekdays, at_time, project_id, category_id, owner_id, priority, \
-                       effort_minutes, time_exclusive, enabled";
+                       effort_minutes, time_exclusive, enabled, scope";
 
 fn to_dto(row: &rusqlite::Row<'_>) -> rusqlite::Result<RuleDto> {
     let weekdays: String = row.get(2)?;
@@ -18,6 +18,7 @@ fn to_dto(row: &rusqlite::Row<'_>) -> rusqlite::Result<RuleDto> {
         effort_minutes: row.get(8)?,
         exclusive: row.get::<_, i64>(9)? == 1,
         enabled: row.get::<_, i64>(10)? == 1,
+        scope: row.get(11)?,
     })
 }
 
@@ -45,7 +46,8 @@ fn query(conn: &Connection, where_clause: &str) -> rusqlite::Result<Vec<RuleDto>
 }
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<RuleDto>> {
-    query(conn, "1 = 1")
+    let mode = crate::repo::settings::mode(conn)?;
+    query(conn, &crate::repo::scope_eq("task_rules", &mode))
 }
 
 /// The rules the generator looks at.
@@ -73,11 +75,19 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<Option<RuleDto>> {
 }
 
 /// Expects a rule the service already validated and normalized.
-pub fn insert(conn: &Connection, id: &str, rule: &RuleInput, now: &str) -> rusqlite::Result<()> {
+pub fn insert(
+    conn: &Connection,
+    id: &str,
+    rule: &RuleInput,
+    scope: &str,
+    now: &str,
+) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO task_rules (id, title, weekdays, at_time, project_id, category_id, owner_id,
-                                 priority, effort_minutes, time_exclusive, enabled, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, 'normal'), COALESCE(?9, 480), ?10, 1, ?11, ?11)",
+                                 priority, effort_minutes, time_exclusive, enabled, scope,
+                                 created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, 'normal'), COALESCE(?9, 480), ?10, 1,
+                 ?11, ?12, ?12)",
         params![
             id,
             rule.title.trim(),
@@ -89,6 +99,7 @@ pub fn insert(conn: &Connection, id: &str, rule: &RuleInput, now: &str) -> rusql
             rule.priority.as_deref(),
             rule.effort_minutes,
             rule.exclusive.unwrap_or(true) as i64,
+            scope,
             now
         ],
     )?;

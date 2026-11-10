@@ -6,6 +6,7 @@ import type {
   Bootstrap,
   CaptureFields,
   Category,
+  Mode,
   PassAction,
   Person,
   Priority,
@@ -325,6 +326,11 @@ export function getSettings(): Promise<Settings> {
 
 export function setSettings(patch: Partial<Settings>): Promise<Settings> {
   return invoke<Settings>("set_settings", { patch });
+}
+
+/** Switches worlds now; the next schedule point can switch again. */
+export function setMode(mode: Mode): Promise<Settings> {
+  return invoke<Settings>("set_mode", { mode });
 }
 
 export function exportJson(): Promise<string> {

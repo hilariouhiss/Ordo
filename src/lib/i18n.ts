@@ -42,6 +42,7 @@ export const zh = {
   "app.settingsTitle": "设置",
   "app.tabGeneral": "通用",
   "app.tabData": "数据",
+  "app.tabMode": "模式",
 
   "week.passNeeded": "这一周的事还没结清",
   "week.pending": "{count} 件待定",
@@ -423,6 +424,18 @@ export const zh = {
   "pass.counts": "继续 {keep} · 完成 {done} · 挂起 {suspend} · 等别人 {wait} · 取消 {cancel}",
   "pass.backToWeek": "回到本周",
 
+  "settings.modeCurrent": "当前模式",
+  "settings.modeAuto": "按时间自动切换",
+  "settings.modePersonalAt": "到点切到个人",
+  "settings.modeWorkAt": "到点切回公司",
+  "settings.modeDays": "哪几天",
+  "settings.modeHint":
+    "自动切换每 30 秒检查一次；手动切换后，到下一个时间点才再自动切。应用没开着时，下次启动按最近一个时间点补上。",
+  "settings.modeNote":
+    "个人模式下新建的任务、项目、甲方、周期任务、模板都只属于个人；切回公司时都看不见。",
+  "mode.work": "公司",
+  "mode.personal": "个人",
+  "desk.switchModeAria": "切换公司或个人模式",
   "settings.theme": "外观",
   "settings.language": "语言",
   "settings.themeSystem": "系统",
@@ -605,6 +618,9 @@ export const zh = {
   "error.invalid_task_group_by": "分组方式不正确。",
   "error.invalid_week_view": "本周视图只能是列表或甘特图。",
   "error.invalid_saved_views": "保存的视图格式不对。",
+  "error.invalid_mode": "未知的模式。",
+  "error.invalid_mode_days": "自动切换至少要选一天。",
+  "error.same_mode_time": "切到个人和切回公司不能是同一时刻。",
   "error.invalid_ai_base_url": "AI 地址必须是 https://（本机服务可以用 http://）。",
   "error.shortcut_rollback_failed": "新快捷键没生效，旧快捷键也没能恢复；重启 Ordo 会再试一次。",
   "error.empty_rule_title": "周期任务得有个名字。",
@@ -655,6 +671,7 @@ export const en: Record<MessageKey, string> = {
   "app.settingsTitle": "Settings",
   "app.tabGeneral": "General",
   "app.tabData": "Data",
+  "app.tabMode": "Mode",
 
   "week.passNeeded": "This week still has loose ends",
   "week.pending": "{count} to decide",
@@ -1045,6 +1062,18 @@ export const en: Record<MessageKey, string> = {
   "pass.counts": "Keep {keep} · Done {done} · Suspend {suspend} · Waiting {wait} · Cancel {cancel}",
   "pass.backToWeek": "Back to this week",
 
+  "settings.modeCurrent": "Current mode",
+  "settings.modeAuto": "Switch on a schedule",
+  "settings.modePersonalAt": "Personal at",
+  "settings.modeWorkAt": "Back to work at",
+  "settings.modeDays": "Days",
+  "settings.modeHint":
+    "The schedule is checked every 30 seconds; a manual switch holds until the next point. If Ordo was closed, the next launch catches up to the latest point.",
+  "settings.modeNote":
+    "Tasks, projects, clients, recurring tasks and templates created in personal mode stay there; they are invisible back in company mode.",
+  "mode.work": "Work",
+  "mode.personal": "Personal",
+  "desk.switchModeAria": "Switch between company and personal",
   "settings.theme": "Appearance",
   "settings.language": "Language",
   "settings.themeSystem": "System",
@@ -1229,6 +1258,9 @@ export const en: Record<MessageKey, string> = {
   "error.invalid_task_group_by": "Unknown task grouping.",
   "error.invalid_week_view": "The week view is either list or gantt.",
   "error.invalid_saved_views": "The saved views are not valid.",
+  "error.invalid_mode": "Unknown mode.",
+  "error.invalid_mode_days": "Pick at least one day for the schedule.",
+  "error.same_mode_time": "The two switch times have to differ.",
   "error.invalid_ai_base_url": "The AI URL must be https:// (a local server may use http://).",
   "error.shortcut_rollback_failed":
     "The new shortcut didn't take and the old one couldn't be restored; restarting Ordo tries again.",
@@ -1310,6 +1342,9 @@ const knownErrors = [
   "invalid_task_group_by",
   "invalid_week_view",
   "invalid_saved_views",
+  "invalid_mode",
+  "invalid_mode_days",
+  "same_mode_time",
   "invalid_ai_base_url",
   "shortcut_rollback_failed",
   "empty_rule_title",

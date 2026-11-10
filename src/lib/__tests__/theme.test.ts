@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { applyTheme, resolveTheme, systemTheme, type ThemeWindow } from "../theme";
+import { applyTheme, resolveTheme, systemTheme, themeName, type ThemeWindow } from "../theme";
 
 describe("resolveTheme", () => {
   it("follows the setting when it names a theme", () => {
@@ -16,6 +16,18 @@ describe("resolveTheme", () => {
     expect(resolveTheme(undefined, true)).toBe("dark");
     expect(resolveTheme(null, false)).toBe("light");
     expect(resolveTheme("purple", true)).toBe("dark");
+  });
+});
+
+describe("themeName", () => {
+  it("keeps the company on its warm palette", () => {
+    expect(themeName("light", "work")).toBe("soft");
+    expect(themeName("dark", "work")).toBe("soft-dark");
+  });
+
+  it("gives the personal world its own palette in both brightnesses", () => {
+    expect(themeName("light", "personal")).toBe("personal");
+    expect(themeName("dark", "personal")).toBe("personal-dark");
   });
 });
 
@@ -48,8 +60,8 @@ describe("applyTheme", () => {
   it("paints the first theme without a transition", () => {
     const page = stubPage();
     try {
-      applyTheme("dark");
-      expect(page.dataset.theme).toBe("soft-dark");
+      applyTheme("personal-dark");
+      expect(page.dataset.theme).toBe("personal-dark");
       expect(page.state.transitions).toBe(0);
     } finally {
       page.restore();
@@ -59,12 +71,12 @@ describe("applyTheme", () => {
   it("cross-fades a later change and snaps back on the same value", () => {
     const page = stubPage();
     try {
-      applyTheme("dark");
-      applyTheme("light");
-      expect(page.dataset.theme).toBe("soft");
+      applyTheme("soft-dark");
+      applyTheme("personal");
+      expect(page.dataset.theme).toBe("personal");
       expect(page.state.transitions).toBe(1);
 
-      applyTheme("light");
+      applyTheme("personal");
       expect(page.state.transitions).toBe(1);
     } finally {
       page.restore();
@@ -74,9 +86,9 @@ describe("applyTheme", () => {
   it("switches without the cross-fade when motion is reduced", () => {
     const page = stubPage(true);
     try {
-      applyTheme("dark");
-      applyTheme("light");
-      expect(page.dataset.theme).toBe("soft");
+      applyTheme("soft-dark");
+      applyTheme("personal");
+      expect(page.dataset.theme).toBe("personal");
       expect(page.state.transitions).toBe(0);
     } finally {
       page.restore();

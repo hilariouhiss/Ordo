@@ -47,7 +47,7 @@ pub fn capture_with_project(
             fields.project_id = Some(project_id);
         }
     }
-    capture_rows(&tx, raw, &fields, now, id)?;
+    capture_rows(&tx, raw, &fields, None, now, id)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
@@ -58,6 +58,7 @@ pub(crate) fn capture_rows(
     conn: &Connection,
     raw: &str,
     fields: &CaptureFields,
+    scope_override: Option<&str>,
     now: &str,
     id: &str,
 ) -> Result<(), String> {
@@ -97,7 +98,17 @@ pub(crate) fn capture_rows(
     let anchor = crate::services::timing::anchor_for(today, None);
     let finish = crate::services::timing::finish_for(anchor, fields.effort_minutes.unwrap_or(480));
     let finish = finish.format("%Y-%m-%d").to_string();
-    tasks::insert(conn, id, title, fields, &finish, now).map_err(|e| e.to_string())
+    // A project owns its world; a loose task stays in the mode it was written in.
+    let scope = match fields.project_id.as_deref() {
+        Some(project_id) => projects::scope_of(conn, project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "invalid_project".to_string())?,
+        None => match scope_override {
+            Some(scope) => scope.to_string(),
+            None => settings::mode(conn).map_err(|e| e.to_string())?,
+        },
+    };
+    tasks::insert(conn, id, title, fields, &scope, &finish, now).map_err(|e| e.to_string())
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<TaskDto>, String> {
@@ -116,14 +127,16 @@ pub fn week_start(today: &str) -> String {
 }
 
 pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     tasks::list_for(
         conn,
         &format!(
             "SELECT id FROM tasks
              WHERE in_week = 1 AND status <> 'done' AND suspended = 0 AND waiting = 0
-               AND {}
+               AND {} AND {}
              ORDER BY sort_order, id",
-            tasks::visible_task_filter("tasks")
+            tasks::visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", &mode)
         ),
         &[],
     )
@@ -236,31 +249,42 @@ pub fn wait(
 /// same Monday the ledger kept.
 pub fn mark_pass_done(conn: &Connection, today: &str) -> Result<String, String> {
     let start = week_start(today);
-    settings::set(conn, settings::keys::LAST_PASS_WEEK, &start).map_err(|e| e.to_string())?;
+    let key = if crate::repo::settings::mode(conn).map_err(|e| e.to_string())?
+        == settings::MODE_PERSONAL
+    {
+        settings::keys::LAST_PASS_WEEK_PERSONAL
+    } else {
+        settings::keys::LAST_PASS_WEEK
+    };
+    settings::set(conn, key, &start).map_err(|e| e.to_string())?;
     Ok(start)
 }
 
 pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
     let start = week_start(today);
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
+    let scope = crate::repo::scope_eq("tasks", &mode);
     let count = |sql: &str| -> Result<i64, String> {
         conn.query_row(sql, rusqlite::params![&start, today], |r| r.get(0))
             .map_err(|e| e.to_string())
     };
     Ok(WeekStatsDto {
-        added: count(
-            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL
-             AND date(created_at,'localtime') BETWEEN ?1 AND ?2",
-        )?,
+        added: count(&format!(
+            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND {scope}
+             AND date(created_at,'localtime') BETWEEN ?1 AND ?2"
+        ))?,
         // The same filter the finished cards below use, so the number and the list agree.
         done: count(&format!(
             "SELECT COUNT(*) FROM tasks WHERE status='done'
-             AND actual_finish_at IS NOT NULL AND {}
+             AND actual_finish_at IS NOT NULL AND {} AND {scope}
              AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
             tasks::visible_task_filter("tasks")
         ))?,
-        delayed: count(
-            "SELECT COUNT(*) FROM delays WHERE date(created_at,'localtime') BETWEEN ?1 AND ?2",
-        )?,
+        delayed: count(&format!(
+            "SELECT COUNT(*) FROM delays d JOIN tasks t ON t.id = d.task_id
+             WHERE date(d.created_at,'localtime') BETWEEN ?1 AND ?2 AND {}",
+            crate::repo::scope_eq("t", &mode)
+        ))?,
     })
 }
 
@@ -269,6 +293,7 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
 /// them on the day they were done.
 pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String> {
     let start = week_start(today);
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     tasks::list_for(
         conn,
         &format!(
@@ -277,9 +302,10 @@ pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String>
                AND ((actual_finish_at IS NOT NULL
                      AND date(actual_finish_at, 'localtime') BETWEEN ?1 AND ?2)
                     OR (expected_start_date BETWEEN ?1 AND ?2))
-               AND {}
+               AND {} AND {}
              ORDER BY actual_finish_at, sort_order, id",
-            tasks::visible_task_filter("tasks")
+            tasks::visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", &mode)
         ),
         &[&start, &today],
     )
@@ -287,14 +313,16 @@ pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String>
 }
 
 pub fn list_waiting(conn: &Connection) -> Result<Vec<TaskDto>, String> {
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     tasks::list_for(
         conn,
         &format!(
             "SELECT id FROM tasks
              WHERE waiting = 1 AND status <> 'done'
-               AND {}
+               AND {} AND {}
              ORDER BY follow_up_date IS NULL, follow_up_date, updated_at",
-            tasks::visible_task_filter("tasks")
+            tasks::visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", &mode)
         ),
         &[],
     )
@@ -302,14 +330,16 @@ pub fn list_waiting(conn: &Connection) -> Result<Vec<TaskDto>, String> {
 }
 
 pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
+    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     tasks::list_for(
         conn,
         &format!(
             "SELECT id FROM tasks
              WHERE suspended = 1 AND status <> 'done'
-               AND {}
+               AND {} AND {}
              ORDER BY suspended_until IS NULL, suspended_until, updated_at",
-            tasks::visible_task_filter("tasks")
+            tasks::visible_task_filter("tasks"),
+            crate::repo::scope_eq("tasks", &mode)
         ),
         &[],
     )
@@ -548,7 +578,12 @@ mod tests {
 
         let t = week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some(" 华东客户 "), NOW, "t1").unwrap();
 
-        let project = crate::repo::projects::find_active_by_name(&c, "华东客户").unwrap();
+        let project = crate::repo::projects::find_active_by_name(
+            &c,
+            "华东客户",
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
         assert_eq!(t.project_id, project);
         let member_count: i64 = c
             .query_row(
@@ -584,7 +619,12 @@ mod tests {
         let t = week::capture_with_project(&c, "写方案", &fields, Some("别的项目"), NOW, "t1").unwrap();
 
         assert_eq!(t.project_id.as_deref(), Some("p1"));
-        assert!(crate::repo::projects::find_active_by_name(&c, "别的项目").unwrap().is_none());
+        assert!(crate::repo::projects::find_active_by_name(
+            &c,
+            "别的项目",
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap().is_none());
     }
 
     #[test]
@@ -600,7 +640,12 @@ mod tests {
             week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some("华东客户"), NOW, "t1")
                 .is_err()
         );
-        assert!(crate::repo::projects::find_active_by_name(&c, "华东客户").unwrap().is_none());
+        assert!(crate::repo::projects::find_active_by_name(
+            &c,
+            "华东客户",
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap().is_none());
     }
 
     #[test]
@@ -1421,5 +1466,78 @@ mod tests {
         assert_eq!(start, "2026-10-26");
         let stored = crate::repo::settings::get(&c, "last_pass_week").unwrap();
         assert_eq!(stored.as_deref(), Some(start.as_str()));
+    }
+
+    #[test]
+    fn the_weekly_pass_is_cleared_per_mode() {
+        let c = db::open_in_memory().unwrap();
+        let company_week = week::mark_pass_done(&c, "2026-10-20").unwrap();
+        assert_eq!(
+            crate::repo::settings::dto(&c).unwrap().last_pass_week,
+            company_week
+        );
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        assert_eq!(crate::repo::settings::dto(&c).unwrap().last_pass_week, "");
+        let personal_week = week::mark_pass_done(&c, "2026-10-20").unwrap();
+        assert_eq!(
+            crate::repo::settings::dto(&c).unwrap().last_pass_week,
+            personal_week
+        );
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_WORK,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::repo::settings::dto(&c).unwrap().last_pass_week,
+            company_week
+        );
+    }
+
+    #[test]
+    fn a_subtask_and_a_moved_task_follow_their_world() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "公司串", NOW, "t-work").unwrap();
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::MODE,
+            crate::repo::settings::MODE_PERSONAL,
+        )
+        .unwrap();
+        week::capture(&c, "个人大事", NOW, "t-personal").unwrap();
+        crate::services::subtasks::add(&c, "t-personal", "第一步", NOW).unwrap();
+        let child_scope: String = c
+            .query_row(
+                "SELECT scope FROM tasks WHERE parent_id = 't-personal'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(child_scope, crate::repo::settings::MODE_PERSONAL);
+
+        let project = crate::services::projects::create(&c, "生活", NOW).unwrap();
+        crate::services::tasks::update_patch(
+            &c,
+            "t-work",
+            &crate::dto::TaskPatch {
+                project_id: Some(Some(project.id.clone())),
+                ..Default::default()
+            },
+            NOW,
+        )
+        .unwrap();
+        let moved_scope: String = c
+            .query_row("SELECT scope FROM tasks WHERE id = 't-work'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(moved_scope, crate::repo::settings::MODE_PERSONAL);
     }
 }

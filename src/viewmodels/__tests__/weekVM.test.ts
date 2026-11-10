@@ -779,6 +779,28 @@ describe("weekVM pass entry", () => {
     expect(vm.passNeeded.value).toBe(true);
   });
 
+  it("keeps the pass entry hidden while the new mode's list is still loading", async () => {
+    vi.mocked(listWeek).mockResolvedValue([task({ id: "t1" })]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+    appVM.state.settings = {
+      ...defaultSettings,
+      mode: "work",
+      lastPassWeek: weekWorkdays(todayIso())[0],
+    };
+
+    const vm = createWeekVM();
+    await vm.load();
+    expect(vm.passNeeded.value).toBe(false);
+
+    // The mode flips first; the list below is still the company's until it reloads.
+    appVM.state.settings = { ...defaultSettings, mode: "personal", lastPassWeek: "" };
+    expect(vm.passNeeded.value).toBe(false);
+
+    await vm.load();
+    expect(vm.passNeeded.value).toBe(true);
+  });
+
   it("hides the pass entry once this week's pass is recorded", async () => {
     vi.mocked(listWeek).mockResolvedValue([task({ id: "t1" })]);
     vi.mocked(listSuspended).mockResolvedValue([]);

@@ -1,9 +1,11 @@
 import { reactive } from "vue";
+import { askNotice } from "../lib/dialog";
+import { errorText, t } from "../lib/i18n";
 import * as ipc from "../model/ipc";
-import type { Settings } from "../model/types";
+import type { Mode, Settings } from "../model/types";
 import { appVM } from "./appVM";
 
-export type SettingsTab = "ai" | "general" | "data";
+export type SettingsTab = "ai" | "general" | "mode" | "data";
 
 export function createSettingsVM() {
   const state = reactive({
@@ -23,6 +25,20 @@ export function createSettingsVM() {
 
   function close(): void {
     state.open = false;
+  }
+
+  /** Switches now; the answer carries the whole settings block, mode included. */
+  async function switchMode(target: Mode): Promise<boolean> {
+    if (appVM.state.settings?.mode === target) return true;
+    state.error = "";
+    try {
+      appVM.state.settings = await ipc.setMode(target);
+      return true;
+    } catch (e) {
+      state.error = String(e);
+      void askNotice(t("common.actionFailed"), errorText(e));
+      return false;
+    }
   }
 
   async function save(patch: Partial<Settings>): Promise<boolean> {
@@ -56,7 +72,7 @@ export function createSettingsVM() {
     }
   }
 
-  return { state, open, close, save, backup, exportData };
+  return { state, open, close, save, switchMode, backup, exportData };
 }
 
 export const settingsVM = createSettingsVM();

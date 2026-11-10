@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X } from "@lucide/vue";
+import { Briefcase, House, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
@@ -11,6 +11,7 @@ import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
 import EffortField from "../components/EffortField.vue";
+import TimeField from "../components/TimeField.vue";
 
 const themeOptions: { value: ThemePref; key: MessageKey }[] = [
   { value: "system", key: "settings.themeSystem" },
@@ -65,6 +66,73 @@ function saveLead(minutes: number): void {
     void vm.save({ remindersLeadMinutes: clamped });
   }
 }
+/** The two schedule times are edited together, so one save keeps them a pair. */
+const modeWorkAt = ref("09:00");
+const modePersonalAt = ref("18:00");
+watch(
+  () => settings.value?.modeWorkAt,
+  (value) => {
+    modeWorkAt.value = value ?? "09:00";
+  },
+  { immediate: true },
+);
+watch(
+  () => settings.value?.modePersonalAt,
+  (value) => {
+    modePersonalAt.value = value ?? "18:00";
+  },
+  { immediate: true },
+);
+
+const modeOptions = computed(() => [
+  { value: "work" as const, label: t("mode.work"), icon: Briefcase },
+  { value: "personal" as const, label: t("mode.personal"), icon: House },
+]);
+
+const MODE_DAY_KEYS: MessageKey[] = [
+  "date.mon",
+  "date.tue",
+  "date.wed",
+  "date.thu",
+  "date.fri",
+  "date.sat",
+  "date.sun",
+];
+const modeDayOptions = computed(() =>
+  MODE_DAY_KEYS.map((key, index) => ({ value: index + 1, label: t(key) })),
+);
+
+async function saveModeTimes(): Promise<void> {
+  const current = settings.value;
+  if (!current) return;
+  if (modeWorkAt.value === current.modeWorkAt && modePersonalAt.value === current.modePersonalAt) {
+    return;
+  }
+  if (
+    !(await vm.save({
+      modeWorkAt: modeWorkAt.value,
+      modePersonalAt: modePersonalAt.value,
+    }))
+  ) {
+    modeWorkAt.value = current.modeWorkAt;
+    modePersonalAt.value = current.modePersonalAt;
+  }
+}
+
+function toggleModeDay(day: number): void {
+  const current = settings.value;
+  if (!current) return;
+  const next = current.modeDays.includes(day)
+    ? current.modeDays.filter((value) => value !== day)
+    : [...current.modeDays, day].sort((a, b) => a - b);
+  if (!next.length) {
+    vm.state.error = "invalid_mode_days";
+    return;
+  }
+  vm.state.error = "";
+  void vm.save({ modeDays: next });
+}
+
 const keyDraft = ref("");
 const hasKey = ref(false);
 const aiStatus = ref<AiStatus>(null);
@@ -258,6 +326,14 @@ onUnmounted(() => {
             <button
               role="tab"
               class="tab"
+              :class="{ 'tab-active': vm.state.tab === 'mode' }"
+              @click="vm.state.tab = 'mode'"
+            >
+              {{ t("app.tabMode") }}
+            </button>
+            <button
+              role="tab"
+              class="tab"
               :class="{ 'tab-active': vm.state.tab === 'data' }"
               @click="vm.state.tab = 'data'"
             >
@@ -362,6 +438,81 @@ onUnmounted(() => {
                   </div>
                   <p class="mt-2 text-[10.5px] text-base-content/35">
                     {{ t("settings.aiNote") }}
+                  </p>
+                </div>
+
+                <div v-else-if="vm.state.tab === 'mode'" class="mt-4 rounded-xl bg-base-200 p-4">
+                  <div class="flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.modeCurrent") }}</span>
+                    <span class="flex gap-1.5">
+                      <button
+                        v-for="option in modeOptions"
+                        :key="option.value"
+                        class="btn btn-xs rounded-md border-base-300 font-normal"
+                        :class="
+                          settings.mode === option.value
+                            ? 'border-0 bg-primary text-primary-content'
+                            : 'bg-base-100'
+                        "
+                        :aria-pressed="settings.mode === option.value"
+                        @click="vm.switchMode(option.value)"
+                      >
+                        <component :is="option.icon" :size="12" aria-hidden="true" />
+                        {{ option.label }}
+                      </button>
+                    </span>
+                  </div>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.modeAuto") }}</span>
+                    <input
+                      type="checkbox"
+                      class="toggle toggle-xs toggle-success"
+                      :checked="settings.modeAuto"
+                      @change="vm.save({ modeAuto: !settings.modeAuto })"
+                    />
+                  </div>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.modePersonalAt") }}</span>
+                    <TimeField
+                      v-model="modePersonalAt"
+                      class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
+                      :aria-label="t('settings.modePersonalAt')"
+                      @update:model-value="saveModeTimes"
+                    />
+                  </div>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.modeWorkAt") }}</span>
+                    <TimeField
+                      v-model="modeWorkAt"
+                      class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
+                      :aria-label="t('settings.modeWorkAt')"
+                      @update:model-value="saveModeTimes"
+                    />
+                  </div>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.modeDays") }}</span>
+                    <span class="flex gap-1">
+                      <button
+                        v-for="day in modeDayOptions"
+                        :key="day.value"
+                        class="btn btn-xs rounded-md border-base-300 px-2 font-normal"
+                        :class="
+                          settings.modeDays.includes(day.value)
+                            ? 'border-0 bg-primary text-primary-content'
+                            : 'bg-base-100'
+                        "
+                        :aria-pressed="settings.modeDays.includes(day.value)"
+                        @click="toggleModeDay(day.value)"
+                      >
+                        {{ day.label }}
+                      </button>
+                    </span>
+                  </div>
+                  <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/35">
+                    {{ t("settings.modeHint") }}
+                  </p>
+                  <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
+                    {{ t("settings.modeNote") }}
                   </p>
                 </div>
 
