@@ -103,6 +103,9 @@ export interface Project {
 export interface ProjectGroup {
   id: string;
   name: string;
+  contact: string | null;
+  phone: string | null;
+  note: string | null;
 }
 
 export interface Delay {

@@ -178,6 +178,9 @@ pub struct ProjectDto {
 pub struct ProjectGroupDto {
     pub id: String,
     pub name: String,
+    pub contact: Option<String>,
+    pub phone: Option<String>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

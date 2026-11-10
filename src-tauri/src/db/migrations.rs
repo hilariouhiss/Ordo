@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 23;
+pub const LATEST: i64 = 24;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -564,6 +564,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             [],
         )?;
         tx.pragma_update(None, "user_version", 23)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 24 {
+        // 甲方 now remembers who to call and what to keep in mind. Each column has its own
+        // guard so a half-applied step retries instead of dying on a duplicate.
+        let tx = conn.unchecked_transaction()?;
+        for column in ["contact", "phone", "note"] {
+            if !has_column(&tx, "project_groups", column)? {
+                tx.execute_batch(&format!("ALTER TABLE project_groups ADD COLUMN {column} TEXT"))?;
+            }
+        }
+        tx.pragma_update(None, "user_version", 24)?;
         tx.commit()?;
     }
     Ok(())
@@ -1353,6 +1367,16 @@ mod tests {
         c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         c.execute_batch(V1).unwrap();
         seed(&c).unwrap();
+        // v10 created the groups table; a real v11 ledger always has it.
+        c.execute_batch(
+            "CREATE TABLE project_groups (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );",
+        )
+        .unwrap();
         c.execute(
             "INSERT INTO projects (id, name, created_at, updated_at) VALUES
              ('p1', '项目', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z')",
@@ -2046,6 +2070,53 @@ mod tests {
         migrate(&c).unwrap();
 
         assert_eq!(crate::repo::settings::reminder_lead_minutes(&c), 30);
+    }
+
+    #[test]
+    fn adds_client_details_and_retries_a_half_applied_step() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE project_groups (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );
+             INSERT INTO project_groups (id, name, created_at, updated_at)
+               VALUES ('g1', '甲方 A', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             CREATE TABLE tasks (id TEXT PRIMARY KEY);",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 23).unwrap();
+        // A crash after the first column landed but before the version bump: the other
+        // guards still have to finish the step.
+        c.execute_batch("ALTER TABLE project_groups ADD COLUMN contact TEXT")
+            .unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        for column in ["contact", "phone", "note"] {
+            assert!(
+                has_column(&c, "project_groups", column).unwrap(),
+                "{column} is missing"
+            );
+        }
+        let (name, contact, phone, note): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = c
+            .query_row(
+                "SELECT name, contact, phone, note FROM project_groups WHERE id = 'g1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "甲方 A");
+        assert!(contact.is_none() && phone.is_none() && note.is_none());
     }
 
     #[test]

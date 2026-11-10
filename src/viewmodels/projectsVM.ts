@@ -7,6 +7,7 @@ import {
   listProjects,
   renameProjectGroup,
   setProjectGroup,
+  updateProjectGroup,
 } from "../model/ipc";
 import type { Project, ProjectGroup, ProjectSummary } from "../model/types";
 import { appVM } from "./appVM";
@@ -65,6 +66,17 @@ export function createProjectsVM() {
     await load();
   }
 
+  /** Rewrites a 甲方 whole record; the clients page owns the contact fields. */
+  async function updateClient(
+    id: string,
+    fields: { name: string; contact: string | null; phone: string | null; note: string | null },
+  ): Promise<void> {
+    const trimmed = fields.name.trim();
+    if (!trimmed) return;
+    await updateProjectGroup(id, trimmed, fields.contact, fields.phone, fields.note);
+    await load();
+  }
+
   async function removeGroup(id: string): Promise<void> {
     await deleteProjectGroup(id);
     await load();
@@ -89,6 +101,7 @@ export function createProjectsVM() {
     create,
     createGroup,
     renameGroup,
+    updateClient,
     removeGroup,
     assignGroup,
     openSettings,

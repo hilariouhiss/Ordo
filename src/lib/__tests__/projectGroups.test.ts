@@ -3,7 +3,7 @@ import type { Priority, ProjectGroup, ProjectSummary } from "../../model/types";
 import { projectSections } from "../projectGroups";
 
 function group(id: string, name: string): ProjectGroup {
-  return { id, name };
+  return { id, name, contact: null, phone: null, note: null };
 }
 
 function project(

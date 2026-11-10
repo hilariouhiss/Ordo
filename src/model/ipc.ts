@@ -186,6 +186,16 @@ export function renameProjectGroup(id: string, name: string): Promise<void> {
   return invoke<void>("rename_project_group", { id, name });
 }
 
+export function updateProjectGroup(
+  id: string,
+  name: string,
+  contact: string | null,
+  phone: string | null,
+  note: string | null,
+): Promise<void> {
+  return invoke<void>("update_project_group", { id, name, contact, phone, note });
+}
+
 export function deleteProjectGroup(id: string): Promise<void> {
   return invoke<void>("delete_project_group", { id });
 }

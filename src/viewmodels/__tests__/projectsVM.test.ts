@@ -34,7 +34,7 @@ const project: ProjectSummary = {
   byCategory: [],
 };
 
-const group: ProjectGroup = { id: "g1", name: "甲方 A" };
+const group: ProjectGroup = { id: "g1", name: "甲方 A", contact: null, phone: null, note: null };
 
 const created: Project = {
   id: "p1",

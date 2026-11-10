@@ -110,6 +110,30 @@ pub async fn rename_project_group(
 }
 
 #[tauri::command]
+pub async fn update_project_group(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    contact: Option<String>,
+    phone: Option<String>,
+    note: Option<String>,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::projects::update_group(
+            conn,
+            &id,
+            &name,
+            contact.as_deref(),
+            phone.as_deref(),
+            note.as_deref(),
+            &now,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn delete_project_group(state: State<'_, AppState>, id: String) -> Result<(), String> {
     with_db(&state, move |conn| {
         crate::services::projects::delete_group(conn, &id)

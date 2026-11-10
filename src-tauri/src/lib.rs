@@ -350,6 +350,7 @@ pub fn run() {
       commands::projects::list_project_groups,
       commands::projects::create_project_group,
       commands::projects::rename_project_group,
+      commands::projects::update_project_group,
       commands::projects::delete_project_group,
       commands::projects::add_member,
       commands::projects::remove_member,

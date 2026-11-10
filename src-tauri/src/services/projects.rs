@@ -118,6 +118,45 @@ pub fn rename_group(conn: &Connection, id: &str, name: &str, now: &str) -> Resul
     project_groups::rename(conn, id, name, now).map_err(|e| e.to_string())
 }
 
+/// A detail field is stored trimmed, and a blank one as NULL so the export reads null.
+fn blank_to_none(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
+/// Rewrites a 甲方 whole record; a blank detail field is stored as NULL.
+pub fn update_group(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    contact: Option<&str>,
+    phone: Option<&str>,
+    note: Option<&str>,
+    now: &str,
+) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("empty_group_name".into());
+    }
+    if !project_groups::exists(conn, id).map_err(|e| e.to_string())? {
+        return Err("invalid_group".into());
+    }
+    if let Some(existing) = project_groups::find_by_name(conn, name).map_err(|e| e.to_string())? {
+        if existing.id != id {
+            return Err("group_exists".into());
+        }
+    }
+    project_groups::update(
+        conn,
+        id,
+        name,
+        blank_to_none(contact),
+        blank_to_none(phone),
+        blank_to_none(note),
+        now,
+    )
+    .map_err(|e| e.to_string())
+}
+
 pub fn delete_group(conn: &Connection, id: &str) -> Result<(), String> {
     project_groups::delete(conn, id).map_err(|e| e.to_string())
 }
@@ -597,6 +636,65 @@ mod tests {
         assert!(active.archived_at.is_none());
         assert!(active.group_id.is_none());
         assert!(project_groups::get(&c, &group.id).is_err());
+    }
+
+    #[test]
+    fn a_client_keeps_its_details_across_renames() {
+        let c = db::open_in_memory().unwrap();
+        let group = projects::create_group(&c, "甲方 A", NOW).unwrap();
+        assert!(group.contact.is_none() && group.phone.is_none() && group.note.is_none());
+
+        projects::update_group(
+            &c,
+            &group.id,
+            "甲方 A",
+            Some("  陈工 "),
+            Some("13800000000"),
+            Some(" 每月对账 "),
+            NOW,
+        )
+        .unwrap();
+        let saved = project_groups::get(&c, &group.id).unwrap();
+        assert_eq!(saved.contact.as_deref(), Some("陈工"));
+        assert_eq!(saved.phone.as_deref(), Some("13800000000"));
+        assert_eq!(saved.note.as_deref(), Some("每月对账"));
+
+        // The project page's quick rename only touches the name.
+        projects::rename_group(&c, &group.id, "甲方 A2", NOW).unwrap();
+        let renamed = project_groups::get(&c, &group.id).unwrap();
+        assert_eq!(renamed.name, "甲方 A2");
+        assert_eq!(renamed.contact.as_deref(), Some("陈工"));
+
+        // A blank detail is stored as NULL, not as an empty string.
+        projects::update_group(&c, &group.id, "甲方 A2", Some("   "), None, Some(""), NOW).unwrap();
+        let cleared = project_groups::get(&c, &group.id).unwrap();
+        assert!(cleared.contact.is_none() && cleared.phone.is_none() && cleared.note.is_none());
+    }
+
+    #[test]
+    fn updating_a_client_validates_the_id_and_the_name() {
+        let c = db::open_in_memory().unwrap();
+        let a = projects::create_group(&c, "甲方 A", NOW).unwrap();
+        let b = projects::create_group(&c, "甲方 B", NOW).unwrap();
+        assert_eq!(
+            projects::update_group(&c, &a.id, "  ", None, None, None, NOW).unwrap_err(),
+            "empty_group_name"
+        );
+        assert_eq!(
+            projects::update_group(&c, "missing", "甲方 C", None, None, None, NOW).unwrap_err(),
+            "invalid_group"
+        );
+        assert_eq!(
+            projects::update_group(&c, &a.id, "甲方 B", None, None, None, NOW).unwrap_err(),
+            "group_exists"
+        );
+        // Keeping its own name is not a clash.
+        projects::update_group(&c, &a.id, "甲方 A", Some("陈工"), None, None, NOW).unwrap();
+        assert_eq!(
+            project_groups::get(&c, &a.id).unwrap().contact.as_deref(),
+            Some("陈工")
+        );
+        assert_eq!(project_groups::get(&c, &b.id).unwrap().name, "甲方 B");
     }
 
     #[test]
