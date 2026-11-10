@@ -465,7 +465,7 @@ watch(
                   dropTarget.beforeId === row.task.id &&
                   draggingId !== row.task.id
                 "
-                :style="{ opacity: draggingId === row.task.id ? 0.4 : undefined }"
+                :dimmed="draggingId === row.task.id"
                 @open="openTask"
                 @changed="refresh"
               >
@@ -515,7 +515,7 @@ watch(
           v-for="task in state.waiting"
           :key="task.id"
           :task="task"
-          :style="{ opacity: draggingId === task.id ? 0.4 : undefined }"
+          :dimmed="draggingId === task.id"
           @open="openTask"
           @changed="refresh"
         >
@@ -553,7 +553,7 @@ watch(
           v-for="task in state.suspended"
           :key="task.id"
           :task="task"
-          :style="{ opacity: draggingId === task.id ? 0.4 : undefined }"
+          :dimmed="draggingId === task.id"
           @open="openTask"
           @changed="refresh"
         >

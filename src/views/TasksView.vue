@@ -452,7 +452,7 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
                       :task="task"
                       :show-project="tasksVM.state.groupBy !== 'project'"
                       :draggable="tasksVM.state.groupBy === 'project' && !filtering"
-                      :style="{ opacity: draggingTaskId === task.id ? 0.4 : undefined }"
+                      :dimmed="draggingTaskId === task.id"
                       @open="openTask"
                       @changed="refresh"
                       @drag-start="onTaskDragStart"

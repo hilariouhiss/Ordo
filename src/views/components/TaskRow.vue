@@ -35,8 +35,10 @@ const props = withDefaults(
     draggable?: boolean;
     /** A finished row in the past days: shown for the record, toggle off. */
     readonly?: boolean;
+    /** Being dragged: dimmed through motion, never through an inline style. */
+    dimmed?: boolean;
   }>(),
-  { showProject: true, draggable: false, readonly: false },
+  { showProject: true, draggable: false, readonly: false, dimmed: false },
 );
 const emit = defineEmits<{
   open: [Task];
@@ -62,6 +64,17 @@ const conflictTitle = computed(() =>
     date: shortDate(props.plan?.end ?? null),
     due: shortDate(props.task.expectedFinishDate),
   }),
+);
+
+/**
+ * The dim rides the row's own opacity animation. An inline `style.opacity` would do
+ * the same job, but motion scrapes it as a forced value whenever `layout` is on and
+ * then drops the animated opacity on the next render, freezing the row half-faded.
+ */
+const rowMotion = computed(() =>
+  props.dimmed
+    ? { ...listItemMotion, animate: { ...listItemMotion.animate, opacity: 0.4 } }
+    : listItemMotion,
 );
 
 const busy = ref(false);
@@ -176,7 +189,7 @@ async function suspend(): Promise<void> {
 
 <template>
   <motion.li
-    v-bind="listItemMotion"
+    v-bind="rowMotion"
     class="relative cursor-pointer rounded-xl bg-base-100 px-3 py-3 focus-visible:ring-2 focus-visible:ring-primary/40"
     :class="{ 'transition-opacity hover:opacity-90': !hasSubtasks }"
     :draggable="draggable"
