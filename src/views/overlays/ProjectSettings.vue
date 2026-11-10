@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { askNotice, askText } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, listItemMotion, modalPanelMotion } from "../../lib/motion";
 import { isImeEnter } from "../../lib/keys";
+import { matchesName } from "../../lib/pinyin";
 import * as ipc from "../../model/ipc";
 import type { Priority, ProjectGroup, ProjectMember } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -23,7 +24,21 @@ const form = reactive({
 });
 const groups = ref<ProjectGroup[]>([]);
 const memberName = ref("");
+/** The add box lists the known people while it has focus. */
+const peopleOpen = ref(false);
+/** A line under the add box: the typed name was a person already in the ledger. */
+const memberHint = ref("");
 const error = ref("");
+
+/** People this project does not have yet: what the add box and its picker can offer. */
+const memberCandidates = computed(() =>
+  appVM.state.people.filter(
+    (person) => !form.members.some((member) => member.personId === person.id),
+  ),
+);
+const memberMatches = computed(() =>
+  memberCandidates.value.filter((person) => matchesName(person.name, memberName.value)),
+);
 
 async function reload(): Promise<void> {
   const [project, list] = await Promise.all([ipc.getProject(props.id), ipc.listProjectGroups()]);
@@ -86,14 +101,35 @@ async function newGroup(): Promise<void> {
   }
 }
 
-async function addMember(): Promise<void> {
+/** Adds a picked person by id, or the typed name; the backend reuses a person it already knows. */
+async function addMember(personId: string | null = null): Promise<void> {
   const name = memberName.value.trim();
-  if (!name) return;
+  if (!personId && !name) return;
   error.value = "";
+  memberHint.value = "";
+  let id = personId;
+  let reused = false;
+  if (!id) {
+    const known = appVM.state.people.find((person) => person.name === name);
+    // A typed name the ledger already knows reuses that person: say which, do not stay silent.
+    if (known && form.members.some((member) => member.personId === known.id)) {
+      memberName.value = "";
+      peopleOpen.value = false;
+      memberHint.value = t("projectSettings.memberAlready", { name });
+      return;
+    }
+    if (known) {
+      id = known.id;
+      reused = true;
+    }
+  }
   try {
-    await ipc.addMember(props.id, null, name);
+    await ipc.addMember(props.id, id, id ? null : name);
     memberName.value = "";
+    peopleOpen.value = false;
+    if (reused) memberHint.value = t("projectSettings.memberReused", { name });
   } catch (e) {
+    memberHint.value = "";
     error.value = String(e);
     return;
   }
@@ -108,6 +144,12 @@ async function addMember(): Promise<void> {
 function onMemberKey(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
   void addMember();
+}
+
+/** Typing reopens the list and drops any earlier hint. */
+function onMemberInput(): void {
+  peopleOpen.value = true;
+  memberHint.value = "";
 }
 
 async function removeMember(personId: string): Promise<void> {
@@ -269,26 +311,34 @@ async function archive(): Promise<void> {
             </button>
           </motion.span>
         </AnimatePresence>
-        <div class="mt-2 flex items-center gap-2">
+        <div class="relative mt-2 min-w-0">
           <input
             v-model="memberName"
-            class="input input-sm flex-1 rounded-lg border-dashed border-base-300"
+            class="input input-sm w-full rounded-lg border-dashed border-base-300"
             :placeholder="t('projectSettings.memberPlaceholder')"
+            @focus="peopleOpen = true"
+            @input="onMemberInput"
+            @blur="peopleOpen = false"
             @keydown.enter="onMemberKey"
           />
-          <button
-            class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-            @click="addMember"
+          <!-- Focus offers the people still missing here; a click adds that one. -->
+          <div
+            v-if="peopleOpen && memberMatches.length"
+            class="absolute inset-x-0 top-full z-10 mt-1 max-h-44 overflow-y-auto rounded-lg border border-base-300 bg-base-100 p-1 shadow-xl"
           >
-            {{ t("projectSettings.addMember") }}
-          </button>
+            <button
+              v-for="person in memberMatches"
+              :key="person.id"
+              type="button"
+              class="block w-full rounded-md px-2 py-1 text-left text-[12px] text-base-content/70 hover:bg-base-200"
+              @mousedown.prevent
+              @click="addMember(person.id)"
+            >
+              {{ person.name }}
+            </button>
+          </div>
         </div>
-        <p class="mt-1.5 text-[10.5px] text-base-content/35">
-          {{ t("projectSettings.membersNote") }}
-        </p>
-        <p class="mt-1 text-[10.5px] text-base-content/35">
-          {{ t("projectSettings.memberCategoryHint") }}
-        </p>
+        <p v-if="memberHint" class="mt-1.5 text-[10.5px] text-primary">{{ memberHint }}</p>
       </div>
 
       <div class="mt-5 flex items-center gap-2 border-t border-base-200 pt-3">
