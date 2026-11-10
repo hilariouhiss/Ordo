@@ -46,6 +46,34 @@ vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 describe("weekVM", () => {
   afterEach(() => closeDialog(null));
 
+  it("keeps the newest load when two replies come back out of order", async () => {
+    let resolveFirst!: (value: Task[]) => void;
+    let resolveSecond!: (value: Task[]) => void;
+    vi.mocked(listWeek)
+      .mockReturnValueOnce(
+        new Promise((done) => {
+          resolveFirst = done;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((done) => {
+          resolveSecond = done;
+        }),
+      );
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+
+    const vm = createWeekVM();
+    const first = vm.load();
+    const second = vm.load();
+    resolveSecond([task({ id: "新" })]);
+    await second;
+    resolveFirst([task({ id: "旧" })]);
+    await first;
+
+    expect(vm.state.tasks.map((one) => one.id)).toEqual(["新"]);
+  });
+
   it("capture stores the task and clears the draft", async () => {
     vi.mocked(listWeek)
       .mockResolvedValueOnce([])

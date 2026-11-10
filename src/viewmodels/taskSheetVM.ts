@@ -293,6 +293,8 @@ export function createTaskSheetVM() {
       applyDerived(parked.form, fresh);
       state.form = parked.form;
       state.note = parked.note;
+      // The parent may live in another project, with another list of possible owners.
+      await refreshMembers(fresh.projectId);
     } catch (e) {
       state.error = String(e);
     } finally {

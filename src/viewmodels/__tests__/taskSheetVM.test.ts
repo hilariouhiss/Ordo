@@ -14,7 +14,7 @@ vi.mock("../../model/ipc", () => ({
   unarchiveTask: vi.fn(),
 }));
 
-import { addDelayNote, getTask, setTaskStatus, updateTaskPatch } from "../../model/ipc";
+import { addDelayNote, addMember, getTask, setTaskStatus, updateTaskPatch } from "../../model/ipc";
 import { isoOf, stampOfLocal } from "../../lib/dates";
 import { createTaskSheetVM, diffTask, formFinish, formOf, syncActualPreview } from "../taskSheetVM";
 import { task } from "./fixtures";
@@ -230,6 +230,24 @@ describe("syncActualPreview", () => {
 
     expect(syncActualPreview(form, "start")).toBeNull();
     expect(form.actualEffortMinutes).toBe(60);
+  });
+});
+
+describe("save", () => {
+  it("adds a picked owner to the project before landing the patch", async () => {
+    vi.mocked(getTask).mockResolvedValue(task({ id: "t1", projectId: "p1", ownerId: null }));
+    vi.mocked(updateTaskPatch).mockResolvedValue(task({ id: "t1", projectId: "p1" }));
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.state.form!.ownerId = "u2";
+    const saved = await vm.save();
+
+    expect(saved).toBe(true);
+    expect(addMember).toHaveBeenCalledWith("p1", "u2", null);
+    expect(vi.mocked(addMember).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(updateTaskPatch).mock.invocationCallOrder[0],
+    );
   });
 });
 
