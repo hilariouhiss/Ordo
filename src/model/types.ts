@@ -80,6 +80,8 @@ export interface Settings {
   deskY: number | null;
   tasksGroupBy: TaskGrouping;
   weekShowEmptyDays: boolean;
+  /** Whether finished tasks stay off the week page's list and gantt. */
+  weekHideDone: boolean;
   weekView: WeekView;
   savedTaskViews: SavedTaskView[];
   /** Minutes a reminder fires before a task's own moment; 0 keeps the built-in times. */
@@ -326,12 +328,13 @@ export interface ArchiveTask {
   title: string;
   archivedAt: string | null;
   canceledAt: string | null;
+  /** When the work finished, shown beside a completed task. */
+  actualFinishAt: string | null;
 }
 export interface ArchiveData {
   projects: Project[];
   tasks: ArchiveTask[];
   canceled: ArchiveTask[];
-  done: ArchiveTask[];
 }
 export interface ShortcutOutcome {
   active: string;

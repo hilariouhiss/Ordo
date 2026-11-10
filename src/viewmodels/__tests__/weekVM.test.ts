@@ -18,6 +18,7 @@ vi.mock("../../model/ipc", () => ({
 }));
 
 import { CAPTURE_DEFAULTS } from "../../lib/capture";
+import { groupLanes } from "../../lib/plan";
 import { todayIso, weekWorkdays } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import {
@@ -312,6 +313,30 @@ describe("weekVM plan", () => {
     const byDate = new Map(vm.days.value.map((day) => [day.date, day]));
     expect(byDate.get("2026-10-20")?.rows.map((row) => row.task.id)).toEqual(["a", "c"]);
     expect(byDate.get("2026-10-21")?.rows.map((row) => row.task.id)).toEqual(["b"]);
+  });
+
+  it("leaves finished work off the week when the setting is on", async () => {
+    appVM.state.settings = { ...defaultSettings, weekHideDone: true };
+    vi.mocked(listWeek).mockResolvedValue([task({ id: "a", sortOrder: 0 })]);
+    vi.mocked(listWeekDone).mockResolvedValueOnce([
+      task({
+        id: "b",
+        sortOrder: 1,
+        status: "done",
+        expectedStartDate: "2026-10-21",
+        actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
+      }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 1, delayed: 0 });
+    const vm = createWeekVM();
+    await vm.load();
+
+    const ids = vm.days.value.flatMap((day) => day.rows.map((row) => row.task.id));
+    expect(ids).toEqual(["a"]);
+    // The card list feeds the gantt too, so hiding it hides the lane.
+    const lanes = groupLanes(vm.days.value, vm.week.value);
+    expect(lanes.map((lane) => lane.task.id)).toEqual(["a"]);
   });
 
   it("fills the whole workweek from Monday when the setting is on", async () => {

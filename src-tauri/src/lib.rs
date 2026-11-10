@@ -361,6 +361,7 @@ pub fn run() {
       commands::projects::update_person,
       commands::projects::delete_person,
       commands::archive::list_archive,
+      commands::archive::list_done_tasks,
       commands::search::search_all,
       commands::stats::stats_overview,
       commands::archive::archive_task,

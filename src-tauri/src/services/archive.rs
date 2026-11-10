@@ -7,7 +7,6 @@ pub fn list(conn: &Connection, query: Option<&str>) -> Result<ArchiveDto, String
         projects: projects::list_archived(conn, query).map_err(|e| e.to_string())?,
         tasks: tasks::list_archived(conn, query).map_err(|e| e.to_string())?,
         canceled: tasks::list_canceled(conn, query).map_err(|e| e.to_string())?,
-        done: tasks::list_done(conn, query).map_err(|e| e.to_string())?,
     })
 }
 
@@ -527,11 +526,15 @@ mod tests {
         crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
         crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
 
-        assert!(archive::list(&c, None).unwrap().done.is_empty());
+        assert!(
+            crate::repo::tasks::list_done(&c, None)
+                .unwrap()
+                .is_empty()
+        );
         assert!(archive::list(&c, None).unwrap().tasks.is_empty());
 
         crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
-        assert_eq!(archive::list(&c, None).unwrap().done.len(), 1);
+        assert_eq!(crate::repo::tasks::list_done(&c, None).unwrap().len(), 1);
     }
 
     #[test]

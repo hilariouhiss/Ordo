@@ -221,6 +221,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .cloned()
             .unwrap_or_else(|| "project".into()),
         week_show_empty_days: flag(&map, "week.show_empty_days", true),
+        week_hide_done: flag(&map, "week.hide_done", false),
         week_view: map
             .get("week.view")
             .filter(|value| valid_week_view(value))
@@ -236,6 +237,15 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finished_work_is_shown_on_the_week_until_the_flag_is_set() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert!(!dto(&c).unwrap().week_hide_done);
+
+        set(&c, "week.hide_done", "true").unwrap();
+        assert!(dto(&c).unwrap().week_hide_done);
+    }
 
     #[test]
     fn ai_base_url_is_https_or_local() {

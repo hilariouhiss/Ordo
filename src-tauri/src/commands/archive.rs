@@ -1,4 +1,4 @@
-use crate::dto::{ArchiveDto, TaskDto};
+use crate::dto::{ArchiveDto, ArchiveTaskDto, TaskDto};
 use crate::now_iso;
 use crate::state::{with_db, AppState};
 use tauri::State;
@@ -10,6 +10,18 @@ pub async fn list_archive(
 ) -> Result<ArchiveDto, String> {
     with_db(&state, move |conn| {
         crate::services::archive::list(conn, query.as_deref())
+    })
+    .await
+}
+
+/// The task page's 已完成 list: every finished task, newest first.
+#[tauri::command]
+pub async fn list_done_tasks(
+    state: State<'_, AppState>,
+    query: Option<String>,
+) -> Result<Vec<ArchiveTaskDto>, String> {
+    with_db(&state, move |conn| {
+        crate::repo::tasks::list_done(conn, query.as_deref()).map_err(|e| e.to_string())
     })
     .await
 }

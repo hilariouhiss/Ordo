@@ -429,6 +429,18 @@ onUnmounted(() => {
                       @change="vm.save({ weekShowEmptyDays: !settings.weekShowEmptyDays })"
                     />
                   </div>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.weekHideDone") }}</span>
+                    <input
+                      type="checkbox"
+                      class="toggle toggle-xs toggle-success"
+                      :checked="settings.weekHideDone"
+                      @change="vm.save({ weekHideDone: !settings.weekHideDone })"
+                    />
+                  </div>
+                  <p class="mt-1.5 text-[10.5px] text-base-content/35">
+                    {{ t("settings.weekHideDoneHint") }}
+                  </p>
                   <div class="mt-4 h-px bg-base-300"></div>
                   <div class="mt-3 flex items-center justify-between text-[12px]">
                     <span>{{ t("settings.reminderLead") }}</span>

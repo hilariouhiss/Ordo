@@ -57,6 +57,8 @@ pub struct SettingsDto {
     pub tasks_group_by: String,
     /// Whether the week page lists workdays the planner left empty.
     pub week_show_empty_days: bool,
+    /// Whether finished tasks stay off the week page's list and gantt.
+    pub week_hide_done: bool,
     /// The week page layout; "list" when unset.
     pub week_view: String,
     /// Named task filters saved on the task page; empty when unset.
@@ -203,6 +205,8 @@ pub struct ArchiveTaskDto {
     pub title: String,
     pub archived_at: Option<String>,
     pub canceled_at: Option<String>,
+    /// When the work finished, shown beside a completed task.
+    pub actual_finish_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -211,7 +215,6 @@ pub struct ArchiveDto {
     pub projects: Vec<ProjectDto>,
     pub tasks: Vec<ArchiveTaskDto>,
     pub canceled: Vec<ArchiveTaskDto>,
-    pub done: Vec<ArchiveTaskDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -429,6 +432,7 @@ pub struct SettingsPatch {
     pub desk_y: Option<i64>,
     pub tasks_group_by: Option<String>,
     pub week_show_empty_days: Option<bool>,
+    pub week_hide_done: Option<bool>,
     pub week_view: Option<String>,
     pub saved_task_views: Option<Vec<SavedTaskViewDto>>,
     pub reminders_lead_minutes: Option<i64>,

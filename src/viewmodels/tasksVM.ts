@@ -1,10 +1,17 @@
 import { computed, reactive, watch } from "vue";
-import { askNotice } from "../lib/dialog";
+import { askNotice, runWithNotice } from "../lib/dialog";
 import { errorText, language, t } from "../lib/i18n";
 import { EMPTY_FILTER, filterTasks, isEmptyFilter, sameFilter } from "../lib/taskFilter";
 import { groupTasks, type TaskGroup, type TaskGrouping } from "../lib/taskGroups";
-import { listAllTasks, setSettings, updateTaskPatch } from "../model/ipc";
-import type { SavedTaskView, Task, TaskFilter } from "../model/types";
+import {
+  deleteTask,
+  listAllTasks,
+  listDoneTasks,
+  restoreTask,
+  setSettings,
+  updateTaskPatch,
+} from "../model/ipc";
+import type { ArchiveTask, SavedTaskView, Task, TaskFilter } from "../model/types";
 import { appVM } from "./appVM";
 import { undoVM } from "./undoVM";
 
@@ -16,6 +23,10 @@ function newViewId(): string {
 export function createTasksVM() {
   const state = reactive({
     tasks: [] as Task[],
+    /** The task page's other half: finished work, which the week no longer lists. */
+    mode: "open" as "open" | "done",
+    done: [] as ArchiveTask[],
+    doneQuery: "",
     loading: false,
     groupBy: "project" as TaskGrouping,
     collapsed: {} as Record<string, boolean>,
@@ -77,6 +88,26 @@ export function createTasksVM() {
     } finally {
       state.loading = false;
     }
+  }
+
+  async function loadDone(): Promise<void> {
+    state.done = await listDoneTasks(state.doneQuery.trim() || null);
+  }
+
+  async function setMode(mode: "open" | "done"): Promise<void> {
+    state.mode = mode;
+    if (mode === "done") await loadDone();
+  }
+
+  /** Reopening puts the task back in the week, so both halves refresh. */
+  async function restoreDone(id: string): Promise<void> {
+    if (!(await runWithNotice(() => restoreTask(id)))) return;
+    await Promise.all([load(), loadDone()]);
+  }
+
+  async function removeDone(id: string): Promise<void> {
+    if (!(await runWithNotice(() => deleteTask(id)))) return;
+    await loadDone();
   }
 
   function clearFilter(): void {
@@ -177,6 +208,10 @@ export function createTasksVM() {
     activeViewId,
     sections,
     load,
+    loadDone,
+    setMode,
+    restoreDone,
+    removeDone,
     setGroupBy,
     clearFilter,
     saveView,

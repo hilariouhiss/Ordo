@@ -34,14 +34,13 @@ import type { ArchiveData } from "../../model/types";
 import { createArchiveVM } from "../archiveVM";
 import { undoVM } from "../undoVM";
 
-const empty = { projects: [], tasks: [], canceled: [], done: [] };
+const empty = { projects: [], tasks: [], canceled: [] };
 
 function archiveWith(id: string, title: string): ArchiveData {
   return {
     projects: [],
-    tasks: [{ id, title, archivedAt: null, canceledAt: null }],
+    tasks: [{ id, title, archivedAt: null, canceledAt: null, actualFinishAt: null }],
     canceled: [],
-    done: [],
   };
 }
 

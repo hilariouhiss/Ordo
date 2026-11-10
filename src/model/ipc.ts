@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AiTestResult,
   ArchiveData,
+  ArchiveTask,
   Bootstrap,
   CaptureFields,
   Category,
@@ -257,6 +258,10 @@ export function getProjectSummary(id: string): Promise<ProjectSummary> {
 export function listProjectTasks(projectId: string): Promise<Task[]> {
   return invoke<Task[]>("list_project_tasks", { projectId });
 }
+export function listDoneTasks(query: string | null): Promise<ArchiveTask[]> {
+  return invoke<ArchiveTask[]>("list_done_tasks", { query });
+}
+
 export function listArchive(query: string | null): Promise<ArchiveData> {
   return invoke<ArchiveData>("list_archive", { query });
 }

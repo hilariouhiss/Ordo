@@ -14,13 +14,13 @@ import type { ArchiveData } from "../model/types";
 import { projectsVM } from "./projectsVM";
 import { undoVM } from "./undoVM";
 
-export type ArchiveTab = "projects" | "tasks" | "canceled" | "done";
+export type ArchiveTab = "projects" | "tasks" | "canceled";
 
 export function createArchiveVM() {
   const state = reactive({
     query: "",
     tab: "projects" as ArchiveTab,
-    data: { projects: [], tasks: [], canceled: [], done: [] } as ArchiveData,
+    data: { projects: [], tasks: [], canceled: [] } as ArchiveData,
     loading: false,
   });
 

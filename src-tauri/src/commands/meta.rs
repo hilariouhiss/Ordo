@@ -51,6 +51,7 @@ fn save_settings(
             "week.show_empty_days",
             patch.week_show_empty_days.map(|v| v.to_string()),
         ),
+        ("week.hide_done", patch.week_hide_done.map(|v| v.to_string())),
         ("week.view", patch.week_view),
         ("tasks.saved_views", saved_views),
         (

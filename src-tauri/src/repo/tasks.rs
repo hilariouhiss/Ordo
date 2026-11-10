@@ -594,7 +594,7 @@ fn list_where(
     let top_level = if include_children { "" } else { "parent_id IS NULL AND " };
     let pattern = query.map(crate::repo::like_pattern);
     let sql = format!(
-        "SELECT id, title, archived_at, canceled_at FROM tasks
+        "SELECT id, title, archived_at, canceled_at, actual_finish_at FROM tasks
          WHERE deleted_at IS NULL AND {top_level}{} AND {LIVE_PROJECT}
            AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC
@@ -608,6 +608,7 @@ fn list_where(
             title: r.get(1)?,
             archived_at: r.get(2)?,
             canceled_at: r.get(3)?,
+            actual_finish_at: r.get(4)?,
         })
     })?;
     rows.collect()

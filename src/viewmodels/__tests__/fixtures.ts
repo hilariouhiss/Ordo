@@ -19,6 +19,7 @@ export const defaultSettings: Settings = {
   deskY: null,
   tasksGroupBy: "project",
   weekShowEmptyDays: true,
+  weekHideDone: false,
   weekView: "list",
   savedTaskViews: [],
   remindersLeadMinutes: 60,

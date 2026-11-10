@@ -7,27 +7,14 @@ import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
-import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
-import TaskSheet from "./overlays/TaskSheet.vue";
 
 onMounted(() => {
   void vm.load();
 });
 
-watch(
-  () => taskSheetVM.state.openId,
-  (open) => {
-    if (!open) void vm.load();
-  },
-);
-
 const currentList = computed(() =>
-  vm.state.tab === "tasks"
-    ? vm.state.data.tasks
-    : vm.state.tab === "done"
-      ? vm.state.data.done
-      : vm.state.data.canceled,
+  vm.state.tab === "tasks" ? vm.state.data.tasks : vm.state.data.canceled,
 );
 
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -52,9 +39,6 @@ async function removeProject(id: string, name: string): Promise<void> {
   if (ok) await vm.removeProject(id);
 }
 
-function openTask(id: string): void {
-  void taskSheetVM.open(id);
-}
 watch(
   () => undoVM.state.revision,
   () => {
@@ -103,14 +87,6 @@ watch(
       >
         {{ t("archive.canceled", { count: vm.state.data.canceled.length }) }}
       </button>
-      <button
-        role="tab"
-        class="tab"
-        :class="{ 'tab-active': vm.state.tab === 'done' }"
-        @click="vm.state.tab = 'done'"
-      >
-        {{ t("archive.done", { count: vm.state.data.done.length }) }}
-      </button>
     </div>
 
     <div v-if="vm.state.tab === 'projects'" class="space-y-1.5">
@@ -151,8 +127,6 @@ watch(
           :key="task.id"
           v-bind="listItemMotion"
           class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
-          :class="{ 'cursor-pointer': vm.state.tab === 'done' }"
-          @click="vm.state.tab === 'done' && openTask(task.id)"
         >
           <span class="text-[13px] text-base-content/70">{{ task.title }}</span>
           <span v-if="task.canceledAt" class="badge badge-ghost badge-xs">{{
@@ -185,9 +159,5 @@ watch(
         {{ t("archive.empty") }}
       </p>
     </div>
-
-    <AnimatePresence>
-      <TaskSheet v-if="taskSheetVM.state.openId" key="task-sheet" />
-    </AnimatePresence>
   </section>
 </template>

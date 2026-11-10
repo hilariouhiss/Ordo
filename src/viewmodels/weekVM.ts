@@ -86,7 +86,9 @@ export function createWeekVM() {
       today.value,
       dates[dates.length - 1],
     );
-    const withDone = addDoneRows(planned, state.done, dates, today.value);
+    const withDone = appVM.state.settings?.weekHideDone
+      ? planned
+      : addDoneRows(planned, state.done, dates, today.value);
     if (!appVM.state.settings?.weekShowEmptyDays) return withDone;
     return fillPlannedDays(withDone, dates, plan.value, today.value);
   });
