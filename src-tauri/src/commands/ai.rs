@@ -16,18 +16,18 @@ pub struct AiTestResult {
 }
 
 fn ai_settings(conn: &Connection) -> (bool, String, String) {
-    let enabled = crate::repo::settings::get(conn, "ai.enabled")
+    let enabled = crate::repo::settings::get(conn, crate::repo::settings::keys::AI_ENABLED)
         .ok()
         .flatten()
         .map(|v| v == "true")
         .unwrap_or(false);
     // A hand-edited or older row must not redirect the API key either.
-    let base_url = crate::repo::settings::get(conn, "ai.base_url")
+    let base_url = crate::repo::settings::get(conn, crate::repo::settings::keys::AI_BASE_URL)
         .ok()
         .flatten()
         .filter(|value| crate::repo::settings::valid_ai_base_url(value))
         .unwrap_or_else(|| "https://api.deepseek.com".into());
-    let model = crate::repo::settings::get(conn, "ai.model")
+    let model = crate::repo::settings::get(conn, crate::repo::settings::keys::AI_MODEL)
         .ok()
         .flatten()
         .unwrap_or_else(|| "deepseek-flash".into());

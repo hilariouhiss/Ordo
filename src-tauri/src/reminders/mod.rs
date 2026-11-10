@@ -153,7 +153,11 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         // The digest is dated here, so a failure to show cannot fire it twice.
         let digest = rules::digest(&conn, now).unwrap_or(None);
         if digest.is_some() {
-            let _ = crate::repo::settings::set(&conn, "reminders.digest_date", &today);
+            let _ = crate::repo::settings::set(
+                &conn,
+                crate::repo::settings::keys::DIGEST_DATE,
+                &today,
+            );
         }
         let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
         (lang, toasts, digest, unread)

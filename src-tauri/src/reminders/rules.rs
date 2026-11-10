@@ -1,4 +1,4 @@
-use crate::repo::tasks::VISIBLE_TASK_FILTER;
+use crate::repo::tasks::visible_task_filter;
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use rusqlite::Connection;
 
@@ -36,7 +36,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         "SELECT id, expected_finish_date, expected_finish_time, created_at FROM tasks
          WHERE expected_finish_date IS NOT NULL AND status <> 'done' AND suspended = 0
            AND waiting = 0 AND {}",
-        VISIBLE_TASK_FILTER
+        visible_task_filter("tasks")
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
@@ -114,7 +114,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         "SELECT id, suspended_until FROM tasks
          WHERE suspended_until IS NOT NULL AND status <> 'done'
            AND {}",
-        VISIBLE_TASK_FILTER
+        visible_task_filter("tasks")
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
@@ -143,7 +143,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         "SELECT id, follow_up_date FROM tasks
          WHERE waiting = 1 AND status <> 'done' AND follow_up_date IS NOT NULL
            AND {}",
-        VISIBLE_TASK_FILTER
+        visible_task_filter("tasks")
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
@@ -183,7 +183,7 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
                        AND (expected_finish_date IS NOT NULL
                             OR (waiting = 1 AND follow_up_date IS NOT NULL))
                        AND {}",
-                    VISIBLE_TASK_FILTER
+                    visible_task_filter("tasks")
                 ),
                 [&task_id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -253,7 +253,7 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
         return Ok(None);
     }
     let key = today.format("%Y-%m-%d").to_string();
-    let fired = crate::repo::settings::get(conn, "reminders.digest_date")
+    let fired = crate::repo::settings::get(conn, crate::repo::settings::keys::DIGEST_DATE)
         .ok()
         .flatten()
         .as_deref()
@@ -266,7 +266,8 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
             &format!(
                 "SELECT COUNT(*) FROM tasks
                  WHERE status <> 'done' AND suspended = 0 AND waiting = 0
-                   AND {extra} AND {VISIBLE_TASK_FILTER}"
+                   AND {extra} AND {}",
+                visible_task_filter("tasks")
             ),
             [&key],
             |r| r.get(0),
@@ -285,7 +286,7 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
                AND status <> 'done' AND suspended = 0 AND waiting = 0 AND {}
              ORDER BY expected_finish_date DESC, sort_order
              LIMIT {DIGEST_TITLES}",
-            VISIBLE_TASK_FILTER
+            visible_task_filter("tasks")
         ))
         .map_err(|e| e.to_string())?;
     let titles: Vec<String> = stmt

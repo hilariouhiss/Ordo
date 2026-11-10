@@ -149,7 +149,7 @@ pub fn backup_today(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, St
 }
 
 fn keep_days(conn: &Connection) -> i64 {
-    crate::repo::settings::get(conn, "backup_keep_days")
+    crate::repo::settings::get(conn, crate::repo::settings::keys::BACKUP_KEEP_DAYS)
         .ok()
         .flatten()
         .and_then(|v| v.parse().ok())
@@ -169,13 +169,14 @@ pub fn backup_daily(conn: &Connection, dir: &Path) -> Result<Option<PathBuf>, St
 
 /// Keeps the last backup failure in settings so the user can see it; only writes on change.
 pub fn record_error(conn: &Connection, error: Option<String>) {
-    let current = crate::repo::settings::get(conn, "backup_error")
+    let key = crate::repo::settings::keys::BACKUP_ERROR;
+    let current = crate::repo::settings::get(conn, key)
         .ok()
         .flatten()
         .unwrap_or_default();
     let next = error.unwrap_or_default();
     if current != next {
-        let _ = crate::repo::settings::set(conn, "backup_error", &next);
+        let _ = crate::repo::settings::set(conn, key, &next);
     }
 }
 

@@ -33,32 +33,48 @@ fn save_settings(
     saved_views: Option<String>,
 ) -> Result<SettingsDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    use crate::repo::settings::keys;
     let sets: Vec<(&str, Option<String>)> = vec![
-        ("language", patch.language),
-        ("ai.enabled", patch.ai_enabled.map(|v| v.to_string())),
-        ("ai.base_url", patch.ai_base_url.map(|v| v.trim().to_string())),
-        ("ai.model", patch.ai_model),
-        ("autostart", patch.autostart.map(|v| v.to_string())),
-        ("backup_keep_days", patch.backup_keep_days.map(|v| v.to_string())),
-        ("theme", patch.theme),
-        ("desk.enabled", patch.desk_enabled.map(|v| v.to_string())),
-        ("desk.controls", patch.desk_controls.map(|v| v.to_string())),
-        ("desk.pin", patch.desk_pin),
-        ("desk.x", patch.desk_x.map(|v| v.to_string())),
-        ("desk.y", patch.desk_y.map(|v| v.to_string())),
-        ("tasks.group_by", patch.tasks_group_by),
+        (keys::LANGUAGE, patch.language),
+        (keys::AI_ENABLED, patch.ai_enabled.map(|v| v.to_string())),
         (
-            "week.show_empty_days",
+            keys::AI_BASE_URL,
+            patch.ai_base_url.map(|v| v.trim().to_string()),
+        ),
+        (keys::AI_MODEL, patch.ai_model),
+        (keys::AUTOSTART, patch.autostart.map(|v| v.to_string())),
+        (
+            keys::BACKUP_KEEP_DAYS,
+            patch.backup_keep_days.map(|v| v.to_string()),
+        ),
+        (keys::THEME, patch.theme),
+        (
+            keys::DESK_ENABLED,
+            patch.desk_enabled.map(|v| v.to_string()),
+        ),
+        (
+            keys::DESK_CONTROLS,
+            patch.desk_controls.map(|v| v.to_string()),
+        ),
+        (keys::DESK_PIN, patch.desk_pin),
+        (keys::DESK_X, patch.desk_x.map(|v| v.to_string())),
+        (keys::DESK_Y, patch.desk_y.map(|v| v.to_string())),
+        (keys::TASKS_GROUP_BY, patch.tasks_group_by),
+        (
+            keys::WEEK_SHOW_EMPTY_DAYS,
             patch.week_show_empty_days.map(|v| v.to_string()),
         ),
-        ("week.hide_done", patch.week_hide_done.map(|v| v.to_string())),
-        ("week.view", patch.week_view),
-        ("tasks.saved_views", saved_views),
+        (keys::WEEK_HIDE_DONE, patch.week_hide_done.map(|v| v.to_string())),
+        (keys::WEEK_VIEW, patch.week_view),
+        (keys::SAVED_VIEWS, saved_views),
         (
-            "reminders.lead_minutes",
+            keys::REMINDER_LEAD_MINUTES,
             patch.reminders_lead_minutes.map(|v| v.to_string()),
         ),
-        ("reminders.digest", patch.reminders_digest.map(|v| v.to_string())),
+        (
+            keys::REMINDERS_DIGEST,
+            patch.reminders_digest.map(|v| v.to_string()),
+        ),
     ];
     for (key, value) in sets {
         if let Some(value) = value {

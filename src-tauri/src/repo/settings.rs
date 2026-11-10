@@ -6,6 +6,34 @@ use std::collections::HashMap;
 /// advance reminder at all, so the default has to be a real lead rather than "off".
 pub const DEFAULT_REMINDER_LEAD_MINUTES: i64 = 60;
 
+/// The settings keys written and read from more than one module. One spelling each, so
+/// a reader and a writer cannot drift apart. Single-module keys stay at their use site.
+pub mod keys {
+    pub const LANGUAGE: &str = "language";
+    pub const THEME: &str = "theme";
+    pub const AUTOSTART: &str = "autostart";
+    pub const BACKUP_KEEP_DAYS: &str = "backup_keep_days";
+    pub const BACKUP_ERROR: &str = "backup_error";
+    pub const TRAY_HINT_SEEN: &str = "tray_hint_seen";
+    pub const LAST_PASS_WEEK: &str = "last_pass_week";
+    pub const AI_ENABLED: &str = "ai.enabled";
+    pub const AI_BASE_URL: &str = "ai.base_url";
+    pub const AI_MODEL: &str = "ai.model";
+    pub const REMINDER_LEAD_MINUTES: &str = "reminders.lead_minutes";
+    pub const REMINDERS_DIGEST: &str = "reminders.digest";
+    pub const DIGEST_DATE: &str = "reminders.digest_date";
+    pub const DESK_ENABLED: &str = "desk.enabled";
+    pub const DESK_CONTROLS: &str = "desk.controls";
+    pub const DESK_PIN: &str = "desk.pin";
+    pub const DESK_X: &str = "desk.x";
+    pub const DESK_Y: &str = "desk.y";
+    pub const TASKS_GROUP_BY: &str = "tasks.group_by";
+    pub const SAVED_VIEWS: &str = "tasks.saved_views";
+    pub const WEEK_SHOW_EMPTY_DAYS: &str = "week.show_empty_days";
+    pub const WEEK_HIDE_DONE: &str = "week.hide_done";
+    pub const WEEK_VIEW: &str = "week.view";
+}
+
 pub fn get_all(conn: &Connection) -> rusqlite::Result<HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -45,7 +73,7 @@ pub fn valid_language(value: &str) -> bool {
 }
 
 pub fn language(conn: &Connection) -> String {
-    normalize_language(get(conn, "language").ok().flatten().as_deref()).into()
+    normalize_language(get(conn, keys::LANGUAGE).ok().flatten().as_deref()).into()
 }
 
 fn flag(map: &HashMap<String, String>, key: &str, default: bool) -> bool {
@@ -78,7 +106,7 @@ pub fn valid_task_group_by(value: &str) -> bool {
 }
 
 /// The settings key holding the task page's named views as a JSON array.
-pub const SAVED_VIEWS_KEY: &str = "tasks.saved_views";
+pub const SAVED_VIEWS_KEY: &str = keys::SAVED_VIEWS;
 
 fn valid_priority(value: &str) -> bool {
     matches!(value, "high" | "normal" | "low")
@@ -135,7 +163,7 @@ pub fn valid_ai_base_url(value: &str) -> bool {
 
 /// How long before a task's own deadline the advance reminder fires; 0 turns it off.
 pub fn reminder_lead_minutes(conn: &Connection) -> i64 {
-    get(conn, "reminders.lead_minutes")
+    get(conn, keys::REMINDER_LEAD_MINUTES)
         .ok()
         .flatten()
         .and_then(|value| value.parse().ok())
@@ -145,7 +173,7 @@ pub fn reminder_lead_minutes(conn: &Connection) -> i64 {
 
 /// The daily 09:00 digest is on unless the user turned it off.
 pub fn reminders_digest(conn: &Connection) -> bool {
-    get(conn, "reminders.digest")
+    get(conn, keys::REMINDERS_DIGEST)
         .ok()
         .flatten()
         .map(|value| value != "false")
@@ -154,7 +182,7 @@ pub fn reminders_digest(conn: &Connection) -> bool {
 
 /// The main window starts as the week widget when this is on.
 pub fn desk_enabled(conn: &Connection) -> bool {
-    get(conn, "desk.enabled")
+    get(conn, keys::DESK_ENABLED)
         .ok()
         .flatten()
         .as_deref()
@@ -164,14 +192,14 @@ pub fn desk_enabled(conn: &Connection) -> bool {
 pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
     let map = get_all(conn)?;
     Ok(SettingsDto {
-        language: normalize_language(map.get("language").map(String::as_str)).into(),
-        ai_enabled: flag(&map, "ai.enabled", false),
+        language: normalize_language(map.get(keys::LANGUAGE).map(String::as_str)).into(),
+        ai_enabled: flag(&map, keys::AI_ENABLED, false),
         ai_base_url: map
-            .get("ai.base_url")
+            .get(keys::AI_BASE_URL)
             .cloned()
             .unwrap_or_else(|| "https://api.deepseek.com".into()),
         ai_model: map
-            .get("ai.model")
+            .get(keys::AI_MODEL)
             .cloned()
             .unwrap_or_else(|| "deepseek-flash".into()),
         shortcut: map
@@ -186,13 +214,13 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get("main.shortcut")
             .cloned()
             .unwrap_or_else(|| "Ctrl+Alt+M".into()),
-        autostart: flag(&map, "autostart", true),
-        backup_keep_days: num(&map, "backup_keep_days", 30),
+        autostart: flag(&map, keys::AUTOSTART, true),
+        backup_keep_days: num(&map, keys::BACKUP_KEEP_DAYS, 30),
         backup_error: map
-            .get("backup_error")
+            .get(keys::BACKUP_ERROR)
             .cloned()
             .filter(|v| !v.is_empty()),
-        last_pass_week: map.get("last_pass_week").cloned().unwrap_or_default(),
+        last_pass_week: map.get(keys::LAST_PASS_WEEK).cloned().unwrap_or_default(),
         shortcut_warning: map
             .get("shortcut_warning")
             .cloned()
@@ -205,32 +233,32 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get("main.shortcut_warning")
             .cloned()
             .filter(|v| !v.is_empty()),
-        theme: map.get("theme").cloned().unwrap_or_else(|| "system".into()),
-        desk_enabled: flag(&map, "desk.enabled", false),
-        desk_controls: flag(&map, "desk.controls", true),
+        theme: map.get(keys::THEME).cloned().unwrap_or_else(|| "system".into()),
+        desk_enabled: flag(&map, keys::DESK_ENABLED, false),
+        desk_controls: flag(&map, keys::DESK_CONTROLS, true),
         desk_pin: map
-            .get("desk.pin")
+            .get(keys::DESK_PIN)
             .filter(|value| valid_desk_pin(value))
             .cloned()
             .unwrap_or_else(|| "top".into()),
-        desk_x: opt_num(&map, "desk.x"),
-        desk_y: opt_num(&map, "desk.y"),
+        desk_x: opt_num(&map, keys::DESK_X),
+        desk_y: opt_num(&map, keys::DESK_Y),
         tasks_group_by: map
-            .get("tasks.group_by")
+            .get(keys::TASKS_GROUP_BY)
             .filter(|value| valid_task_group_by(value))
             .cloned()
             .unwrap_or_else(|| "project".into()),
-        week_show_empty_days: flag(&map, "week.show_empty_days", true),
-        week_hide_done: flag(&map, "week.hide_done", false),
+        week_show_empty_days: flag(&map, keys::WEEK_SHOW_EMPTY_DAYS, true),
+        week_hide_done: flag(&map, keys::WEEK_HIDE_DONE, false),
         week_view: map
-            .get("week.view")
+            .get(keys::WEEK_VIEW)
             .filter(|value| valid_week_view(value))
             .cloned()
             .unwrap_or_else(|| "list".into()),
         saved_task_views: parse_saved_views(map.get(SAVED_VIEWS_KEY).map(String::as_str)),
-        reminders_lead_minutes: num(&map, "reminders.lead_minutes", DEFAULT_REMINDER_LEAD_MINUTES)
+        reminders_lead_minutes: num(&map, keys::REMINDER_LEAD_MINUTES, DEFAULT_REMINDER_LEAD_MINUTES)
             .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
-        reminders_digest: flag(&map, "reminders.digest", true),
+        reminders_digest: flag(&map, keys::REMINDERS_DIGEST, true),
     })
 }
 

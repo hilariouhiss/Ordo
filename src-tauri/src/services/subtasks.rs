@@ -276,26 +276,23 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
     let status = crate::services::status::derive(&stored, &refs);
     let done = status == "done";
     // The rollup writes the row directly: a derived date is not a reschedule the delay ledger
-    // should record, and a rule keeps owning the clock time it generated.
+    // should record, and a rule keeps owning the clock time it generated. The parked columns
+    // come from the one list in the repo, so a finished parent leaves every park together.
     conn.execute(
-        "UPDATE tasks SET effort_minutes = ?1,
+        &format!(
+            "UPDATE tasks SET effort_minutes = ?1,
                 expected_start_date = ?2,
                 expected_finish_date = CASE WHEN ?11 THEN expected_finish_date ELSE ?3 END,
                 started_at = ?4,
                 status = ?5,
                 in_week = CASE WHEN ?6 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
-                suspended = CASE WHEN ?6 THEN 0 ELSE suspended END,
-                waiting = CASE WHEN ?6 THEN 0 ELSE waiting END,
-                waiting_on_id = CASE WHEN ?6 THEN NULL ELSE waiting_on_id END,
-                follow_up_date = CASE WHEN ?6 THEN NULL ELSE follow_up_date END,
-                waiting_since = CASE WHEN ?6 THEN NULL ELSE waiting_since END,
-                suspended_until = CASE WHEN ?6 THEN NULL ELSE suspended_until END,
-                suspended_at = CASE WHEN ?6 THEN NULL ELSE suspended_at END,
-                suspend_reason = CASE WHEN ?6 THEN NULL ELSE suspend_reason END,
+                {},
                 actual_finish_at = CASE WHEN ?6 THEN COALESCE(?7, ?9) ELSE NULL END,
                 actual_effort_minutes = CASE WHEN ?6 THEN ?8 ELSE NULL END,
                 updated_at = ?9
          WHERE id = ?10",
+            tasks::park_reset("?6")
+        ),
         params![
             effort,
             start,

@@ -172,7 +172,7 @@ fn first_close_hint(app: &tauri::AppHandle) {
     let state = app.state::<crate::state::AppState>();
     let (seen, lang) = match state.db.lock() {
         Ok(conn) => (
-            crate::repo::settings::get(&conn, "tray_hint_seen")
+            crate::repo::settings::get(&conn, crate::repo::settings::keys::TRAY_HINT_SEEN)
                 .ok()
                 .flatten()
                 .is_some(),
@@ -190,7 +190,11 @@ fn first_close_hint(app: &tauri::AppHandle) {
     // cost the user the only explanation of where the window went.
     if shown.is_ok() {
         if let Ok(conn) = state.db.lock() {
-            let _ = crate::repo::settings::set(&conn, "tray_hint_seen", "true");
+            let _ = crate::repo::settings::set(
+                &conn,
+                crate::repo::settings::keys::TRAY_HINT_SEEN,
+                "true",
+            );
         }
     }
 }
@@ -287,6 +291,179 @@ pub(crate) fn refresh_tray(
             note_error(app, &format!("托盘菜单重建失败：{e}"));
         }
     }
+}
+
+/// A tapped toast brings its task (or the week page) forward; a snooze button records when
+/// the same reminder should come back.
+fn install_notification_handler(app: &tauri::App) {
+    use tauri_plugin_notification::NotificationExt;
+    let notification_handle = app.handle().clone();
+    let _ = app.notification().on_action(move |action| {
+        let state = notification_handle.state::<crate::state::AppState>();
+        let target = action
+            .notification()
+            .map(|n| n.id())
+            .and_then(|id| state.reminder_targets.target_for(id));
+        if action.action_id() == "tap" {
+            match target {
+                Some(crate::reminders::ReminderTarget::Task(task_id)) => {
+                    let _ = notification_handle.emit_to("main", "reminder:open", task_id);
+                }
+                Some(crate::reminders::ReminderTarget::Week) => {
+                    let _ = notification_handle.emit_to("main", "nav:week", ());
+                }
+                None => {}
+            }
+            show_main(&notification_handle);
+            return;
+        }
+        // A snooze button: remember when the task should be reminded again.
+        let Some(until) =
+            crate::reminders::snoozed_until(action.action_id(), chrono::Local::now())
+        else {
+            return;
+        };
+        let Some(crate::reminders::ReminderTarget::Task(task_id)) = target else {
+            return;
+        };
+        if let Ok(conn) = state.db.lock() {
+            let _ = crate::repo::snoozes::set(
+                &conn,
+                &task_id,
+                &until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            );
+        }
+    });
+}
+
+/// Shows a startup failure and leaves it in a file beside the ledger: stderr is invisible
+/// in a windows_subsystem release build.
+fn report_startup_failure(
+    app: &tauri::App,
+    data_dir: &std::path::Path,
+    title: String,
+    message: String,
+) {
+    use tauri_plugin_notification::NotificationExt;
+    eprintln!("{message}");
+    let _ = std::fs::create_dir_all(data_dir);
+    let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
+    let _ = app.notification().builder().title(title).body(&message).show();
+}
+
+/// Copies the old bundle's ledger in, then opens the database, restoring a backup when the
+/// file is broken. A failure is reported to the user here and handed back as setup's error.
+fn open_ledger(
+    app: &tauri::App,
+) -> Result<(rusqlite::Connection, Option<crate::db::Recovery>), String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let legacy_dir = data_dir.with_file_name(LEGACY_IDENTIFIER);
+    match crate::db::migrate_legacy_data(&legacy_dir, &data_dir) {
+        Ok(true) => eprintln!(
+            "旧数据已从 {} 迁到 {}（旧目录保留）",
+            legacy_dir.display(),
+            data_dir.display()
+        ),
+        Ok(false) => {}
+        Err(e) => {
+            let (title, message) = crate::i18n::legacy_migration_failed(
+                crate::i18n::system_lang(),
+                &e.to_string(),
+                &legacy_dir.display().to_string(),
+            );
+            report_startup_failure(app, &data_dir, title, message.clone());
+            return Err(message);
+        }
+    }
+    std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    let backups = data_dir.join("backups");
+    match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
+        Ok(found) => Ok(found),
+        Err(e) => {
+            let lang = crate::i18n::system_lang();
+            let dir_label = data_dir.display().to_string();
+            let (title, message) = match e.strip_prefix("db_newer_than_app: ") {
+                Some(version) => crate::i18n::database_too_new(lang, version, &dir_label),
+                None => crate::i18n::database_open_failed(lang, &e, &dir_label),
+            };
+            report_startup_failure(app, &data_dir, title, message.clone());
+            Err(message)
+        }
+    }
+}
+
+/// Tells the user a backup was restored, and where the broken file went.
+fn report_recovery(app: &tauri::App, conn: &rusqlite::Connection, recovery: &crate::db::Recovery) {
+    use tauri_plugin_notification::NotificationExt;
+    let (title, body) = crate::i18n::recovery_notice(
+        crate::i18n::from_conn(conn),
+        &recovery.restored_from.display().to_string(),
+        recovery
+            .broken_file_kept_at
+            .as_ref()
+            .map(|kept| kept.display().to_string()),
+    );
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Matches the Windows Run key to the saved preference, writing it only when they differ.
+fn sync_autostart(app: &tauri::App, conn: &rusqlite::Connection) {
+    use tauri_plugin_autostart::ManagerExt;
+    let autostart = crate::repo::settings::get(conn, crate::repo::settings::keys::AUTOSTART)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "true".into())
+        == "true";
+    // Writing the Run key on every launch is wasted startup work.
+    if app.autolaunch().is_enabled().unwrap_or(false) == autostart {
+        return;
+    }
+    let result = if autostart {
+        app.autolaunch().enable()
+    } else {
+        app.autolaunch().disable()
+    };
+    if let Err(e) = result {
+        note_error(app.handle(), &format!("自动启动设置失败：{e}"));
+    }
+}
+
+/// Registers the three global shortcuts and stores why any of them failed, so the settings
+/// page can explain a key another program already owns.
+fn register_saved_shortcuts(app: &tauri::App, conn: &rusqlite::Connection) {
+    for target in ShortcutTarget::ALL {
+        let saved = crate::repo::settings::get(conn, target.settings_key())
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| target.default_value().into());
+        let Ok(shortcut) = saved.parse::<tauri_plugin_global_shortcut::Shortcut>() else {
+            continue;
+        };
+        let warning = match register_shortcut(app.handle(), shortcut, target) {
+            Ok(()) => String::new(),
+            Err(e) => e,
+        };
+        let _ = crate::repo::settings::set(conn, target.warning_key(), &warning);
+    }
+}
+
+/// Builds the mini window off the startup path, then reveals the main window after a moment
+/// in case the page never did.
+fn reveal_main_soon(app: &tauri::AppHandle) {
+    let deferred = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let handle = deferred.clone();
+        let _ = deferred.run_on_main_thread(move || {
+            let _ = ensure_capture(&handle, false);
+            if let Some(window) = handle.get_webview_window("main") {
+                if !window.is_visible().unwrap_or(true) {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -402,160 +579,23 @@ pub fn run() {
       commands::rules::create_task_from_template
     ])
     .setup(|app| {
-      let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-      let legacy_dir = data_dir.with_file_name(LEGACY_IDENTIFIER);
-      match crate::db::migrate_legacy_data(&legacy_dir, &data_dir) {
-          Ok(true) => eprintln!(
-              "旧数据已从 {} 迁到 {}（旧目录保留）",
-              legacy_dir.display(),
-              data_dir.display()
-          ),
-          Ok(false) => {}
-          Err(e) => {
-              let (title, message) = crate::i18n::legacy_migration_failed(
-                  crate::i18n::system_lang(),
-                  &e.to_string(),
-                  &legacy_dir.display().to_string(),
-              );
-              // stderr is invisible in a windows_subsystem release build, so leave a file.
-              eprintln!("{message}");
-              let _ = std::fs::create_dir_all(&data_dir);
-              let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
-              use tauri_plugin_notification::NotificationExt;
-              let _ = app.notification().builder().title(title).body(&message).show();
-              return Err(message.into());
-          }
-      }
-      std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
-      let backups = data_dir.join("backups");
-      let (conn, recovery) =
-          match crate::db::open_with_recovery(&data_dir.join("ordo.db"), &backups) {
-              Ok(found) => found,
-              Err(e) => {
-                  let lang = crate::i18n::system_lang();
-                  let dir_label = data_dir.display().to_string();
-                  let (title, message) = match e.strip_prefix("db_newer_than_app: ") {
-                      Some(version) => crate::i18n::database_too_new(lang, version, &dir_label),
-                      None => crate::i18n::database_open_failed(lang, &e, &dir_label),
-                  };
-                  // stderr is invisible in a windows_subsystem release build, so leave a file.
-                  eprintln!("{message}");
-                  let _ = std::fs::write(data_dir.join("startup-error.txt"), &message);
-                  use tauri_plugin_notification::NotificationExt;
-                  let _ = app.notification().builder().title(title).body(&message).show();
-                  return Err(message.into());
-              }
-          };
+      let (conn, recovery) = open_ledger(app)?;
       if let Some(recovery) = recovery {
-          use tauri_plugin_notification::NotificationExt;
-          let lang = crate::i18n::from_conn(&conn);
-          let (title, body) = crate::i18n::recovery_notice(
-              lang,
-              &recovery.restored_from.display().to_string(),
-              recovery
-                  .broken_file_kept_at
-                  .as_ref()
-                  .map(|kept| kept.display().to_string()),
-          );
-          let _ = app.notification().builder().title(title).body(body).show();
+          report_recovery(app, &conn, &recovery);
       }
-      use tauri_plugin_autostart::ManagerExt;
-      let autostart = crate::repo::settings::get(&conn, "autostart")
-          .ok()
-          .flatten()
-          .unwrap_or_else(|| "true".into())
-          == "true";
-      // Writing the Run key on every launch is wasted startup work.
-      if app.autolaunch().is_enabled().unwrap_or(false) != autostart {
-          let result = if autostart {
-              app.autolaunch().enable()
-          } else {
-              app.autolaunch().disable()
-          };
-          if let Err(e) = result {
-              note_error(app.handle(), &format!("自动启动设置失败：{e}"));
-          }
-      }
-      for target in ShortcutTarget::ALL {
-          let saved = crate::repo::settings::get(&conn, target.settings_key())
-              .ok()
-              .flatten()
-              .unwrap_or_else(|| target.default_value().into());
-          let Ok(shortcut) = saved.parse::<tauri_plugin_global_shortcut::Shortcut>() else {
-              continue;
-          };
-          let warning = match register_shortcut(app.handle(), shortcut, target) {
-              Ok(()) => String::new(),
-              Err(e) => e,
-          };
-          let _ = crate::repo::settings::set(&conn, target.warning_key(), &warning);
-      }
-
+      sync_autostart(app, &conn);
+      register_saved_shortcuts(app, &conn);
       let lang = crate::i18n::from_conn(&conn);
       let desk_enabled = crate::repo::settings::desk_enabled(&conn);
       app.manage(crate::state::AppState::new(conn));
+      install_notification_handler(app);
 
-      use tauri_plugin_notification::NotificationExt;
-      let notification_handle = app.handle().clone();
-      let _ = app
-          .notification()
-          .on_action(move |action| {
-              let state = notification_handle.state::<crate::state::AppState>();
-              let target = action
-                  .notification()
-                  .map(|n| n.id())
-                  .and_then(|id| state.reminder_targets.target_for(id));
-              if action.action_id() == "tap" {
-                  match target {
-                      Some(crate::reminders::ReminderTarget::Task(task_id)) => {
-                          let _ = notification_handle.emit_to("main", "reminder:open", task_id);
-                      }
-                      Some(crate::reminders::ReminderTarget::Week) => {
-                          let _ = notification_handle.emit_to("main", "nav:week", ());
-                      }
-                      None => {}
-                  }
-                  show_main(&notification_handle);
-                  return;
-              }
-              // A snooze button: remember when the task should be reminded again.
-              let Some(until) =
-                  crate::reminders::snoozed_until(action.action_id(), chrono::Local::now())
-              else {
-                  return;
-              };
-              let Some(crate::reminders::ReminderTarget::Task(task_id)) = target else {
-                  return;
-              };
-              if let Ok(conn) = state.db.lock() {
-                  let _ = crate::repo::snoozes::set(
-                      &conn,
-                      &task_id,
-                      &until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                  );
-              }
-          });
-
-      build_tray(app, lang, desk_enabled)?;
+      // A tray that cannot be built is worth a note, not a refusal to start.
+      if let Err(e) = build_tray(app, lang, desk_enabled) {
+          note_error(app.handle(), &format!("托盘创建失败：{e}"));
+      }
       crate::reminders::start(app.handle().clone());
-
-      // The main window is created hidden and shows itself after its first paint; the
-      // capture window is built a moment later so startup never waits for a second
-      // webview. This thread also reveals the main window if the front end never does.
-      let deferred = app.handle().clone();
-      std::thread::spawn(move || {
-          std::thread::sleep(std::time::Duration::from_secs(2));
-          let handle = deferred.clone();
-          let _ = deferred.run_on_main_thread(move || {
-              let _ = ensure_capture(&handle, false);
-              if let Some(window) = handle.get_webview_window("main") {
-                  if !window.is_visible().unwrap_or(true) {
-                      let _ = window.show();
-                      let _ = window.set_focus();
-                  }
-              }
-          });
-      });
+      reveal_main_soon(app.handle());
 
       if cfg!(debug_assertions) {
         app.handle().plugin(

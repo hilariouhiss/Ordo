@@ -123,7 +123,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
              WHERE in_week = 1 AND status <> 'done' AND suspended = 0 AND waiting = 0
                AND {}
              ORDER BY sort_order, id",
-            tasks::VISIBLE_TASK_FILTER
+            tasks::visible_task_filter("tasks")
         ),
         &[],
     )
@@ -236,7 +236,7 @@ pub fn wait(
 /// same Monday the ledger kept.
 pub fn mark_pass_done(conn: &Connection, today: &str) -> Result<String, String> {
     let start = week_start(today);
-    settings::set(conn, "last_pass_week", &start).map_err(|e| e.to_string())?;
+    settings::set(conn, settings::keys::LAST_PASS_WEEK, &start).map_err(|e| e.to_string())?;
     Ok(start)
 }
 
@@ -256,7 +256,7 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
             "SELECT COUNT(*) FROM tasks WHERE status='done'
              AND actual_finish_at IS NOT NULL AND {}
              AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
-            tasks::VISIBLE_TASK_FILTER
+            tasks::visible_task_filter("tasks")
         ))?,
         delayed: count(
             "SELECT COUNT(*) FROM delays WHERE date(created_at,'localtime') BETWEEN ?1 AND ?2",
@@ -279,7 +279,7 @@ pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String>
                     OR (expected_start_date BETWEEN ?1 AND ?2))
                AND {}
              ORDER BY actual_finish_at, sort_order, id",
-            tasks::VISIBLE_TASK_FILTER
+            tasks::visible_task_filter("tasks")
         ),
         &[&start, &today],
     )
@@ -294,7 +294,7 @@ pub fn list_waiting(conn: &Connection) -> Result<Vec<TaskDto>, String> {
              WHERE waiting = 1 AND status <> 'done'
                AND {}
              ORDER BY follow_up_date IS NULL, follow_up_date, updated_at",
-            tasks::VISIBLE_TASK_FILTER
+            tasks::visible_task_filter("tasks")
         ),
         &[],
     )
@@ -309,7 +309,7 @@ pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
              WHERE suspended = 1 AND status <> 'done'
                AND {}
              ORDER BY suspended_until IS NULL, suspended_until, updated_at",
-            tasks::VISIBLE_TASK_FILTER
+            tasks::visible_task_filter("tasks")
         ),
         &[],
     )

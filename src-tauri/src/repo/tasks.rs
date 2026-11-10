@@ -2,16 +2,28 @@ use crate::dto::{ArchiveTaskDto, CaptureFields, DelayDto, TagDto, TaskDto};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// The week, the pass and reminders only see live tasks outside archived projects. A task
-/// with live subtasks is an umbrella: its work is the children, so it is never planned or
-/// reminded on its own.
-pub(crate) const VISIBLE_TASK_FILTER: &str = concat!(
-    "tasks.canceled_at IS NULL AND tasks.archived_at IS NULL AND tasks.deleted_at IS NULL ",
-    "AND (tasks.project_id IS NULL OR EXISTS (SELECT 1 FROM projects p ",
-    "WHERE p.id = tasks.project_id AND p.archived_at IS NULL)) ",
-    "AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = tasks.id ",
-    "AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.canceled_at IS NULL)"
-);
+/// "This task has no live subtask", for a given table alias. A task with live subtasks
+/// is an umbrella: its work is the children, so it is never planned or reminded alone.
+/// One definition, because an umbrella must mean the same thing on every surface.
+pub(crate) fn no_live_child(alias: &str) -> String {
+    format!(
+        "NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = {alias}.id \
+         AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.canceled_at IS NULL)"
+    )
+}
+
+/// The week, the pass, reminders and statistics only see live tasks outside archived
+/// projects, and never an umbrella.
+pub(crate) fn visible_task_filter(alias: &str) -> String {
+    format!(
+        "{alias}.canceled_at IS NULL AND {alias}.archived_at IS NULL \
+         AND {alias}.deleted_at IS NULL \
+         AND ({alias}.project_id IS NULL OR EXISTS (SELECT 1 FROM projects p \
+              WHERE p.id = {alias}.project_id AND p.archived_at IS NULL)) \
+         AND {}",
+        no_live_child(alias)
+    )
+}
 
 /// How a task is parked. Every write of the parked columns goes through
 /// [write_park_in], so the list below is the only place a new parked field is added.
@@ -31,6 +43,44 @@ pub(crate) enum Park<'a> {
         follow_up: Option<&'a str>,
         since: Option<&'a str>,
     },
+}
+
+/// Every parked column and the value that means "not parked". One list, so a new
+/// parked field is picked up by the reset and the writer instead of silently missing one.
+const PARK_FIELDS: [(&str, &str); 8] = [
+    ("suspended", "0"),
+    ("suspended_until", "NULL"),
+    ("suspended_at", "NULL"),
+    ("suspend_reason", "NULL"),
+    ("waiting", "0"),
+    ("waiting_on_id", "NULL"),
+    ("follow_up_date", "NULL"),
+    ("waiting_since", "NULL"),
+];
+
+/// The parked columns, written back to "nothing parked" when flag (a SQL parameter) is
+/// true, and left alone otherwise.
+pub(crate) fn park_reset(flag: &str) -> String {
+    PARK_FIELDS
+        .iter()
+        .map(|(column, cleared)| {
+            format!("{column} = CASE WHEN {flag} THEN {cleared} ELSE {column} END")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Everything but waiting_since, whose expression differs between a fresh park and one
+/// that keeps the day it started. ?2..?8 are the values; ?1 is in_week.
+const WRITE_PARK_COLUMNS: &str = "suspended = ?2, suspended_until = ?3, suspended_at = ?4,
+            suspend_reason = ?5, waiting = ?6, waiting_on_id = ?7, follow_up_date = ?8";
+
+fn write_park_sql(since_expr: &str, target: &str) -> String {
+    format!(
+        "UPDATE tasks SET in_week = ?1, {WRITE_PARK_COLUMNS},
+            waiting_since = {since_expr}, updated_at = ?10
+         WHERE {target}"
+    )
 }
 
 /// Writes the parked columns for one task, or for every open child of it. The caller owns
@@ -61,13 +111,7 @@ pub(crate) fn write_park_in(
         } => (0, 0, None, None, None, 1, on, follow_up, since),
     };
     conn.execute(
-        &format!(
-            "UPDATE tasks SET
-                in_week = ?1, suspended = ?2, suspended_until = ?3, suspended_at = ?4,
-                suspend_reason = ?5, waiting = ?6, waiting_on_id = ?7, follow_up_date = ?8,
-                waiting_since = {since_expr}, updated_at = ?10
-             WHERE {target}"
-        ),
+        &write_park_sql(since_expr, target),
         params![
             in_week, suspended, until, at, reason, waiting, on, follow_up, since, now, task_id
         ],
@@ -118,8 +162,9 @@ pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND suspended = 0 AND waiting = 0 AND {VISIBLE_TASK_FILTER}
-             ORDER BY sort_order, id"
+             WHERE in_week = 1 AND suspended = 0 AND waiting = 0 AND {}
+             ORDER BY sort_order, id",
+            visible_task_filter("tasks")
         ),
         &[],
     )
@@ -375,20 +420,16 @@ pub fn stored_status(conn: &Connection, id: &str) -> rusqlite::Result<String> {
     conn.query_row("SELECT status FROM tasks WHERE id = ?1", [id], |r| r.get(0))
 }
 
-/// The status columns every completion and reopen shares. `?1` is the status, `?2`
-/// is "left the week", `?3` the stamp and `?4` the task id. The parked half repeats the
-/// columns `Park` lists on purpose: clearing them depends on leaving the week, which a
-/// whole-state write cannot express. Add a parked field here as well as there.
-const STATUS_SET: &str = "status = ?1,
+/// The status columns every completion and reopen shares. `?1` is the status and `?2`
+/// is "left the week"; the parked half comes from the one column list in `park_reset`.
+fn status_set() -> String {
+    format!(
+        "status = ?1,
             in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
-            suspended = CASE WHEN ?2 THEN 0 ELSE suspended END,
-            suspended_until = CASE WHEN ?2 THEN NULL ELSE suspended_until END,
-            suspended_at = CASE WHEN ?2 THEN NULL ELSE suspended_at END,
-            suspend_reason = CASE WHEN ?2 THEN NULL ELSE suspend_reason END,
-            waiting = CASE WHEN ?2 THEN 0 ELSE waiting END,
-            waiting_on_id = CASE WHEN ?2 THEN NULL ELSE waiting_on_id END,
-            follow_up_date = CASE WHEN ?2 THEN NULL ELSE follow_up_date END,
-            waiting_since = CASE WHEN ?2 THEN NULL ELSE waiting_since END";
+            {}",
+        park_reset("?2")
+    )
+}
 
 pub fn set_status(
     conn: &Connection,
@@ -403,7 +444,7 @@ pub fn set_status(
     let max_effort = crate::limits::LIMITS.effort_minutes;
     conn.execute(
         &format!(
-            "UPDATE tasks SET {STATUS_SET},
+            "UPDATE tasks SET {},
                 started_at = CASE WHEN ?1 = 'doing' THEN COALESCE(started_at, ?3) ELSE started_at END,
                 actual_finish_at = CASE WHEN ?2 THEN ?3 ELSE NULL END,
                 actual_effort_minutes = CASE WHEN ?2 THEN
@@ -413,7 +454,8 @@ pub fn set_status(
                         effort_minutes)
                     ELSE NULL END,
                 updated_at = ?3
-             WHERE id = ?4"
+             WHERE id = ?4",
+            status_set()
         ),
         params![status, leave_week as i64, now, id],
     )?;
@@ -429,7 +471,7 @@ pub fn set_status_only(
     now: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        &format!("UPDATE tasks SET {STATUS_SET}, updated_at = ?3 WHERE id = ?4"),
+        &format!("UPDATE tasks SET {}, updated_at = ?3 WHERE id = ?4", status_set()),
         params![status, leave_week as i64, now, id],
     )?;
     Ok(())
@@ -660,6 +702,24 @@ mod tests {
     use crate::db;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn every_parked_column_is_written_by_both_paths() {
+        let reset = park_reset("?1");
+        let write = write_park_sql("?9", "id = ?11");
+        for (column, cleared) in PARK_FIELDS {
+            assert!(
+                reset.contains(&format!(
+                    "{column} = CASE WHEN ?1 THEN {cleared} ELSE {column} END"
+                )),
+                "{column} is missing from the park reset"
+            );
+            assert!(
+                write.contains(&format!("{column} = ?")),
+                "{column} is missing from the park writer"
+            );
+        }
+    }
 
     #[test]
     fn a_batch_load_keeps_the_asked_order_and_its_children() {
