@@ -14,7 +14,8 @@ const dotClass = computed(() => {
     case "done":
       return "border-success bg-success";
     case "doing":
-      return "border-primary bg-primary/25";
+      // Half filled: the right side solid, the left still open.
+      return "border-primary bg-[linear-gradient(90deg,transparent_50%,var(--color-primary)_50%)]";
     case "suspended":
       return "border-warning bg-warning/15";
     case "waiting":
