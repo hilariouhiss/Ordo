@@ -230,17 +230,22 @@ async function archive(): Promise<void> {
           as="div"
           mode="popLayout"
           :initial="false"
-          class="mt-2 flex flex-wrap items-center gap-1.5"
+          class="mt-2 grid grid-cols-3 gap-1.5"
         >
           <motion.span
             v-for="member in form.members"
             :key="member.personId"
             v-bind="listItemMotion"
-            class="flex items-center gap-1.5 rounded-lg bg-base-200 px-2 py-1"
+            class="flex min-w-0 items-center gap-1.5 rounded-lg bg-base-200 px-2 py-1"
           >
-            <span class="text-[12px]">{{ memberNameOf(member.personId) }}</span>
+            <!-- The name holds its column; daisyUI's select wants 100% and would squash it. -->
+            <span
+              class="w-12 shrink-0 truncate text-[12px]"
+              :title="memberNameOf(member.personId)"
+              >{{ memberNameOf(member.personId) }}</span
+            >
             <select
-              class="select select-xs rounded-md border-base-300 bg-base-100 text-[11px]"
+              class="select select-xs min-w-0 flex-1 rounded-md border-base-300 bg-base-100 text-[11px]"
               :value="member.categoryId ?? ''"
               :aria-label="t('projectSettings.memberCategory')"
               @change="onMemberCategory(member.personId, $event)"
@@ -256,7 +261,7 @@ async function archive(): Promise<void> {
             </select>
             <button
               v-if="!appVM.state.people.find((p) => p.id === member.personId)?.isMe"
-              class="text-base-content/30"
+              class="shrink-0 text-base-content/30"
               :aria-label="t('projectSettings.removeMemberAria')"
               @click="removeMember(member.personId)"
             >
