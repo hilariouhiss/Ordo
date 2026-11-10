@@ -10,6 +10,8 @@ const props = defineProps<{
   modelValue: string;
   options: { value: string; label: string }[];
   label?: string;
+  /** The facet this chip filters, drawn before its value so five "All" chips read apart. */
+  dim?: string;
   /** When set, the panel ends with a create input; Enter emits the typed name. */
   createPlaceholder?: string;
 }>();
@@ -129,7 +131,10 @@ function onListKey(event: KeyboardEvent): void {
     :aria-controls="panelId"
     @click="onTrigger"
   >
-    <span class="truncate">{{ selectedLabel }}</span>
+    <span class="truncate">
+      <span v-if="dim" class="mr-1.5 text-base-content/40">{{ dim }}</span
+      >{{ selectedLabel }}
+    </span>
     <ChevronDown :size="14" class="shrink-0 text-base-content/40" aria-hidden="true" />
   </button>
   <Teleport to="body">

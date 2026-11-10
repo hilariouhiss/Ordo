@@ -101,6 +101,11 @@ function setPriority(value: string): void {
   tasksVM.state.filter.priority = (value || null) as Priority | null;
 }
 
+/** A facet that holds a value stands out from the five plain "All" chips. */
+function facetClass(active: boolean): string {
+  return active ? "border-primary/40 bg-primary/5 text-primary" : "border-base-300 bg-base-100";
+}
+
 async function saveView(): Promise<void> {
   const name = await askText(t("filters.saveTitle"), "");
   if (name) await tasksVM.saveView(name);
@@ -221,8 +226,10 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
       </button>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="input input-sm flex w-56 items-center gap-1.5 rounded-lg border-0 bg-base-100">
+    <div class="flex flex-wrap items-center gap-1.5">
+      <div
+        class="input input-sm flex w-56 shrink-0 items-center gap-1.5 rounded-lg border-0 bg-base-100"
+      >
         <Search :size="13" class="shrink-0 text-base-content/35" aria-hidden="true" />
         <input
           v-model="tasksVM.state.filter.query"
@@ -244,41 +251,52 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
         :model-value="tasksVM.state.filter.projectId ?? ''"
         :options="projectOptions"
         :label="t('filters.project')"
-        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        :dim="t('filters.project')"
+        class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
+        :class="facetClass(!!tasksVM.state.filter.projectId)"
         @update:model-value="setFacet('projectId', $event)"
       />
       <ChipSelect
         :model-value="tasksVM.state.filter.categoryId ?? ''"
         :options="categoryOptions"
         :label="t('filters.category')"
-        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        :dim="t('filters.category')"
+        class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
+        :class="facetClass(!!tasksVM.state.filter.categoryId)"
         @update:model-value="setFacet('categoryId', $event)"
       />
       <ChipSelect
         :model-value="tasksVM.state.filter.ownerId ?? ''"
         :options="ownerOptions"
         :label="t('filters.owner')"
-        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        :dim="t('filters.owner')"
+        class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
+        :class="facetClass(!!tasksVM.state.filter.ownerId)"
         @update:model-value="setFacet('ownerId', $event)"
       />
       <ChipSelect
         :model-value="tasksVM.state.filter.tagId ?? ''"
         :options="tagOptions"
         :label="t('filters.tag')"
-        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        :dim="t('filters.tag')"
+        class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
+        :class="facetClass(!!tasksVM.state.filter.tagId)"
         @update:model-value="setFacet('tagId', $event)"
       />
       <ChipSelect
         :model-value="tasksVM.state.filter.priority ?? ''"
         :options="priorityOptions"
         :label="t('filters.priority')"
-        class="select-xs rounded-lg border border-base-300 bg-base-100 text-[11px]"
+        :dim="t('filters.priority')"
+        class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
+        :class="facetClass(!!tasksVM.state.filter.priority)"
         @update:model-value="setPriority($event)"
       />
+      <!-- Always drawn so the row does not resize when the first filter lands. -->
       <button
-        v-if="filtering"
         type="button"
-        class="px-1 text-[11px] text-base-content/40 hover:text-error"
+        class="shrink-0 px-1 text-[11px] text-base-content/40 hover:text-error"
+        :class="{ invisible: !filtering }"
         @click="tasksVM.clearFilter()"
       >
         {{ t("filters.clear") }}
