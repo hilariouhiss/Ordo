@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
-import { nextTick, ref, watch } from "vue";
+import { nextTick, reactive, ref, watch } from "vue";
 import { todayIso } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
@@ -14,7 +14,9 @@ const reasonDraft = ref("");
 const untilDraft = ref("");
 const waitPerson = ref("");
 const waitDate = ref("");
+const client = reactive({ name: "", contact: "", phone: "", note: "" });
 const textInput = ref<HTMLInputElement | null>(null);
+const clientNameInput = ref<HTMLInputElement | null>(null);
 const reasonInput = ref<HTMLInputElement | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
 
@@ -35,6 +37,13 @@ watch(dialogRequest, async (request) => {
     waitDate.value = request.followUpDate;
     await nextTick();
     confirmButton.value?.focus();
+  } else if (request.kind === "client") {
+    client.name = request.name;
+    client.contact = request.contact;
+    client.phone = request.phone;
+    client.note = request.note;
+    await nextTick();
+    clientNameInput.value?.select();
   } else {
     confirmButton.value?.focus();
   }
@@ -57,6 +66,17 @@ function confirm(): void {
   }
   if (request.kind === "waiting") {
     closeDialog({ personId: waitPerson.value || null, followUpDate: waitDate.value });
+    return;
+  }
+  if (request.kind === "client") {
+    const name = client.name.trim();
+    if (!name) return;
+    closeDialog({
+      name,
+      contact: client.contact.trim(),
+      phone: client.phone.trim(),
+      note: client.note.trim(),
+    });
     return;
   }
   const value = draft.value.trim();
@@ -136,6 +156,41 @@ function onEnter(event: KeyboardEvent): void {
             {{ t("task.waitingHint") }}
           </p>
         </template>
+        <template v-else-if="dialogRequest.kind === 'client'">
+          <label class="mt-3 block text-[11px] text-base-content/45">
+            {{ t("clients.name") }}
+            <input
+              ref="clientNameInput"
+              v-model="client.name"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @keydown.enter="onEnter"
+            />
+          </label>
+          <label class="mt-2 block text-[11px] text-base-content/45">
+            {{ t("clients.contact") }}
+            <input
+              v-model="client.contact"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @keydown.enter="onEnter"
+            />
+          </label>
+          <label class="mt-2 block text-[11px] text-base-content/45">
+            {{ t("clients.phone") }}
+            <input
+              v-model="client.phone"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @keydown.enter="onEnter"
+            />
+          </label>
+          <label class="mt-2 block text-[11px] text-base-content/45">
+            {{ t("clients.note") }}
+            <textarea
+              v-model="client.note"
+              rows="2"
+              class="textarea mt-1 w-full resize-none rounded-lg border-base-300 text-[12.5px]"
+            ></textarea>
+          </label>
+        </template>
         <input
           v-else-if="dialogRequest.kind === 'text'"
           ref="textInput"
@@ -165,7 +220,15 @@ function onEnter(event: KeyboardEvent): void {
             "
             @click="confirm"
           >
-            {{ t(dialogRequest.kind === "notice" ? "dialog.dismiss" : "dialog.ok") }}
+            {{
+              t(
+                dialogRequest.kind === "notice"
+                  ? "dialog.dismiss"
+                  : dialogRequest.kind === "client"
+                    ? "common.save"
+                    : "dialog.ok",
+              )
+            }}
           </button>
         </div>
       </motion.div>

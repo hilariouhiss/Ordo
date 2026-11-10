@@ -55,11 +55,12 @@ const NAV_RANK: Record<string, number> = {
   tasks: 1,
   templates: 2,
   projects: 3,
-  categories: 4,
-  tags: 5,
-  people: 6,
-  stats: 7,
-  archive: 8,
+  clients: 4,
+  categories: 5,
+  tags: 6,
+  people: 7,
+  stats: 8,
+  archive: 9,
 };
 
 export function pageRank(name: string | null | undefined): number {

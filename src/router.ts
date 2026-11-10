@@ -7,6 +7,7 @@ const TasksView = () => import("./views/TasksView.vue");
 const TemplatesView = () => import("./views/TemplatesView.vue");
 const ProjectsView = () => import("./views/ProjectsView.vue");
 const ProjectView = () => import("./views/ProjectView.vue");
+const ClientsView = () => import("./views/ClientsView.vue");
 const CategoriesView = () => import("./views/CategoriesView.vue");
 const TagsView = () => import("./views/TagsView.vue");
 const PeopleView = () => import("./views/PeopleView.vue");
@@ -22,6 +23,7 @@ export const router = createRouter({
     { path: "/templates", name: "templates", component: TemplatesView },
     { path: "/projects", name: "projects", component: ProjectsView },
     { path: "/projects/:id", name: "project", component: ProjectView, props: true },
+    { path: "/clients", name: "clients", component: ClientsView },
     { path: "/categories", name: "categories", component: CategoriesView },
     { path: "/tags", name: "tags", component: TagsView },
     { path: "/people", name: "people", component: PeopleView },

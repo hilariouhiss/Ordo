@@ -11,18 +11,29 @@ export interface WaitingDraft {
   followUpDate: string;
 }
 
+/** The 甲方 record a dialog edits: the page turns blank details into null. */
+export interface ClientDraft {
+  name: string;
+  contact: string;
+  phone: string;
+  note: string;
+}
+
 export type DialogRequest =
   | { kind: "text"; title: string; value: string }
   | { kind: "suspend"; title: string }
   | { kind: "waiting"; title: string; personId: string | null; followUpDate: string }
+  | ({ kind: "client"; title: string } & ClientDraft)
   | { kind: "confirm"; title: string; message: string }
   | { kind: "notice"; title: string; message: string };
 
 export const dialogRequest = ref<DialogRequest | null>(null);
 
-let settle: ((answer: string | SuspendDraft | WaitingDraft | null) => void) | null = null;
+type DialogAnswer = string | SuspendDraft | WaitingDraft | ClientDraft | null;
 
-function ask(request: DialogRequest): Promise<string | SuspendDraft | WaitingDraft | null> {
+let settle: ((answer: DialogAnswer) => void) | null = null;
+
+function ask(request: DialogRequest): Promise<DialogAnswer> {
   // A second request must not overwrite the first resolver: that promise would never settle.
   closeDialog(null);
   dialogRequest.value = request;
@@ -31,7 +42,7 @@ function ask(request: DialogRequest): Promise<string | SuspendDraft | WaitingDra
   });
 }
 
-export function closeDialog(answer: string | SuspendDraft | WaitingDraft | null): void {
+export function closeDialog(answer: DialogAnswer): void {
   dialogRequest.value = null;
   settle?.(answer);
   settle = null;
@@ -47,6 +58,10 @@ export function askSuspend(title: string): Promise<SuspendDraft | null> {
 
 export function askWaiting(title: string, defaults: WaitingDraft): Promise<WaitingDraft | null> {
   return ask({ kind: "waiting", title, ...defaults }) as Promise<WaitingDraft | null>;
+}
+
+export function askClient(title: string, defaults: ClientDraft): Promise<ClientDraft | null> {
+  return ask({ kind: "client", title, ...defaults }) as Promise<ClientDraft | null>;
 }
 
 export function askConfirm(title: string, message: string): Promise<boolean> {
