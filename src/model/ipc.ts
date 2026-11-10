@@ -244,8 +244,8 @@ export function createPerson(name: string): Promise<Person> {
   return invoke<Person>("create_person", { name });
 }
 
-export function renamePerson(id: string, name: string): Promise<Person> {
-  return invoke<Person>("rename_person", { id, name });
+export function updatePerson(id: string, name: string, categoryIds: string[]): Promise<Person> {
+  return invoke<Person>("update_person", { id, name, categoryIds });
 }
 
 export function deletePerson(id: string): Promise<void> {

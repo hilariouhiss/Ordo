@@ -14,7 +14,15 @@ pub fn create(conn: &Connection, name: &str, now: &str) -> Result<PersonDto, Str
     people::create(conn, &Uuid::new_v4().to_string(), name, now).map_err(|e| e.to_string())
 }
 
-pub fn rename(conn: &Connection, id: &str, name: &str, now: &str) -> Result<PersonDto, String> {
+/// Rewrites a person's name and 职责. A category they pick up is claimed in every project
+/// they belong to: the same handover a project does when the person joins it.
+pub fn update(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    category_ids: &[String],
+    now: &str,
+) -> Result<PersonDto, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("empty_person_name".into());
@@ -25,7 +33,48 @@ pub fn rename(conn: &Connection, id: &str, name: &str, now: &str) -> Result<Pers
             return Err("person_exists".into());
         }
     }
-    people::rename(conn, id, name, now).map_err(|e| e.to_string())?;
+    let categories: Vec<String> = category_ids
+        .iter()
+        .map(|category_id| {
+            crate::repo::categories::exists(conn, category_id)
+                .map_err(|e| e.to_string())?
+                .then_some(category_id.clone())
+                .ok_or_else(|| "invalid_category".to_string())
+        })
+        .collect::<Result<_, _>>()?;
+    let previous = people::categories(conn, id).map_err(|e| e.to_string())?;
+    let added: Vec<&String> = categories
+        .iter()
+        .filter(|category_id| !previous.contains(category_id))
+        .collect();
+    // Every claim needs the owner the category has right now, before the new 职责 applies.
+    let mut claims: Vec<(String, String, Option<String>)> = Vec::new();
+    if !added.is_empty() {
+        for project_id in
+            crate::repo::projects::member_project_ids(conn, id).map_err(|e| e.to_string())?
+        {
+            for category_id in &added {
+                let owner = crate::repo::projects::category_owner(conn, &project_id, category_id)
+                    .map_err(|e| e.to_string())?;
+                claims.push((project_id.clone(), (*category_id).clone(), owner));
+            }
+        }
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    crate::repo::people::rename(&tx, id, name, now).map_err(|e| e.to_string())?;
+    crate::repo::people::replace_categories(&tx, id, &categories).map_err(|e| e.to_string())?;
+    for (project_id, category_id, owner) in claims {
+        crate::repo::projects::hand_over_tasks(
+            &tx,
+            &project_id,
+            &category_id,
+            id,
+            owner.as_deref(),
+            now,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
     people::get(conn, id).map_err(|e| e.to_string())
 }
 
@@ -80,17 +129,55 @@ mod tests {
         let li = people::create(&c, "老李", NOW).unwrap();
         let wang = people::create(&c, "老王", NOW).unwrap();
 
-        let renamed = people::rename(&c, &li.id, "李工", NOW).unwrap();
+        let renamed = people::update(&c, &li.id, "李工", &[], NOW).unwrap();
         assert_eq!(renamed.name, "李工");
         assert_eq!(people_repo::get(&c, &li.id).unwrap().name, "李工");
 
         assert_eq!(
-            people::rename(&c, &li.id, "老王", NOW).unwrap_err(),
+            people::update(&c, &li.id, "老王", &[], NOW).unwrap_err(),
             "person_exists"
         );
         assert_eq!(
-            people::rename(&c, &wang.id, "  ", NOW).unwrap_err(),
+            people::update(&c, &wang.id, "  ", &[], NOW).unwrap_err(),
             "empty_person_name"
+        );
+    }
+
+    #[test]
+    fn editing_responsibilities_claims_them_in_the_projects_they_are_in() {
+        let c = db::open_in_memory().unwrap();
+        let project = projects::create(&c, "项目", NOW).unwrap();
+        let hardware = crate::repo::categories::list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|category| category.name == "硬件")
+            .unwrap()
+            .id;
+        let li = people::create(&c, "老李", NOW).unwrap();
+        projects_repo::add_member(&c, &project.id, &li.id, NOW).unwrap();
+        week::capture(&c, "接活", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET project_id = ?1, category_id = ?2, owner_id = NULL WHERE id = 't1'",
+            rusqlite::params![project.id, hardware],
+        )
+        .unwrap();
+
+        let updated = people::update(&c, &li.id, "李工", &[hardware.clone()], NOW).unwrap();
+        assert_eq!(updated.name, "李工");
+        assert_eq!(updated.category_ids, vec![hardware.clone()]);
+        let owner: Option<String> = c
+            .query_row("SELECT owner_id FROM tasks WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(owner.as_deref(), Some(li.id.as_str()));
+
+        // An unknown category is refused and the saved list stays as it was.
+        assert_eq!(
+            people::update(&c, &li.id, "李工", &["nope".to_string()], NOW).unwrap_err(),
+            "invalid_category"
+        );
+        assert_eq!(
+            people_repo::get(&c, &li.id).unwrap().category_ids,
+            vec![hardware]
         );
     }
 

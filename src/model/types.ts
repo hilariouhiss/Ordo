@@ -42,6 +42,8 @@ export interface Person {
   id: string;
   name: string;
   isMe: boolean;
+  /** Categories this person is responsible for; a project hands those tasks over. */
+  categoryIds: string[];
 }
 
 export interface Category {

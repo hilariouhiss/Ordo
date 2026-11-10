@@ -11,6 +11,12 @@ export interface WaitingDraft {
   followUpDate: string;
 }
 
+/** The person record a dialog edits: name plus the categories they are responsible for. */
+export interface PersonDraft {
+  name: string;
+  categoryIds: string[];
+}
+
 /** The 甲方 record a dialog edits: the page turns blank details into null. */
 export interface ClientDraft {
   name: string;
@@ -24,12 +30,13 @@ export type DialogRequest =
   | { kind: "suspend"; title: string }
   | { kind: "waiting"; title: string; personId: string | null; followUpDate: string }
   | ({ kind: "client"; title: string } & ClientDraft)
+  | ({ kind: "person"; title: string } & PersonDraft)
   | { kind: "confirm"; title: string; message: string }
   | { kind: "notice"; title: string; message: string };
 
 export const dialogRequest = ref<DialogRequest | null>(null);
 
-type DialogAnswer = string | SuspendDraft | WaitingDraft | ClientDraft | null;
+type DialogAnswer = string | SuspendDraft | WaitingDraft | ClientDraft | PersonDraft | null;
 
 let settle: ((answer: DialogAnswer) => void) | null = null;
 
@@ -62,6 +69,10 @@ export function askWaiting(title: string, defaults: WaitingDraft): Promise<Waiti
 
 export function askClient(title: string, defaults: ClientDraft): Promise<ClientDraft | null> {
   return ask({ kind: "client", title, ...defaults }) as Promise<ClientDraft | null>;
+}
+
+export function askPerson(title: string, defaults: PersonDraft): Promise<PersonDraft | null> {
+  return ask({ kind: "person", title, ...defaults }) as Promise<PersonDraft | null>;
 }
 
 export function askConfirm(title: string, message: string): Promise<boolean> {

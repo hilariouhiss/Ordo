@@ -6,6 +6,8 @@ pub struct PersonDto {
     pub id: String,
     pub name: String,
     pub is_me: bool,
+    /// The categories this person is responsible for; a project hands those tasks over.
+    pub category_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

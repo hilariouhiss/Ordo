@@ -243,6 +243,7 @@ pub fn is_member(
 }
 
 /// The member responsible for a specialty, ignoring deleted people and categories.
+/// An explicit per-project specialty wins; otherwise a member whose 职责 covers it.
 pub fn category_owner(
     conn: &Connection,
     project_id: &str,
@@ -252,13 +253,49 @@ pub fn category_owner(
         "SELECT m.person_id
          FROM project_members m
          JOIN people p ON p.id = m.person_id AND p.deleted_at IS NULL
-         JOIN categories c ON c.id = m.category_id AND c.deleted_at IS NULL
-         WHERE m.project_id = ?1 AND m.category_id = ?2
+         JOIN categories c ON c.id = ?2 AND c.deleted_at IS NULL
+         LEFT JOIN person_categories pc
+                ON pc.person_id = m.person_id AND pc.category_id = ?2
+         WHERE m.project_id = ?1
+           AND (m.category_id = ?2 OR pc.category_id IS NOT NULL)
+         ORDER BY (m.category_id = ?2) DESC, m.created_at, m.person_id
          LIMIT 1",
         params![project_id, category_id],
         |r| r.get(0),
     )
     .optional()
+}
+
+/// Hands the open tasks of one category to a member: a task with no owner, the "me"
+/// owner, or the previous specialty owner comes along; someone else's manual pick stays.
+pub fn hand_over_tasks(
+    conn: &Connection,
+    project_id: &str,
+    category_id: &str,
+    person_id: &str,
+    previous: Option<&str>,
+    now: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET owner_id = ?1, updated_at = ?2
+         WHERE project_id = ?3 AND category_id = ?4
+           AND deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
+           AND status <> 'done'
+           AND (owner_id IS NULL
+                OR owner_id = (SELECT id FROM people WHERE is_me = 1 LIMIT 1)
+                OR (?5 IS NOT NULL AND owner_id = ?5))",
+        params![person_id, now, project_id, category_id, previous],
+    )?;
+    Ok(())
+}
+
+/// The projects a person belongs to; a 职责 edit claims there.
+pub fn member_project_ids(conn: &Connection, person_id: &str) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT project_id FROM project_members WHERE person_id = ?1 ORDER BY created_at, project_id",
+    )?;
+    let rows = stmt.query_map([person_id], |r| r.get(0))?;
+    rows.collect()
 }
 
 /// Moves a specialty to this member and hands it the tasks that were still default-owned
@@ -287,16 +324,7 @@ pub fn set_member_category(
         params![category_id, project_id, person_id],
     )?;
     if let Some(category) = category_id {
-        tx.execute(
-            "UPDATE tasks SET owner_id = ?1, updated_at = ?2
-             WHERE project_id = ?3 AND category_id = ?4
-               AND deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL
-               AND status <> 'done'
-               AND (owner_id IS NULL
-                    OR owner_id = (SELECT id FROM people WHERE is_me = 1 LIMIT 1)
-                    OR (?5 IS NOT NULL AND owner_id = ?5))",
-            params![person_id, now, project_id, category, previous],
-        )?;
+        hand_over_tasks(&tx, project_id, category, person_id, previous.as_deref(), now)?;
     }
     tx.commit()
 }
@@ -309,10 +337,12 @@ pub fn member_people(conn: &Connection, project_id: &str) -> rusqlite::Result<Ve
          ORDER BY p.is_me DESC, p.name",
     )?;
     let rows = stmt.query_map([project_id], |r| {
+        let id: String = r.get(0)?;
         Ok(PersonDto {
-            id: r.get(0)?,
             name: r.get(1)?,
             is_me: r.get::<_, i64>(2)? == 1,
+            category_ids: crate::repo::people::categories(conn, &id)?,
+            id,
         })
     })?;
     rows.collect()

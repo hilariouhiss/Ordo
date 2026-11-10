@@ -9,8 +9,8 @@ const categories: Category[] = [
   { id: "c1", name: "Code", sortOrder: 1 },
 ];
 const people: Person[] = [
-  { id: "u1", name: "Alice", isMe: true },
-  { id: "u2", name: "Bob", isMe: false },
+  { id: "u1", name: "Alice", isMe: true, categoryIds: [] },
+  { id: "u2", name: "Bob", isMe: false, categoryIds: [] },
 ];
 const priorityLabels: Record<Priority, string> = {
   high: "High",

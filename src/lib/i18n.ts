@@ -185,9 +185,15 @@ export const zh = {
   "tags.footer": "删除标签会从所有任务上移除，不能撤销。",
 
   "people.title": "人员",
-  "people.hint": "人名全局唯一，改名对所有任务生效",
+  "people.hint": "人名全局唯一；设了职责的分类，加进项目后会自动归他",
   "people.me": "我",
-  "people.editTitle": "修改名字",
+  "people.name": "名字",
+  "people.roles": "职责",
+  "people.rolesLine": "职责 · {names}",
+  "people.rolesNone": "职责未指定",
+  "people.rolesHint":
+    "勾上的分类，在他参与的项目里自动当负责人；该分类下没有主人的未完成任务会转给他。",
+  "people.editTitle": "编辑人员",
   "people.deleteTitle": "删除人员",
   "people.deleteMessage": "删除「{name}」？只有没有任何任务引用的人才能删除。",
   "people.deleteAria": "删除人员",
@@ -777,9 +783,16 @@ export const en: Record<MessageKey, string> = {
   "tags.footer": "Deleting a tag removes it from every task and cannot be undone.",
 
   "people.title": "People",
-  "people.hint": "Names are global; renaming applies everywhere",
+  "people.hint":
+    "Names are global; a category in their responsibilities comes to them in a project",
   "people.me": "Me",
-  "people.editTitle": "Rename person",
+  "people.name": "Name",
+  "people.roles": "Responsibilities",
+  "people.rolesLine": "Roles · {names}",
+  "people.rolesNone": "No responsibilities",
+  "people.rolesHint":
+    "Checked categories make them the owner inside every project they are in; open tasks of that category move over.",
+  "people.editTitle": "Edit person",
   "people.deleteTitle": "Delete person",
   "people.deleteMessage": 'Delete "{name}"? Only someone with no tasks can be deleted.',
   "people.deleteAria": "Delete person",

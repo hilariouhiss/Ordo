@@ -199,7 +199,28 @@ pub fn add_member(
             }
         }
     };
-    projects::add_member(conn, project_id, &person.id, now).map_err(|e| e.to_string())?;
+    let responsibilities = people::categories(conn, &person.id).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    // Who holds each category before this member's 职责 starts counting.
+    let mut previous = Vec::new();
+    for category_id in &responsibilities {
+        previous.push(
+            projects::category_owner(&tx, project_id, category_id).map_err(|e| e.to_string())?,
+        );
+    }
+    projects::add_member(&tx, project_id, &person.id, now).map_err(|e| e.to_string())?;
+    for (category_id, owner) in responsibilities.iter().zip(previous) {
+        projects::hand_over_tasks(
+            &tx,
+            project_id,
+            category_id,
+            &person.id,
+            owner.as_deref(),
+            now,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(person)
 }
 
@@ -567,6 +588,70 @@ mod tests {
             2,
             "calling it twice must not duplicate the member"
         );
+    }
+
+    #[test]
+    fn responsibilities_make_a_member_the_specialty_owner() {
+        let c = db::open_in_memory().unwrap();
+        let project = projects::create(&c, "项目", NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        let li = crate::services::people::create(&c, "老李", NOW).unwrap();
+        crate::repo::people::set_categories(&c, &li.id, &[hardware.clone()]).unwrap();
+        // Only members count, so nothing resolves before the join.
+        assert_eq!(
+            projects::assigned_owner(&c, Some(&project.id), Some(&hardware)).unwrap(),
+            None
+        );
+
+        projects::add_member(&c, &project.id, Some(&li.id), None, NOW).unwrap();
+        assert_eq!(
+            projects::assigned_owner(&c, Some(&project.id), Some(&hardware)).unwrap(),
+            Some(li.id.clone())
+        );
+
+        // An explicit per-project specialty still wins over 职责.
+        let wang = crate::services::people::create(&c, "老王", NOW).unwrap();
+        projects::add_member(&c, &project.id, Some(&wang.id), None, NOW).unwrap();
+        projects::set_member_category(&c, &project.id, &wang.id, Some(&hardware), NOW).unwrap();
+        assert_eq!(
+            projects::assigned_owner(&c, Some(&project.id), Some(&hardware)).unwrap(),
+            Some(wang.id.clone())
+        );
+    }
+
+    #[test]
+    fn joining_a_project_hands_over_the_categories_they_cover() {
+        let c = db::open_in_memory().unwrap();
+        let project = projects::create(&c, "项目", NOW).unwrap();
+        let hardware = category(&c, "硬件");
+        let me = people::list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|person| person.is_me)
+            .unwrap();
+        let other = crate::services::people::create(&c, "老陈", NOW).unwrap();
+        for (id, owner) in [("t1", None), ("t2", Some(me.id.as_str())), ("t3", Some(other.id.as_str()))]
+        {
+            crate::services::week::capture(&c, id, NOW, id).unwrap();
+            c.execute(
+                "UPDATE tasks SET project_id = ?1, category_id = ?2, owner_id = ?3 WHERE id = ?4",
+                rusqlite::params![project.id, hardware, owner, id],
+            )
+            .unwrap();
+        }
+
+        let li = crate::services::people::create(&c, "老李", NOW).unwrap();
+        crate::repo::people::set_categories(&c, &li.id, &[hardware.clone()]).unwrap();
+        projects::add_member(&c, &project.id, Some(&li.id), None, NOW).unwrap();
+
+        let owner_of = |id: &str| -> Option<String> {
+            c.query_row("SELECT owner_id FROM tasks WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        // No owner and the "me" owner come along; someone else's manual pick stays put.
+        assert_eq!(owner_of("t1").as_deref(), Some(li.id.as_str()));
+        assert_eq!(owner_of("t2").as_deref(), Some(li.id.as_str()));
+        assert_eq!(owner_of("t3").as_deref(), Some(other.id.as_str()));
     }
 
     #[test]

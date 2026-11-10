@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 24;
+pub const LATEST: i64 = 25;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -578,6 +578,24 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             }
         }
         tx.pragma_update(None, "user_version", 24)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 25 {
+        // 职责 belongs to the person now, so joining a project can hand over the categories
+        // they cover. IF NOT EXISTS makes a half-applied step retry.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS person_categories (
+               person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+               category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+               PRIMARY KEY (person_id, category_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_person_categories_category
+               ON person_categories(category_id);",
+        )?;
+        tx.pragma_update(None, "user_version", 25)?;
         tx.commit()?;
     }
     Ok(())
@@ -2117,6 +2135,17 @@ mod tests {
             .unwrap();
         assert_eq!(name, "甲方 A");
         assert!(contact.is_none() && phone.is_none() && note.is_none());
+    }
+
+    #[test]
+    fn adds_person_responsibilities() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert!(has_table(&c, "person_categories").unwrap());
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        // Re-running a half-applied step is free.
+        migrate(&c).unwrap();
+        assert!(has_table(&c, "person_categories").unwrap());
     }
 
     #[test]

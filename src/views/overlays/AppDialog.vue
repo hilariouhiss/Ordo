@@ -15,8 +15,10 @@ const untilDraft = ref("");
 const waitPerson = ref("");
 const waitDate = ref("");
 const client = reactive({ name: "", contact: "", phone: "", note: "" });
+const person = reactive({ name: "", categoryIds: [] as string[] });
 const textInput = ref<HTMLInputElement | null>(null);
 const clientNameInput = ref<HTMLInputElement | null>(null);
+const personNameInput = ref<HTMLInputElement | null>(null);
 const reasonInput = ref<HTMLInputElement | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
 
@@ -44,6 +46,11 @@ watch(dialogRequest, async (request) => {
     client.note = request.note;
     await nextTick();
     clientNameInput.value?.select();
+  } else if (request.kind === "person") {
+    person.name = request.name;
+    person.categoryIds = [...request.categoryIds];
+    await nextTick();
+    personNameInput.value?.select();
   } else {
     confirmButton.value?.focus();
   }
@@ -77,6 +84,12 @@ function confirm(): void {
       phone: client.phone.trim(),
       note: client.note.trim(),
     });
+    return;
+  }
+  if (request.kind === "person") {
+    const name = person.name.trim();
+    if (!name) return;
+    closeDialog({ name, categoryIds: [...person.categoryIds] });
     return;
   }
   const value = draft.value.trim();
@@ -156,6 +169,43 @@ function onEnter(event: KeyboardEvent): void {
             {{ t("task.waitingHint") }}
           </p>
         </template>
+        <template v-else-if="dialogRequest.kind === 'person'">
+          <label class="mt-3 block text-[11px] text-base-content/45">
+            {{ t("people.name") }}
+            <input
+              ref="personNameInput"
+              v-model="person.name"
+              class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+              @keydown.enter="onEnter"
+            />
+          </label>
+          <div class="mt-3 text-[11px] text-base-content/45">
+            {{ t("people.roles") }}
+            <div class="mt-1 grid grid-cols-2 gap-1">
+              <label
+                v-for="category in appVM.state.categories"
+                :key="category.id"
+                class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px]"
+                :class="
+                  person.categoryIds.includes(category.id)
+                    ? 'bg-primary/5 text-primary'
+                    : 'text-base-content/70'
+                "
+              >
+                <input
+                  v-model="person.categoryIds"
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  :value="category.id"
+                />
+                {{ category.name }}
+              </label>
+            </div>
+          </div>
+          <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            {{ t("people.rolesHint") }}
+          </p>
+        </template>
         <template v-else-if="dialogRequest.kind === 'client'">
           <label class="mt-3 block text-[11px] text-base-content/45">
             {{ t("clients.name") }}
@@ -224,7 +274,7 @@ function onEnter(event: KeyboardEvent): void {
               t(
                 dialogRequest.kind === "notice"
                   ? "dialog.dismiss"
-                  : dialogRequest.kind === "client"
+                  : dialogRequest.kind === "client" || dialogRequest.kind === "person"
                     ? "common.save"
                     : "dialog.ok",
               )

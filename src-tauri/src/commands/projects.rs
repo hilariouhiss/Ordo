@@ -249,14 +249,15 @@ pub async fn create_person(state: State<'_, AppState>, name: String) -> Result<P
 }
 
 #[tauri::command]
-pub async fn rename_person(
+pub async fn update_person(
     state: State<'_, AppState>,
     id: String,
     name: String,
+    category_ids: Vec<String>,
 ) -> Result<PersonDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::people::rename(conn, &id, &name, &now)
+        crate::services::people::update(conn, &id, &name, &category_ids, &now)
     })
     .await
 }

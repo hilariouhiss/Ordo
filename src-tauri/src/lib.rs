@@ -358,7 +358,7 @@ pub fn run() {
       commands::projects::owner_candidates,
       commands::projects::list_people,
       commands::projects::create_person,
-      commands::projects::rename_person,
+      commands::projects::update_person,
       commands::projects::delete_person,
       commands::archive::list_archive,
       commands::search::search_all,

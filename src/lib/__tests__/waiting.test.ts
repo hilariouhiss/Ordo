@@ -3,8 +3,8 @@ import type { Person } from "../../model/types";
 import { task } from "../../viewmodels/__tests__/fixtures";
 import { defaultFollowUp, waitDefaults, waitingOnName } from "../waiting";
 
-const me: Person = { id: "u1", name: "我", isMe: true };
-const li: Person = { id: "u2", name: "老李", isMe: false };
+const me: Person = { id: "u1", name: "我", isMe: true, categoryIds: [] };
+const li: Person = { id: "u2", name: "老李", isMe: false, categoryIds: [] };
 const people = [me, li];
 
 describe("waiting defaults", () => {

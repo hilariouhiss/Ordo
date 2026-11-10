@@ -45,9 +45,9 @@ export function createMetaVM() {
     await appVM.load();
   }
 
-  async function renamePerson(id: string, name: string): Promise<void> {
+  async function updatePerson(id: string, name: string, categoryIds: string[]): Promise<void> {
     if (!name.trim()) return;
-    await ipc.renamePerson(id, name.trim());
+    await ipc.updatePerson(id, name.trim(), categoryIds);
     await appVM.load();
   }
 
@@ -64,7 +64,7 @@ export function createMetaVM() {
     addTag,
     removeTag,
     addPerson,
-    renamePerson,
+    updatePerson,
     removePerson,
   };
 }
