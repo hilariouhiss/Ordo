@@ -61,14 +61,13 @@ const navItems = computed(
 const appliedTheme = ref<AppliedTheme>("light");
 /** What the header shows and the lists are filtered by. */
 const mode = computed<Mode>(() => appVM.state.settings?.mode ?? "work");
-const modeOptions = computed(() => [
-  { value: "work" as const, label: t("mode.work"), icon: Briefcase },
-  { value: "personal" as const, label: t("mode.personal"), icon: House },
-]);
+const modeIcon = computed(() => (mode.value === "personal" ? House : Briefcase));
+const modeLabel = computed(() => t(mode.value === "personal" ? "mode.personal" : "mode.work"));
 
-function switchMode(next: Mode): void {
-  if (next === mode.value || !appVM.state.ready || windowModeVM.state.phase !== "idle") return;
-  void settingsVM.switchMode(next);
+/** Mirrors the light/dark button: the icon names the current world, a click flips it. */
+function cycleMode(): void {
+  if (!appVM.state.ready || windowModeVM.state.phase !== "idle") return;
+  void settingsVM.switchMode(mode.value === "personal" ? "work" : "personal");
 }
 const themeIcon = computed(() => (appliedTheme.value === "dark" ? Moon : Sun));
 const themeLabel = computed(() =>
@@ -408,26 +407,15 @@ onUnmounted(() => {
             </LayoutGroup>
             <div class="ml-auto flex h-full items-center gap-2">
               <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
-              <div class="join" role="group" :aria-label="t('settings.modeCurrent')">
-                <button
-                  v-for="option in modeOptions"
-                  :key="option.value"
-                  type="button"
-                  class="btn btn-xs join-item rounded-md border-base-300 font-normal transition-colors"
-                  :class="
-                    mode === option.value
-                      ? 'border-0 bg-primary text-primary-content'
-                      : 'bg-base-100 text-base-content/60 hover:text-base-content'
-                  "
-                  :aria-pressed="mode === option.value"
-                  :title="option.label"
-                  :disabled="!appVM.state.ready || windowModeVM.state.phase !== 'idle'"
-                  @click="switchMode(option.value)"
-                >
-                  <component :is="option.icon" :size="12" aria-hidden="true" />
-                  <span>{{ option.label }}</span>
-                </button>
-              </div>
+              <button
+                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
+                :aria-label="t('app.modeAria', { mode: modeLabel })"
+                :title="t('app.modeAria', { mode: modeLabel })"
+                :disabled="!appVM.state.ready || windowModeVM.state.phase !== 'idle'"
+                @click="cycleMode"
+              >
+                <component :is="modeIcon" :size="16" aria-hidden="true" />
+              </button>
               <button
                 class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
                 :aria-label="t('search.openAria')"

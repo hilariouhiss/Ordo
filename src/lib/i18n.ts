@@ -39,6 +39,7 @@ export const zh = {
 
   "app.settings": "设置",
   "app.themeAria": "外观：{mode}，点击切换",
+  "app.modeAria": "模式：{mode}，点击切换",
   "app.settingsTitle": "设置",
   "app.tabGeneral": "通用",
   "app.tabData": "数据",
@@ -668,6 +669,7 @@ export const en: Record<MessageKey, string> = {
 
   "app.settings": "Settings",
   "app.themeAria": "Theme: {mode}, click to switch",
+  "app.modeAria": "Mode: {mode}, click to switch",
   "app.settingsTitle": "Settings",
   "app.tabGeneral": "General",
   "app.tabData": "Data",
