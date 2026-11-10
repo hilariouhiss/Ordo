@@ -251,14 +251,13 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
             "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL
              AND date(created_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
-        done: count(
-            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND status='done'
-             AND actual_finish_at IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_id = tasks.id
-                             AND c.deleted_at IS NULL AND c.archived_at IS NULL
-                             AND c.canceled_at IS NULL)
+        // The same filter the finished cards below use, so the number and the list agree.
+        done: count(&format!(
+            "SELECT COUNT(*) FROM tasks WHERE status='done'
+             AND actual_finish_at IS NOT NULL AND {}
              AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
-        )?,
+            tasks::VISIBLE_TASK_FILTER
+        ))?,
         delayed: count(
             "SELECT COUNT(*) FROM delays WHERE date(created_at,'localtime') BETWEEN ?1 AND ?2",
         )?,
@@ -1192,6 +1191,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(week::stats(&c, "2026-10-20").unwrap().done, 1);
+    }
+
+    #[test]
+    fn the_done_count_drops_a_task_whose_card_is_filed() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "一", NOW, "t1").unwrap();
+        let done = crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+        let day = local_date(NOW);
+
+        assert_eq!(week::stats(&c, &day).unwrap().done, 1);
+        crate::services::archive::archive_task(&c, &done.id, NOW).unwrap();
+
+        assert_eq!(
+            week::stats(&c, &day).unwrap().done,
+            0,
+            "the header counts what the week can still draw"
+        );
+        assert!(week::list_done(&c, &day).unwrap().is_empty());
     }
 
     #[test]

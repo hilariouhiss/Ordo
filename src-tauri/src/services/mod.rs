@@ -42,6 +42,30 @@ pub(crate) fn validate_links(
     Ok(())
 }
 
+/// A task edit may only point at links that are live: an archived project or a deleted
+/// category would hide the task from every list it can appear in.
+pub(crate) fn validate_task_links(
+    conn: &Connection,
+    patch: &crate::dto::TaskPatch,
+) -> Result<(), String> {
+    if let Some(Some(id)) = &patch.project_id {
+        if !crate::repo::projects::exists(conn, id).map_err(|e| e.to_string())? {
+            return Err("invalid_project".into());
+        }
+    }
+    if let Some(Some(id)) = &patch.category_id {
+        if !crate::repo::categories::exists(conn, id).map_err(|e| e.to_string())? {
+            return Err("invalid_category".into());
+        }
+    }
+    if let Some(Some(id)) = &patch.owner_id {
+        if !crate::repo::people::exists(conn, id).map_err(|e| e.to_string())? {
+            return Err("invalid_owner".into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn local_today(now: &str) -> Result<NaiveDate, String> {
     chrono::DateTime::parse_from_rfc3339(now)
         .map(|d| d.with_timezone(&chrono::Local).date_naive())

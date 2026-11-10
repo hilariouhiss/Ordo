@@ -186,7 +186,12 @@ pub fn add_member(
     now: &str,
 ) -> Result<PersonDto, String> {
     let person = match person_id {
-        Some(id) => people::get(conn, id).map_err(|e| e.to_string())?,
+        Some(id) => {
+            if !people::exists(conn, id).map_err(|e| e.to_string())? {
+                return Err("invalid_owner".into());
+            }
+            people::get(conn, id).map_err(|e| e.to_string())?
+        }
         None => {
             let name = name
                 .map(str::trim)
@@ -345,6 +350,17 @@ mod tests {
         assert_eq!(
             projects::owner_candidates(&c, Some(&p.id)).unwrap().len(),
             2
+        );
+    }
+
+    #[test]
+    fn adding_an_unknown_person_is_refused_by_name() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+
+        assert_eq!(
+            projects::add_member(&c, &p.id, Some("nobody"), None, NOW).unwrap_err(),
+            "invalid_owner"
         );
     }
 

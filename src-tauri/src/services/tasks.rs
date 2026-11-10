@@ -1,5 +1,5 @@
 use crate::dto::{TaskDto, TaskPatch};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Minutes of work: at least one, up to the shared cap (sixty eight-hour days by default).
 pub fn valid_effort(minutes: i64) -> bool {
@@ -16,6 +16,11 @@ pub fn update_patch(
     patch: &TaskPatch,
     now: &str,
 ) -> Result<TaskDto, String> {
+    if !crate::repo::tasks::exists(conn, id).map_err(|e| e.to_string())? {
+        return Err("task_not_found".into());
+    }
+    crate::services::validate_task_links(conn, patch)?;
+
     let mut patch = patch.clone();
     if let Some(priority) = patch.priority.as_deref() {
         if !valid_priority(priority) {
@@ -106,14 +111,18 @@ fn expected_start_of(conn: &Connection, id: &str) -> Result<Option<String>, Stri
         [id],
         |row| row.get(0),
     )
-    .map_err(|e| e.to_string())
+    .optional()
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "task_not_found".to_string())
 }
 
 fn rule_owned(conn: &Connection, id: &str) -> Result<bool, String> {
     conn.query_row("SELECT rule_id IS NOT NULL FROM tasks WHERE id = ?1", [id], |row| {
         row.get(0)
     })
-    .map_err(|e| e.to_string())
+    .optional()
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "task_not_found".to_string())
 }
 
 /// The patch fields a parent derives from its children instead of storing by hand.
@@ -388,6 +397,75 @@ mod tests {
         };
         let t = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
         assert!(t.project_id.is_none());
+    }
+
+    #[test]
+    fn an_edit_refuses_a_deleted_category() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let software = category(&c, "软件");
+        crate::repo::categories::soft_delete_and_detach(&c, &software, NOW).unwrap();
+        let patch = TaskPatch {
+            category_id: Some(Some(software)),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "invalid_category"
+        );
+    }
+
+    #[test]
+    fn an_edit_refuses_an_archived_project() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "项目", NOW).unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
+        let patch = TaskPatch {
+            project_id: Some(Some(p.id.clone())),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "t1", &patch, NOW).unwrap_err(),
+            "invalid_project"
+        );
+    }
+
+    #[test]
+    fn an_edit_of_a_missing_task_is_reported_as_missing() {
+        let c = db::open_in_memory().unwrap();
+        let patch = TaskPatch {
+            title: Some("新标题".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            tasks::update_patch(&c, "gone", &patch, NOW).unwrap_err(),
+            "task_not_found"
+        );
+    }
+
+    #[test]
+    fn editing_a_finished_task_estimate_moves_its_finish() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        let before = crate::repo::tasks::dto(&c, "t1")
+            .unwrap()
+            .expected_finish_date
+            .unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        let patch = TaskPatch {
+            effort_minutes: Some(960),
+            ..Default::default()
+        };
+        let task = tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        assert_eq!(task.effort_minutes, 960);
+        let after = task.expected_finish_date.unwrap();
+        assert!(
+            after > before,
+            "a finished task's finish follows its estimate: {before} -> {after}"
+        );
     }
 
     #[test]

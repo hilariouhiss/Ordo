@@ -114,12 +114,12 @@ pub(crate) fn write_finish_in(
     Ok(())
 }
 
-/// Rewrites the finish of a live task from its current start and estimate. Recurring
-/// tasks keep the occurrence date the rule gave them, and finished or archived work is
-/// left alone. The caller owns the transaction.
+/// Rewrites the finish of a live task from its current start and estimate. A finished
+/// task follows too, so its estimate and its finish cannot disagree after an edit;
+/// recurring tasks keep the occurrence date the rule gave them, and filed work is left
+/// alone. The caller owns the transaction.
 pub(crate) fn sync_finish_in(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
-    let (status, canceled, archived, start, effort, rule): (
-        String,
+    let (canceled, archived, start, effort, rule): (
         Option<String>,
         Option<String>,
         Option<String>,
@@ -127,22 +127,13 @@ pub(crate) fn sync_finish_in(conn: &Connection, task_id: &str, now: &str) -> Res
         Option<String>,
     ) = conn
         .query_row(
-            "SELECT status, canceled_at, archived_at, expected_start_date, effort_minutes, rule_id
+            "SELECT canceled_at, archived_at, expected_start_date, effort_minutes, rule_id
              FROM tasks WHERE id = ?1",
             [task_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .map_err(|e| e.to_string())?;
-    if status == "done" || canceled.is_some() || archived.is_some() || rule.is_some() {
+    if canceled.is_some() || archived.is_some() || rule.is_some() {
         return Ok(());
     }
     let today = crate::services::local_today(now)?;
@@ -268,11 +259,14 @@ mod tests {
     }
 
     #[test]
-    fn a_done_task_keeps_the_finish_it_had() {
+    fn a_done_task_follows_its_estimate_too() {
         let c = db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
         crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
-        let finished = crate::repo::tasks::dto(&c, "t1").unwrap().expected_finish_date;
+        let finished = crate::repo::tasks::dto(&c, "t1")
+            .unwrap()
+            .expected_finish_date
+            .unwrap();
 
         let patch = crate::dto::TaskPatch {
             effort_minutes: Some(1440),
@@ -280,7 +274,11 @@ mod tests {
         };
         let task = crate::services::tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
 
-        assert_eq!(task.expected_finish_date, finished);
+        let after = task.expected_finish_date.unwrap();
+        assert!(
+            after > finished,
+            "a finished task's estimate and finish must not disagree: {finished} -> {after}"
+        );
     }
 
     #[test]

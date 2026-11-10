@@ -16,7 +16,9 @@ pub fn add_note(conn: &Connection, task_id: &str, reason: &str, now: &str) -> Re
             [task_id],
             |r| r.get(0),
         )
-        .map_err(|e| e.to_string())?;
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or("task_not_found")?;
     delays::insert(
         conn,
         &Uuid::new_v4().to_string(),
@@ -92,6 +94,15 @@ mod tests {
         assert_eq!(
             crate::services::deliverables::set_reason(&c, "nope", "慢").unwrap_err(),
             "delay_not_found"
+        );
+    }
+
+    #[test]
+    fn a_note_on_a_missing_task_is_refused() {
+        let c = db::open_in_memory().unwrap();
+        assert_eq!(
+            crate::services::deliverables::add_note(&c, "gone", "等甲方", NOW).unwrap_err(),
+            "task_not_found"
         );
     }
 

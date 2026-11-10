@@ -1,6 +1,6 @@
 use crate::dto::{ArchiveTaskDto, CaptureFields, DelayDto, TagDto, TaskDto};
 use rusqlite::types::Value;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 /// The week, the pass and reminders only see live tasks outside archived projects. A task
 /// with live subtasks is an umbrella: its work is the children, so it is never planned or
@@ -188,6 +188,15 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         parent_title: row.get(29)?,
         project_name: row.get(28)?,
     })
+}
+
+/// Whether this id names a live (not deleted) task.
+pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    conn.query_row("SELECT 1 FROM tasks WHERE id = ?1 AND deleted_at IS NULL", [id], |_| {
+        Ok(true)
+    })
+    .optional()
+    .map(|found| found.unwrap_or(false))
 }
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<TaskDto> {
