@@ -15,7 +15,7 @@ export function workdayOnOrBefore(iso: string): string {
   return day;
 }
 
-function nextWorkday(iso: string): string {
+export function nextWorkday(iso: string): string {
   return workdayOnOrAfter(addDays(iso, 1));
 }
 

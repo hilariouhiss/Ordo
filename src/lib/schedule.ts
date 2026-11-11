@@ -1,5 +1,4 @@
-import { addDays } from "./dates";
-import { workdayOnOrAfter } from "./timing";
+import { nextWorkday, workdayOnOrAfter } from "./timing";
 
 export interface PlanTask {
   id: string;
@@ -31,10 +30,6 @@ export const LOAD_WARN_HOURS = 16;
 interface Start {
   day: string;
   hour: number;
-}
-
-function nextWorkday(iso: string): string {
-  return workdayOnOrAfter(addDays(iso, 1));
 }
 
 function needOf(task: PlanTask): number {
