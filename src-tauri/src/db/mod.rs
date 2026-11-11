@@ -147,14 +147,8 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
         std::fs::copy(path, &kept_at).map_err(|e| format!("corrupt_copy_failed: {e}"))?;
     }
     // The broken file's write-ahead log can hold its newest committed rows, and
-    // replaying it into the restored file would corrupt that one instead. Set it
-    // aside next to the copy rather than deleting it.
-    for suffix in ["-wal", "-shm"] {
-        let from = PathBuf::from(format!("{}{suffix}", path.display()));
-        if from.exists() {
-            let _ = std::fs::rename(&from, format!("{}{suffix}", kept_at.display()));
-        }
-    }
+    // replaying it into the restored file would corrupt that one instead.
+    set_aside_side_files(path, &kept_at)?;
 
     let candidates = backups_newest_first(backups);
     if candidates.is_empty() {
@@ -191,6 +185,22 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
         }
     }
     Err(last)
+}
+
+/// Moves the broken file's write-ahead log and shared memory beside the kept copy.
+/// A side file still sitting next to the restored ledger would be replayed into it, so
+/// a move that fails stops the recovery instead of leaving the pair behind.
+fn set_aside_side_files(path: &Path, kept_at: &Path) -> Result<(), String> {
+    for suffix in ["-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", path.display()));
+        if !from.exists() {
+            continue;
+        }
+        let to = format!("{}{suffix}", kept_at.display());
+        std::fs::rename(&from, to)
+            .map_err(|e| format!("side_file_not_set_aside: {suffix}: {e}"))?;
+    }
+    Ok(())
 }
 
 fn backups_newest_first(backups: &Path) -> Vec<PathBuf> {
@@ -485,6 +495,42 @@ mod tests {
             .find(|name| name.contains("corrupt") && name.ends_with("-wal"))
             .unwrap_or_else(|| panic!("write-ahead log not kept: {:?}", names(&dir)));
         assert_eq!(std::fs::read(dir.join(kept)).unwrap(), b"unflushed rows");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_side_file_that_cannot_be_moved_stops_the_restore() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        let kept = path.with_extension("db.corrupt-test");
+        std::fs::write(format!("{}-wal", path.display()), b"unflushed rows").unwrap();
+        // A directory wearing the destination's name makes the rename fail.
+        std::fs::create_dir_all(format!("{}-wal", kept.display())).unwrap();
+
+        let err = set_aside_side_files(&path, &kept).err().unwrap();
+
+        assert!(err.starts_with("side_file_not_set_aside"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn side_files_land_beside_the_kept_copy() {
+        let dir = tempdir();
+        let path = dir.join("ordo.db");
+        let kept = path.with_extension("db.corrupt-test");
+        for suffix in ["-wal", "-shm"] {
+            std::fs::write(format!("{}{suffix}", path.display()), suffix.as_bytes()).unwrap();
+        }
+
+        set_aside_side_files(&path, &kept).unwrap();
+
+        for suffix in ["-wal", "-shm"] {
+            assert!(!PathBuf::from(format!("{}{suffix}", path.display())).exists());
+            assert_eq!(
+                std::fs::read(format!("{}{suffix}", kept.display())).unwrap(),
+                suffix.as_bytes()
+            );
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

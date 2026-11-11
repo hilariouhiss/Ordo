@@ -222,10 +222,39 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Backs up the ledger once a day on its own connection; every other tick only checks a
-/// file exists. The two values say whether this tick wrote a copy (which is also when
-/// cleanup runs) and why it failed, if it did.
+/// The local date whose daily copy is confirmed, so the tick stops reopening the ledger
+/// once the day is done.
+static BACKED_UP_DAY: Mutex<Option<String>> = Mutex::new(None);
+
+/// Writes today's copy and remembers the day it worked; a failure is retried next tick.
+fn backup_day(
+    conn: &rusqlite::Connection,
+    backups: &std::path::Path,
+    confirmed: &Mutex<Option<String>>,
+    today: &str,
+) -> (bool, Option<String>) {
+    let result = crate::services::export::backup_daily(conn, backups);
+    if result.is_ok() {
+        if let Ok(mut day) = confirmed.lock() {
+            *day = Some(today.to_string());
+        }
+    }
+    let made = result.as_ref().map(|path| path.is_some()).unwrap_or(false);
+    (made, result.err())
+}
+
+/// Backs up the ledger once a day on its own connection; a day already confirmed does no
+/// file work at all. The two values say whether this tick wrote a copy (which is also
+/// when cleanup runs) and why it failed, if it did.
 fn backup_ledger(app: &AppHandle) -> (bool, Option<String>) {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    if BACKED_UP_DAY
+        .lock()
+        .map(|day| day.as_deref() == Some(today.as_str()))
+        .unwrap_or(false)
+    {
+        return (false, None);
+    }
     let Ok(data_dir) = app.path().app_data_dir() else {
         return (false, Some("no_app_data_dir".into()));
     };
@@ -238,9 +267,7 @@ fn backup_ledger(app: &AppHandle) -> (bool, Option<String>) {
         Err(e) => return (false, Some(e.to_string())),
     };
     let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
-    let result = crate::services::export::backup_daily(&conn, &data_dir.join("backups"));
-    let made = result.as_ref().map(|path| path.is_some()).unwrap_or(false);
-    (made, result.err())
+    backup_day(&conn, &data_dir.join("backups"), &BACKED_UP_DAY, &today)
 }
 
 #[cfg(test)]
@@ -293,6 +320,43 @@ mod tests {
             assert_eq!(folded, 0);
         }
         assert_eq!(split_toasts(Vec::<u8>::new()), (vec![], 0));
+    }
+
+    fn backup_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ordo-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_successful_backup_is_remembered_for_the_day() {
+        let dir = backup_dir("reminder-backup");
+        let c = crate::db::open_in_memory().unwrap();
+        let confirmed = Mutex::new(None);
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        let (made, error) = backup_day(&c, &dir, &confirmed, &today);
+
+        assert!(made && error.is_none(), "{error:?}");
+        assert_eq!(confirmed.lock().unwrap().as_deref(), Some(today.as_str()));
+        assert!(dir.join(format!("ordo-{today}.db")).exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_backup_is_retried_instead_of_remembered() {
+        let dir = backup_dir("reminder-backup-fail");
+        // A file wearing the backup directory's name makes every write fail.
+        std::fs::write(dir.join("backups"), b"not a directory").unwrap();
+        let c = crate::db::open_in_memory().unwrap();
+        let confirmed = Mutex::new(None);
+
+        let (made, error) = backup_day(&c, &dir.join("backups"), &confirmed, "2026-10-20");
+
+        assert!(!made);
+        assert!(error.is_some());
+        assert!(confirmed.lock().unwrap().is_none(), "a failure must be tried again");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

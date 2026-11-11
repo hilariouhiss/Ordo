@@ -196,6 +196,11 @@ pub fn valid_saved_views(views: &[SavedTaskViewDto]) -> bool {
     views.len() <= 20 && views.iter().all(valid_saved_view)
 }
 
+/// How many days of dated backups the user may keep: a season at least, ten years at most.
+pub fn valid_backup_keep_days(days: i64) -> bool {
+    (1..=3650).contains(&days)
+}
+
 /// A hand-edited or older value must not stop the bootstrap: bad entries are
 /// dropped and the list is capped instead of failing the whole settings read.
 pub fn parse_saved_views(text: Option<&str>) -> Vec<SavedTaskViewDto> {
@@ -423,6 +428,16 @@ mod tests {
         set(&c, "reminders.lead_minutes", "0").unwrap();
         assert_eq!(dto(&c).unwrap().reminders_lead_minutes, 0);
         assert_eq!(reminder_lead_minutes(&c), 0);
+    }
+
+    #[test]
+    fn backup_keep_days_has_a_working_range() {
+        assert!(valid_backup_keep_days(1));
+        assert!(valid_backup_keep_days(30));
+        assert!(valid_backup_keep_days(3650));
+        assert!(!valid_backup_keep_days(0));
+        assert!(!valid_backup_keep_days(-1));
+        assert!(!valid_backup_keep_days(3651));
     }
 
     #[test]

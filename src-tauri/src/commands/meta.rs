@@ -154,6 +154,11 @@ pub async fn set_settings(
             return Err("invalid_week_view".into());
         }
     }
+    if let Some(days) = patch.backup_keep_days {
+        if !crate::repo::settings::valid_backup_keep_days(days) {
+            return Err("invalid_backup_keep".into());
+        }
+    }
     if let Some(url) = patch.ai_base_url.as_deref() {
         if !crate::repo::settings::valid_ai_base_url(url) {
             return Err("invalid_ai_base_url".into());
@@ -233,21 +238,36 @@ pub async fn set_mode(
     Ok(settings)
 }
 
+/// Runs a whole-file copy on its own connection, so a backup or export never holds the
+/// ledger the UI works on.
+async fn off_ledger<T, F>(app: &tauri::AppHandle, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Connection, &std::path::Path) -> Result<T, String> + Send + 'static,
+{
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(data_dir.join("ordo.db")).map_err(|e| e.to_string())?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| e.to_string())?;
+        work(&conn, &data_dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
-pub async fn export_json(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let dir = app
+pub async fn export_json(app: tauri::AppHandle) -> Result<String, String> {
+    let file = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("exports");
-    let file = dir.join(format!(
-        "ordo-export-{}.json",
-        chrono::Local::now().format("%Y%m%d-%H%M%S")
-    ));
-    with_db(&state, move |conn| {
+        .join("exports")
+        .join(format!(
+            "ordo-export-{}.json",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        ));
+    off_ledger(&app, move |conn, _data_dir| {
         crate::services::export::to_json(conn, &file)?;
         Ok(file.to_string_lossy().to_string())
     })
@@ -255,17 +275,9 @@ pub async fn export_json(
 }
 
 #[tauri::command]
-pub async fn backup_now(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("backups");
-    with_db(&state, move |conn| {
-        let result = crate::services::export::backup_snapshot(conn, &dir);
+pub async fn backup_now(app: tauri::AppHandle) -> Result<String, String> {
+    off_ledger(&app, |conn, data_dir| {
+        let result = crate::services::export::backup_snapshot(conn, &data_dir.join("backups"));
         crate::services::export::record_error(conn, result.as_ref().err().cloned());
         result.map(|path| path.to_string_lossy().to_string())
     })
