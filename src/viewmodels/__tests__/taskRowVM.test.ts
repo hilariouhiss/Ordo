@@ -66,6 +66,44 @@ describe("taskRowVM", () => {
     expect(setTaskStatus).toHaveBeenLastCalledWith("t1", "doing");
   });
 
+  it("undo of a completion puts a suspended task back on its park", async () => {
+    const vm = createTaskRowVM();
+    const parked = task({
+      id: "t1",
+      title: "交底",
+      status: "doing",
+      suspended: true,
+      suspendedUntil: "2999-12-01",
+      suspendReason: "等甲方",
+    });
+
+    await vm.toggleDone(parked);
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    await run();
+
+    expect(setTaskStatus).toHaveBeenLastCalledWith("t1", "doing");
+    expect(suspendTask).toHaveBeenLastCalledWith("t1", "2999-12-01", "等甲方");
+  });
+
+  it("undo of a completion puts a waiting task back on its follow-up", async () => {
+    const vm = createTaskRowVM();
+    const parked = task({
+      id: "t1",
+      title: "交底",
+      status: "doing",
+      waiting: true,
+      waitingOnId: "u2",
+      followUpDate: "2999-12-06",
+    });
+
+    await vm.toggleDone(parked);
+    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
+    await run();
+
+    expect(setTaskStatus).toHaveBeenLastCalledWith("t1", "doing");
+    expect(waitTask).toHaveBeenLastCalledWith("t1", "u2", "2999-12-06");
+  });
+
   it("undoes a suspension by bringing the task back", async () => {
     const vm = createTaskRowVM();
     vi.mocked(suspendTask).mockResolvedValue(task({ suspended: true }));

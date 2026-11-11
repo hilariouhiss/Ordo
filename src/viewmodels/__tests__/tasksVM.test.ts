@@ -145,12 +145,12 @@ describe("tasksVM", () => {
     expect(updateTaskPatch).not.toHaveBeenCalled();
   });
 
-  it("offers undo back to the project a drag replaced", async () => {
+  it("offers undo back to the project and owner a drag replaced", async () => {
     vi.mocked(listAllTasks).mockResolvedValue([
-      task({ id: "t1", title: "交底", projectId: "p1", projectName: "Alpha" }),
+      task({ id: "t1", title: "交底", projectId: "p1", projectName: "Alpha", ownerId: "u1" }),
     ]);
     vi.mocked(updateTaskPatch).mockResolvedValue(
-      task({ id: "t1", projectId: "p2", projectName: "Beta" }),
+      task({ id: "t1", projectId: "p2", projectName: "Beta", ownerId: "u2" }),
     );
 
     const vm = createTasksVM();
@@ -159,7 +159,11 @@ describe("tasksVM", () => {
 
     const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
     await run();
-    expect(updateTaskPatch).toHaveBeenLastCalledWith("t1", { projectId: "p1" });
+    // The move also routes the owner; putting it back means naming it.
+    expect(updateTaskPatch).toHaveBeenLastCalledWith("t1", {
+      projectId: "p1",
+      ownerId: "u1",
+    });
   });
 
   it("narrows the list and drops empty groups while a filter is active", async () => {

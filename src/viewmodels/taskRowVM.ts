@@ -74,6 +74,19 @@ export function createTaskRowVM() {
         t(next === "done" ? "undo.completed" : "undo.reopened", { title: task.title }),
         async () => {
           await setTaskStatus(task.id, previous);
+          // Completing clears the park; the undo puts the task back where it was.
+          if (task.waiting) {
+            const day =
+              task.followUpDate && task.followUpDate >= todayIso() ? task.followUpDate : null;
+            await waitTask(task.id, task.waitingOnId, day);
+            return;
+          }
+          if (task.suspended) {
+            const until =
+              task.suspendedUntil && task.suspendedUntil >= todayIso() ? task.suspendedUntil : null;
+            await suspendTask(task.id, until, task.suspendReason);
+            return;
+          }
           // Re-completing stamps "now"; the undo of a reopen hands the recorded pair back.
           if (next === "todo" && task.actualStartAt && task.actualFinishAt) {
             await updateTaskPatch(task.id, {

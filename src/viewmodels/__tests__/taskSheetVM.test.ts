@@ -300,6 +300,41 @@ describe("saveSheet", () => {
     );
   });
 
+  it("refuses to half-apply a status change when the actual pair is invalid", async () => {
+    const original = task({ id: "t1", status: "doing", actualStartAt: "2026-10-20T02:00:00Z" });
+    vi.mocked(getTask).mockResolvedValue(original);
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.state.form!.status = "done";
+    vm.state.form!.actualFinishDate = "2026-10-19";
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(false);
+    expect(vm.state.error).toBe("finish_before_start");
+    expect(setTaskStatus).not.toHaveBeenCalled();
+    expect(updateTaskPatch).not.toHaveBeenCalled();
+  });
+
+  it("still saves a finished task that never recorded an actual start", async () => {
+    const finished = task({
+      id: "t1",
+      status: "done",
+      actualFinishAt: "2026-10-20T09:00:00Z",
+      actualEffortMinutes: 480,
+    });
+    vi.mocked(getTask).mockResolvedValue(finished);
+    vi.mocked(updateTaskPatch).mockResolvedValue({ ...finished, title: "新" });
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.state.form!.title = "新";
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(true);
+    expect(updateTaskPatch).toHaveBeenCalledWith("t1", { title: "新" });
+  });
+
   it("leaves the status of a task with subtasks to its children", async () => {
     const parent = task({
       id: "t1",
@@ -315,6 +350,25 @@ describe("saveSheet", () => {
 
     expect(setTaskStatus).not.toHaveBeenCalled();
     expect(updateTaskPatch).not.toHaveBeenCalled();
+  });
+
+  it("still clears the effort of a finished task that never recorded a start", async () => {
+    const finished = task({
+      id: "t1",
+      status: "done",
+      actualFinishAt: "2026-10-20T09:00:00Z",
+      actualEffortMinutes: 480,
+    });
+    vi.mocked(getTask).mockResolvedValue(finished);
+    vi.mocked(updateTaskPatch).mockResolvedValue({ ...finished, actualEffortMinutes: null });
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.state.form!.actualEffortMinutes = 0;
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(true);
+    expect(updateTaskPatch).toHaveBeenCalledWith("t1", { actualEffortMinutes: null });
   });
 
   it("records the overdue note with the save", async () => {

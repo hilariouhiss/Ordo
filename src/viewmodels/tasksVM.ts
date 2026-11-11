@@ -201,11 +201,13 @@ export function createTasksVM() {
     const current = state.tasks.find((task) => task.id === taskId);
     if (!current || current.projectId === projectId) return false;
     const previousProjectId = current.projectId;
+    const previousOwnerId = current.ownerId;
     try {
       const updated = await updateTaskPatch(taskId, { projectId });
       state.tasks = state.tasks.map((task) => (task.id === taskId ? updated : task));
       undoVM.pushUndo(t("undo.project", { title: updated.title }), async () => {
-        await updateTaskPatch(taskId, { projectId: previousProjectId });
+        // The move also routes the owner; naming both keeps the undo from rerouting it.
+        await updateTaskPatch(taskId, { projectId: previousProjectId, ownerId: previousOwnerId });
       });
       return true;
     } catch (e) {

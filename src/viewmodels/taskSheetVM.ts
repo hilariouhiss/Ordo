@@ -322,6 +322,21 @@ export function createTaskSheetVM() {
     applyDerived(state.form, task);
   }
 
+  /** What the backend would refuse about the draft's actual pair, or null. Checked before
+   * the status write, because that step cannot be rolled back by a refused patch. */
+  function actualRefusal(task: Task, patch: TaskPatch): string | null {
+    // Only a value being written needs a start; clearing a field does not, as on the backend.
+    const setsValue =
+      (patch.actualFinishAt !== undefined && patch.actualFinishAt !== null) ||
+      (patch.actualEffortMinutes !== undefined && patch.actualEffortMinutes !== null);
+    if (!setsValue) return null;
+    const start = patch.actualStartAt !== undefined ? patch.actualStartAt : task.actualStartAt;
+    if (!start) return "actual_start_required";
+    const finish = patch.actualFinishAt !== undefined ? patch.actualFinishAt : task.actualFinishAt;
+    if (finish && Date.parse(finish) < Date.parse(start)) return "finish_before_start";
+    return null;
+  }
+
   /** The fields a task with subtasks takes from them, never from the draft. */
   function applyDerived(form: TaskForm, task: Task): void {
     Object.assign(form, derivedFields(task));
@@ -335,6 +350,11 @@ export function createTaskSheetVM() {
     state.error = null;
     // Measured before the status lands: an untouched actual time must stay out of the patch.
     const patch = diffTask(task, form);
+    const refusal = actualRefusal(task, patch);
+    if (refusal) {
+      state.error = refusal;
+      return false;
+    }
     try {
       // A task with subtasks is an umbrella: its status comes from them.
       if (!task.children.length && form.status !== task.status) {
