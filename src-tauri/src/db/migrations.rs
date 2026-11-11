@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 26;
+pub const LATEST: i64 = 27;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -624,6 +624,22 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 26)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 27 {
+        // A drag used to stamp an expected start on a rule's occurrence while the rule kept
+        // its own finish day, leaving work that starts after it is due. The rule owns the day.
+        let tx = conn.unchecked_transaction()?;
+        if has_task_column(&tx, "rule_id")? && has_task_column(&tx, "expected_start_date")? {
+            tx.execute(
+                "UPDATE tasks SET expected_start_date = NULL
+                 WHERE rule_id IS NOT NULL AND expected_start_date IS NOT NULL",
+                [],
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 27)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -1014,6 +1030,37 @@ mod tests {
         assert!(c
             .execute("UPDATE tasks SET scope = 'team' WHERE id = 'p1'", [])
             .is_err());
+    }
+
+    #[test]
+    fn clears_a_start_a_drag_stamped_on_a_rule_occurrence() {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, effort_minutes, created_at, updated_at)
+             VALUES ('r1', '周会', '1', '09:00', 480, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             INSERT INTO tasks (id, title, expected_start_date, expected_finish_date,
+                                expected_finish_time, rule_id, created_at, updated_at)
+             VALUES ('t1', '周会', '2026-10-22', '2026-10-20', '17:00', 'r1',
+                     '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');
+             INSERT INTO tasks (id, title, expected_start_date, created_at, updated_at)
+             VALUES ('t2', '普通', '2026-10-22', '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');",
+        )
+        .unwrap();
+        // A ledger written before the repair step.
+        c.pragma_update(None, "user_version", 26).unwrap();
+
+        migrate(&c).unwrap();
+
+        let (start, plain): (Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT (SELECT expected_start_date FROM tasks WHERE id = 't1'),
+                        (SELECT expected_start_date FROM tasks WHERE id = 't2')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(start.is_none(), "a rule's occurrence lost the start a drag stamped on it");
+        assert_eq!(plain.as_deref(), Some("2026-10-22"), "an ordinary task keeps its start");
     }
 
     fn v2_database() -> rusqlite::Connection {

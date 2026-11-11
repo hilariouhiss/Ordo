@@ -2,7 +2,7 @@ use crate::dto::{CaptureFields, TaskDto, WeekStatsDto};
 use crate::repo::{people, projects, settings, tasks};
 use crate::services::local_today;
 use chrono::{Datelike, Duration, NaiveDate};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -388,36 +388,35 @@ pub fn place(
         .map_err(|_| "invalid_start_date".to_string())?;
     // One transaction: a bad anchor rolls the date back too, so a drop is all or nothing.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let changed = tx
-        .execute(
-            "UPDATE tasks SET expected_start_date = ?1, updated_at = ?2
-             WHERE id = ?3 AND canceled_at IS NULL AND archived_at IS NULL
+    let (rule_id, effort): (Option<String>, i64) = tx
+        .query_row(
+            "SELECT rule_id, effort_minutes FROM tasks
+             WHERE id = ?1 AND canceled_at IS NULL AND archived_at IS NULL
                AND deleted_at IS NULL AND status <> 'done'",
-            params![day, now, task_id],
+            [task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| e.to_string())?;
-    if changed == 0 {
-        return Err("task_not_found".into());
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or("task_not_found")?;
+    // The rule owns the day, and moving only the start would put it after the finish.
+    if rule_id.is_some() {
+        return Err("rule_owns_finish".into());
     }
+    tx.execute(
+        "UPDATE tasks SET expected_start_date = ?1, updated_at = ?2 WHERE id = ?3",
+        params![day, now, task_id],
+    )
+    .map_err(|e| e.to_string())?;
     tasks::write_park_in(&tx, task_id, tasks::Park::InWeek, now, false)
         .map_err(|e| e.to_string())?;
     let orders = crate::services::tasks::order_changes(&tx, task_id, before_id)?;
     crate::repo::tasks::write_orders_in(&tx, &orders).map_err(|e| e.to_string())?;
     // A drop moves the finish by the same rule a start edit uses, so dropping work on a
-    // later day records the reschedule the delay ledger exists for. A rule owns its
-    // occurrence's day, so those keep the date it was generated with.
-    let (rule_id, effort): (Option<String>, i64) = tx
-        .query_row(
-            "SELECT rule_id, effort_minutes FROM tasks WHERE id = ?1",
-            [task_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|e| e.to_string())?;
-    if rule_id.is_none() {
-        let anchor = crate::services::timing::anchor_for(local_today(now)?, Some(day));
-        let finish = crate::services::timing::finish_for(anchor, effort);
-        crate::services::timing::write_finish_in(&tx, task_id, finish, now)?;
-    }
+    // later day records the reschedule the delay ledger exists for.
+    let anchor = crate::services::timing::anchor_for(local_today(now)?, Some(day));
+    let finish = crate::services::timing::finish_for(anchor, effort);
+    crate::services::timing::write_finish_in(&tx, task_id, finish, now)?;
     crate::services::subtasks::sync_parent(&tx, task_id, now)?;
     tx.commit().map_err(|e| e.to_string())
 }
@@ -1151,7 +1150,7 @@ mod tests {
     }
 
     #[test]
-    fn place_keeps_a_recurring_occurrence_on_its_rule_day() {
+    fn place_refuses_a_recurring_occurrence() {
         use chrono::TimeZone;
         let c = db::open_in_memory().unwrap();
         let rule = crate::services::rules::save(
@@ -1170,12 +1169,17 @@ mod tests {
         let id: String = c
             .query_row("SELECT id FROM tasks WHERE rule_id = ?1", [&rule.id], |r| r.get(0))
             .unwrap();
-        let before = crate::repo::tasks::dto(&c, &id).unwrap().expected_finish_date;
+        let before = crate::repo::tasks::dto(&c, &id).unwrap();
 
-        week::place(&c, &id, "2026-10-22", None, NOW).unwrap();
+        // Moving only the start would leave it after the rule's finish, so the drop is refused.
+        assert_eq!(
+            week::place(&c, &id, "2026-10-22", None, NOW).unwrap_err(),
+            "rule_owns_finish"
+        );
 
-        let t = crate::repo::tasks::dto(&c, &id).unwrap();
-        assert_eq!(t.expected_finish_date, before, "a rule owns the occurrence day");
+        let after = crate::repo::tasks::dto(&c, &id).unwrap();
+        assert_eq!(after.expected_finish_date, before.expected_finish_date);
+        assert!(after.expected_start_date.is_none(), "no start is invented for it");
     }
 
     #[test]
