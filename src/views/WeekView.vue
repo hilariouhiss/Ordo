@@ -4,8 +4,9 @@ import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
 import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
+import { askNotice } from "../lib/dialog";
 import { formatEffort } from "../lib/effort";
-import { t } from "../lib/i18n";
+import { errorText, t } from "../lib/i18n";
 import { listItemMotion, weekViewMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
@@ -56,8 +57,9 @@ const weekViewOptions = computed<{ value: WeekView; label: string }[]>(() => [
   { value: "list", label: t("settings.weekViewList") },
   { value: "gantt", label: t("settings.weekViewGantt") },
 ]);
-function saveWeekView(next: string): void {
-  void settingsVM.save({ weekView: next as WeekView });
+async function saveWeekView(next: string): Promise<void> {
+  const ok = await settingsVM.save({ weekView: next as WeekView });
+  if (!ok) void askNotice(t("common.actionFailed"), errorText(settingsVM.state.error));
 }
 /** The two views trade places sideways: the gantt lives right of the list. */
 const reducedMotion = prefersReducedMotion();

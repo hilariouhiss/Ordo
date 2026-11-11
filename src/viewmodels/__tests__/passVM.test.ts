@@ -5,7 +5,9 @@ vi.mock("../../model/ipc", () => ({
   passResolve: vi.fn(),
   markPassDone: vi.fn(),
 }));
+vi.mock("../../lib/dialog", () => ({ askNotice: vi.fn().mockResolvedValue(undefined) }));
 
+import { askNotice } from "../../lib/dialog";
 import { markPassDone, passQueue, passResolve } from "../../model/ipc";
 import { appVM } from "../appVM";
 import { createPassVM } from "../passVM";
@@ -84,6 +86,41 @@ describe("passVM", () => {
 
     expect(appVM.state.settings?.lastPassWeek).toBe("2026-10-26");
     expect(vm.state.open).toBe(false);
+  });
+
+  it("reports a failed action and stays on the card", async () => {
+    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" })]);
+    vi.mocked(passResolve).mockRejectedValue("db_lock_poisoned");
+
+    const vm = createPassVM();
+    await vm.start();
+    await vm.resolve("done");
+
+    expect(vm.state.index).toBe(0);
+    expect(vm.state.counts.done).toBe(0);
+    expect(askNotice).toHaveBeenCalled();
+  });
+
+  it("reports a failed queue read instead of doing nothing", async () => {
+    vi.mocked(passQueue).mockRejectedValue("db_lock_poisoned");
+
+    const vm = createPassVM();
+    await vm.start();
+
+    expect(vm.state.open).toBe(false);
+    expect(askNotice).toHaveBeenCalled();
+  });
+
+  it("reports a failed pass clearing instead of closing as if it worked", async () => {
+    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" })]);
+    vi.mocked(markPassDone).mockRejectedValue("db_lock_poisoned");
+
+    const vm = createPassVM();
+    await vm.start();
+    await vm.finish();
+
+    expect(vm.state.open).toBe(true);
+    expect(askNotice).toHaveBeenCalled();
   });
 
   it("split returns the current card without advancing", async () => {

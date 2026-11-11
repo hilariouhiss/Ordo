@@ -50,6 +50,12 @@ describe("errorText", () => {
     expect(errorText("ai_http_500")).toContain("500");
   });
 
+  it("translates the AI test and backup failures", () => {
+    expect(errorText("no_key")).toBe("还没保存 AI key。");
+    expect(errorText("empty_response")).toBe("AI 返回了空内容。");
+    expect(errorText("invalid_backup_keep")).toContain("3650");
+  });
+
   it("translates only a code, not a message that merely contains one", () => {
     expect(errorText("disk is full: empty_title")).toBe("disk is full: empty_title");
   });

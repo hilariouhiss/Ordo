@@ -1,4 +1,6 @@
 import { computed, reactive } from "vue";
+import { askNotice } from "../lib/dialog";
+import { errorText, t } from "../lib/i18n";
 import { markPassDone, passQueue, passResolve } from "../model/ipc";
 import type { PassAction, Task } from "../model/types";
 import { todayIso } from "../lib/dates";
@@ -16,13 +18,17 @@ export function createPassVM() {
   const current = computed(() => state.queue[state.index] ?? null);
 
   async function start(): Promise<void> {
-    const queue = await passQueue();
-    // Nothing to go through: opening would show the "this round is done" screen for no reason.
-    if (!queue.length) return;
-    state.queue = queue;
-    state.index = 0;
-    state.counts = { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 };
-    state.open = true;
+    try {
+      const queue = await passQueue();
+      // Nothing to go through: opening would show the "this round is done" screen for no reason.
+      if (!queue.length) return;
+      state.queue = queue;
+      state.index = 0;
+      state.counts = { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 };
+      state.open = true;
+    } catch (e) {
+      void askNotice(t("common.actionFailed"), errorText(e));
+    }
   }
 
   async function resolve(
@@ -37,6 +43,9 @@ export function createPassVM() {
       await passResolve(task.id, action, suspendUntil, suspendReason);
       state.counts[action] += 1;
       state.index += 1;
+    } catch (e) {
+      // Stay on the card: the write did not land, so advancing would skip it silently.
+      void askNotice(t("common.actionFailed"), errorText(e));
     } finally {
       state.busy = false;
     }
@@ -52,8 +61,14 @@ export function createPassVM() {
   }
 
   async function finish(): Promise<void> {
-    const weekStart = await markPassDone(todayIso());
-    if (appVM.state.settings) appVM.state.settings.lastPassWeek = weekStart;
+    try {
+      const weekStart = await markPassDone(todayIso());
+      if (appVM.state.settings) appVM.state.settings.lastPassWeek = weekStart;
+    } catch (e) {
+      // The week was not cleared; keep the pass open so the user can try again.
+      void askNotice(t("common.actionFailed"), errorText(e));
+      return;
+    }
     state.open = false;
     state.queue = [];
     state.index = 0;

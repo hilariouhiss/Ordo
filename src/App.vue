@@ -75,8 +75,9 @@ const themeLabel = computed(() =>
 );
 
 /** The button only flips the two explicit themes; "follow the system" lives in settings. */
-function cycleTheme(): void {
-  void settingsVM.save({ theme: appliedTheme.value === "dark" ? "light" : "dark" });
+async function cycleTheme(): Promise<void> {
+  const ok = await settingsVM.save({ theme: appliedTheme.value === "dark" ? "light" : "dark" });
+  if (!ok) void askNotice(t("common.actionFailed"), errorText(settingsVM.state.error));
 }
 
 const router = useRouter();
