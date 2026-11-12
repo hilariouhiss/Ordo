@@ -284,6 +284,26 @@ describe("weekVM plan", () => {
     expect(vm.days.value[1].rows.map((row) => row.task.id)).toEqual(["s"]);
   });
 
+  it("keeps a parked task on the day it would have started, without booking its hours", async () => {
+    vi.mocked(listWeek).mockResolvedValue([
+      task({ id: "a", sortOrder: 0, exclusive: true }),
+      task({ id: "b", sortOrder: 2, exclusive: true }),
+    ]);
+    vi.mocked(listSuspended).mockResolvedValue([
+      task({ id: "p", sortOrder: 1, exclusive: true, inWeek: false, suspended: true }),
+    ]);
+    vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
+
+    const vm = createWeekVM();
+    await vm.load();
+
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
+    expect(vm.days.value[1].rows.map((row) => row.task.id)).toEqual(["p", "b"]);
+    expect(vm.days.value[1].rows[0].parked).toBe(true);
+    expect(vm.loads.value.get("2026-10-21")).toBe(8);
+    expect(vm.planEnd.value).toBe("2026-10-21");
+  });
+
   it("queues two exclusive tasks on separate days", async () => {
     const vm = await loadedWith([
       task({ id: "x1", exclusive: true }),

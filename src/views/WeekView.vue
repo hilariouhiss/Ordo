@@ -49,7 +49,6 @@ const {
   moveBy,
 } = weekVM;
 const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
-const suspendedOpen = computed(() => state.suspended.length > 0);
 const waitingOpen = computed(() => state.waiting.length > 0);
 const weekView = computed(() => appVM.state.settings?.weekView ?? "list");
 const ganttView = computed(() => weekView.value === "gantt");
@@ -471,6 +470,14 @@ watch(
                 @open="openTask"
                 @changed="refresh"
               >
+                <template v-if="row.parked" #actions>
+                  <button
+                    class="grid h-5 place-items-center rounded-md px-1 text-[10.5px] text-primary hover:bg-base-200"
+                    @click.stop="resume(row.task.id)"
+                  >
+                    {{ t("week.resume") }}
+                  </button>
+                </template>
                 <template v-if="!row.history" #leading>
                   <button
                     class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
@@ -540,44 +547,6 @@ watch(
               @click.stop="resumeWaiting(task.id)"
             >
               {{ t("task.replied") }}
-            </button>
-          </template>
-        </TaskRow>
-      </ul>
-    </div>
-
-    <div v-if="suspendedOpen" class="space-y-1.5">
-      <div class="px-1 text-[10.5px] font-medium tracking-wide text-base-content/40">
-        {{ t("week.suspended", { count: state.suspended.length }) }}
-      </div>
-      <ul class="space-y-1.5">
-        <TaskRow
-          v-for="task in state.suspended"
-          :key="task.id"
-          :task="task"
-          :dimmed="draggingId === task.id"
-          @open="openTask"
-          @changed="refresh"
-        >
-          <template v-if="!ganttView" #leading>
-            <button
-              class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
-              :aria-label="t('week.reorderAria', { title: task.title })"
-              @click.stop
-              @pointerdown="startDrag($event, task.id)"
-              @pointermove="drag.move"
-              @pointerup="drag.end"
-              @pointercancel="drag.cancel"
-            >
-              <GripVertical :size="14" aria-hidden="true" />
-            </button>
-          </template>
-          <template #actions>
-            <button
-              class="grid h-5 place-items-center rounded-md px-1 text-[10.5px] text-primary hover:bg-base-200"
-              @click.stop="resume(task.id)"
-            >
-              {{ t("week.resume") }}
             </button>
           </template>
         </TaskRow>

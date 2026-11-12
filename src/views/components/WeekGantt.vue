@@ -54,8 +54,8 @@ const drag: PointerDrag<GanttDrop> = usePointerDrag<GanttDrop>({
     const index = lanes.value.findIndex((entry) => entry.task.id === id);
     const beforeId =
       target.before === id ? (lanes.value[index + 1]?.task.id ?? null) : target.before;
-    // A day the task already covers keeps its start; only the manual order changes.
-    if (lane && props.dates.slice(lane.from, lane.to + 1).includes(day))
+    // A parked task has no worked days of its own: any drop places it and brings it back.
+    if (!lane?.task.suspended && lane && props.dates.slice(lane.from, lane.to + 1).includes(day))
       void weekVM.move(id, beforeId);
     else void weekVM.place(id, day, beforeId);
   },
@@ -83,6 +83,9 @@ const isDone = (lane: WeekLane): boolean => lane.task.status === "done";
 function skin(lane: WeekLane): string {
   if (isDone(lane)) {
     return "border-base-300 border-l-[3px] border-l-base-content/20 bg-base-300/50 text-base-content/40";
+  }
+  if (lane.task.suspended) {
+    return "border-dashed border-warning/50 border-l-[3px] border-l-warning bg-warning/[0.10] text-warning";
   }
   if (lane.row.conflict) {
     return "border-error/40 border-l-[3px] border-l-error bg-error/[0.10] text-error";
@@ -170,6 +173,10 @@ async function wait(lane: WeekLane): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+function resume(lane: WeekLane): void {
+  void run(() => taskRowVM.resume(lane.task));
 }
 
 async function suspend(lane: WeekLane): Promise<void> {
@@ -405,6 +412,21 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 >
                   {{ t("task.notFit") }}
                 </span>
+                <span v-if="lane.task.suspended" class="badge badge-ghost badge-xs shrink-0">
+                  {{
+                    lane.task.suspendedUntil
+                      ? t("task.suspended", { date: shortDate(lane.task.suspendedUntil) })
+                      : t("task.suspendedNoDate")
+                  }}
+                </span>
+                <button
+                  v-if="lane.task.suspended"
+                  class="shrink-0 rounded-md px-1 text-[10.5px] hover:bg-warning/15"
+                  :title="t('week.resume')"
+                  @click.stop="resume(lane)"
+                >
+                  {{ t("week.resume") }}
+                </button>
                 <span
                   v-if="lane.task.projectName"
                   class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"

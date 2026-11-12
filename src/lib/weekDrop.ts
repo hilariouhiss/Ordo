@@ -68,12 +68,15 @@ export function ganttDropAt(
  * inside a task's span only reorders it instead of moving its start day.
  */
 export function coveredDays(
-  days: { date: string; rows: { task: { id: string }; history?: boolean }[] }[],
+  days: {
+    date: string;
+    rows: { task: { id: string }; history?: boolean; parked?: boolean }[];
+  }[],
 ): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   for (const day of days) {
     for (const row of day.rows) {
-      if (row.history) continue;
+      if (row.history || row.parked) continue;
       const dates = map.get(row.task.id) ?? new Set<string>();
       dates.add(day.date);
       map.set(row.task.id, dates);

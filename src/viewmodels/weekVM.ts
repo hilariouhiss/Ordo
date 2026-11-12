@@ -3,7 +3,13 @@ import type { CaptureSubmission } from "../lib/capture";
 import { todayIso, weekWorkdays } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
-import { addDoneRows, fillPlannedDays, groupPlannedDays, toPlanTask } from "../lib/plan";
+import {
+  addDoneRows,
+  addParkedRows,
+  fillPlannedDays,
+  groupPlannedDays,
+  toPlanTask,
+} from "../lib/plan";
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
   listSuspended,
@@ -56,6 +62,19 @@ export function createWeekVM() {
       ),
   );
   const planTasks = computed(() => weekTasks.value.map(toPlanTask));
+  /**
+   * Where a parked task would start if it were still in the queue: its own card sits on
+   * that day, but these hours are not booked — the week's plan and numbers ignore them.
+   */
+  const parkedPlan = computed(() =>
+    planSchedule(
+      [...weekTasks.value, ...state.suspended]
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
+        .map(toPlanTask),
+      today.value,
+      week.value[0],
+    ),
+  );
   // The plan lays out the whole week, so a task's own start before today still counts.
   const plan = computed(() => planSchedule(planTasks.value, today.value, week.value[0]));
   const loads = computed(() => planLoads(planTasks.value, plan.value));
@@ -89,8 +108,15 @@ export function createWeekVM() {
     const withDone = appVM.state.settings?.weekHideDone
       ? planned
       : addDoneRows(planned, state.done, dates, today.value);
-    if (!appVM.state.settings?.weekShowEmptyDays) return withDone;
-    return fillPlannedDays(withDone, dates, plan.value, today.value);
+    const withParked = addParkedRows(
+      withDone,
+      state.suspended,
+      parkedPlan.value,
+      dates,
+      today.value,
+    );
+    if (!appVM.state.settings?.weekShowEmptyDays) return withParked;
+    return fillPlannedDays(withParked, dates, plan.value, today.value);
   });
   const conflictCount = computed(() => plan.value.filter((row) => row.conflict).length);
   const passNeeded = computed(() => {

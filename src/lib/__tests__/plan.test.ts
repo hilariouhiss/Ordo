@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { Task } from "../../model/types";
 import {
   addDoneRows,
+  addParkedRows,
   fillPlannedDays,
   groupLanes,
   groupPlannedDays,
@@ -395,5 +396,59 @@ describe("fillPlannedDays", () => {
   it("leaves the list alone when there is nothing to add", () => {
     const original = [day(TODAY, 1)];
     expect(fillPlannedDays(original, [TODAY], [], TODAY)).toEqual(original);
+  });
+});
+
+describe("addParkedRows", () => {
+  const WEEK = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
+  const planFor = (tasks: Task[]) => planSchedule(tasks.map(toPlanTask), TODAY, WEEK[0]);
+
+  it("puts a parked task on the day it would have started", () => {
+    const open = task("a", 480, { sortOrder: 0, exclusive: true });
+    const parked = task("p", 480, { sortOrder: 1, exclusive: true });
+    const plan = planFor([open, parked]);
+    const days = groupPlannedDays([open], plan, TODAY, WEEK[4]);
+
+    const merged = addParkedRows(days, [parked], plan, WEEK, TODAY);
+
+    expect(merged.map((entry) => entry.date)).toEqual([TODAY, "2026-10-21"]);
+    expect(merged[1].rows.map((row) => row.task.id)).toEqual(["p"]);
+    expect(merged[1].rows[0].parked).toBe(true);
+  });
+
+  it("reads the parked card before the work that filled its slot", () => {
+    const first = task("a", 480, { sortOrder: 0, exclusive: true });
+    const parked = task("p", 480, { sortOrder: 1, exclusive: true });
+    const next = task("b", 480, { sortOrder: 2, exclusive: true });
+    const would = planFor([first, parked, next]);
+    const real = planFor([first, next]);
+    const days = groupPlannedDays([first, next], real, TODAY, WEEK[4]);
+
+    const merged = addParkedRows(days, [parked], would, WEEK, TODAY);
+
+    expect(merged.map((entry) => entry.date)).toEqual([TODAY, "2026-10-21"]);
+    expect(merged[1].rows.map((row) => row.task.id)).toEqual(["p", "b"]);
+    expect(merged[1].rows.map((row) => row.parked === true)).toEqual([true, false]);
+  });
+
+  it("clamps a parked task whose plan starts after the week", () => {
+    const parked = task("p", 480, { expectedStartDate: "2026-11-10" });
+    const plan = planFor([parked]);
+
+    const merged = addParkedRows([], [parked], plan, WEEK, TODAY);
+
+    expect(merged.map((entry) => entry.date)).toEqual(["2026-10-23"]);
+    expect(merged[0].rows[0]).toMatchObject({ parked: true, start: "2026-11-10", clamped: true });
+  });
+
+  it("leaves a day without parked cards as it was", () => {
+    const open = task("a");
+    const parked = task("p", 480, { sortOrder: 1, expectedStartDate: "2026-10-22" });
+    const days = groupPlannedDays([open], planFor([open]), TODAY, WEEK[4]);
+
+    const merged = addParkedRows(days, [parked], planFor([open, parked]), WEEK, TODAY);
+
+    expect(merged[0]).toBe(days[0]);
+    expect(merged[0].rows).toEqual(days[0].rows);
   });
 });

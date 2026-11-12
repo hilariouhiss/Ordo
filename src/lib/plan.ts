@@ -15,6 +15,8 @@ export interface PlannedRow {
   conflict: boolean;
   /** Already finished: shown for the record, not draggable. */
   history?: boolean;
+  /** Parked: shown where it was planned, but it books no hours. */
+  parked?: boolean;
 }
 
 export interface PlannedDay {
@@ -251,4 +253,56 @@ export function addDoneRows(
     }
   }
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Puts parked tasks back on the day their plan would have started: the card marks the
+ * spot the queue left behind, so it reads before the work that moved up into that day.
+ * Parked rows book no hours; the week's own plan and its numbers stay as they are.
+ */
+export function addParkedRows(
+  days: PlannedDay[],
+  parked: Task[],
+  plan: PlannedTask[],
+  dates: string[],
+  today: string,
+): PlannedDay[] {
+  const rows = new Map(plan.map((row) => [row.id, row]));
+  const groups = new Map(days.map((day) => [day.date, day]));
+  const weekEnd = dates[dates.length - 1];
+  const touched = new Set<PlannedDay>();
+
+  for (const task of parked) {
+    const row = rows.get(task.id);
+    if (!row) continue;
+    const day = row.start > weekEnd ? weekEnd : row.start;
+    if (!dates.includes(day)) continue;
+    let group = groups.get(day);
+    if (!group) {
+      group = plannedDay(day, today);
+      groups.set(day, group);
+    }
+    group.rows.push({
+      task,
+      start: row.start,
+      end: row.end,
+      // One card on one day: the days it would need are not this week's plan.
+      spans: false,
+      days: 1,
+      clamped: day !== row.start,
+      conflict: false,
+      parked: true,
+    });
+    touched.add(group);
+  }
+
+  // Within a day: finished work last, then by start, then the manual order that ties them.
+  const order = (one: PlannedRow, other: PlannedRow): number =>
+    Number(!!one.history) - Number(!!other.history) ||
+    one.start.localeCompare(other.start) ||
+    one.task.sortOrder - other.task.sortOrder ||
+    one.task.id.localeCompare(other.task.id);
+  for (const group of touched) group.rows.sort(order);
+
+  return [...groups.values()].sort((one, other) => one.date.localeCompare(other.date));
 }

@@ -121,6 +121,20 @@ describe("coveredDays", () => {
   it("is empty for an empty week", () => {
     expect(coveredDays([]).size).toBe(0);
   });
+
+  it("keeps a parked task out of the days a drop reorders", () => {
+    const days = [
+      {
+        date: "2026-11-02",
+        rows: [
+          { task: { id: "a" }, start: "2026-11-02" },
+          { task: { id: "p" }, start: "2026-11-02", parked: true },
+        ],
+      },
+    ];
+
+    expect([...coveredDays(days).keys()]).toEqual(["a"]);
+  });
 });
 
 describe("ganttDropAt", () => {
