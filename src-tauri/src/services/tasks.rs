@@ -1130,6 +1130,7 @@ mod tests {
     fn a_status_change_keeps_a_suspended_task_out_of_the_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
@@ -1153,6 +1154,7 @@ mod tests {
     fn completing_a_suspended_task_drops_the_suspension() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",

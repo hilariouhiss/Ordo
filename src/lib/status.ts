@@ -12,9 +12,9 @@ export function statusDisplay(status: Status, suspended: boolean, waiting = fals
   return suspended ? "suspended" : status;
 }
 
-/** A task can be parked while it is still open and not already suspended. */
+/** A task can be parked once it is in progress and not already suspended. */
 export function canSuspendTask(task: { status: Status; suspended: boolean }): boolean {
-  return task.status !== "done" && !task.suspended;
+  return task.status === "doing" && !task.suspended;
 }
 
 /** Any open task can wait on someone; a waiting one opens the dialog to move its day. */

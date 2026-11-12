@@ -6,6 +6,7 @@ import { askWaiting, dialogRequest, runWithNotice } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
+import { canSuspendTask } from "../../lib/status";
 import { waitDefaults } from "../../lib/waiting";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
 import { appVM } from "../../viewmodels/appVM";
@@ -20,6 +21,11 @@ const suspendReason = ref("");
 const suspendError = ref("");
 
 const finished = computed(() => passVM.state.queue.length > 0 && !passVM.current.value);
+/** A pass card that has not started cannot be parked; start it from the week first. */
+const canSuspendCurrent = computed(() => {
+  const task = passVM.current.value;
+  return task ? canSuspendTask(task) : false;
+});
 const categoryName = computed(() => {
   const id = passVM.current.value?.categoryId;
   return appVM.state.categories.find((c) => c.id === id)?.name;
@@ -39,6 +45,8 @@ async function act(action: "keep" | "done" | "cancel"): Promise<void> {
 }
 
 async function actSuspend(): Promise<void> {
+  const task = passVM.current.value;
+  if (!task || !canSuspendTask(task)) return;
   suspendError.value = "";
   try {
     await passVM.resolve("suspend", suspendDate.value || null, suspendReason.value.trim() || null);
@@ -119,7 +127,7 @@ function onKey(event: KeyboardEvent): void {
   if (event.key === "Enter") return void act("keep");
   if (event.key.toLowerCase() === "d") return void act("done");
   if (event.key.toLowerCase() === "x") return void act("cancel");
-  if (event.key.toLowerCase() === "s") suspendOpen.value = true;
+  if (event.key.toLowerCase() === "s" && canSuspendCurrent.value) suspendOpen.value = true;
   if (event.key.toLowerCase() === "w") void actWait();
   if (event.key.toLowerCase() === "e") split();
 }
@@ -198,6 +206,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ t("pass.split") }} <kbd class="kbd kbd-xs ml-1">E</kbd>
             </button>
             <button
+              v-if="canSuspendCurrent"
               class="btn rounded-lg border-base-300 bg-base-100 font-normal"
               @click="suspendOpen = true"
             >

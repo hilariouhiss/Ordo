@@ -175,10 +175,6 @@ async function wait(lane: WeekLane): Promise<void> {
   }
 }
 
-function resume(lane: WeekLane): void {
-  void run(() => taskRowVM.resume(lane.task));
-}
-
 async function suspend(lane: WeekLane): Promise<void> {
   if (busy.value) return;
   busy.value = true;
@@ -419,14 +415,6 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                       : t("task.suspendedNoDate")
                   }}
                 </span>
-                <button
-                  v-if="lane.task.suspended"
-                  class="shrink-0 rounded-md px-1 text-[10.5px] hover:bg-warning/15"
-                  :title="t('week.resume')"
-                  @click.stop="resume(lane)"
-                >
-                  {{ t("week.resume") }}
-                </button>
                 <span
                   v-if="lane.task.projectName"
                   class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"

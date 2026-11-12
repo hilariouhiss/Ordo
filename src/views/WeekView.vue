@@ -42,7 +42,6 @@ const {
   reload,
   markSeen,
   capture,
-  resume,
   resumeWaiting,
   move,
   place,
@@ -470,14 +469,6 @@ watch(
                 @open="openTask"
                 @changed="refresh"
               >
-                <template v-if="row.parked" #actions>
-                  <button
-                    class="grid h-5 place-items-center rounded-md px-1 text-[10.5px] text-primary hover:bg-base-200"
-                    @click.stop="resume(row.task.id)"
-                  >
-                    {{ t("week.resume") }}
-                  </button>
-                </template>
                 <template v-if="!row.history" #leading>
                   <button
                     class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"

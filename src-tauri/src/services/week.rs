@@ -198,6 +198,21 @@ pub fn suspend(
         }
     }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    // A task that has not started has nothing to park. An already-suspended todo task is
+    // left alone so old data can still rewrite its park; the UI no longer offers that.
+    if let Some((status, suspended)) = tx
+        .query_row(
+            "SELECT status, suspended FROM tasks WHERE id = ?1",
+            [task_id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+    {
+        if status == "todo" && suspended == 0 {
+            return Err("task_not_started".into());
+        }
+    }
     let parked_on = today.format("%Y-%m-%d").to_string();
     let park = tasks::Park::Suspended {
         until,
@@ -754,6 +769,7 @@ mod tests {
     fn suspend_without_a_date_or_reason_parks_the_task() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
 
         let t = week::resolve(&c, "t1", PassAction::Suspend, None, None, NOW).unwrap();
 
@@ -771,6 +787,7 @@ mod tests {
     fn suspend_keeps_the_reason_and_optional_date() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
 
         let t = week::resolve(
             &c,
@@ -792,6 +809,7 @@ mod tests {
     fn suspend_treats_a_blank_reason_as_absent() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
 
         let t = week::suspend(&c, "t1", None, Some("   "), NOW).unwrap();
 
@@ -821,9 +839,26 @@ mod tests {
     }
 
     #[test]
+    fn suspend_refuses_a_task_that_has_not_started() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+
+        assert_eq!(
+            week::suspend(&c, "t1", None, None, NOW).unwrap_err(),
+            "task_not_started"
+        );
+
+        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert!(!t.suspended);
+        assert!(t.in_week);
+        assert!(week::list(&c).unwrap().iter().any(|row| row.id == "t1"));
+    }
+
+    #[test]
     fn suspend_moves_out_of_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         let t = week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), None, NOW).unwrap();
         assert!(!t.in_week);
         assert!(t.suspended);
@@ -903,6 +938,7 @@ mod tests {
         week::capture(&c, "交付", NOW, "t1").unwrap();
         let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
         let child = parent.children[0].id.clone();
+        week::start(&c, &child, NOW).unwrap();
 
         week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
         assert!(week::list(&c).unwrap().is_empty());
@@ -932,6 +968,7 @@ mod tests {
         let parent = crate::services::subtasks::add(&c, "t1", "汇编", NOW).unwrap();
         let open_child = parent.children[1].id.clone();
         crate::services::tasks::set_status(&c, &done_child, "done", NOW).unwrap();
+        week::start(&c, &open_child, NOW).unwrap();
 
         week::suspend(&c, "t1", None, None, NOW).unwrap();
         week::resume(&c, "t1", NOW).unwrap();
@@ -988,6 +1025,7 @@ mod tests {
     fn suspended_list_and_resume() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
@@ -1015,6 +1053,7 @@ mod tests {
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
         week::capture(&c, "三", NOW, "t3").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), None, NOW).unwrap();
 
         week::resume(&c, "t1", NOW).unwrap();
@@ -1053,6 +1092,7 @@ mod tests {
         let now = "2026-10-19T16:30:00Z";
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", now, "t1").unwrap();
+        week::start(&c, "t1", now).unwrap();
 
         let t = week::suspend(&c, "t1", None, None, now).unwrap();
 
@@ -1091,6 +1131,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::suspend(&c, "t1", Some("2026-11-02"), None, NOW).unwrap();
 
         let t = week::start(&c, "t1", NOW).unwrap();
@@ -1111,6 +1152,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
 
         week::place(&c, "t1", "2026-10-22", Some("t2"), NOW).unwrap();
@@ -1377,6 +1419,7 @@ mod tests {
     fn wait_and_suspend_are_exclusive() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
 
         let t = week::wait(&c, "t1", None, Some("2026-11-03"), NOW).unwrap();

@@ -464,6 +464,7 @@ mod tests {
     fn an_undated_suspension_has_no_reminder() {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        crate::services::week::start(&c, "t1", NOW).unwrap();
         crate::services::week::suspend(&c, "t1", None, Some("等甲方"), NOW).unwrap();
 
         let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
@@ -867,6 +868,7 @@ mod tests {
     fn a_parked_task_does_not_remind_about_its_deadline() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-21");
+        crate::services::week::start(&c, "t1", NOW).unwrap();
         crate::services::week::suspend(&c, "t1", Some("2026-11-02"), None, NOW).unwrap();
 
         let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
@@ -881,6 +883,7 @@ mod tests {
     fn a_parked_task_is_left_out_of_the_digest() {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-20");
+        crate::services::week::start(&c, "t1", NOW).unwrap();
         crate::services::week::suspend(&c, "t1", None, Some("等甲方"), NOW).unwrap();
 
         assert!(

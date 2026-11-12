@@ -40,13 +40,13 @@ describe("canWaitTask", () => {
 });
 
 describe("canSuspendTask", () => {
-  it("allows a task that has not started or is doing", () => {
-    expect(canSuspendTask({ status: "todo", suspended: false })).toBe(true);
+  it("allows a task that is in progress", () => {
     expect(canSuspendTask({ status: "doing", suspended: false })).toBe(true);
   });
 
-  it("refuses a done or already suspended task", () => {
+  it("refuses a task that has not started, is done, or already suspended", () => {
+    expect(canSuspendTask({ status: "todo", suspended: false })).toBe(false);
     expect(canSuspendTask({ status: "done", suspended: false })).toBe(false);
-    expect(canSuspendTask({ status: "todo", suspended: true })).toBe(false);
+    expect(canSuspendTask({ status: "doing", suspended: true })).toBe(false);
   });
 });

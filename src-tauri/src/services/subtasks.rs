@@ -491,7 +491,9 @@ mod tests {
     #[test]
     fn a_new_subtask_of_a_parked_umbrella_stays_parked() {
         let c = with_task();
-        add(&c, "t1", "收集", NOW).unwrap();
+        let first = add(&c, "t1", "收集", NOW).unwrap();
+        let child = first.children[0].id.clone();
+        week::start(&c, &child, NOW).unwrap();
         week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
 
         let parent = add(&c, "t1", "汇编", NOW).unwrap();

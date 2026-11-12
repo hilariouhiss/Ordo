@@ -349,6 +349,7 @@ mod tests {
             .unwrap();
         }
         crate::services::tasks::set_status(&c, "t2", "done", NOW).unwrap();
+        week::start(&c, "t3", NOW).unwrap();
         week::resolve(
             &c,
             "t3",
@@ -431,6 +432,7 @@ mod tests {
     fn restoring_a_suspended_task_clears_the_suspension() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
@@ -549,6 +551,7 @@ mod tests {
             )
             .unwrap();
         }
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
@@ -755,6 +758,7 @@ mod tests {
     fn undoing_an_archive_leaves_a_parked_task_parked() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "等甲方", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
