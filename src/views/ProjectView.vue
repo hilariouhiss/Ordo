@@ -28,6 +28,7 @@ const vm = createProjectVM();
 const settingsOpen = computed(() => projectsVM.state.settingsFor === props.id);
 let unlistenAi: (() => void) | undefined;
 let unlistenCapture: (() => void) | undefined;
+let unlistenTasks: (() => void) | undefined;
 
 onMounted(async () => {
   void vm.load(props.id);
@@ -39,11 +40,15 @@ onMounted(async () => {
   unlistenCapture = await listen("capture:created", () => {
     void vm.load(props.id);
   });
+  unlistenTasks = await listen("tasks:changed", () => {
+    void vm.load(props.id);
+  });
 });
 
 onUnmounted(() => {
   unlistenAi?.();
   unlistenCapture?.();
+  unlistenTasks?.();
   if (projectsVM.state.settingsFor === props.id) projectsVM.closeSettings();
 });
 

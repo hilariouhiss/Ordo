@@ -61,6 +61,10 @@ pub struct SettingsDto {
     pub week_hide_done: bool,
     /// The week page layout; "list" when unset.
     pub week_view: String,
+    /// Whether a newly captured task starts exclusive.
+    pub task_default_exclusive: bool,
+    /// Whether an overdue task opens the defer prompt on startup / at 09:00.
+    pub overdue_prompt: bool,
     /// Named task filters saved on the task page; empty when unset.
     pub saved_task_views: Vec<SavedTaskViewDto>,
     /// Minutes a reminder fires before a task's own moment; 0 keeps the built-in times.
@@ -225,6 +229,16 @@ pub struct ArchiveDto {
     pub projects: Vec<ProjectDto>,
     pub tasks: Vec<ArchiveTaskDto>,
     pub canceled: Vec<ArchiveTaskDto>,
+}
+
+/// One open task whose expected finish day has passed, for the overdue prompt.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverdueTaskDto {
+    pub id: String,
+    pub title: String,
+    /// Local `YYYY-MM-DD` that has already passed.
+    pub expected_finish_date: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -450,6 +464,8 @@ pub struct SettingsPatch {
     pub week_show_empty_days: Option<bool>,
     pub week_hide_done: Option<bool>,
     pub week_view: Option<String>,
+    pub task_default_exclusive: Option<bool>,
+    pub overdue_prompt: Option<bool>,
     pub saved_task_views: Option<Vec<SavedTaskViewDto>>,
     pub reminders_lead_minutes: Option<i64>,
     pub reminders_digest: Option<bool>,

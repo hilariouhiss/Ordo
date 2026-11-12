@@ -21,6 +21,8 @@ export const defaultSettings: Settings = {
   weekShowEmptyDays: true,
   weekHideDone: false,
   weekView: "list",
+  taskDefaultExclusive: true,
+  overduePrompt: false,
   savedTaskViews: [],
   remindersLeadMinutes: 60,
   remindersDigest: true,

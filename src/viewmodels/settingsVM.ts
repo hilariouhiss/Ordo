@@ -52,6 +52,21 @@ export function createSettingsVM() {
     }
   }
 
+  /** The task default owns a transaction of its own: the setting and the bulk edit land together. */
+  async function setTaskDefaultExclusive(
+    value: boolean,
+    applyToExisting: boolean,
+  ): Promise<boolean> {
+    state.error = "";
+    try {
+      appVM.state.settings = await ipc.setTaskDefaultExclusive(value, applyToExisting);
+      return true;
+    } catch (e) {
+      state.error = String(e);
+      return false;
+    }
+  }
+
   async function backup(): Promise<void> {
     state.error = "";
     try {
@@ -72,7 +87,7 @@ export function createSettingsVM() {
     }
   }
 
-  return { state, open, close, save, switchMode, backup, exportData };
+  return { state, open, close, save, setTaskDefaultExclusive, switchMode, backup, exportData };
 }
 
 export const settingsVM = createSettingsVM();

@@ -6,6 +6,7 @@ import { errorText, t } from "../../lib/i18n";
 import { backdropMotion, modalPanelMotion } from "../../lib/motion";
 import { weekdayName } from "../../lib/rules";
 import type { RuleInput, TaskAttrs, TaskRule } from "../../model/types";
+import { appVM } from "../../viewmodels/appVM";
 import { templatesVM } from "../../viewmodels/templatesVM";
 import TaskAttrFields from "../components/TaskAttrFields.vue";
 import TimeField from "../components/TimeField.vue";
@@ -32,7 +33,7 @@ const attrs = ref<TaskAttrs>({
   ownerId: props.rule?.ownerId ?? null,
   priority: props.rule?.priority ?? "normal",
   effortMinutes: props.rule?.effortMinutes ?? 480,
-  exclusive: props.rule?.exclusive ?? true,
+  exclusive: props.rule?.exclusive ?? appVM.state.settings?.taskDefaultExclusive ?? true,
 });
 const error = ref("");
 const saving = ref(false);

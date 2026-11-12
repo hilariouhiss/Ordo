@@ -134,7 +134,8 @@ pub fn insert(
     finish: &str,
     now: &str,
 ) -> rusqlite::Result<()> {
-    // New tasks own their days; switching one to shared is an explicit edit.
+    // New tasks follow the saved default; switching one is still an explicit edit.
+    let exclusive = crate::repo::settings::task_default_exclusive(conn) as i64;
     conn.execute(
         "INSERT INTO tasks (id, title, project_id, owner_id, priority, expected_finish_date,
                             effort_minutes, status, in_week, carry_count, sort_order, created_at,
@@ -143,7 +144,7 @@ pub fn insert(
                  COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
                  COALESCE(?5, 'normal'), ?6, COALESCE(?7, 480),
                  'todo', 1, 0,
-                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8, 1, ?9)",
+                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8, ?10, ?9)",
         params![
             id,
             title,
@@ -153,7 +154,8 @@ pub fn insert(
             finish,
             fields.effort_minutes,
             now,
-            scope
+            scope,
+            exclusive
         ],
     )?;
     Ok(())

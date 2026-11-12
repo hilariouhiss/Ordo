@@ -66,6 +66,14 @@ fn save_settings(
         ),
         (keys::WEEK_HIDE_DONE, patch.week_hide_done.map(|v| v.to_string())),
         (keys::WEEK_VIEW, patch.week_view),
+        (
+            keys::TASKS_DEFAULT_EXCLUSIVE,
+            patch.task_default_exclusive.map(|v| v.to_string()),
+        ),
+        (
+            keys::TASKS_OVERDUE_PROMPT,
+            patch.overdue_prompt.map(|v| v.to_string()),
+        ),
         (keys::SAVED_VIEWS, saved_views),
         (
             keys::REMINDER_LEAD_MINUTES,
@@ -216,6 +224,51 @@ pub async fn set_settings(
     Ok(settings)
 }
 
+/// Writes the new-task default and optionally rewrites every existing task. One
+/// transaction, so a failed bulk update cannot leave the default switched alone.
+fn save_task_default(
+    conn: &Connection,
+    value: bool,
+    apply_to_existing: bool,
+    now: &str,
+) -> Result<(SettingsDto, usize), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    crate::repo::settings::set(
+        &tx,
+        crate::repo::settings::keys::TASKS_DEFAULT_EXCLUSIVE,
+        if value { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())?;
+    let updated = if apply_to_existing {
+        tx.execute(
+            "UPDATE tasks SET time_exclusive = ?1, updated_at = ?2 WHERE deleted_at IS NULL",
+            rusqlite::params![value as i64, now],
+        )
+        .map_err(|e| e.to_string())?
+    } else {
+        0
+    };
+    let settings = crate::repo::settings::dto(&tx).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok((settings, updated))
+}
+
+#[tauri::command]
+pub async fn set_task_default_exclusive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    value: bool,
+    apply_to_existing: bool,
+) -> Result<SettingsDto, String> {
+    let now = crate::now_iso();
+    let (settings, updated) =
+        with_db(&state, move |conn| save_task_default(conn, value, apply_to_existing, &now)).await?;
+    if updated > 0 {
+        let _ = app.emit("tasks:changed", updated);
+    }
+    Ok(settings)
+}
+
 /// A manual switch outranks the schedule until another point arrives; every window
 /// hears about it so the palette and lists change together.
 #[tauri::command]
@@ -287,6 +340,73 @@ pub async fn backup_now(app: tauri::AppHandle) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use crate::dto::SettingsPatch;
+
+    const NOW: &str = "2026-10-20T08:00:00Z";
+
+    #[test]
+    fn the_task_default_can_carry_to_every_live_task() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "归档的", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET archived_at = ?1, in_week = 0 WHERE id = 't1'",
+            [NOW],
+        )
+        .unwrap();
+        crate::services::week::capture(&c, "删掉的", NOW, "t2").unwrap();
+        c.execute("UPDATE tasks SET deleted_at = ?1 WHERE id = 't2'", [NOW])
+            .unwrap();
+        crate::services::week::capture(&c, "活跃的", NOW, "t3").unwrap();
+
+        let exclusive = |id: &str| -> i64 {
+            c.query_row("SELECT time_exclusive FROM tasks WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+
+        let (settings, updated) = super::save_task_default(&c, false, true, NOW).unwrap();
+        assert!(!settings.task_default_exclusive);
+        assert_eq!(updated, 2, "soft-deleted work stays out of the bulk switch");
+        assert_eq!(exclusive("t1"), 0);
+        assert_eq!(exclusive("t2"), 1);
+        assert_eq!(exclusive("t3"), 0);
+
+        let (settings, updated) = super::save_task_default(&c, true, false, NOW).unwrap();
+        assert!(settings.task_default_exclusive);
+        assert_eq!(updated, 0);
+        assert_eq!(exclusive("t3"), 0, "future-only leaves existing flags alone");
+    }
+
+    #[test]
+    fn a_failed_task_default_switch_keeps_the_old_setting() {
+        let c = crate::db::open_in_memory().unwrap();
+        crate::services::week::capture(&c, "活跃的", NOW, "t1").unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_exclusive BEFORE UPDATE OF time_exclusive ON tasks
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+
+        assert!(super::save_task_default(&c, false, true, NOW).is_err());
+        assert!(crate::repo::settings::dto(&c).unwrap().task_default_exclusive);
+    }
+
+    #[test]
+    fn the_task_defaults_roundtrip_through_the_form() {
+        let c = crate::db::open_in_memory().unwrap();
+        let saved = super::save_settings(
+            &c,
+            SettingsPatch {
+                task_default_exclusive: Some(false),
+                overdue_prompt: Some(true),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        assert!(!saved.task_default_exclusive);
+        assert!(saved.overdue_prompt);
+    }
 
     #[test]
     fn settings_roundtrip() {

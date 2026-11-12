@@ -2,7 +2,7 @@
 import { ArrowLeft, CalendarClock, Hourglass, Pencil, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { addDays, localDate, shortDate, todayIso } from "../../lib/dates";
+import { localDate, shortDate, todayIso } from "../../lib/dates";
 import { askConfirm, askDefer, askSuspend, askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
@@ -10,12 +10,7 @@ import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
 import { currentSubtask } from "../../lib/subtasks";
 import { canSuspendTask } from "../../lib/status";
-import {
-  effortForFinish,
-  timingAnchor,
-  workdayOnOrBefore,
-  workdayOnOrAfter,
-} from "../../lib/timing";
+import { effortForFinish, nextDeferDay, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
 import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Delay, Priority, Status, Task } from "../../model/types";
@@ -105,12 +100,7 @@ const suspendBadge = computed(() => {
     : t("task.suspendedNoDate");
 });
 /** The first day a delay may move the finish to: after the stored one, never before today. */
-const deferMin = computed(() => {
-  const today = todayIso();
-  const old = task.value?.expectedFinishDate ?? "";
-  const floor = old ? addDays(old, 1) : today;
-  return workdayOnOrAfter(floor > today ? floor : today);
-});
+const deferMin = computed(() => nextDeferDay(task.value?.expectedFinishDate ?? null, todayIso()));
 const waitingName = computed(() =>
   task.value ? waitingOnName(task.value, appVM.state.people) : null,
 );

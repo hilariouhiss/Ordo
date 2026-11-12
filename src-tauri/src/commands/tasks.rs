@@ -225,6 +225,21 @@ pub async fn defer_task(
     .await
 }
 
+/// The tasks the overdue prompt should ask about; empty when the prompt is off.
+#[tauri::command]
+pub async fn list_overdue_tasks(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::dto::OverdueTaskDto>, String> {
+    let today = crate::services::local_today(&now_iso())
+        .map_err(|e| e.to_string())?
+        .format("%Y-%m-%d")
+        .to_string();
+    with_db(&state, move |conn| {
+        crate::services::overdue::list(conn, &today)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn add_delay_note(
     state: State<'_, AppState>,

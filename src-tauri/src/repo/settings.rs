@@ -41,6 +41,10 @@ pub mod keys {
     pub const WEEK_SHOW_EMPTY_DAYS: &str = "week.show_empty_days";
     pub const WEEK_HIDE_DONE: &str = "week.hide_done";
     pub const WEEK_VIEW: &str = "week.view";
+    /// Whether a newly captured task starts exclusive; missing means exclusive.
+    pub const TASKS_DEFAULT_EXCLUSIVE: &str = "tasks.default_exclusive";
+    /// Whether an overdue task opens the defer prompt on startup / at 09:00.
+    pub const TASKS_OVERDUE_PROMPT: &str = "tasks.overdue_prompt";
 }
 
 pub fn get_all(conn: &Connection) -> rusqlite::Result<HashMap<String, String>> {
@@ -249,6 +253,24 @@ pub fn reminders_digest(conn: &Connection) -> bool {
         .unwrap_or(true)
 }
 
+/// New tasks own their days unless the user switched the default to shared.
+pub fn task_default_exclusive(conn: &Connection) -> bool {
+    get(conn, keys::TASKS_DEFAULT_EXCLUSIVE)
+        .ok()
+        .flatten()
+        .map(|value| value != "false")
+        .unwrap_or(true)
+}
+
+/// The overdue prompt is opt-in, like the AI fill; a missing row stays quiet.
+pub fn overdue_prompt(conn: &Connection) -> bool {
+    get(conn, keys::TASKS_OVERDUE_PROMPT)
+        .ok()
+        .flatten()
+        .map(|value| value == "true")
+        .unwrap_or(false)
+}
+
 /// The main window starts as the week widget when this is on.
 pub fn desk_enabled(conn: &Connection) -> bool {
     get(conn, keys::DESK_ENABLED)
@@ -330,6 +352,8 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .filter(|value| valid_task_group_by(value))
             .cloned()
             .unwrap_or_else(|| "project".into()),
+        task_default_exclusive: flag(&map, keys::TASKS_DEFAULT_EXCLUSIVE, true),
+        overdue_prompt: flag(&map, keys::TASKS_OVERDUE_PROMPT, false),
         week_show_empty_days: flag(&map, keys::WEEK_SHOW_EMPTY_DAYS, true),
         week_hide_done: flag(&map, keys::WEEK_HIDE_DONE, false),
         week_view: map
@@ -358,6 +382,24 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_defaults_start_at_todays_behaviour_and_roundtrip() {
+        let c = crate::db::open_in_memory().unwrap();
+        let s = dto(&c).unwrap();
+        assert!(s.task_default_exclusive, "new tasks stay exclusive by default");
+        assert!(!s.overdue_prompt, "the prompt stays off by default");
+        assert!(task_default_exclusive(&c));
+        assert!(!overdue_prompt(&c));
+
+        set(&c, keys::TASKS_DEFAULT_EXCLUSIVE, "false").unwrap();
+        set(&c, keys::TASKS_OVERDUE_PROMPT, "true").unwrap();
+        let s = dto(&c).unwrap();
+        assert!(!s.task_default_exclusive);
+        assert!(s.overdue_prompt);
+        assert!(!task_default_exclusive(&c));
+        assert!(overdue_prompt(&c));
+    }
 
     #[test]
     fn finished_work_is_shown_on_the_week_until_the_flag_is_set() {

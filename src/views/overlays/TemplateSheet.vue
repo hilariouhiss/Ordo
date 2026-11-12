@@ -6,6 +6,7 @@ import { errorText, t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion } from "../../lib/motion";
 import type { TaskAttrs, TaskTemplate, TemplateInput } from "../../model/types";
+import { appVM } from "../../viewmodels/appVM";
 import { templatesVM } from "../../viewmodels/templatesVM";
 import TaskAttrFields from "../components/TaskAttrFields.vue";
 
@@ -22,7 +23,7 @@ const attrs = ref<TaskAttrs>({
   ownerId: props.template?.ownerId ?? null,
   priority: props.template?.priority ?? "normal",
   effortMinutes: props.template?.effortMinutes ?? 480,
-  exclusive: props.template?.exclusive ?? true,
+  exclusive: props.template?.exclusive ?? appVM.state.settings?.taskDefaultExclusive ?? true,
 });
 const steps = ref<string[]>([...(props.template?.steps ?? [])]);
 const stepDraft = ref("");

@@ -497,9 +497,27 @@ mod tests {
     }
 
     #[test]
-    fn a_new_task_is_exclusive_by_default() {
+    fn a_new_task_follows_the_default_exclusive_setting() {
         let c = db::open_in_memory().unwrap();
         let t = week::capture(&c, "交底", NOW, "t1").unwrap();
+        assert!(t.exclusive);
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::TASKS_DEFAULT_EXCLUSIVE,
+            "false",
+        )
+        .unwrap();
+        let t = week::capture(&c, "交底", NOW, "t2").unwrap();
+        assert!(!t.exclusive);
+
+        crate::repo::settings::set(
+            &c,
+            crate::repo::settings::keys::TASKS_DEFAULT_EXCLUSIVE,
+            "true",
+        )
+        .unwrap();
+        let t = week::capture(&c, "交底", NOW, "t3").unwrap();
         assert!(t.exclusive);
     }
 

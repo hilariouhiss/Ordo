@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  askAutoDefer,
   askConfirm,
   askDefer,
   askNotice,
   askSuspend,
+  askTaskDefaultScope,
   askText,
   askWaiting,
   closeDialog,
@@ -138,5 +140,30 @@ describe("dialog", () => {
 
     closeDialog(null);
     await expect(second).resolves.toBeUndefined();
+  });
+
+  it("asks the task-default scope with three answers", async () => {
+    const pending = askTaskDefaultScope("新任务默认", "同时改现有任务？");
+    expect(dialogRequest.value?.kind).toBe("taskDefault");
+    closeDialog("existing");
+    await expect(pending).resolves.toBe("existing");
+  });
+
+  it("marks the overdue defer dialog so the caller can use the default", async () => {
+    const pending = askAutoDefer("已逾期", {
+      finish: "2026-11-12",
+      min: "2026-11-12",
+      oldFinish: "2026-11-11",
+    });
+    expect(dialogRequest.value).toEqual({
+      kind: "defer",
+      title: "已逾期",
+      finish: "2026-11-12",
+      min: "2026-11-12",
+      oldFinish: "2026-11-11",
+      auto: true,
+    });
+    closeDialog(null);
+    await expect(pending).resolves.toBeNull();
   });
 });

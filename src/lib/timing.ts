@@ -53,3 +53,9 @@ export function timingAnchor(today: string, expectedStartDate?: string | null): 
   const start = expectedStartDate && expectedStartDate > today ? expectedStartDate : today;
   return workdayOnOrAfter(start);
 }
+
+/** The earliest day a defer may move a finish to: after the stored day, never before today. */
+export function nextDeferDay(oldFinish: string | null | undefined, today: string): string {
+  const floor = oldFinish ? addDays(oldFinish, 1) : today;
+  return workdayOnOrAfter(floor > today ? floor : today);
+}

@@ -5,6 +5,7 @@ pub mod archive;
 pub mod deliverables;
 pub mod mode;
 pub mod export;
+pub mod overdue;
 pub mod people;
 pub mod projects;
 pub mod rules;

@@ -128,6 +128,29 @@ describe("windowModeVM", () => {
     expect(hoisted.window.setSkipTaskbar).toHaveBeenLastCalledWith(false);
   });
 
+  it("keeps the overdue defer prompt when overlays close", async () => {
+    const { windowModeVM } = await load(false);
+    await windowModeVM.init();
+    const { askAutoDefer, askConfirm, closeDialog, dialogRequest } =
+      await import("../../lib/dialog");
+    const { closeOverlays } = await import("../windowModeVM");
+
+    const deferred = askAutoDefer("已逾期", {
+      finish: "2026-11-12",
+      min: "2026-11-12",
+      oldFinish: "2026-11-11",
+    });
+    closeOverlays();
+    expect(dialogRequest.value).toMatchObject({ kind: "defer", auto: true });
+    closeDialog(null);
+    await expect(deferred).resolves.toBeNull();
+
+    const confirm = askConfirm("删除", "确认？");
+    closeOverlays();
+    expect(dialogRequest.value).toBeNull();
+    await expect(confirm).resolves.toBe(false);
+  });
+
   it("restores a usable window when a morph fails halfway", async () => {
     const { windowModeVM } = await load(false);
     await windowModeVM.init();

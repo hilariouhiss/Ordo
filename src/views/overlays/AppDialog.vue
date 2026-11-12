@@ -23,6 +23,7 @@ const clientNameInput = ref<HTMLInputElement | null>(null);
 const personNameInput = ref<HTMLInputElement | null>(null);
 const reasonInput = ref<HTMLInputElement | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
+const futureButton = ref<HTMLButtonElement | null>(null);
 
 watch(dialogRequest, async (request) => {
   if (!request) return;
@@ -58,6 +59,9 @@ watch(dialogRequest, async (request) => {
     person.categoryIds = [...request.categoryIds];
     await nextTick();
     personNameInput.value?.select();
+  } else if (request.kind === "taskDefault") {
+    await nextTick();
+    futureButton.value?.focus();
   } else {
     confirmButton.value?.focus();
   }
@@ -83,8 +87,10 @@ function confirm(): void {
     return;
   }
   if (request.kind === "defer") {
-    if (!deferDate.value) return;
-    closeDialog({ finish: deferDate.value, reason: deferReason.value.trim() });
+    // The overdue prompt always answers: an empty date falls back to the default day.
+    const finish = deferDate.value || (request.auto ? request.finish : "");
+    if (!finish) return;
+    closeDialog({ finish, reason: deferReason.value.trim() });
     return;
   }
   if (request.kind === "client") {
@@ -209,6 +215,9 @@ function onEnter(event: KeyboardEvent): void {
                 to: shortDate(deferDate),
               })
             }}</span>
+            <span v-if="dialogRequest.auto" class="mt-0.5 block">
+              {{ t("overdue.defaultHint", { date: shortDate(dialogRequest.finish) }) }}
+            </span>
           </p>
         </template>
         <template v-else-if="dialogRequest.kind === 'person'">
@@ -295,33 +304,60 @@ function onEnter(event: KeyboardEvent): void {
         </p>
 
         <div class="mt-5 flex justify-end gap-2">
-          <button
-            v-if="dialogRequest.kind !== 'notice'"
-            class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-            @click="closeDialog(null)"
-          >
-            {{ t("dialog.cancel") }}
-          </button>
-          <button
-            ref="confirmButton"
-            class="btn btn-sm rounded-lg border-0"
-            :class="
-              dialogRequest.kind === 'confirm'
-                ? 'bg-error text-error-content'
-                : 'bg-primary text-primary-content'
-            "
-            @click="confirm"
-          >
-            {{
-              t(
-                dialogRequest.kind === "notice"
-                  ? "dialog.dismiss"
-                  : dialogRequest.kind === "client" || dialogRequest.kind === "person"
-                    ? "common.save"
-                    : "dialog.ok",
-              )
-            }}
-          </button>
+          <template v-if="dialogRequest.kind === 'taskDefault'">
+            <button
+              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+              @click="closeDialog(null)"
+            >
+              {{ t("dialog.cancel") }}
+            </button>
+            <button
+              ref="futureButton"
+              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+              @click="closeDialog('future')"
+            >
+              {{ t("settings.taskDefaultFutureOnly") }}
+            </button>
+            <button
+              class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+              @click="closeDialog('existing')"
+            >
+              {{ t("settings.taskDefaultExisting") }}
+            </button>
+          </template>
+          <template v-else>
+            <button
+              v-if="dialogRequest.kind !== 'notice'"
+              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+              @click="closeDialog(null)"
+            >
+              {{
+                dialogRequest.kind === "defer" && dialogRequest.auto
+                  ? t("overdue.defaultAction")
+                  : t("dialog.cancel")
+              }}
+            </button>
+            <button
+              ref="confirmButton"
+              class="btn btn-sm rounded-lg border-0"
+              :class="
+                dialogRequest.kind === 'confirm'
+                  ? 'bg-error text-error-content'
+                  : 'bg-primary text-primary-content'
+              "
+              @click="confirm"
+            >
+              {{
+                t(
+                  dialogRequest.kind === "notice"
+                    ? "dialog.dismiss"
+                    : dialogRequest.kind === "client" || dialogRequest.kind === "person"
+                      ? "common.save"
+                      : "dialog.ok",
+                )
+              }}
+            </button>
+          </template>
         </div>
       </motion.div>
     </motion.div>

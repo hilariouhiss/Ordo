@@ -391,6 +391,9 @@ export const zh = {
   "task.noReason": "未写原因",
   "task.delayReason": "延期原因",
   "task.overdueNote": "逾期 {days} 天 · 记一句原因",
+  "overdue.title": "「{title}」已逾期",
+  "overdue.defaultAction": "按默认顺延",
+  "overdue.defaultHint": "不选日期就按默认顺延到 {date}，并记一条延期。",
   "task.notePlaceholder": "为什么还没交",
   "task.carry": "第 {count} 次",
   "task.overdue": "逾期 {days} 天",
@@ -448,6 +451,14 @@ export const zh = {
   "settings.weekHideDone": "本周隐藏已完成任务",
   "settings.weekHideDoneHint":
     "打开后，完成的任务不再出现在本周列表和甘特图，只会留在任务页的「已完成」里。",
+  "settings.taskDefault": "新任务默认",
+  "settings.taskDefaultAskShared": "新任务将默认「共享」。要不要同时把现有任务也改为共享？",
+  "settings.taskDefaultAskExclusive": "新任务将默认「独占」。要不要同时把现有任务也改为独占？",
+  "settings.taskDefaultFutureOnly": "只改新任务",
+  "settings.taskDefaultExisting": "现有任务也改",
+  "settings.overdueRollover": "逾期任务自动延期",
+  "settings.overdueRolloverHint":
+    "启动时（已过 09:00）或每天 09:00 自动询问新的预计完成日；不选日期会按默认顺延一个工作日并记一条延期。",
   "settings.weekView": "本周视图",
   "settings.weekViewList": "列表",
   "settings.weekViewGantt": "甘特图",
@@ -1031,6 +1042,9 @@ export const en: Record<MessageKey, string> = {
   "task.noReason": "No reason given",
   "task.delayReason": "Delay reason",
   "task.overdueNote": "Overdue {days} d · Note why",
+  "overdue.title": '"{title}" is overdue',
+  "overdue.defaultAction": "Use default",
+  "overdue.defaultHint": "Leaving the date empty defers to {date} and records a delay.",
   "task.notePlaceholder": "Why is it late?",
   "task.carry": "Carried {count}×",
   "task.overdue": "Overdue {days}d",
@@ -1095,6 +1109,16 @@ export const en: Record<MessageKey, string> = {
   "settings.weekHideDone": "Hide finished tasks from the week",
   "settings.weekHideDoneHint":
     "Finished tasks leave the week page's list and gantt; the tasks page keeps them under Done.",
+  "settings.taskDefault": "New tasks default to",
+  "settings.taskDefaultAskShared":
+    "New tasks will default to Shared. Also switch every existing task to Shared?",
+  "settings.taskDefaultAskExclusive":
+    "New tasks will default to Exclusive. Also switch every existing task to Exclusive?",
+  "settings.taskDefaultFutureOnly": "New tasks only",
+  "settings.taskDefaultExisting": "Existing tasks too",
+  "settings.overdueRollover": "Prompt to defer overdue tasks",
+  "settings.overdueRolloverHint":
+    "On startup after 09:00 or at 09:00 each day, asks for a new expected finish; without a date it moves one workday and records a delay.",
   "settings.shortcut": "Mini window shortcut",
   "settings.deskShortcut": "Week widget shortcut",
   "settings.mainShortcut": "Main window shortcut",

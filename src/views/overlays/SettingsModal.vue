@@ -2,6 +2,7 @@
 import { Briefcase, House, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { askTaskDefaultScope } from "../../lib/dialog";
 import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
 import { REMINDER_LEAD_MAX_MINUTES } from "../../lib/limits";
 import { recordShortcut } from "../../lib/keys";
@@ -23,6 +24,11 @@ const themeOptions: { value: ThemePref; key: MessageKey }[] = [
 const languageOptions: { value: Language; label: string }[] = [
   { value: "zh", label: "中文" },
   { value: "en", label: "English" },
+];
+
+const exclusiveOptions: { value: boolean; key: MessageKey }[] = [
+  { value: false, key: "task.shared" },
+  { value: true, key: "task.exclusive" },
 ];
 
 type AiStatus =
@@ -65,6 +71,18 @@ function saveLead(minutes: number): void {
   if (clamped !== settings.value?.remindersLeadMinutes) {
     void vm.save({ remindersLeadMinutes: clamped });
   }
+}
+
+/** The default switch owns the decision about existing tasks, so it asks before writing. */
+async function chooseTaskDefault(value: boolean): Promise<void> {
+  const current = settings.value;
+  if (!current || current.taskDefaultExclusive === value) return;
+  const scope = await askTaskDefaultScope(
+    t("settings.taskDefault"),
+    t(value ? "settings.taskDefaultAskExclusive" : "settings.taskDefaultAskShared"),
+  );
+  if (!scope) return;
+  await vm.setTaskDefaultExclusive(value, scope === "existing");
 }
 /** The two schedule times are edited together, so one save keeps them a pair. */
 const modeWorkAt = ref("09:00");
@@ -591,6 +609,42 @@ onUnmounted(() => {
                   </div>
                   <p class="mt-1.5 text-[10.5px] text-base-content/35">
                     {{ t("settings.weekHideDoneHint") }}
+                  </p>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.taskDefault") }}</span>
+                    <span class="flex gap-1.5">
+                      <button
+                        v-for="option in exclusiveOptions"
+                        :key="option.key"
+                        class="btn btn-xs rounded-md border-base-300 font-normal"
+                        :class="
+                          settings.taskDefaultExclusive === option.value
+                            ? 'border-0 bg-primary text-primary-content'
+                            : 'bg-base-100'
+                        "
+                        :aria-pressed="settings.taskDefaultExclusive === option.value"
+                        @click="chooseTaskDefault(option.value)"
+                      >
+                        {{ t(option.key) }}
+                      </button>
+                    </span>
+                  </div>
+                  <p class="mt-1.5 text-[10.5px] text-base-content/35">
+                    {{
+                      t(settings.taskDefaultExclusive ? "task.exclusiveHint" : "task.sharedHint")
+                    }}
+                  </p>
+                  <div class="mt-3 flex items-center justify-between text-[12px]">
+                    <span>{{ t("settings.overdueRollover") }}</span>
+                    <input
+                      type="checkbox"
+                      class="toggle toggle-xs toggle-success"
+                      :checked="settings.overduePrompt"
+                      @change="vm.save({ overduePrompt: !settings.overduePrompt })"
+                    />
+                  </div>
+                  <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
+                    {{ t("settings.overdueRolloverHint") }}
                   </p>
                   <div class="mt-4 h-px bg-base-300"></div>
                   <div class="mt-3 flex items-center justify-between text-[12px]">

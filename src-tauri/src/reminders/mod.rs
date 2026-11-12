@@ -1,7 +1,7 @@
 pub mod rules;
 
 use crate::state::AppState;
-use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Timelike, Utc};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
@@ -80,6 +80,16 @@ const MAX_TARGETS: usize = 200;
 /// Fired reminders older than this are dropped after a successful daily backup.
 const NOTIFICATION_KEEP_DAYS: i64 = 90;
 
+/// The local day whose overdue check already ran; a restart starts it again.
+static OVERDUE_CHECK_DAY: Mutex<Option<String>> = Mutex::new(None);
+
+/// The overdue prompt looks for work at 09:00 at the earliest, only once a day, and
+/// only while the setting is on; when it is off the day is not spent.
+fn overdue_check_due(enabled: bool, now: DateTime<Local>, last: Option<&str>) -> bool {
+    let today = now.format("%Y-%m-%d").to_string();
+    enabled && now.hour() >= 9 && last != Some(today.as_str())
+}
+
 /// Splits the fired reminders into the named toasts to show and the count to
 /// summarize, so a catch-up after a break cannot flood the screen.
 pub fn split_toasts<T>(fired: Vec<T>) -> (Vec<T>, usize) {
@@ -104,7 +114,7 @@ fn tick(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     // Everything that touches the ledger happens under this one lock; notifications and
     // the tray are updated after it is released, so a slow OS call cannot stall the app.
-    let (lang, toasts, digest, unread, mode_switch) = {
+    let (lang, toasts, digest, unread, mode_switch, check_overdue) = {
         let conn = state.db.lock().map_err(|_| "db_lock_poisoned".to_string())?;
         crate::services::export::record_error(&conn, backup_error);
         let lang = crate::i18n::from_conn(&conn);
@@ -120,9 +130,9 @@ fn tick(app: &AppHandle) -> Result<(), String> {
         // The mode schedule rides this tick instead of a second thread; a broken row
         // must not stop reminders.
         let mode_switch = crate::services::mode::apply(&conn, now).unwrap_or(None);
-        let candidates = rules::candidates(&conn, now)?;
         let today = now.format("%Y-%m-%d").to_string();
         let now_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let candidates = rules::candidates(&conn, now)?;
 
         let mut toasts: Vec<(String, ReminderTarget)> = Vec::new();
         for candidate in candidates {
@@ -164,12 +174,34 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             );
         }
         let unread = crate::repo::notifications::unread_count(&conn).unwrap_or(0);
-        (lang, toasts, digest, unread, mode_switch)
+        // The prompt asks at most once a day, after 09:00. Mark the day only after the
+        // rest of the tick is done, so an earlier failure can retry next tick. The setting
+        // is read here too; when it is off the day is not spent.
+        let check_overdue = {
+            let last = OVERDUE_CHECK_DAY.lock().ok().and_then(|day| day.clone());
+            if overdue_check_due(
+                crate::repo::settings::overdue_prompt(&conn),
+                now,
+                last.as_deref(),
+            ) {
+                if let Ok(mut day) = OVERDUE_CHECK_DAY.lock() {
+                    *day = Some(today.clone());
+                }
+                true
+            } else {
+                false
+            }
+        };
+        (lang, toasts, digest, unread, mode_switch, check_overdue)
     };
 
     // Emitted after the lock is released: both windows refresh from one event.
     if let Some(mode) = mode_switch {
         let _ = app.emit("mode:changed", mode);
+    }
+    if check_overdue {
+        // Only the main window owns the prompt queue; the mini capture window ignores it.
+        let _ = app.emit_to("main", "overdue:check", ());
     }
 
     let (shown, folded) = split_toasts(toasts);
@@ -310,6 +342,19 @@ mod tests {
         assert_eq!(local.date_naive(), now.date_naive() + Duration::days(1));
         assert_eq!((local.hour(), local.minute()), (9, 0));
         assert_eq!(snoozed_until("tap", now), None);
+    }
+
+    #[test]
+    fn the_overdue_check_waits_for_nine_and_runs_once_a_day() {
+        let early = Local.with_ymd_and_hms(2026, 10, 20, 8, 59, 0).unwrap();
+        let nine = Local.with_ymd_and_hms(2026, 10, 20, 9, 0, 0).unwrap();
+        let later = Local.with_ymd_and_hms(2026, 10, 20, 18, 0, 0).unwrap();
+        let next = Local.with_ymd_and_hms(2026, 10, 21, 9, 0, 0).unwrap();
+        assert!(!overdue_check_due(true, early, None));
+        assert!(!overdue_check_due(false, nine, None));
+        assert!(overdue_check_due(true, nine, None));
+        assert!(!overdue_check_due(true, later, Some("2026-10-20")));
+        assert!(overdue_check_due(true, next, Some("2026-10-20")));
     }
 
     #[test]

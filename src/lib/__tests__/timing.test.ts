@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   effortForFinish,
   finishForEffort,
+  nextDeferDay,
   timingAnchor,
   workdayOnOrAfter,
   workdayOnOrBefore,
@@ -83,6 +84,15 @@ describe("finishForEffort", () => {
 
   it("treats a sub-hour estimate as one hour", () => {
     expect(finishForEffort("2026-10-21", 1)).toBe("2026-10-21");
+  });
+});
+
+describe("nextDeferDay", () => {
+  it("offers the next workday but never a day before today", () => {
+    expect(nextDeferDay("2026-10-20", "2026-10-21")).toBe("2026-10-21");
+    expect(nextDeferDay("2026-10-19", "2026-10-21")).toBe("2026-10-21");
+    expect(nextDeferDay("2026-10-23", "2026-10-24")).toBe("2026-10-26");
+    expect(nextDeferDay(null, "2026-10-24")).toBe("2026-10-26");
   });
 });
 

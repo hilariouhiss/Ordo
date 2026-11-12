@@ -22,6 +22,7 @@ import type { Mode } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
 import { archiveVM } from "./viewmodels/archiveVM";
 import { passVM } from "./viewmodels/passVM";
+import { overduePromptVM } from "./viewmodels/overduePromptVM";
 import { projectsVM } from "./viewmodels/projectsVM";
 import { quickCreateVM } from "./viewmodels/quickCreateVM";
 import { searchVM } from "./viewmodels/searchVM";
@@ -316,6 +317,13 @@ onMounted(async () => {
       weekVM.reload();
       tasksVM.reload();
     });
+    await listen("tasks:changed", () => {
+      weekVM.reload();
+      tasksVM.reload();
+    });
+    await listen("overdue:check", () => {
+      void overduePromptVM.check();
+    });
     await listen<Mode>("mode:changed", (event) => {
       const settings = appVM.state.settings;
       if (settings) settings.mode = event.payload;
@@ -350,6 +358,7 @@ onMounted(async () => {
   // A schedule switch can land while this window boots and emit before the listener
   // above exists; one more read catches it without waiting for the next point.
   void appVM.load().catch(() => {});
+  overduePromptVM.startup();
 });
 
 onUnmounted(() => {

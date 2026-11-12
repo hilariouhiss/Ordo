@@ -468,6 +468,11 @@ onMounted(async () => {
       refresh();
     }),
   );
+  track(
+    await listen("tasks:changed", () => {
+      refresh();
+    }),
+  );
   await vm.load();
   if (disposed) return;
   lastLoadedAt = Date.now();

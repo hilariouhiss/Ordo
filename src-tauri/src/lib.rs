@@ -550,6 +550,8 @@ pub fn run() {
       commands::meta::set_mode,
       commands::window::set_window_rect,
       commands::meta::set_settings,
+      commands::meta::set_task_default_exclusive,
+      commands::tasks::list_overdue_tasks,
       commands::meta::export_json,
       commands::meta::backup_now,
       commands::categories::create_category,

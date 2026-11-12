@@ -111,6 +111,8 @@ pub fn defer(
         now,
     )
     .map_err(|e| e.to_string())?;
+    // A child's new day is part of the parent's derived span.
+    crate::services::subtasks::sync_parent(&tx, task_id, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
@@ -190,6 +192,29 @@ mod tests {
         assert_eq!(
             crate::services::deliverables::defer(&c, "t1", "2026-11-20", "提前", NOW).unwrap_err(),
             "not_a_delay"
+        );
+    }
+
+    #[test]
+    fn a_delay_on_a_subtask_updates_the_parent_total() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "伞", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "子任务", NOW).unwrap();
+        let child_id = parent.children[0].id.clone();
+        c.execute(
+            "UPDATE tasks SET expected_finish_date = '2026-11-18' WHERE id = ?1",
+            [&child_id],
+        )
+        .unwrap();
+
+        let task = crate::services::deliverables::defer(&c, &child_id, "2026-11-25", "", NOW)
+            .unwrap();
+        assert_eq!(task.expected_finish_date.as_deref(), Some("2026-11-25"));
+        let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
+        assert_eq!(
+            parent.expected_finish_date.as_deref(),
+            Some("2026-11-25"),
+            "the parent follows its latest child"
         );
     }
 

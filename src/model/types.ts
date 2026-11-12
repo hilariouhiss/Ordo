@@ -85,6 +85,10 @@ export interface Settings {
   /** Whether finished tasks stay off the week page's list and gantt. */
   weekHideDone: boolean;
   weekView: WeekView;
+  /** Whether a newly captured task starts exclusive. */
+  taskDefaultExclusive: boolean;
+  /** Whether an overdue task opens the defer prompt on startup / at 09:00. */
+  overduePrompt: boolean;
   savedTaskViews: SavedTaskView[];
   /** Minutes a reminder fires before a task's own moment; 0 keeps the built-in times. */
   remindersLeadMinutes: number;
@@ -100,6 +104,13 @@ export interface Settings {
   modePersonalAt: string;
   /** ISO weekdays the schedule runs on, Monday = 1 … Sunday = 7. */
   modeDays: number[];
+}
+
+/** One open task whose expected finish day has passed, for the overdue prompt. */
+export interface OverdueTask {
+  id: string;
+  title: string;
+  expectedFinishDate: string;
 }
 
 export interface ProjectMember {

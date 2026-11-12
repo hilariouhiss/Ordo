@@ -41,7 +41,10 @@ export type DialogRequest =
       finish: string;
       min: string;
       oldFinish: string;
+      /** The overdue prompt: dismissing is an answer, so the caller uses the default. */
+      auto?: boolean;
     }
+  | { kind: "taskDefault"; title: string; message: string }
   | ({ kind: "client"; title: string } & ClientDraft)
   | ({ kind: "person"; title: string } & PersonDraft)
   | { kind: "confirm"; title: string; message: string }
@@ -92,6 +95,22 @@ export function askDefer(
   defaults: { finish: string; min: string; oldFinish: string },
 ): Promise<DeferDraft | null> {
   return ask({ kind: "defer", title, ...defaults }) as Promise<DeferDraft | null>;
+}
+
+/** The overdue prompt's defer dialog: dismissing hands the caller the default day. */
+export function askAutoDefer(
+  title: string,
+  defaults: { finish: string; min: string; oldFinish: string },
+): Promise<DeferDraft | null> {
+  return ask({ kind: "defer", title, ...defaults, auto: true }) as Promise<DeferDraft | null>;
+}
+
+/** Whether a changed task default also rewrites the tasks that already exist. */
+export function askTaskDefaultScope(
+  title: string,
+  message: string,
+): Promise<"future" | "existing" | null> {
+  return ask({ kind: "taskDefault", title, message }) as Promise<"future" | "existing" | null>;
 }
 
 export function askClient(title: string, defaults: ClientDraft): Promise<ClientDraft | null> {
