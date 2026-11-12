@@ -42,15 +42,18 @@ type AiStatus =
 type ShortcutTarget = "capture" | "desk" | "main";
 
 const settings = computed(() => appVM.state.settings);
-/** The body is measured, so switching tabs grows or shrinks the panel smoothly. */
-const panelBody = ref<HTMLElement | null>(null);
+/** The header and body are measured together, so switching tabs grows or shrinks the panel smoothly. */
+const panelHeader = ref<HTMLElement | null>(null);
+const panelContent = ref<HTMLElement | null>(null);
 const panelHeight = ref("auto");
 let panelObserver: ResizeObserver | null = null;
 
 function measurePanel(): void {
-  const body = panelBody.value;
-  if (!body) return;
-  panelHeight.value = `${Math.min(body.scrollHeight, Math.round(window.innerHeight * 0.86))}px`;
+  const header = panelHeader.value;
+  const content = panelContent.value;
+  if (!header || !content) return;
+  const natural = header.offsetHeight + content.offsetHeight;
+  panelHeight.value = `${Math.min(natural, Math.round(window.innerHeight * 0.86))}px`;
 }
 
 const recording = ref<ShortcutTarget | null>(null);
@@ -289,10 +292,9 @@ async function applyShortcut(): Promise<void> {
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", measurePanel);
-  if (panelBody.value) {
-    panelObserver = new ResizeObserver(measurePanel);
-    panelObserver.observe(panelBody.value);
-  }
+  panelObserver = new ResizeObserver(measurePanel);
+  if (panelHeader.value) panelObserver.observe(panelHeader.value);
+  if (panelContent.value) panelObserver.observe(panelContent.value);
   measurePanel();
   // The credential store is only read when this dialog opens, never on startup.
   void ipc
@@ -317,10 +319,10 @@ onUnmounted(() => {
   >
     <motion.div v-bind="modalPanelMotion" class="w-full max-w-[640px]">
       <div
-        class="overflow-hidden rounded-2xl bg-base-100 shadow-2xl motion-safe:transition-[height] motion-safe:duration-200 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]"
+        class="flex max-h-[86vh] flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl motion-safe:transition-[height] motion-safe:duration-200 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]"
         :style="{ height: panelHeight }"
       >
-        <div ref="panelBody" class="max-h-[86vh] overflow-y-auto p-5">
+        <div ref="panelHeader" class="shrink-0 px-5 pt-5">
           <div class="flex items-center">
             <h2 class="text-[15px] font-semibold">{{ t("app.settingsTitle") }}</h2>
             <button
@@ -366,383 +368,392 @@ onUnmounted(() => {
               AI
             </button>
           </div>
+        </div>
 
-          <p v-if="vm.state.error" class="mt-2 text-[12px] text-error">
-            {{ errorText(vm.state.error) }}
-          </p>
+        <div class="min-h-0 overflow-y-auto">
+          <div ref="panelContent" class="flow-root px-5 pb-5">
+            <p v-if="vm.state.error" class="mt-2 text-[12px] text-error">
+              {{ errorText(vm.state.error) }}
+            </p>
 
-          <template v-if="settings">
-            <AnimatePresence mode="wait" :initial="false">
-              <motion.div :key="vm.state.tab" v-bind="panelSwapMotion">
-                <div v-if="vm.state.tab === 'ai'" class="mt-4 rounded-xl bg-base-200 p-4">
-                  <div class="flex items-center gap-2">
-                    <span class="text-[12.5px] font-medium">DeepSeek</span>
-                    <span
-                      class="badge badge-soft badge-xs"
-                      :class="settings.aiEnabled ? 'badge-success' : 'badge-ghost'"
-                    >
-                      {{
-                        settings.aiEnabled ? t("settings.aiEnabledOn") : t("settings.aiEnabledOff")
-                      }}
-                    </span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-sm toggle-success ml-auto"
-                      :checked="settings.aiEnabled"
-                      @change="vm.save({ aiEnabled: !settings.aiEnabled })"
-                    />
-                  </div>
-                  <div class="mt-3 space-y-2 text-[11.5px]">
-                    <label class="flex items-center gap-3">
+            <template v-if="settings">
+              <AnimatePresence mode="wait" :initial="false">
+                <motion.div :key="vm.state.tab" v-bind="panelSwapMotion">
+                  <div v-if="vm.state.tab === 'ai'" class="mt-4 rounded-xl bg-base-200 p-4">
+                    <div class="flex items-center gap-2">
+                      <span class="text-[12.5px] font-medium">DeepSeek</span>
                       <span
-                        class="w-20 shrink-0 text-base-content/50"
-                        v-text="t('settings.aiServiceUrl')"
-                      ></span>
+                        class="badge badge-soft badge-xs"
+                        :class="settings.aiEnabled ? 'badge-success' : 'badge-ghost'"
+                      >
+                        {{
+                          settings.aiEnabled
+                            ? t("settings.aiEnabledOn")
+                            : t("settings.aiEnabledOff")
+                        }}
+                      </span>
                       <input
-                        class="input input-sm flex-1 rounded-lg border-base-300"
-                        :value="settings.aiBaseUrl"
-                        @change="saveBaseUrl"
+                        type="checkbox"
+                        class="toggle toggle-sm toggle-success ml-auto"
+                        :checked="settings.aiEnabled"
+                        @change="vm.save({ aiEnabled: !settings.aiEnabled })"
                       />
-                    </label>
-                    <label class="flex items-center gap-3">
-                      <span
-                        class="w-20 shrink-0 text-base-content/50"
-                        v-text="t('settings.aiModel')"
-                      ></span>
-                      <input
-                        class="input input-sm flex-1 rounded-lg border-base-300"
-                        :value="settings.aiModel"
-                        @change="vm.save({ aiModel: ($event.target as HTMLInputElement).value })"
-                      />
-                    </label>
-                    <label class="flex items-center gap-3">
-                      <span
-                        class="w-20 shrink-0 text-base-content/50"
-                        v-text="t('settings.aiApiKey')"
-                      ></span>
-                      <input
-                        v-model="keyDraft"
-                        type="password"
-                        class="input input-sm flex-1 rounded-lg border-base-300"
-                        :placeholder="
-                          hasKey
-                            ? t('settings.aiKeyPlaceholder')
-                            : t('settings.aiKeyPlaceholderEmpty')
-                        "
-                      />
-                      <button
-                        class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
-                        @click="saveKey"
-                      >
-                        {{ t("common.save") }}
-                      </button>
-                      <button
-                        class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
-                        @click="testAi"
-                      >
-                        {{ t("settings.aiTest") }}
-                      </button>
-                      <button
-                        v-if="hasKey"
-                        class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
-                        @click="clearKey"
-                      >
-                        {{ t("settings.aiKeyClear") }}
-                      </button>
-                    </label>
-                    <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">
-                      {{ aiStatusText }}
-                    </p>
-                  </div>
-                  <p class="mt-2 text-[10.5px] text-base-content/35">
-                    {{ t("settings.aiNote") }}
-                  </p>
-                </div>
-
-                <div v-else-if="vm.state.tab === 'mode'" class="mt-4 rounded-xl bg-base-200 p-4">
-                  <div class="flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.modeCurrent") }}</span>
-                    <span class="flex gap-1.5">
-                      <button
-                        v-for="option in modeOptions"
-                        :key="option.value"
-                        class="btn btn-xs rounded-md border-base-300 font-normal"
-                        :class="
-                          settings.mode === option.value
-                            ? 'border-0 bg-primary text-primary-content'
-                            : 'bg-base-100'
-                        "
-                        :aria-pressed="settings.mode === option.value"
-                        @click="vm.switchMode(option.value)"
-                      >
-                        <component :is="option.icon" :size="12" aria-hidden="true" />
-                        {{ option.label }}
-                      </button>
-                    </span>
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.modeAuto") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.modeAuto"
-                      @change="vm.save({ modeAuto: !settings.modeAuto })"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.modePersonalAt") }}</span>
-                    <TimeField
-                      v-model="modePersonalAt"
-                      class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
-                      :aria-label="t('settings.modePersonalAt')"
-                      @update:model-value="saveModeTimes"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.modeWorkAt") }}</span>
-                    <TimeField
-                      v-model="modeWorkAt"
-                      class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
-                      :aria-label="t('settings.modeWorkAt')"
-                      @update:model-value="saveModeTimes"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.modeDays") }}</span>
-                    <span class="flex gap-1">
-                      <button
-                        v-for="day in modeDayOptions"
-                        :key="day.value"
-                        class="btn btn-xs rounded-md border-base-300 px-2 font-normal"
-                        :class="
-                          settings.modeDays.includes(day.value)
-                            ? 'border-0 bg-primary text-primary-content'
-                            : 'bg-base-100'
-                        "
-                        :aria-pressed="settings.modeDays.includes(day.value)"
-                        @click="toggleModeDay(day.value)"
-                      >
-                        {{ day.label }}
-                      </button>
-                    </span>
-                  </div>
-                  <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/35">
-                    {{ t("settings.modeHint") }}
-                  </p>
-                  <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
-                    {{ t("settings.modeNote") }}
-                  </p>
-                </div>
-
-                <div v-else-if="vm.state.tab === 'general'" class="mt-4 rounded-xl bg-base-200 p-4">
-                  <div class="flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.theme") }}</span>
-                    <span class="flex gap-1.5">
-                      <button
-                        v-for="option in themeOptions"
-                        :key="option.value"
-                        class="btn btn-xs rounded-md border-base-300 font-normal"
-                        :class="
-                          settings.theme === option.value
-                            ? 'border-0 bg-primary text-primary-content'
-                            : 'bg-base-100'
-                        "
-                        @click="vm.save({ theme: option.value })"
-                      >
-                        {{ t(option.key) }}
-                      </button>
-                    </span>
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.language") }}</span>
-                    <span class="flex gap-1.5">
-                      <button
-                        v-for="option in languageOptions"
-                        :key="option.value"
-                        class="btn btn-xs rounded-md border-base-300 font-normal"
-                        :class="
-                          settings.language === option.value
-                            ? 'border-0 bg-primary text-primary-content'
-                            : 'bg-base-100'
-                        "
-                        @click="vm.save({ language: option.value })"
-                      >
-                        {{ option.label }}
-                      </button>
-                    </span>
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.autostart") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.autostart"
-                      @change="vm.save({ autostart: !settings.autostart })"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.deskControls") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.deskControls"
-                      @change="vm.save({ deskControls: !settings.deskControls })"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.weekShowEmptyDays") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.weekShowEmptyDays"
-                      @change="vm.save({ weekShowEmptyDays: !settings.weekShowEmptyDays })"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.weekHideDone") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.weekHideDone"
-                      @change="vm.save({ weekHideDone: !settings.weekHideDone })"
-                    />
-                  </div>
-                  <p class="mt-1.5 text-[10.5px] text-base-content/35">
-                    {{ t("settings.weekHideDoneHint") }}
-                  </p>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.taskDefault") }}</span>
-                    <span class="flex gap-1.5">
-                      <button
-                        v-for="option in exclusiveOptions"
-                        :key="option.key"
-                        class="btn btn-xs rounded-md border-base-300 font-normal"
-                        :class="
-                          settings.taskDefaultExclusive === option.value
-                            ? 'border-0 bg-primary text-primary-content'
-                            : 'bg-base-100'
-                        "
-                        :aria-pressed="settings.taskDefaultExclusive === option.value"
-                        @click="chooseTaskDefault(option.value)"
-                      >
-                        {{ t(option.key) }}
-                      </button>
-                    </span>
-                  </div>
-                  <p class="mt-1.5 text-[10.5px] text-base-content/35">
-                    {{
-                      t(settings.taskDefaultExclusive ? "task.exclusiveHint" : "task.sharedHint")
-                    }}
-                  </p>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.overdueRollover") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.overduePrompt"
-                      @change="vm.save({ overduePrompt: !settings.overduePrompt })"
-                    />
-                  </div>
-                  <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
-                    {{ t("settings.overdueRolloverHint") }}
-                  </p>
-                  <div class="mt-4 h-px bg-base-300"></div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.reminderLead") }}</span>
-                    <EffortField
-                      v-model="leadMinutes"
-                      compact
-                      allow-zero
-                      :label="t('settings.reminderLead')"
-                      @update:model-value="saveLead"
-                    />
-                  </div>
-                  <div class="mt-3 flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.digest") }}</span>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-xs toggle-success"
-                      :checked="settings.remindersDigest"
-                      @change="vm.save({ remindersDigest: !settings.remindersDigest })"
-                    />
-                  </div>
-                  <div v-for="row in shortcutRows" :key="row.target" class="mt-3">
-                    <div class="flex items-center justify-between text-[12px]">
-                      <span>{{ row.label }}</span>
-                      <span class="flex items-center gap-2">
+                    </div>
+                    <div class="mt-3 space-y-2 text-[11.5px]">
+                      <label class="flex items-center gap-3">
                         <span
-                          class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50"
-                        >
-                          {{ displayShortcut(row.target, row.value) }}
-                        </span>
+                          class="w-20 shrink-0 text-base-content/50"
+                          v-text="t('settings.aiServiceUrl')"
+                        ></span>
+                        <input
+                          class="input input-sm flex-1 rounded-lg border-base-300"
+                          :value="settings.aiBaseUrl"
+                          @change="saveBaseUrl"
+                        />
+                      </label>
+                      <label class="flex items-center gap-3">
+                        <span
+                          class="w-20 shrink-0 text-base-content/50"
+                          v-text="t('settings.aiModel')"
+                        ></span>
+                        <input
+                          class="input input-sm flex-1 rounded-lg border-base-300"
+                          :value="settings.aiModel"
+                          @change="vm.save({ aiModel: ($event.target as HTMLInputElement).value })"
+                        />
+                      </label>
+                      <label class="flex items-center gap-3">
+                        <span
+                          class="w-20 shrink-0 text-base-content/50"
+                          v-text="t('settings.aiApiKey')"
+                        ></span>
+                        <input
+                          v-model="keyDraft"
+                          type="password"
+                          class="input input-sm flex-1 rounded-lg border-base-300"
+                          :placeholder="
+                            hasKey
+                              ? t('settings.aiKeyPlaceholder')
+                              : t('settings.aiKeyPlaceholderEmpty')
+                          "
+                        />
                         <button
                           class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
-                          @click="startRecord(row.target)"
-                        >
-                          {{ t("settings.shortcutChange") }}
-                        </button>
-                        <button
-                          v-if="pendingShortcut?.target === row.target"
-                          class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
-                          @click="applyShortcut"
+                          @click="saveKey"
                         >
                           {{ t("common.save") }}
                         </button>
-                      </span>
+                        <button
+                          class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                          @click="testAi"
+                        >
+                          {{ t("settings.aiTest") }}
+                        </button>
+                        <button
+                          v-if="hasKey"
+                          class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                          @click="clearKey"
+                        >
+                          {{ t("settings.aiKeyClear") }}
+                        </button>
+                      </label>
+                      <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">
+                        {{ aiStatusText }}
+                      </p>
                     </div>
-                    <p
-                      v-if="warningText(row.target, row.warning)"
-                      class="mt-1 text-[10.5px] text-error"
-                    >
-                      {{
-                        t("settings.shortcutWarning", {
-                          error: errorText(warningText(row.target, row.warning)),
-                        })
-                      }}
+                    <p class="mt-2 text-[10.5px] text-base-content/35">
+                      {{ t("settings.aiNote") }}
                     </p>
                   </div>
-                </div>
 
-                <div v-else-if="vm.state.tab === 'data'" class="mt-4 rounded-xl bg-base-200 p-4">
-                  <div class="flex items-center justify-between text-[12px]">
-                    <span>{{ t("settings.backupDaily") }}</span>
-                    <span class="text-[11px] text-base-content/40">
-                      {{ t("settings.backupKeep", { days: settings.backupKeepDays }) }}
-                    </span>
+                  <div v-else-if="vm.state.tab === 'mode'" class="mt-4 rounded-xl bg-base-200 p-4">
+                    <div class="flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.modeCurrent") }}</span>
+                      <span class="flex gap-1.5">
+                        <button
+                          v-for="option in modeOptions"
+                          :key="option.value"
+                          class="btn btn-xs rounded-md border-base-300 font-normal"
+                          :class="
+                            settings.mode === option.value
+                              ? 'border-0 bg-primary text-primary-content'
+                              : 'bg-base-100'
+                          "
+                          :aria-pressed="settings.mode === option.value"
+                          @click="vm.switchMode(option.value)"
+                        >
+                          <component :is="option.icon" :size="12" aria-hidden="true" />
+                          {{ option.label }}
+                        </button>
+                      </span>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.modeAuto") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.modeAuto"
+                        @change="vm.save({ modeAuto: !settings.modeAuto })"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.modePersonalAt") }}</span>
+                      <TimeField
+                        v-model="modePersonalAt"
+                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
+                        :aria-label="t('settings.modePersonalAt')"
+                        @update:model-value="saveModeTimes"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.modeWorkAt") }}</span>
+                      <TimeField
+                        v-model="modeWorkAt"
+                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
+                        :aria-label="t('settings.modeWorkAt')"
+                        @update:model-value="saveModeTimes"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.modeDays") }}</span>
+                      <span class="flex gap-1">
+                        <button
+                          v-for="day in modeDayOptions"
+                          :key="day.value"
+                          class="btn btn-xs rounded-md border-base-300 px-2 font-normal"
+                          :class="
+                            settings.modeDays.includes(day.value)
+                              ? 'border-0 bg-primary text-primary-content'
+                              : 'bg-base-100'
+                          "
+                          :aria-pressed="settings.modeDays.includes(day.value)"
+                          @click="toggleModeDay(day.value)"
+                        >
+                          {{ day.label }}
+                        </button>
+                      </span>
+                    </div>
+                    <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/35">
+                      {{ t("settings.modeHint") }}
+                    </p>
+                    <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
+                      {{ t("settings.modeNote") }}
+                    </p>
                   </div>
-                  <div class="mt-3 flex items-center gap-2">
-                    <button
-                      class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                      @click="vm.backup"
-                    >
-                      {{ t("settings.backupNow") }}
-                    </button>
-                    <button
-                      class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                      @click="vm.exportData"
-                    >
-                      {{ t("settings.exportJson") }}
-                    </button>
+
+                  <div
+                    v-else-if="vm.state.tab === 'general'"
+                    class="mt-4 rounded-xl bg-base-200 p-4"
+                  >
+                    <div class="flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.theme") }}</span>
+                      <span class="flex gap-1.5">
+                        <button
+                          v-for="option in themeOptions"
+                          :key="option.value"
+                          class="btn btn-xs rounded-md border-base-300 font-normal"
+                          :class="
+                            settings.theme === option.value
+                              ? 'border-0 bg-primary text-primary-content'
+                              : 'bg-base-100'
+                          "
+                          @click="vm.save({ theme: option.value })"
+                        >
+                          {{ t(option.key) }}
+                        </button>
+                      </span>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.language") }}</span>
+                      <span class="flex gap-1.5">
+                        <button
+                          v-for="option in languageOptions"
+                          :key="option.value"
+                          class="btn btn-xs rounded-md border-base-300 font-normal"
+                          :class="
+                            settings.language === option.value
+                              ? 'border-0 bg-primary text-primary-content'
+                              : 'bg-base-100'
+                          "
+                          @click="vm.save({ language: option.value })"
+                        >
+                          {{ option.label }}
+                        </button>
+                      </span>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.autostart") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.autostart"
+                        @change="vm.save({ autostart: !settings.autostart })"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.deskControls") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.deskControls"
+                        @change="vm.save({ deskControls: !settings.deskControls })"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.weekShowEmptyDays") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.weekShowEmptyDays"
+                        @change="vm.save({ weekShowEmptyDays: !settings.weekShowEmptyDays })"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.weekHideDone") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.weekHideDone"
+                        @change="vm.save({ weekHideDone: !settings.weekHideDone })"
+                      />
+                    </div>
+                    <p class="mt-1.5 text-[10.5px] text-base-content/35">
+                      {{ t("settings.weekHideDoneHint") }}
+                    </p>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.taskDefault") }}</span>
+                      <span class="flex gap-1.5">
+                        <button
+                          v-for="option in exclusiveOptions"
+                          :key="option.key"
+                          class="btn btn-xs rounded-md border-base-300 font-normal"
+                          :class="
+                            settings.taskDefaultExclusive === option.value
+                              ? 'border-0 bg-primary text-primary-content'
+                              : 'bg-base-100'
+                          "
+                          :aria-pressed="settings.taskDefaultExclusive === option.value"
+                          @click="chooseTaskDefault(option.value)"
+                        >
+                          {{ t(option.key) }}
+                        </button>
+                      </span>
+                    </div>
+                    <p class="mt-1.5 text-[10.5px] text-base-content/35">
+                      {{
+                        t(settings.taskDefaultExclusive ? "task.exclusiveHint" : "task.sharedHint")
+                      }}
+                    </p>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.overdueRollover") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.overduePrompt"
+                        @change="vm.save({ overduePrompt: !settings.overduePrompt })"
+                      />
+                    </div>
+                    <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
+                      {{ t("settings.overdueRolloverHint") }}
+                    </p>
+                    <div class="mt-4 h-px bg-base-300"></div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.reminderLead") }}</span>
+                      <EffortField
+                        v-model="leadMinutes"
+                        compact
+                        allow-zero
+                        :label="t('settings.reminderLead')"
+                        @update:model-value="saveLead"
+                      />
+                    </div>
+                    <div class="mt-3 flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.digest") }}</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        :checked="settings.remindersDigest"
+                        @change="vm.save({ remindersDigest: !settings.remindersDigest })"
+                      />
+                    </div>
+                    <div v-for="row in shortcutRows" :key="row.target" class="mt-3">
+                      <div class="flex items-center justify-between text-[12px]">
+                        <span>{{ row.label }}</span>
+                        <span class="flex items-center gap-2">
+                          <span
+                            class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50"
+                          >
+                            {{ displayShortcut(row.target, row.value) }}
+                          </span>
+                          <button
+                            class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                            @click="startRecord(row.target)"
+                          >
+                            {{ t("settings.shortcutChange") }}
+                          </button>
+                          <button
+                            v-if="pendingShortcut?.target === row.target"
+                            class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
+                            @click="applyShortcut"
+                          >
+                            {{ t("common.save") }}
+                          </button>
+                        </span>
+                      </div>
+                      <p
+                        v-if="warningText(row.target, row.warning)"
+                        class="mt-1 text-[10.5px] text-error"
+                      >
+                        {{
+                          t("settings.shortcutWarning", {
+                            error: errorText(warningText(row.target, row.warning)),
+                          })
+                        }}
+                      </p>
+                    </div>
                   </div>
-                  <p
-                    v-if="vm.state.backupPath"
-                    class="mt-2 break-all text-[10.5px] text-base-content/40"
-                  >
-                    {{ t("settings.backupPath", { path: vm.state.backupPath }) }}
-                  </p>
-                  <p
-                    v-if="vm.state.exportPath"
-                    class="mt-1 break-all text-[10.5px] text-base-content/40"
-                  >
-                    {{ t("settings.exportPath", { path: vm.state.exportPath }) }}
-                  </p>
-                  <p v-if="settings.backupError" class="mt-2 break-all text-[10.5px] text-error">
-                    {{ t("settings.backupError", { error: settings.backupError }) }}
-                  </p>
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          </template>
+
+                  <div v-else-if="vm.state.tab === 'data'" class="mt-4 rounded-xl bg-base-200 p-4">
+                    <div class="flex items-center justify-between text-[12px]">
+                      <span>{{ t("settings.backupDaily") }}</span>
+                      <span class="text-[11px] text-base-content/40">
+                        {{ t("settings.backupKeep", { days: settings.backupKeepDays }) }}
+                      </span>
+                    </div>
+                    <div class="mt-3 flex items-center gap-2">
+                      <button
+                        class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+                        @click="vm.backup"
+                      >
+                        {{ t("settings.backupNow") }}
+                      </button>
+                      <button
+                        class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+                        @click="vm.exportData"
+                      >
+                        {{ t("settings.exportJson") }}
+                      </button>
+                    </div>
+                    <p
+                      v-if="vm.state.backupPath"
+                      class="mt-2 break-all text-[10.5px] text-base-content/40"
+                    >
+                      {{ t("settings.backupPath", { path: vm.state.backupPath }) }}
+                    </p>
+                    <p
+                      v-if="vm.state.exportPath"
+                      class="mt-1 break-all text-[10.5px] text-base-content/40"
+                    >
+                      {{ t("settings.exportPath", { path: vm.state.exportPath }) }}
+                    </p>
+                    <p v-if="settings.backupError" class="mt-2 break-all text-[10.5px] text-error">
+                      {{ t("settings.backupError", { error: settings.backupError }) }}
+                    </p>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            </template>
+          </div>
         </div>
       </div>
     </motion.div>

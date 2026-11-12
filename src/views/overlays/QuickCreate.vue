@@ -58,10 +58,10 @@ async function submitProject(): Promise<void> {
         role="dialog"
         aria-modal="true"
         :aria-label="mode === 'task' ? t('quickCreate.taskTitle') : t('quickCreate.projectTitle')"
-        class="max-h-[86vh] w-full overflow-y-auto rounded-2xl bg-base-100 p-4 shadow-2xl"
+        class="flex max-h-[86vh] w-full flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl"
         :class="mode === 'task' ? 'max-w-[560px]' : 'max-w-[400px]'"
       >
-        <div class="flex items-center">
+        <div class="flex shrink-0 items-center px-4 pt-4">
           <h2 class="text-[14px] font-semibold">
             {{ mode === "task" ? t("quickCreate.taskTitle") : t("quickCreate.projectTitle") }}
           </h2>
@@ -74,46 +74,48 @@ async function submitProject(): Promise<void> {
           </button>
         </div>
 
-        <template v-if="mode === 'task'">
-          <div class="mt-3 rounded-xl border border-base-300 bg-base-200/40 p-1">
-            <CaptureBar ref="bar" v-model="taskDraft" @submit="submitTask" />
-          </div>
-        </template>
-        <input
-          v-else
-          ref="projectInput"
-          v-model="projectName"
-          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
-          :placeholder="t('projects.placeholder')"
-          :aria-label="t('quickCreate.projectTitle')"
-          @keydown.enter="onProjectEnter"
-        />
-
-        <p v-if="warning" class="mt-2 text-[11px] text-error">{{ warning }}</p>
-
-        <div class="mt-4 flex justify-end gap-2">
-          <button
-            class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-            @click="close"
-          >
-            {{ t("common.cancel") }}
-          </button>
-          <button
-            v-if="mode === 'task'"
-            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
-            :disabled="vm.state.busy || !taskDraft.trim()"
-            @click="bar?.submit()"
-          >
-            {{ t("quickCreate.create") }}
-          </button>
-          <button
+        <div class="min-h-0 overflow-y-auto px-4 pb-4">
+          <template v-if="mode === 'task'">
+            <div class="mt-3 rounded-xl border border-base-300 bg-base-200/40 p-1">
+              <CaptureBar ref="bar" v-model="taskDraft" @submit="submitTask" />
+            </div>
+          </template>
+          <input
             v-else
-            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
-            :disabled="vm.state.busy || !projectName.trim()"
-            @click="submitProject"
-          >
-            {{ t("quickCreate.create") }}
-          </button>
+            ref="projectInput"
+            v-model="projectName"
+            class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+            :placeholder="t('projects.placeholder')"
+            :aria-label="t('quickCreate.projectTitle')"
+            @keydown.enter="onProjectEnter"
+          />
+
+          <p v-if="warning" class="mt-2 text-[11px] text-error">{{ warning }}</p>
+
+          <div class="mt-4 flex justify-end gap-2">
+            <button
+              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+              @click="close"
+            >
+              {{ t("common.cancel") }}
+            </button>
+            <button
+              v-if="mode === 'task'"
+              class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+              :disabled="vm.state.busy || !taskDraft.trim()"
+              @click="bar?.submit()"
+            >
+              {{ t("quickCreate.create") }}
+            </button>
+            <button
+              v-else
+              class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+              :disabled="vm.state.busy || !projectName.trim()"
+              @click="submitProject"
+            >
+              {{ t("quickCreate.create") }}
+            </button>
+          </div>
         </div>
       </motion.div>
     </motion.div>

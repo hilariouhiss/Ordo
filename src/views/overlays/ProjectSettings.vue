@@ -205,9 +205,9 @@ async function archive(): Promise<void> {
   >
     <motion.div
       v-bind="modalPanelMotion"
-      class="w-full max-w-[520px] rounded-2xl bg-base-100 p-5 shadow-2xl"
+      class="flex max-h-[86vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl"
     >
-      <div class="flex items-center">
+      <div class="flex shrink-0 items-center px-5 pt-5">
         <h2 class="text-[15px] font-semibold">{{ t("projectSettings.title") }}</h2>
         <button
           class="ml-auto text-base-content/30"
@@ -218,148 +218,150 @@ async function archive(): Promise<void> {
         </button>
       </div>
 
-      <p v-if="error" class="mt-2 text-[12px] text-error">{{ errorText(error) }}</p>
+      <div class="min-h-0 overflow-y-auto px-5 pb-5">
+        <p v-if="error" class="mt-2 text-[12px] text-error">{{ errorText(error) }}</p>
 
-      <div class="mt-4 space-y-2 text-[12px]">
-        <label class="flex items-center gap-3">
-          <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.name") }}</span>
-          <input v-model="form.name" class="input input-sm flex-1 rounded-lg border-base-300" />
-        </label>
-        <div class="flex items-center gap-3">
-          <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.group") }}</span>
-          <select
-            v-model="form.groupId"
-            class="select select-sm flex-1 rounded-lg border-base-300"
-            :aria-label="t('projectSettings.group')"
-          >
-            <option value="">{{ t("projectSettings.noGroup") }}</option>
-            <option v-for="group in groups" :key="group.id" :value="group.id">
-              {{ group.name }}
-            </option>
-          </select>
-          <button
-            class="shrink-0 text-[11px] text-base-content/45 hover:text-base-content"
-            @click="newGroup"
-          >
-            + {{ t("projects.newGroup") }}
-          </button>
-        </div>
-        <label class="flex items-center gap-3">
-          <span class="w-16 shrink-0 text-base-content/50">{{
-            t("projectSettings.importance")
-          }}</span>
-          <select
-            :value="form.priority"
-            class="select select-sm flex-1 rounded-lg border-base-300"
-            :aria-label="t('projectSettings.importance')"
-            @change="onPriorityChange"
-          >
-            <option value="high">{{ t("task.priorityHigh") }}</option>
-            <option value="normal">{{ t("task.priorityNormal") }}</option>
-            <option value="low">{{ t("task.priorityLow") }}</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="mt-4">
-        <div class="flex items-baseline gap-2">
-          <span class="text-[12px] font-medium">{{ t("projectSettings.members") }}</span>
-          <span class="text-[10.5px] text-base-content/40">{{
-            t("projectSettings.membersHint")
-          }}</span>
-        </div>
-        <AnimatePresence
-          as="div"
-          mode="popLayout"
-          :initial="false"
-          class="mt-2 grid grid-cols-3 gap-1.5"
-        >
-          <motion.span
-            v-for="member in form.members"
-            :key="member.personId"
-            v-bind="listItemMotion"
-            class="flex min-w-0 items-center gap-1.5 rounded-lg bg-base-200 px-2 py-1"
-          >
-            <!-- The name holds its column; daisyUI's select wants 100% and would squash it. -->
-            <span
-              class="w-12 shrink-0 truncate text-[12px]"
-              :title="memberNameOf(member.personId)"
-              >{{ memberNameOf(member.personId) }}</span
-            >
+        <div class="mt-4 space-y-2 text-[12px]">
+          <label class="flex items-center gap-3">
+            <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.name") }}</span>
+            <input v-model="form.name" class="input input-sm flex-1 rounded-lg border-base-300" />
+          </label>
+          <div class="flex items-center gap-3">
+            <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.group") }}</span>
             <select
-              class="select select-xs min-w-0 flex-1 rounded-md border-base-300 bg-base-100 text-[11px]"
-              :value="member.categoryId ?? ''"
-              :aria-label="t('projectSettings.memberCategory')"
-              @change="onMemberCategory(member.personId, $event)"
+              v-model="form.groupId"
+              class="select select-sm flex-1 rounded-lg border-base-300"
+              :aria-label="t('projectSettings.group')"
             >
-              <option value="">{{ t("projectSettings.noCategory") }}</option>
-              <option
-                v-for="category in appVM.state.categories"
-                :key="category.id"
-                :value="category.id"
-              >
-                {{ category.name }}
+              <option value="">{{ t("projectSettings.noGroup") }}</option>
+              <option v-for="group in groups" :key="group.id" :value="group.id">
+                {{ group.name }}
               </option>
             </select>
             <button
-              v-if="!appVM.state.people.find((p) => p.id === member.personId)?.isMe"
-              class="shrink-0 text-base-content/30"
-              :aria-label="t('projectSettings.removeMemberAria')"
-              @click="removeMember(member.personId)"
+              class="shrink-0 text-[11px] text-base-content/45 hover:text-base-content"
+              @click="newGroup"
             >
-              <X :size="12" aria-hidden="true" />
-            </button>
-          </motion.span>
-        </AnimatePresence>
-        <div class="relative mt-2 min-w-0">
-          <input
-            v-model="memberName"
-            class="input input-sm w-full rounded-lg border-dashed border-base-300"
-            :placeholder="t('projectSettings.memberPlaceholder')"
-            @focus="peopleOpen = true"
-            @input="onMemberInput"
-            @blur="peopleOpen = false"
-            @keydown.enter="onMemberKey"
-          />
-          <!-- Focus offers the people still missing here; a click adds that one. -->
-          <div
-            v-if="peopleOpen && memberMatches.length"
-            class="absolute inset-x-0 top-full z-10 mt-1 max-h-44 overflow-y-auto rounded-lg border border-base-300 bg-base-100 p-1 shadow-xl"
-          >
-            <button
-              v-for="person in memberMatches"
-              :key="person.id"
-              type="button"
-              class="block w-full rounded-md px-2 py-1 text-left text-[12px] text-base-content/70 hover:bg-base-200"
-              @mousedown.prevent
-              @click="addMember(person.id)"
-            >
-              {{ person.name }}
+              + {{ t("projects.newGroup") }}
             </button>
           </div>
+          <label class="flex items-center gap-3">
+            <span class="w-16 shrink-0 text-base-content/50">{{
+              t("projectSettings.importance")
+            }}</span>
+            <select
+              :value="form.priority"
+              class="select select-sm flex-1 rounded-lg border-base-300"
+              :aria-label="t('projectSettings.importance')"
+              @change="onPriorityChange"
+            >
+              <option value="high">{{ t("task.priorityHigh") }}</option>
+              <option value="normal">{{ t("task.priorityNormal") }}</option>
+              <option value="low">{{ t("task.priorityLow") }}</option>
+            </select>
+          </label>
         </div>
-        <p v-if="memberHint" class="mt-1.5 text-[10.5px] text-primary">{{ memberHint }}</p>
-      </div>
 
-      <div class="mt-5 flex items-center gap-2 border-t border-base-200 pt-3">
-        <button
-          class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-          @click="archive"
-        >
-          {{ t("projectSettings.archive") }}
-        </button>
-        <button
-          class="btn btn-sm ml-auto rounded-lg border-base-300 bg-base-100 font-normal"
-          @click="emit('close')"
-        >
-          {{ t("common.close") }}
-        </button>
-        <button
-          class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
-          @click="save"
-        >
-          {{ t("common.save") }}
-        </button>
+        <div class="mt-4">
+          <div class="flex items-baseline gap-2">
+            <span class="text-[12px] font-medium">{{ t("projectSettings.members") }}</span>
+            <span class="text-[10.5px] text-base-content/40">{{
+              t("projectSettings.membersHint")
+            }}</span>
+          </div>
+          <AnimatePresence
+            as="div"
+            mode="popLayout"
+            :initial="false"
+            class="mt-2 grid grid-cols-3 gap-1.5"
+          >
+            <motion.span
+              v-for="member in form.members"
+              :key="member.personId"
+              v-bind="listItemMotion"
+              class="flex min-w-0 items-center gap-1.5 rounded-lg bg-base-200 px-2 py-1"
+            >
+              <!-- The name holds its column; daisyUI's select wants 100% and would squash it. -->
+              <span
+                class="w-12 shrink-0 truncate text-[12px]"
+                :title="memberNameOf(member.personId)"
+                >{{ memberNameOf(member.personId) }}</span
+              >
+              <select
+                class="select select-xs min-w-0 flex-1 rounded-md border-base-300 bg-base-100 text-[11px]"
+                :value="member.categoryId ?? ''"
+                :aria-label="t('projectSettings.memberCategory')"
+                @change="onMemberCategory(member.personId, $event)"
+              >
+                <option value="">{{ t("projectSettings.noCategory") }}</option>
+                <option
+                  v-for="category in appVM.state.categories"
+                  :key="category.id"
+                  :value="category.id"
+                >
+                  {{ category.name }}
+                </option>
+              </select>
+              <button
+                v-if="!appVM.state.people.find((p) => p.id === member.personId)?.isMe"
+                class="shrink-0 text-base-content/30"
+                :aria-label="t('projectSettings.removeMemberAria')"
+                @click="removeMember(member.personId)"
+              >
+                <X :size="12" aria-hidden="true" />
+              </button>
+            </motion.span>
+          </AnimatePresence>
+          <div class="relative mt-2 min-w-0">
+            <input
+              v-model="memberName"
+              class="input input-sm w-full rounded-lg border-dashed border-base-300"
+              :placeholder="t('projectSettings.memberPlaceholder')"
+              @focus="peopleOpen = true"
+              @input="onMemberInput"
+              @blur="peopleOpen = false"
+              @keydown.enter="onMemberKey"
+            />
+            <!-- Focus offers the people still missing here; a click adds that one. -->
+            <div
+              v-if="peopleOpen && memberMatches.length"
+              class="absolute inset-x-0 bottom-full z-10 mb-1 max-h-44 overflow-y-auto rounded-lg border border-base-300 bg-base-100 p-1 shadow-xl"
+            >
+              <button
+                v-for="person in memberMatches"
+                :key="person.id"
+                type="button"
+                class="block w-full rounded-md px-2 py-1 text-left text-[12px] text-base-content/70 hover:bg-base-200"
+                @mousedown.prevent
+                @click="addMember(person.id)"
+              >
+                {{ person.name }}
+              </button>
+            </div>
+          </div>
+          <p v-if="memberHint" class="mt-1.5 text-[10.5px] text-primary">{{ memberHint }}</p>
+        </div>
+
+        <div class="mt-5 flex items-center gap-2 border-t border-base-200 pt-3">
+          <button
+            class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+            @click="archive"
+          >
+            {{ t("projectSettings.archive") }}
+          </button>
+          <button
+            class="btn btn-sm ml-auto rounded-lg border-base-300 bg-base-100 font-normal"
+            @click="emit('close')"
+          >
+            {{ t("common.close") }}
+          </button>
+          <button
+            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+            @click="save"
+          >
+            {{ t("common.save") }}
+          </button>
+        </div>
       </div>
     </motion.div>
   </motion.div>

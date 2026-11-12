@@ -78,9 +78,9 @@ async function save(): Promise<void> {
       role="dialog"
       aria-modal="true"
       :aria-label="t(rule ? 'rule.editTitle' : 'rule.newTitle')"
-      class="max-h-[86vh] w-full max-w-[460px] overflow-y-auto rounded-2xl bg-base-100 p-4 shadow-2xl"
+      class="flex max-h-[86vh] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl"
     >
-      <div class="flex items-center">
+      <div class="flex shrink-0 items-center px-4 pt-4">
         <h2 class="text-[14px] font-semibold">
           {{ t(rule ? "rule.editTitle" : "rule.newTitle") }}
         </h2>
@@ -93,54 +93,58 @@ async function save(): Promise<void> {
         </button>
       </div>
 
-      <input
-        v-model="form.title"
-        class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
-        :placeholder="t('rule.titlePlaceholder')"
-        :aria-label="t('rule.name')"
-        autofocus
-      />
+      <div class="min-h-0 overflow-y-auto px-4 pb-4">
+        <input
+          v-model="form.title"
+          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+          :placeholder="t('rule.titlePlaceholder')"
+          :aria-label="t('rule.name')"
+          autofocus
+        />
 
-      <div class="mt-3 text-[10.5px] font-medium tracking-wide text-base-content/40">
-        {{ t("rule.weekdays") }}
-      </div>
-      <div class="mt-1.5 flex flex-wrap items-center gap-1">
-        <button
-          v-for="day in DAYS"
-          :key="day"
-          type="button"
-          class="btn btn-xs rounded-md border-base-300 font-normal"
-          :class="
-            form.weekdays.includes(day) ? 'border-0 bg-primary text-primary-content' : 'bg-base-100'
-          "
-          @click="toggleDay(day)"
-        >
-          {{ weekdayName(day) }}
-        </button>
-        <label class="ml-1 flex items-center gap-1.5 text-[11px] text-base-content/45">
-          {{ t("rule.time") }}
-          <TimeField v-model="form.at" class="input input-sm w-28 rounded-lg border-base-300" />
-        </label>
-      </div>
+        <div class="mt-3 text-[10.5px] font-medium tracking-wide text-base-content/40">
+          {{ t("rule.weekdays") }}
+        </div>
+        <div class="mt-1.5 flex flex-wrap items-center gap-1">
+          <button
+            v-for="day in DAYS"
+            :key="day"
+            type="button"
+            class="btn btn-xs rounded-md border-base-300 font-normal"
+            :class="
+              form.weekdays.includes(day)
+                ? 'border-0 bg-primary text-primary-content'
+                : 'bg-base-100'
+            "
+            @click="toggleDay(day)"
+          >
+            {{ weekdayName(day) }}
+          </button>
+          <label class="ml-1 flex items-center gap-1.5 text-[11px] text-base-content/45">
+            {{ t("rule.time") }}
+            <TimeField v-model="form.at" class="input input-sm w-28 rounded-lg border-base-300" />
+          </label>
+        </div>
 
-      <TaskAttrFields v-model="attrs" />
+        <TaskAttrFields v-model="attrs" />
 
-      <p v-if="error" class="mt-2 text-[11px] text-error">{{ error }}</p>
+        <p v-if="error" class="mt-2 text-[11px] text-error">{{ error }}</p>
 
-      <div class="mt-4 flex justify-end gap-2">
-        <button
-          class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-          @click="emit('close')"
-        >
-          {{ t("common.cancel") }}
-        </button>
-        <button
-          class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
-          :disabled="saving || !form.title.trim() || !form.weekdays.length"
-          @click="save"
-        >
-          {{ t("common.save") }}
-        </button>
+        <div class="mt-4 flex justify-end gap-2">
+          <button
+            class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+            @click="emit('close')"
+          >
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+            :disabled="saving || !form.title.trim() || !form.weekdays.length"
+            @click="save"
+          >
+            {{ t("common.save") }}
+          </button>
+        </div>
       </div>
     </motion.div>
   </motion.div>
