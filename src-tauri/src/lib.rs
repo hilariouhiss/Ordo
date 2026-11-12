@@ -76,6 +76,11 @@ fn ensure_capture(app: &tauri::AppHandle, reveal_when_loaded: bool) -> Option<ta
     .skip_taskbar(true)
     .resizable(false)
     .visible(false);
+    // WebView2 requires every webview sharing a data directory to use the same scrollbar style.
+    #[cfg(windows)]
+    {
+        builder = builder.scroll_bar_style(tauri::webview::ScrollBarStyle::FluentOverlay);
+    }
     if reveal_when_loaded {
         builder = builder.on_page_load(|window, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Finished {

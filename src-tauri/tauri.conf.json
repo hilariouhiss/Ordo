@@ -15,6 +15,7 @@
         "title": "Ordo",
         "width": 1100,
         "height": 760,
+        "scrollBarStyle": "fluentOverlay",
         "minWidth": 900,
         "minHeight": 620,
         "center": true,
