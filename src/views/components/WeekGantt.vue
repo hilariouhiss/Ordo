@@ -7,6 +7,7 @@ import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import type { PlannedDay, WeekLane } from "../../lib/plan";
 import { groupLanes } from "../../lib/plan";
+import { isRuleTask } from "../../lib/rules";
 import { usePointerDrag, type PointerDrag } from "../../lib/pointerDrag";
 import { canSuspendTask, canWaitTask } from "../../lib/status";
 import { waitDefaults, waitingOnName } from "../../lib/waiting";
@@ -202,7 +203,7 @@ function openTask(lane: WeekLane): void {
 }
 
 function startDrag(event: PointerEvent, lane: WeekLane): void {
-  if (event.button !== 0 || lane.row.history) return;
+  if (event.button !== 0 || lane.row.history || isRuleTask(lane.task)) return;
   if ((event.target as HTMLElement).closest("button")) return;
   drag.start(event, lane.task.id);
 }

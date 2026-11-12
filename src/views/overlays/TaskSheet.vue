@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, CalendarClock, Hourglass, Pencil, X } from "@lucide/vue";
+import { ArrowLeft, CalendarClock, GripVertical, Hourglass, Pencil, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { localDate, shortDate, todayIso } from "../../lib/dates";
@@ -8,7 +8,13 @@ import { formatEffort } from "../../lib/effort";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, listItemMotion, sheetPanelMotion } from "../../lib/motion";
-import { currentSubtask } from "../../lib/subtasks";
+import { isRuleTask } from "../../lib/rules";
+import {
+  currentSubtask,
+  orderSubtasks,
+  subtaskDropSlot,
+  subtaskMoveTarget,
+} from "../../lib/subtasks";
 import { canSuspendTask } from "../../lib/status";
 import { effortForFinish, nextDeferDay, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
 import { waitDefaults, waitingOnName } from "../../lib/waiting";
@@ -40,17 +46,19 @@ const timeOptions: { value: boolean; key: MessageKey }[] = [
 /** The draft lives in the view model, so drilling into a subtask can park it intact. */
 const form = computed<TaskForm>(() => taskSheetVM.state.form!);
 const task = computed(() => taskSheetVM.state.task);
-const hasSubtasks = computed(() => (task.value?.children.length ?? 0) > 0);
+/** The draft's order: a dropped row moves here, and Save writes it to the database. */
+const children = computed(() =>
+  orderSubtasks(task.value?.children ?? [], taskSheetVM.state.childOrder),
+);
+const hasSubtasks = computed(() => children.value.length > 0);
 /** A task with subtasks takes its effort, dates and status from them. */
 const derived = computed(() => hasSubtasks.value);
 /** A rule owns this task's day and time, so its estimate fields stay read-only too. */
-const ruleOwned = computed(() => Boolean(task.value?.expectedFinishTime));
+const ruleOwned = computed(() => task.value !== null && isRuleTask(task.value));
 const locked = computed(() => derived.value || ruleOwned.value);
-const doneCount = computed(
-  () => task.value?.children.filter((child) => child.status === "done").length ?? 0,
-);
-const childrenEffort = computed(
-  () => task.value?.children.reduce((sum, child) => sum + child.effortMinutes, 0) ?? 0,
+const doneCount = computed(() => children.value.filter((child) => child.status === "done").length);
+const childrenEffort = computed(() =>
+  children.value.reduce((sum, child) => sum + child.effortMinutes, 0),
 );
 const backTitle = computed(() => taskSheetVM.state.stack.at(-1)?.task.title ?? "");
 
@@ -59,6 +67,9 @@ const delayDraft = ref("");
 const delayInput = ref<HTMLInputElement | null>(null);
 
 const subtaskDraft = ref("");
+/** The row being dragged and the slot it would land in; both stay local to the draft. */
+const draggingSubtaskId = ref<string | null>(null);
+const subtaskDropIndex = ref<number | null>(null);
 const tagDraft = ref("");
 const titleInput = ref<HTMLTextAreaElement | null>(null);
 
@@ -190,6 +201,7 @@ watch(
     seededFor = id;
     subtaskDraft.value = "";
     tagDraft.value = "";
+    resetSubtaskDrag();
   },
   { immediate: true },
 );
@@ -324,6 +336,68 @@ async function submitSubtask(): Promise<void> {
 function onSubtaskKey(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
   void submitSubtask();
+}
+
+/** The drag only changes the draft order; the sheet writes it on Save. */
+function onSubtaskDragStart(event: DragEvent, child: Task): void {
+  if (children.value.length < 2) return;
+  draggingSubtaskId.value = child.id;
+  subtaskDropIndex.value = null;
+  if (event.dataTransfer) {
+    // Drag the whole row, not the 12px handle the pointer grabbed.
+    const row = (event.currentTarget as HTMLElement).parentElement;
+    if (row) {
+      const box = row.getBoundingClientRect();
+      event.dataTransfer.setDragImage(row, event.clientX - box.left, event.clientY - box.top);
+    }
+    event.dataTransfer.setData("text/plain", child.id);
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+
+/** The slot the pointer would insert before: 0..count, counted between rows. */
+function dropIndexAt(event: DragEvent, index: number): number {
+  const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  return subtaskDropSlot(index, event.clientY, box.top, box.height);
+}
+
+function onSubtaskDragOver(event: DragEvent, index: number): void {
+  if (!draggingSubtaskId.value) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  subtaskDropIndex.value = dropIndexAt(event, index);
+}
+
+function onSubtaskDrop(event: DragEvent, index: number): void {
+  const childId = draggingSubtaskId.value ?? event.dataTransfer?.getData("text/plain") ?? null;
+  event.preventDefault();
+  if (childId) {
+    const dropIndex = dropIndexAt(event, index);
+    const beforeId = dropIndex < children.value.length ? children.value[dropIndex].id : null;
+    if (beforeId !== childId) taskSheetVM.moveSubtask(childId, beforeId);
+  }
+  resetSubtaskDrag();
+}
+
+function resetSubtaskDrag(): void {
+  draggingSubtaskId.value = null;
+  subtaskDropIndex.value = null;
+}
+
+/** The dragged row dims through motion: motion owns the inline opacity, not a class. */
+function subtaskMotion(dimmed: boolean) {
+  return {
+    ...listItemMotion,
+    animate: { ...listItemMotion.animate, opacity: dimmed ? 0.4 : 1 },
+  };
+}
+
+/** Keyboard reorder on the handle, so the list is not drag-only. */
+function moveSubtaskBy(subtaskId: string, delta: -1 | 1): void {
+  const index = children.value.findIndex((child) => child.id === subtaskId);
+  if (index < 0) return;
+  const target = subtaskMoveTarget(children.value, index, delta);
+  if (target) taskSheetVM.moveSubtask(subtaskId, target.beforeId);
 }
 
 /** A subtask is a task: ticking it is a status change, and the parent follows. */
@@ -535,7 +609,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             {{
               t("task.subtasksProgress", {
                 done: doneCount,
-                total: task.children.length,
+                total: children.length,
                 effort: formatEffort(childrenEffort),
               })
             }}
@@ -543,11 +617,32 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </div>
         <AnimatePresence as="div" mode="popLayout" :initial="false" class="mt-1 space-y-0.5">
           <motion.div
-            v-for="(child, i) in task.children"
+            v-for="(child, i) in children"
             :key="child.id"
-            v-bind="listItemMotion"
-            class="flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-base-200"
+            v-bind="subtaskMotion(draggingSubtaskId === child.id)"
+            class="relative flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-base-200"
+            @dragover="onSubtaskDragOver($event, i)"
+            @drop.prevent.stop="onSubtaskDrop($event, i)"
           >
+            <span
+              v-if="subtaskDropIndex === i"
+              class="pointer-events-none absolute -top-0.5 right-1 left-1 h-0.5 rounded-full bg-primary"
+            ></span>
+            <button
+              v-if="children.length > 1"
+              type="button"
+              draggable="true"
+              class="grid size-3 shrink-0 cursor-grab place-items-center rounded-sm text-base-content/25 focus-visible:ring-2 focus-visible:ring-primary/40 active:cursor-grabbing"
+              :title="t('task.reorderSubtaskAria', { title: child.title })"
+              :aria-label="t('task.reorderSubtaskAria', { title: child.title })"
+              @dragstart="onSubtaskDragStart($event, child)"
+              @dragend="resetSubtaskDrag"
+              @keydown.up.prevent="moveSubtaskBy(child.id, -1)"
+              @keydown.down.prevent="moveSubtaskBy(child.id, 1)"
+              @click.stop
+            >
+              <GripVertical :size="12" aria-hidden="true" />
+            </button>
             <span class="w-3 text-[10.5px] text-base-content/30">{{ i + 1 }}</span>
             <button
               class="size-4 shrink-0 rounded-full border-[1.5px]"
@@ -565,7 +660,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ child.title }}
             </button>
             <span
-              v-if="currentSubtask(task.children)?.id === child.id"
+              v-if="currentSubtask(children)?.id === child.id"
               class="badge badge-ghost badge-xs shrink-0 text-primary"
             >
               {{ t("task.current") }}
@@ -583,6 +678,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             >
               <X :size="13" aria-hidden="true" />
             </button>
+            <span
+              v-if="i === children.length - 1 && subtaskDropIndex === children.length"
+              class="pointer-events-none absolute -bottom-0.5 right-1 left-1 h-0.5 rounded-full bg-primary"
+            ></span>
           </motion.div>
         </AnimatePresence>
 

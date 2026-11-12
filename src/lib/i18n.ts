@@ -273,8 +273,6 @@ export const zh = {
   "archive.deleteTaskMessage": "永久删除「{title}」？子任务和延期记录会一起删掉，不能撤销。",
   "archive.deleteProjectTitle": "删除项目",
   "archive.deleteProjectMessage": "永久删除项目「{name}」？里面的任务会一起消失，不能撤销。",
-  "archive.archiveOnlyTitle": "归档后才能永久删除",
-
   "capture.placeholder": "记一句… #项目 @人 !高 ~2天",
   "capture.saveHint": "⏎ 保存",
   "capture.saved": "已记下",
@@ -351,6 +349,7 @@ export const zh = {
   "task.deleteSubtaskTitle": "删除子任务",
   "task.deleteSubtaskMessage": "删除「{title}」？它会从这件事里消失。",
   "task.subtaskPlaceholder": "+ 再加一条子任务（回车继续写）",
+  "task.reorderSubtaskAria": "拖动排序「{title}」，上下方向键调整",
   "task.subtasksHint": "勾完最后一条子任务，这件事自动变成已完成。",
   "task.subtasksRolledUp": "预计开始 / 耗时 / 完成由子任务汇总，改动请直接改子任务。",
   "task.subtasksProgress": "{done}/{total} 完成 · 共 {effort}",
@@ -579,6 +578,7 @@ export const zh = {
   "error.empty_subtask_title": "子任务标题不能为空。",
   "error.nesting_too_deep": "子任务不能再分子任务。",
   "error.parent_derived": "这项的耗时、日期和状态由子任务汇总，改子任务就行。",
+  "error.subtasks_changed": "子任务已经变化，重新打开任务再保存。",
   "error.invalid_effort": "预计耗时要在 1–{max} 分钟之间。",
 
   "error.invalid_status": "状态不对。",
@@ -924,8 +924,6 @@ export const en: Record<MessageKey, string> = {
   "archive.deleteProjectTitle": "Delete project",
   "archive.deleteProjectMessage":
     'Permanently delete project "{name}"? Its tasks go with it. This cannot be undone.',
-  "archive.archiveOnlyTitle": "Archive before permanent delete",
-
   "capture.placeholder": "Jot a line… #project @person !high ~2d",
   "capture.saveHint": "⏎ save",
   "capture.saved": "Saved",
@@ -1002,6 +1000,7 @@ export const en: Record<MessageKey, string> = {
   "task.deleteSubtaskTitle": "Delete subtask",
   "task.deleteSubtaskMessage": "Delete “{title}”? It disappears from this task.",
   "task.subtaskPlaceholder": "+ Add a subtask (Enter to keep going)",
+  "task.reorderSubtaskAria": "Reorder “{title}”: drag, or press the up and down arrow keys",
   "task.subtasksHint": "Finish the last subtask and the task is done.",
   "task.subtasksRolledUp": "Start, effort and finish come from the subtasks; change those instead.",
   "task.subtasksProgress": "{done}/{total} done · {effort}",
@@ -1236,6 +1235,7 @@ export const en: Record<MessageKey, string> = {
   "error.empty_subtask_title": "A subtask needs a title.",
   "error.nesting_too_deep": "A subtask cannot have subtasks of its own.",
   "error.parent_derived": "This task's effort, dates and status come from its subtasks.",
+  "error.subtasks_changed": "Subtasks changed; reopen the task and save again.",
   "error.invalid_effort": "Estimated time must be between 1 and {max} minutes.",
   "error.invalid_status": "Unknown status.",
   "error.invalid_suspend_date": "The suspend date is not valid.",
@@ -1329,6 +1329,7 @@ const knownErrors = [
   "empty_subtask_title",
   "nesting_too_deep",
   "parent_derived",
+  "subtasks_changed",
   "invalid_effort",
   "invalid_status",
   "invalid_suspend_date",

@@ -173,9 +173,6 @@ pub fn valid_task_group_by(value: &str) -> bool {
     )
 }
 
-/// The settings key holding the task page's named views as a JSON array.
-pub const SAVED_VIEWS_KEY: &str = keys::SAVED_VIEWS;
-
 fn valid_priority(value: &str) -> bool {
     matches!(value, "high" | "normal" | "low")
 }
@@ -361,7 +358,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .filter(|value| valid_week_view(value))
             .cloned()
             .unwrap_or_else(|| "list".into()),
-        saved_task_views: parse_saved_views(map.get(SAVED_VIEWS_KEY).map(String::as_str)),
+        saved_task_views: parse_saved_views(map.get(keys::SAVED_VIEWS).map(String::as_str)),
         reminders_lead_minutes: num(&map, keys::REMINDER_LEAD_MINUTES, DEFAULT_REMINDER_LEAD_MINUTES)
             .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
         reminders_digest: flag(&map, keys::REMINDERS_DIGEST, true),
@@ -528,7 +525,7 @@ mod tests {
         bad_group.group_by = "status".into();
 
         let text = serde_json::to_string(&[good.clone(), blank_name, bad_group]).unwrap();
-        set(&c, SAVED_VIEWS_KEY, &text).unwrap();
+        set(&c, keys::SAVED_VIEWS, &text).unwrap();
 
         let views = dto(&c).unwrap().saved_task_views;
         assert_eq!(views.len(), 1);
@@ -540,7 +537,7 @@ mod tests {
     #[test]
     fn a_broken_saved_views_value_reads_as_empty() {
         let c = crate::db::open_in_memory().unwrap();
-        set(&c, SAVED_VIEWS_KEY, "{not json").unwrap();
+        set(&c, keys::SAVED_VIEWS, "{not json").unwrap();
         assert!(dto(&c).unwrap().saved_task_views.is_empty());
     }
 
@@ -566,7 +563,7 @@ mod tests {
         let doubled: Vec<_> = twenty.iter().chain(twenty.iter()).cloned().collect();
         set(
             &c,
-            SAVED_VIEWS_KEY,
+            keys::SAVED_VIEWS,
             &serde_json::to_string(&doubled).unwrap(),
         )
         .unwrap();

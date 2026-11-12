@@ -1,3 +1,4 @@
+import type { Task } from "../model/types";
 import { t } from "./i18n";
 
 const DAY_KEYS = [
@@ -13,6 +14,11 @@ const DAY_KEYS = [
 /** ISO weekday (Monday = 1) the way the interface names it. */
 export function weekdayName(weekday: number): string {
   return t(DAY_KEYS[weekday - 1] ?? DAY_KEYS[0]);
+}
+
+/** A recurring rule owns this occurrence's day; the backend refuses to move it. */
+export function isRuleTask(task: Pick<Task, "expectedFinishTime">): boolean {
+  return task.expectedFinishTime !== null;
 }
 
 /** "周四 09:00" / "Mon, Fri at 13:30". */

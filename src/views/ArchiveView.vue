@@ -139,15 +139,6 @@ watch(
             {{ t("common.restore") }}
           </button>
           <button
-            v-if="!task.archivedAt && !task.canceledAt"
-            class="btn btn-xs rounded-md border-base-300 bg-base-200 font-normal"
-            :title="t('archive.archiveOnlyTitle')"
-            @click.stop="vm.archive(task.id)"
-          >
-            {{ t("common.archive") }}
-          </button>
-          <button
-            v-else
             class="btn btn-xs rounded-md border-error/25 bg-base-100 font-normal text-error"
             @click.stop="removeTask(task.id, task.title)"
           >

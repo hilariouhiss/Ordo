@@ -9,6 +9,7 @@ vi.mock("../../model/ipc", () => ({
   addSubtask: vi.fn(),
   archiveTask: vi.fn(),
   deleteSubtask: vi.fn(),
+  reorderSubtasks: vi.fn(),
   ownerCandidates: vi.fn().mockResolvedValue([]),
   setDelayReason: vi.fn(),
   deferTask: vi.fn(),
@@ -18,8 +19,10 @@ vi.mock("../../model/ipc", () => ({
 import {
   addDelayNote,
   addMember,
+  addSubtask,
   deferTask,
   getTask,
+  reorderSubtasks,
   setTaskStatus,
   updateTaskPatch,
 } from "../../model/ipc";
@@ -411,6 +414,165 @@ describe("saveSheet", () => {
     expect(saved).toBe(false);
     expect(vm.state.error).toBe("boom");
     expect(vm.state.form?.title).toBe("新");
+  });
+});
+
+describe("subtask order draft", () => {
+  function parent() {
+    return task({
+      id: "t1",
+      children: [
+        task({ id: "s1", parentId: "t1" }),
+        task({ id: "s2", parentId: "t1" }),
+        task({ id: "s3", parentId: "t1" }),
+      ],
+    });
+  }
+
+  it("moves a subtask locally without writing", async () => {
+    vi.mocked(getTask).mockResolvedValue(parent());
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+
+    vm.moveSubtask("s3", "s1");
+
+    expect(vm.state.childOrder).toEqual(["s3", "s1", "s2"]);
+    expect(reorderSubtasks).not.toHaveBeenCalled();
+  });
+
+  it("writes the draft order when the sheet is saved", async () => {
+    const before = parent();
+    vi.mocked(getTask).mockResolvedValue(before);
+    vi.mocked(reorderSubtasks).mockResolvedValue(
+      task({
+        ...before,
+        children: [before.children[2], before.children[0], before.children[1]],
+      }),
+    );
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.moveSubtask("s3", "s1");
+
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(true);
+    expect(reorderSubtasks).toHaveBeenCalledWith("t1", ["s3", "s1", "s2"]);
+    expect(vm.state.task?.children.map((child) => child.id)).toEqual(["s3", "s1", "s2"]);
+  });
+
+  it("does not write an order that did not move", async () => {
+    vi.mocked(getTask).mockResolvedValue(parent());
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    await vm.saveSheet();
+
+    expect(reorderSubtasks).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft order across a drill and back", async () => {
+    const before = parent();
+    vi.mocked(getTask)
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(task({ id: "s1", parentId: "t1", title: "收集" }))
+      .mockResolvedValueOnce(before);
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.moveSubtask("s3", "s1");
+
+    await vm.drill("s1");
+    await vm.back();
+
+    expect(vm.state.childOrder).toEqual(["s3", "s1", "s2"]);
+  });
+
+  it("keeps the draft order when a subtask change refreshes the parent", async () => {
+    const before = parent();
+    const child = before.children[1];
+    vi.mocked(getTask).mockResolvedValueOnce(before).mockResolvedValueOnce(before);
+    vi.mocked(setTaskStatus).mockResolvedValue(child);
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.moveSubtask("s3", "s1");
+
+    await vm.toggleSubtask(child);
+
+    expect(vm.state.childOrder).toEqual(["s3", "s1", "s2"]);
+  });
+
+  it("keeps the draft and reports a stale order", async () => {
+    vi.mocked(getTask).mockResolvedValue(parent());
+    vi.mocked(reorderSubtasks).mockRejectedValue("subtasks_changed");
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.moveSubtask("s3", "s1");
+
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(false);
+    expect(vm.state.error).toBe("subtasks_changed");
+    expect(vm.state.childOrder).toEqual(["s3", "s1", "s2"]);
+  });
+});
+
+describe("new subtask plan", () => {
+  it("takes the parent's unsaved plan for the first child", async () => {
+    const parent = task({
+      id: "t1",
+      expectedStartDate: "2026-10-19",
+      expectedFinishDate: "2026-10-20",
+      effortMinutes: 480,
+    });
+    vi.mocked(getTask).mockResolvedValue(parent);
+    vi.mocked(addSubtask).mockResolvedValue(
+      task({ id: "t1", children: [task({ id: "s1", parentId: "t1" })] }),
+    );
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.state.form!.expectedStartDate = "2026-10-21";
+    vm.state.form!.expectedFinishDate = "2026-10-22";
+    vm.state.form!.effortMinutes = 960;
+
+    await vm.submitSubtask("第一步");
+
+    expect(addSubtask).toHaveBeenCalledWith("t1", "第一步", {
+      expectedStartDate: "2026-10-21",
+      expectedFinishDate: "2026-10-22",
+      effortMinutes: 960,
+    });
+  });
+
+  it("copies the last child in the draft order", async () => {
+    const parent = task({
+      id: "t1",
+      expectedStartDate: "2026-10-19",
+      children: [
+        task({
+          id: "s1",
+          parentId: "t1",
+          effortMinutes: 120,
+          expectedFinishDate: "2026-10-22",
+        }),
+        task({
+          id: "s2",
+          parentId: "t1",
+          effortMinutes: 60,
+          expectedFinishDate: "2026-10-23",
+        }),
+      ],
+    });
+    vi.mocked(getTask).mockResolvedValue(parent);
+    vi.mocked(addSubtask).mockResolvedValue(parent);
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.moveSubtask("s2", "s1");
+
+    await vm.submitSubtask("第三步");
+
+    expect(addSubtask).toHaveBeenCalledWith("t1", "第三步", {
+      expectedStartDate: "2026-10-19",
+      expectedFinishDate: "2026-10-22",
+      effortMinutes: 120,
+    });
   });
 });
 

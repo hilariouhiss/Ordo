@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { setLanguage } from "../i18n";
-import { ruleSummary, weekdayName } from "../rules";
+import { isRuleTask, ruleSummary, weekdayName } from "../rules";
 
 afterEach(() => setLanguage("zh"));
 
@@ -24,5 +24,12 @@ describe("ruleSummary", () => {
     setLanguage("en");
     expect(ruleSummary({ weekdays: [4], at: "09:00" })).toBe("Thu at 09:00");
     expect(ruleSummary({ weekdays: [5, 1], at: "13:30" })).toBe("Mon, Fri at 13:30");
+  });
+});
+
+describe("isRuleTask", () => {
+  it("counts a stored finish time as rule-owned", () => {
+    expect(isRuleTask({ expectedFinishTime: "09:00" })).toBe(true);
+    expect(isRuleTask({ expectedFinishTime: null })).toBe(false);
   });
 });

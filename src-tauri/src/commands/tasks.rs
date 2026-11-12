@@ -74,10 +74,11 @@ pub async fn add_subtask(
     state: State<'_, AppState>,
     task_id: String,
     title: String,
+    plan: Option<crate::dto::SubtaskPlanDto>,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::subtasks::add(conn, &task_id, &title, &now)
+        crate::services::subtasks::add_with_plan(conn, &task_id, &title, plan.as_ref(), &now)
     })
     .await
 }
@@ -91,6 +92,19 @@ pub async fn delete_subtask(
     let now = now_iso();
     with_db(&state, move |conn| {
         crate::services::subtasks::remove(conn, &subtask_id, &now)
+    })
+    .await
+}
+
+/// Saves the sheet's subtask order and hands back the parent with its children in it.
+#[tauri::command]
+pub async fn reorder_subtasks(
+    state: State<'_, AppState>,
+    task_id: String,
+    ids: Vec<String>,
+) -> Result<TaskDto, String> {
+    with_db(&state, move |conn| {
+        crate::services::subtasks::reorder(conn, &task_id, &ids)
     })
     .await
 }

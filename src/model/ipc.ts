@@ -20,6 +20,7 @@ import type {
   Status,
   ShortcutOutcome,
   StatsOverview,
+  SubtaskPlan,
   Tag,
   Task,
   TaskPatch,
@@ -71,14 +72,19 @@ export function placeTask(taskId: string, day: string, beforeId: string | null):
   return invoke<void>("place_task", { taskId, day, beforeId });
 }
 
-/** Adds a subtask and hands back the parent it now rolls up. */
-export function addSubtask(taskId: string, title: string): Promise<Task> {
-  return invoke<Task>("add_subtask", { taskId, title });
+/** Adds a subtask with the plan the sheet shows, and hands back the parent it rolls up. */
+export function addSubtask(taskId: string, title: string, plan: SubtaskPlan): Promise<Task> {
+  return invoke<Task>("add_subtask", { taskId, title, plan });
 }
 
 /** Drops a subtask and hands back the refreshed parent. */
 export function deleteSubtask(subtaskId: string): Promise<Task> {
   return invoke<Task>("delete_subtask", { subtaskId });
+}
+
+/** Saves the sheet's subtask order; hands back the parent with its children in it. */
+export function reorderSubtasks(taskId: string, ids: string[]): Promise<Task> {
+  return invoke<Task>("reorder_subtasks", { taskId, ids });
 }
 
 export function passQueue(): Promise<Task[]> {

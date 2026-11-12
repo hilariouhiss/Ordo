@@ -133,23 +133,21 @@ pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto,
 
 pub fn delete_task(conn: &Connection, id: &str, now: &str) -> Result<(), String> {
     let row = conn.query_row(
-        "SELECT archived_at, canceled_at, rule_id FROM tasks WHERE id = ?1",
+        "SELECT archived_at, canceled_at, rule_id, status FROM tasks WHERE id = ?1",
         [id],
         |r| {
             Ok((
                 r.get::<_, Option<String>>(0)?,
                 r.get::<_, Option<String>>(1)?,
                 r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
             ))
         },
     );
     match row {
-        // Deleting is the last step: an active task has to be archived (or canceled) first.
-        Ok((archived, canceled, _)) if archived.is_none() && canceled.is_none() => {
-            Err("task_not_archived".into())
-        }
-        // A rule occurrence must leave a tombstone, or the generator recreates it.
-        Ok((_, _, Some(_))) => {
+        // A rule occurrence must leave a tombstone, or the generator recreates it. This
+        // comes first so a finished occurrence is still soft-deleted.
+        Ok((_, _, Some(_), _)) => {
             let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
             let changed = tx
                 .execute(
@@ -177,6 +175,13 @@ pub fn delete_task(conn: &Connection, id: &str, now: &str) -> Result<(), String>
             .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
             Ok(())
+        }
+        // Deleting open work is the last step: archive or cancel it first. Finished work
+        // is the exception, because the Done list offers Delete without an archive step.
+        Ok((archived, canceled, None, status))
+            if archived.is_none() && canceled.is_none() && status != "done" =>
+        {
+            Err("task_not_archived".into())
         }
         Ok(_) => tasks::delete(conn, id).map_err(|e| e.to_string()),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
@@ -797,5 +802,41 @@ mod tests {
             archive::unarchive_task(&c, "nope", NOW).unwrap_err(),
             "task_not_found"
         );
+    }
+
+    #[test]
+    fn a_finished_task_can_be_deleted_without_archiving_it_first() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "做完了", NOW, "t1").unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        archive::delete_task(&c, "t1", NOW).unwrap();
+
+        let left: i64 = c
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn a_rule_occurrence_is_still_soft_deleted_when_it_is_done() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "做完了", NOW, "t1").unwrap();
+        c.execute(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, created_at, updated_at)
+             VALUES ('r1', '周报', '[1]', '09:00', ?1, ?1)",
+            [NOW],
+        )
+        .unwrap();
+        c.execute("UPDATE tasks SET rule_id = 'r1' WHERE id = 't1'", [])
+            .unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        archive::delete_task(&c, "t1", NOW).unwrap();
+
+        let deleted: Option<String> = c
+            .query_row("SELECT deleted_at FROM tasks WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert!(deleted.is_some(), "a rule occurrence needs its tombstone");
     }
 }

@@ -16,9 +16,11 @@ pub mod state;
 /// The bundle identifier before the macOS-safe rename; old installs keep their ledger there.
 const LEGACY_IDENTIFIER: &str = "com.ordo.app";
 
-/// Every command writes timestamps in this one shape: RFC3339 UTC, second precision.
+/// Every command writes timestamps in this one shape: RFC3339 UTC, millisecond precision.
 pub fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    // Milliseconds: the AI fill compares this stamp to detect an edit made while the
+    // request was in flight, and whole seconds let two edits in one second compare equal.
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 /// Release builds have no console and the log plugin only runs in debug, so a
@@ -506,6 +508,7 @@ pub fn run() {
       commands::tasks::update_task,
       commands::tasks::add_subtask,
       commands::tasks::delete_subtask,
+      commands::tasks::reorder_subtasks,
       commands::tasks::pass_queue,
       commands::tasks::pass_resolve,
       commands::tasks::mark_pass_done,
@@ -646,5 +649,18 @@ mod tests {
     fn tray_icon_decodes() {
         let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap();
         assert_eq!((icon.width(), icon.height()), (32, 32));
+    }
+
+    /// The AI fill compares `updated_at` to decide whether the user edited the task while
+    /// the request was in flight. Whole seconds let two edits in one second compare equal,
+    /// so the stamp carries milliseconds.
+    #[test]
+    fn timestamps_carry_subsecond_precision() {
+        let stamp = super::now_iso();
+        assert!(
+            stamp.contains('.'),
+            "updated_at needs sub-second precision: {stamp}"
+        );
+        assert!(chrono::DateTime::parse_from_rfc3339(&stamp).is_ok());
     }
 }

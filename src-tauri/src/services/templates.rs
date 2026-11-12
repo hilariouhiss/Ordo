@@ -71,7 +71,7 @@ pub fn create_task(
         &vec![None; template.steps.len()],
     );
     for (title, minutes) in template.steps.iter().zip(shares) {
-        subtasks::insert_child(&tx, task_id, title, minutes, now)?;
+        subtasks::insert_child(&tx, task_id, title, subtasks::ChildPlan::Effort(minutes), now)?;
     }
     if !template.steps.is_empty() {
         subtasks::refresh(&tx, task_id, now)?;

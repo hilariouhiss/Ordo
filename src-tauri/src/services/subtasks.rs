@@ -1,9 +1,6 @@
-use crate::dto::TaskDto;
+use crate::dto::{SubtaskPlanDto, TaskDto};
 use crate::repo::tasks;
 use rusqlite::{params, Connection, OptionalExtension};
-
-/// Minutes one task day holds.
-const DEFAULT_EFFORT: i64 = 480;
 
 /// Splits a flow's total across its steps: a hand-set share stays, the remainder divides
 /// across the automatic ones with the pennies going to the earliest, never under a minute.
@@ -44,6 +41,7 @@ struct ParentRow {
     scope: String,
     expected_start_date: Option<String>,
     expected_finish_date: Option<String>,
+    effort_minutes: i64,
     suspended: i64,
     suspended_until: Option<String>,
     suspended_at: Option<String>,
@@ -57,7 +55,7 @@ struct ParentRow {
 fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
     conn.query_row(
         "SELECT parent_id, project_id, category_id, owner_id, priority, time_exclusive,
-                scope, expected_start_date, expected_finish_date,
+                scope, expected_start_date, expected_finish_date, effort_minutes,
                 suspended, suspended_until, suspended_at, suspend_reason,
                 waiting, waiting_on_id, follow_up_date, waiting_since
          FROM tasks
@@ -74,14 +72,15 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
                 scope: r.get(6)?,
                 expected_start_date: r.get(7)?,
                 expected_finish_date: r.get(8)?,
-                suspended: r.get(9)?,
-                suspended_until: r.get(10)?,
-                suspended_at: r.get(11)?,
-                suspend_reason: r.get(12)?,
-                waiting: r.get(13)?,
-                waiting_on_id: r.get(14)?,
-                follow_up_date: r.get(15)?,
-                waiting_since: r.get(16)?,
+                effort_minutes: r.get(9)?,
+                suspended: r.get(10)?,
+                suspended_until: r.get(11)?,
+                suspended_at: r.get(12)?,
+                suspend_reason: r.get(13)?,
+                waiting: r.get(14)?,
+                waiting_on_id: r.get(15)?,
+                follow_up_date: r.get(16)?,
+                waiting_since: r.get(17)?,
             })
         },
     )
@@ -90,14 +89,54 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
     .ok_or_else(|| "task_not_found".to_string())
 }
 
+/// Where a new child's plan comes from: the sheet's draft, a template share, or the
+/// previous live child (the default).
+pub(crate) enum ChildPlan {
+    Draft(SubtaskPlanDto),
+    Effort(i64),
+    Inherit,
+}
+
 /// Adds a child task under a top-level one and refreshes the parent it now totals.
 pub fn add(conn: &Connection, parent_id: &str, title: &str, now: &str) -> Result<TaskDto, String> {
+    add_with_plan(conn, parent_id, title, None, now)
+}
+
+/// Adds a child with the plan the sheet is showing; a missing plan inherits as before.
+pub fn add_with_plan(
+    conn: &Connection,
+    parent_id: &str,
+    title: &str,
+    plan: Option<&SubtaskPlanDto>,
+    now: &str,
+) -> Result<TaskDto, String> {
     // One transaction: the child and the total it changes land together.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    insert_child(&tx, parent_id, title, DEFAULT_EFFORT, now)?;
+    let plan = plan.map_or(ChildPlan::Inherit, |plan| ChildPlan::Draft(plan.clone()));
+    insert_child(&tx, parent_id, title, plan, now)?;
     refresh(&tx, parent_id, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, parent_id).map_err(|e| e.to_string())
+}
+
+/// The last live subtask's plan: a new child continues from it, or from the parent when
+/// this is the first one.
+fn previous_child_plan(
+    conn: &Connection,
+    parent_id: &str,
+) -> Result<Option<(i64, Option<String>)>, String> {
+    conn.query_row(
+        "SELECT effort_minutes, expected_finish_date
+         FROM tasks
+         WHERE parent_id = ?1 AND deleted_at IS NULL
+           AND archived_at IS NULL AND canceled_at IS NULL
+         ORDER BY sort_order DESC, id DESC
+         LIMIT 1",
+        [parent_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
 }
 
 /// Writes one child row. The caller owns the transaction and the rollup.
@@ -105,7 +144,7 @@ pub(crate) fn insert_child(
     conn: &Connection,
     parent_id: &str,
     title: &str,
-    effort: i64,
+    plan: ChildPlan,
     now: &str,
 ) -> Result<String, String> {
     let title = title.trim();
@@ -117,6 +156,57 @@ pub(crate) fn insert_child(
     if parent.parent_id.is_some() {
         return Err("nesting_too_deep".into());
     }
+    // A drafted plan wins; otherwise the child continues the plan it was split from: the
+    // previous live child, or the parent's own plan for the first one. A template's
+    // explicit share fixes the estimate.
+    let (start, finish, effort) = match plan {
+        ChildPlan::Draft(plan) => {
+            if !crate::services::tasks::valid_effort(plan.effort_minutes) {
+                return Err("invalid_effort".into());
+            }
+            let start = plan
+                .expected_start_date
+                .as_deref()
+                .map(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d"))
+                .transpose()
+                .map_err(|_| "invalid_start_date")?;
+            let finish = plan
+                .expected_finish_date
+                .as_deref()
+                .map(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d"))
+                .transpose()
+                .map_err(|_| "invalid_finish_date")?;
+            // The sheet can send a start it just moved past the previous child's finish;
+            // a span that ends before it starts would poison every plan and rollup.
+            let (start, finish) = match (start, finish) {
+                (Some(start), Some(finish)) if finish < start => (
+                    Some(start),
+                    Some(crate::services::timing::finish_for(
+                        crate::services::timing::workday_on_or_after(start),
+                        plan.effort_minutes,
+                    )),
+                ),
+                pair => pair,
+            };
+            let day = |date: Option<chrono::NaiveDate>| {
+                date.map(|day| day.format("%Y-%m-%d").to_string())
+            };
+            (day(start), day(finish), plan.effort_minutes)
+        }
+        plan => {
+            let previous = previous_child_plan(conn, parent_id)?;
+            let finish = previous
+                .as_ref()
+                .map_or(parent.expected_finish_date.clone(), |(_, day)| day.clone());
+            let effort = match plan {
+                ChildPlan::Effort(minutes) => minutes,
+                _ => previous
+                    .as_ref()
+                    .map_or(parent.effort_minutes, |(minutes, _)| *minutes),
+            };
+            (parent.expected_start_date.clone(), finish, effort)
+        }
+    };
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO tasks (id, title, parent_id, project_id, category_id, owner_id,
@@ -133,8 +223,8 @@ pub(crate) fn insert_child(
             parent.project_id,
             parent.category_id,
             parent.owner_id,
-            parent.expected_start_date,
-            parent.expected_finish_date,
+            start,
+            finish,
             effort,
             parent.priority,
             parent.time_exclusive,
@@ -179,6 +269,11 @@ pub fn remove(conn: &Connection, child_id: &str, now: &str) -> Result<TaskDto, S
         params![now, child_id],
     )
     .map_err(|e| e.to_string())?;
+    // A reminder already fired for this child must not outlive the row it points at.
+    tx.execute("DELETE FROM notifications WHERE task_id = ?1", [child_id])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM reminder_snoozes WHERE task_id = ?1", [child_id])
+        .map_err(|e| e.to_string())?;
     refresh(&tx, &parent, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, &parent).map_err(|e| e.to_string())
@@ -313,6 +408,49 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Saves the sheet's subtask order. Only the children trade their existing sort slots, so
+/// an unrelated task never moves around them.
+pub fn reorder(conn: &Connection, parent_id: &str, ids: &[String]) -> Result<TaskDto, String> {
+    if !tasks::exists(conn, parent_id).map_err(|e| e.to_string())? {
+        return Err("task_not_found".into());
+    }
+    let rows: Vec<(String, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, sort_order FROM tasks
+                 WHERE parent_id = ?1 AND deleted_at IS NULL
+                   AND archived_at IS NULL AND canceled_at IS NULL
+                 ORDER BY sort_order, id",
+            )
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map([parent_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?;
+        mapped
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?
+    };
+    let current: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
+    let requested: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let mut current_sorted = current.clone();
+    current_sorted.sort_unstable();
+    let mut requested_sorted = requested.clone();
+    requested_sorted.sort_unstable();
+    if current_sorted != requested_sorted {
+        return Err("subtasks_changed".into());
+    }
+    if current == requested {
+        return tasks::dto(conn, parent_id).map_err(|e| e.to_string());
+    }
+    let mut slots: Vec<i64> = rows.iter().map(|(_, slot)| *slot).collect();
+    slots.sort_unstable();
+    let orders: Vec<(String, i64)> = ids.iter().cloned().zip(slots).collect();
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    crate::repo::tasks::write_orders_in(&tx, &orders).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    tasks::dto(conn, parent_id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -573,6 +711,33 @@ mod tests {
     }
 
     #[test]
+    fn removing_a_child_drops_its_fired_reminders() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        crate::repo::notifications::fire(
+            &c,
+            "n1",
+            &child,
+            "overdue",
+            "2026-10-20",
+            "2026-10-20T17:30:00Z",
+            NOW,
+        )
+        .unwrap();
+        crate::repo::snoozes::set(&c, &child, "2026-10-20T18:00:00Z").unwrap();
+
+        remove(&c, &child, LATER).unwrap();
+
+        let count = |table: &str| -> i64 {
+            c.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(count("notifications"), 0);
+        assert_eq!(count("reminder_snoozes"), 0);
+    }
+
+    #[test]
     fn the_last_child_gone_returns_the_parent_to_manual_edits() {
         let c = with_task();
         let parent = add(&c, "t1", "收集清单", NOW).unwrap();
@@ -683,5 +848,162 @@ mod tests {
         assert_eq!(split_shares(480, &[Some(90), None, None]), vec![90, 195, 195]);
         // Hand shares alone cannot spend the whole estimate; the first child carries it.
         assert_eq!(split_shares(480, &[Some(90), Some(90)]), vec![390, 90]);
+    }
+
+    #[test]
+    fn a_first_subtask_inherits_the_parent_plan() {
+        let c = with_task();
+        tasks::update_patch(
+            &c,
+            "t1",
+            &TaskPatch {
+                expected_start_date: Some(Some("2026-10-21".into())),
+                effort_minutes: Some(960),
+                ..Default::default()
+            },
+            NOW,
+        )
+        .unwrap();
+        let parent_before = crate::repo::tasks::dto(&c, "t1").unwrap();
+
+        let parent = add(&c, "t1", "第一步", NOW).unwrap();
+        let child = &parent.children[0];
+
+        assert_eq!(child.expected_start_date, parent_before.expected_start_date);
+        assert_eq!(child.effort_minutes, 960);
+        assert_eq!(child.expected_finish_date, parent_before.expected_finish_date);
+        assert_eq!(parent.effort_minutes, 960, "the first child must not double the plan");
+    }
+
+    #[test]
+    fn a_first_subtask_takes_the_sheet_draft_plan() {
+        let c = with_task();
+        let plan = SubtaskPlanDto {
+            expected_start_date: Some("2026-10-21".into()),
+            expected_finish_date: Some("2026-10-22".into()),
+            effort_minutes: 960,
+        };
+
+        let parent = add_with_plan(&c, "t1", "第一步", Some(&plan), NOW).unwrap();
+        let child = &parent.children[0];
+
+        assert_eq!(child.expected_start_date.as_deref(), Some("2026-10-21"));
+        assert_eq!(child.expected_finish_date.as_deref(), Some("2026-10-22"));
+        assert_eq!(child.effort_minutes, 960);
+        assert_eq!(parent.effort_minutes, 960);
+    }
+
+    #[test]
+    fn a_draft_subtask_plan_is_validated() {
+        let c = with_task();
+        let bad_effort = SubtaskPlanDto {
+            expected_start_date: None,
+            expected_finish_date: None,
+            effort_minutes: 0,
+        };
+        assert_eq!(
+            add_with_plan(&c, "t1", "第一步", Some(&bad_effort), NOW).unwrap_err(),
+            "invalid_effort"
+        );
+        let bad_day = SubtaskPlanDto {
+            expected_start_date: Some("2026-13-01".into()),
+            expected_finish_date: None,
+            effort_minutes: 480,
+        };
+        assert_eq!(
+            add_with_plan(&c, "t1", "第一步", Some(&bad_day), NOW).unwrap_err(),
+            "invalid_start_date"
+        );
+    }
+
+    #[test]
+    fn a_draft_plan_never_finishes_before_it_starts() {
+        let c = with_task();
+        let plan = SubtaskPlanDto {
+            expected_start_date: Some("2026-11-02".into()),
+            expected_finish_date: Some("2026-10-20".into()),
+            effort_minutes: 480,
+        };
+
+        let parent = add_with_plan(&c, "t1", "第一步", Some(&plan), NOW).unwrap();
+        let child = &parent.children[0];
+
+        assert_eq!(child.expected_start_date.as_deref(), Some("2026-11-02"));
+        assert_eq!(child.expected_finish_date.as_deref(), Some("2026-11-02"));
+        assert_eq!(parent.expected_finish_date.as_deref(), Some("2026-11-02"));
+    }
+
+    #[test]
+    fn a_later_subtask_copies_the_previous_hand_edited_plan() {
+        let c = with_task();
+        let parent = add(&c, "t1", "收集", NOW).unwrap();
+        let first_id = parent.children[0].id.clone();
+        tasks::update_patch(
+            &c,
+            &first_id,
+            &TaskPatch {
+                effort_minutes: Some(120),
+                ..Default::default()
+            },
+            LATER,
+        )
+        .unwrap();
+        let first = crate::repo::tasks::dto(&c, &first_id).unwrap();
+
+        let parent = add(&c, "t1", "汇编", NOW).unwrap();
+        let second = parent
+            .children
+            .iter()
+            .find(|child| child.id != first_id)
+            .unwrap();
+
+        assert_eq!(second.effort_minutes, 120);
+        assert_eq!(second.expected_finish_date, first.expected_finish_date);
+        assert_eq!(
+            crate::repo::tasks::dto(&c, &first_id).unwrap().effort_minutes,
+            120,
+            "a hand edit stays put"
+        );
+        assert_eq!(parent.effort_minutes, 240);
+    }
+
+    #[test]
+    fn a_subtask_reorder_keeps_other_tasks_in_place() {
+        let c = with_task();
+        week::capture(&c, "别的事", NOW, "t2").unwrap();
+        let parent = add(&c, "t1", "一", NOW).unwrap();
+        let first = parent.children[0].id.clone();
+        let parent = add(&c, "t1", "二", NOW).unwrap();
+        let second = parent.children[1].id.clone();
+        let parent = add(&c, "t1", "三", NOW).unwrap();
+        let third = parent.children[2].id.clone();
+
+        let parent = reorder(&c, "t1", &[third.clone(), first.clone(), second.clone()]).unwrap();
+
+        let ids: Vec<&str> = parent.children.iter().map(|child| child.id.as_str()).collect();
+        assert_eq!(ids, vec![third.as_str(), first.as_str(), second.as_str()]);
+        // The unrelated task keeps its slot; the children only trade theirs.
+        let other: i64 = c
+            .query_row("SELECT sort_order FROM tasks WHERE id = 't2'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(other, 1);
+    }
+
+    #[test]
+    fn a_subtask_reorder_rejects_a_stale_list() {
+        let c = with_task();
+        let parent = add(&c, "t1", "一", NOW).unwrap();
+        let first = parent.children[0].id.clone();
+        add(&c, "t1", "二", NOW).unwrap();
+
+        assert_eq!(
+            reorder(&c, "t1", std::slice::from_ref(&first)).unwrap_err(),
+            "subtasks_changed"
+        );
+        assert_eq!(
+            reorder(&c, "t1", &[first.clone(), first]).unwrap_err(),
+            "subtasks_changed"
+        );
+        assert_eq!(reorder(&c, "nope", &[]).unwrap_err(), "task_not_found");
     }
 }

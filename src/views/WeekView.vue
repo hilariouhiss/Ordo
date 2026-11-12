@@ -10,6 +10,7 @@ import { errorText, t } from "../lib/i18n";
 import { listItemMotion, weekViewMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
+import { isRuleTask } from "../lib/rules";
 import { prefersReducedMotion } from "../lib/windowMotion";
 import ViewSwitch from "./components/ViewSwitch.vue";
 import { anchorFor, coveredDays, ganttDropAt, listDropAt } from "../lib/weekDrop";
@@ -469,7 +470,7 @@ watch(
                 @open="openTask"
                 @changed="refresh"
               >
-                <template v-if="!row.history" #leading>
+                <template v-if="!row.history && !isRuleTask(row.task)" #leading>
                   <button
                     class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
                     :aria-label="t('week.reorderAria', { title: row.task.title })"
@@ -519,7 +520,7 @@ watch(
           @open="openTask"
           @changed="refresh"
         >
-          <template v-if="!ganttView" #leading>
+          <template v-if="!ganttView && !isRuleTask(task)" #leading>
             <button
               class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
               :aria-label="t('week.reorderAria', { title: task.title })"

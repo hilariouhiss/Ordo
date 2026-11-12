@@ -198,6 +198,13 @@ export interface Task {
   exclusive: boolean;
 }
 
+/** The plan a new subtask takes from the sheet's draft; the backend validates it. */
+export interface SubtaskPlan {
+  expectedStartDate: string | null;
+  expectedFinishDate: string | null;
+  effortMinutes: number;
+}
+
 /** A recurring rule: the weekday set and time a task appears at. */
 export interface TaskRule {
   id: string;

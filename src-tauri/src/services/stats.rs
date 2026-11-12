@@ -15,8 +15,10 @@ fn completed_filter(mode: &str) -> String {
         "t.deleted_at IS NULL AND t.canceled_at IS NULL \
          AND t.status = 'done' AND t.actual_finish_at IS NOT NULL \
          AND {} AND {}",
-        // A finished umbrella only adds its children up; counting it would count the work twice.
-        crate::repo::tasks::no_live_child("t"),
+        // A finished umbrella only adds its children up; counting it would count the work
+        // twice. The leaf check is by parent, not by live child: archiving the umbrella also
+        // archives the children, and it must not turn back into a counted row.
+        "t.parent_id IS NULL",
         crate::repo::scope_eq("t", mode)
     )
 }
@@ -413,6 +415,29 @@ mod tests {
         // The daily bars must add up to the same number the header shows.
         let per_day: i64 = s.daily.iter().map(|day| day.completed).sum();
         assert_eq!(per_day, s.completed);
+    }
+
+    #[test]
+    fn archiving_a_finished_umbrella_does_not_count_it_twice() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付资料", NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+        crate::services::tasks::set_status(&c, &child, "done", "2026-10-21T09:00:00Z").unwrap();
+        let before = stats::overview(&c, "2026-10-19", "2026-10-21").unwrap();
+
+        crate::services::archive::archive_task(&c, "t1", NOW).unwrap();
+        let after = stats::overview(&c, "2026-10-19", "2026-10-21").unwrap();
+
+        assert_eq!(
+            after.completed, before.completed,
+            "filing the umbrella must not add a completion"
+        );
+        assert_eq!(after.completed_minutes, before.completed_minutes);
+        assert_eq!(after.completed, 1);
+        assert_eq!(after.completed_minutes, 480);
+        let per_day: i64 = after.daily.iter().map(|day| day.completed).sum();
+        assert_eq!(per_day, after.completed);
     }
 
     #[test]

@@ -332,6 +332,16 @@ pub struct TaskPatch {
     pub exclusive: Option<bool>,
 }
 
+/// The plan the sheet is showing for a new subtask. Sending it with the add keeps an
+/// unsaved parent plan from being lost when the parent turns into an umbrella.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtaskPlanDto {
+    pub expected_start_date: Option<String>,
+    pub expected_finish_date: Option<String>,
+    pub effort_minutes: i64,
+}
+
 /// A recurring rule: the weekday set and time a task appears at.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

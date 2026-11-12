@@ -2,6 +2,7 @@ import { reactive } from "vue";
 import { localDate, localTime, stampOfLocal, todayIso } from "../lib/dates";
 import { EFFORT_MAX_MINUTES } from "../lib/effort";
 import { t } from "../lib/i18n";
+import { orderSubtasks } from "../lib/subtasks";
 import { finishForEffort, timingAnchor } from "../lib/timing";
 import {
   addDelayNote,
@@ -11,13 +12,14 @@ import {
   deferTask,
   deleteSubtask,
   getTask,
+  reorderSubtasks,
   ownerCandidates,
   setDelayReason,
   setTaskStatus,
   unarchiveTask,
   updateTaskPatch,
 } from "../model/ipc";
-import type { Person, Priority, Status, Task, TaskPatch } from "../model/types";
+import type { Person, Priority, Status, SubtaskPlan, Task, TaskPatch } from "../model/types";
 import { taskRowVM } from "./taskRowVM";
 import { undoVM } from "./undoVM";
 
@@ -155,6 +157,18 @@ function clampEffort(minutes: number): number {
   return Math.min(EFFORT_MAX_MINUTES, Math.max(1, minutes));
 }
 
+/** Draft child ids that survive a fresh read; children the draft has not met yet follow. */
+function mergeOrder(order: string[], children: Task[]): string[] {
+  const live = new Set(children.map((child) => child.id));
+  const next = order.filter((id) => live.has(id));
+  for (const child of children) if (!next.includes(child.id)) next.push(child.id);
+  return next;
+}
+
+function sameOrder(one: string[], other: string[]): boolean {
+  return one.length === other.length && one.every((id, index) => id === other[index]);
+}
+
 /** The finish this form implies right now; the backend stores the same value on save. */
 export function formFinish(form: TaskForm): string {
   return finishForEffort(
@@ -217,6 +231,8 @@ interface ParkedDraft {
   task: Task;
   form: TaskForm;
   note: string;
+  /** The subtask order drafted before stepping into a child. */
+  childOrder: string[];
 }
 
 export function createTaskSheetVM() {
@@ -227,6 +243,8 @@ export function createTaskSheetVM() {
     stack: [] as ParkedDraft[],
     /** The whole sheet in one draft: nothing reaches the database before Save. */
     form: null as TaskForm | null,
+    /** The subtask order on screen; saved with the sheet, not when a row is dropped. */
+    childOrder: [] as string[],
     /** The overdue note typed in the sheet, still unsaved. */
     note: "",
     /** Who may own the task in the draft's project, so the picker and the save agree. */
@@ -246,6 +264,7 @@ export function createTaskSheetVM() {
         state.task = task;
         state.form = formOf(task);
         state.note = "";
+        state.childOrder = task.children.map((child) => child.id);
         await refreshMembers(task.projectId);
       }
     } catch (e) {
@@ -256,6 +275,7 @@ export function createTaskSheetVM() {
         state.task = null;
         state.form = null;
         state.note = "";
+        state.childOrder = [];
       }
     } finally {
       if (state.openId === id) state.loading = false;
@@ -276,6 +296,7 @@ export function createTaskSheetVM() {
       task: state.task,
       form: { ...state.form, tags: [...state.form.tags] },
       note: state.note,
+      childOrder: [...state.childOrder],
     });
     await open(childId);
   }
@@ -294,6 +315,7 @@ export function createTaskSheetVM() {
       applyDerived(parked.form, fresh);
       state.form = parked.form;
       state.note = parked.note;
+      state.childOrder = mergeOrder(parked.childOrder, fresh.children);
       // The parent may live in another project, with another list of possible owners.
       await refreshMembers(fresh.projectId);
     } catch (e) {
@@ -312,14 +334,19 @@ export function createTaskSheetVM() {
     }
   }
 
-  /** Takes a fresh copy of the open task, keeping the draft's editable fields. */
+  /** Takes a fresh copy of the open task, keeping the draft's editable fields and order. */
   function applyTask(task: Task): void {
+    const same = state.task?.id === task.id;
     if (!state.form) {
       state.task = task;
+      state.childOrder = task.children.map((child) => child.id);
       return;
     }
     state.task = task;
     applyDerived(state.form, task);
+    state.childOrder = same
+      ? mergeOrder(state.childOrder, task.children)
+      : task.children.map((child) => child.id);
   }
 
   /** What the backend would refuse about the draft's actual pair, or null. Checked before
@@ -362,6 +389,19 @@ export function createTaskSheetVM() {
       }
       if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
       if (state.note.trim()) state.task = await addDelayNote(id, state.note.trim());
+      // A dropped row only moved the draft; the order lands with the rest of the save.
+      const current = state.task;
+      if (
+        current &&
+        current.children.length &&
+        state.childOrder.length &&
+        !sameOrder(
+          current.children.map((child) => child.id),
+          state.childOrder,
+        )
+      ) {
+        state.task = await reorderSubtasks(id, state.childOrder);
+      }
       // A sheet closed mid-save must not come back with a task nobody opened.
       if (state.openId !== id) state.task = null;
       return true;
@@ -387,14 +427,39 @@ export function createTaskSheetVM() {
     }
   }
 
+  /** Reorders the draft only; the sheet writes it with the rest of the save. */
+  function moveSubtask(subtaskId: string, beforeId: string | null): void {
+    const from = state.childOrder.indexOf(subtaskId);
+    if (from < 0 || subtaskId === beforeId) return;
+    const next = state.childOrder.filter((id) => id !== subtaskId);
+    const to = beforeId === null ? next.length : next.indexOf(beforeId);
+    if (to < 0) return;
+    next.splice(to, 0, subtaskId);
+    state.childOrder = next;
+  }
+
   /** Adds a subtask at once: the rollup it changes is what the grid shows. */
   async function submitSubtask(title: string): Promise<boolean> {
     const parent = state.task;
+    const form = state.form;
     const text = title.trim();
-    if (!parent || !text) return false;
+    if (!parent || !form || !text) return false;
     state.error = null;
     try {
-      applyTask(await addSubtask(parent.id, text));
+      // The new child continues what the sheet shows: the last drafted child, or the
+      // parent's own plan (possibly unsaved) when it has no subtasks yet.
+      const previous = parent.children.length
+        ? orderSubtasks(parent.children, state.childOrder).at(-1)
+        : undefined;
+      // The start always follows the parent; effort and finish follow the previous child.
+      const plan: SubtaskPlan = {
+        expectedStartDate: form.expectedStartDate || null,
+        expectedFinishDate: previous
+          ? previous.expectedFinishDate
+          : form.expectedFinishDate || null,
+        effortMinutes: previous ? previous.effortMinutes : form.effortMinutes,
+      };
+      applyTask(await addSubtask(parent.id, text, plan));
       return true;
     } catch (e) {
       state.error = String(e);
@@ -534,6 +599,7 @@ export function createTaskSheetVM() {
     saveSheet,
     save,
     archive,
+    moveSubtask,
     submitSubtask,
     toggleSubtask,
     removeSubtask,
