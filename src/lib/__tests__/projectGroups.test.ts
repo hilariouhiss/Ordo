@@ -12,7 +12,7 @@ function project(
   name = id,
   priority: Priority = "normal",
 ): ProjectSummary {
-  return { id, name, groupId, priority, total: 0, done: 0, byCategory: [] };
+  return { id, name, groupId, priority, total: 0, done: 0, byCategory: [], milestones: [] };
 }
 
 describe("projectSections", () => {

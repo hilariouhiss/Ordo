@@ -28,6 +28,43 @@ function clampPct(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
+export interface TimelineMilestone {
+  id: string;
+  title: string;
+  /** Local `YYYY-MM-DD`. */
+  dueDate: string;
+  done: boolean;
+}
+
+export interface MilestoneMarker {
+  id: string;
+  title: string;
+  dueDate: string;
+  leftPct: number;
+  done: boolean;
+}
+
+/** One diamond per milestone day inside the window; undated or outside ones are not drawn. */
+export function milestoneMarkers(
+  range: TimelineRange,
+  milestones: TimelineMilestone[],
+): MilestoneMarker[] {
+  const rangeStart = Date.parse(range.start);
+  const rangeEnd = Date.parse(range.end);
+  const total = (rangeEnd - rangeStart) / DAY;
+  if (total <= 0) return [];
+
+  return milestones
+    .filter((milestone) => {
+      const day = Date.parse(milestone.dueDate);
+      return Number.isFinite(day) && day >= rangeStart && day <= rangeEnd;
+    })
+    .map((milestone) => ({
+      ...milestone,
+      leftPct: clampPct(((Date.parse(milestone.dueDate) - rangeStart) / DAY / total) * 100),
+    }));
+}
+
 export function timelineLayout(range: TimelineRange, tasks: TimelineTask[]): TimelineRow[] {
   const rangeStart = Date.parse(range.start);
   const rangeEnd = Date.parse(range.end);

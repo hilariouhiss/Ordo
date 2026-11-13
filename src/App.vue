@@ -332,6 +332,11 @@ onMounted(async () => {
     await listen<string>("reminder:open", (event) => {
       void showTask(event.payload);
     });
+    await listen<string>("reminder:open-project", async (event) => {
+      await windowModeVM.ensureFull();
+      closeOverlays();
+      await router.push(`/projects/${event.payload}`);
+    });
     await listen("window:open", () => {
       void windowModeVM.ensureFull();
     });

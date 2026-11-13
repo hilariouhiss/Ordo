@@ -1,4 +1,4 @@
-use crate::dto::{PersonDto, ProjectDto, ProjectGroupDto, ProjectSummaryDto};
+use crate::dto::{MilestoneDto, PersonDto, ProjectDto, ProjectGroupDto, ProjectSummaryDto};
 use crate::now_iso;
 use crate::state::{with_db, AppState};
 use tauri::State;
@@ -164,6 +164,67 @@ pub async fn delete_project(state: State<'_, AppState>, id: String) -> Result<()
     let now = now_iso();
     with_db(&state, move |conn| {
         crate::services::projects::delete(conn, &id, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_milestone(
+    state: State<'_, AppState>,
+    project_id: String,
+    title: String,
+    due_date: Option<String>,
+) -> Result<MilestoneDto, String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::milestones::create(conn, &project_id, &title, due_date.as_deref(), &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_milestone(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::milestones::rename(conn, &id, &title, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_milestone_date(
+    state: State<'_, AppState>,
+    id: String,
+    due_date: Option<String>,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::milestones::set_date(conn, &id, due_date.as_deref(), &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_milestone_done(
+    state: State<'_, AppState>,
+    id: String,
+    done: bool,
+) -> Result<(), String> {
+    let now = now_iso();
+    with_db(&state, move |conn| {
+        crate::services::milestones::set_done(conn, &id, done, &now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_milestone(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    with_db(&state, move |conn| {
+        crate::services::milestones::delete(conn, &id)
     })
     .await
 }

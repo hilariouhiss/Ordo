@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { timelineLayout, type TimelineTask } from "../timeline";
+import {
+  milestoneMarkers,
+  timelineLayout,
+  type TimelineMilestone,
+  type TimelineTask,
+} from "../timeline";
 
 function t(
   id: string,
@@ -67,5 +72,34 @@ describe("timelineLayout", () => {
   it("keeps a task that touches the window edge", () => {
     expect(timelineLayout(range, [t("edge", "2026-09-01", "2026-10-06")])).toHaveLength(1);
     expect(timelineLayout(range, [t("edge2", "2026-11-17", "2026-12-01")])).toHaveLength(1);
+  });
+});
+
+function m(id: string, dueDate: string, done = false): TimelineMilestone {
+  return { id, title: id, dueDate, done };
+}
+
+describe("milestoneMarkers", () => {
+  it("places a milestone on its day", () => {
+    const marker = milestoneMarkers(range, [m("m1", "2026-10-20")])[0];
+
+    expect(marker.id).toBe("m1");
+    expect(marker.leftPct).toBeCloseTo(33.33, 1);
+    expect(marker.done).toBe(false);
+  });
+
+  it("keeps a marker on the window edge", () => {
+    expect(milestoneMarkers(range, [m("first", "2026-10-06")])).toHaveLength(1);
+    expect(milestoneMarkers(range, [m("last", "2026-11-17")])).toHaveLength(1);
+  });
+
+  it("skips milestones outside the window or without a day", () => {
+    expect(milestoneMarkers(range, [m("old", "2026-09-01")])).toEqual([]);
+    expect(milestoneMarkers(range, [m("later", "2027-01-01")])).toEqual([]);
+    expect(milestoneMarkers(range, [m("bad", "周五")])).toEqual([]);
+  });
+
+  it("keeps a finished milestone's done flag", () => {
+    expect(milestoneMarkers(range, [m("done", "2026-10-20", true)])[0].done).toBe(true);
   });
 });

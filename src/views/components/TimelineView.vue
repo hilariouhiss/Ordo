@@ -2,11 +2,11 @@
 import { computed } from "vue";
 import { addDays, shortDate, todayIso } from "../../lib/dates";
 import { t } from "../../lib/i18n";
-import { timelineLayout } from "../../lib/timeline";
-import type { Task } from "../../model/types";
+import { milestoneMarkers, timelineLayout } from "../../lib/timeline";
+import type { Milestone, Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 
-const props = defineProps<{ tasks: Task[] }>();
+const props = defineProps<{ tasks: Task[]; milestones: Milestone[] }>();
 
 const today = computed(() => todayIso());
 const range = computed(() => ({
@@ -27,6 +27,22 @@ const layout = computed(() => {
     })),
   );
   return new Map(rows.map((row) => [row.taskId, row]));
+});
+
+const markers = computed(() => {
+  const dated = props.milestones.flatMap((milestone) =>
+    milestone.dueDate
+      ? [
+          {
+            id: milestone.id,
+            title: milestone.title,
+            dueDate: milestone.dueDate,
+            done: milestone.doneAt !== null,
+          },
+        ]
+      : [],
+  );
+  return milestoneMarkers(range.value, dated);
 });
 
 const ticks = computed(() =>
@@ -76,6 +92,43 @@ const groups = computed(() => {
           :style="{ left: todayPct + '%' }"
         >
           {{ t("common.today") }}
+        </div>
+      </div>
+
+      <div v-if="markers.length" class="mt-2">
+        <div class="text-[10px] font-medium text-base-content/40">
+          {{ t("milestones.title") }}
+        </div>
+        <div
+          v-for="marker in markers"
+          :key="marker.id"
+          class="flex items-center py-0.5 text-[11.5px]"
+        >
+          <span
+            class="w-[110px] shrink-0 truncate pr-2"
+            :class="{ 'text-base-content/40 line-through': marker.done }"
+            >{{ marker.title }}</span
+          >
+          <div class="relative h-3 flex-1">
+            <span
+              role="img"
+              class="absolute top-[3px] size-2 -translate-x-1/2 rotate-45 rounded-[1px]"
+              :class="
+                marker.done
+                  ? 'bg-base-content/25'
+                  : marker.dueDate < today
+                    ? 'bg-error'
+                    : 'bg-primary/70'
+              "
+              :style="{ left: marker.leftPct + '%' }"
+              :aria-label="
+                t('milestones.markerAria', {
+                  title: marker.title,
+                  date: shortDate(marker.dueDate),
+                })
+              "
+            ></span>
+          </div>
         </div>
       </div>
 

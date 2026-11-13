@@ -11,6 +11,16 @@ pub struct Candidate {
     pub record: bool,
 }
 
+/// A project milestone whose day has arrived. It owns a 09:00 moment and the
+/// notification table keeps it from firing twice for the same due day.
+pub struct MilestoneCandidate {
+    pub milestone_id: String,
+    pub project_id: String,
+    pub title: String,
+    pub due_key: String,
+    pub scheduled_for: DateTime<Local>,
+}
+
 /// The daily digest: what is due today, what is late, and the first few names.
 pub struct Digest {
     pub due: usize,
@@ -236,6 +246,55 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         });
     }
 
+    Ok(out)
+}
+
+/// Milestones due today (or within the catch-up window), finished and archived
+/// ones left out. Their moment is 09:00; a milestone set after that moment catches
+/// up on the next tick instead of waiting a day.
+pub fn milestone_candidates(
+    conn: &Connection,
+    now: DateTime<Local>,
+) -> Result<Vec<MilestoneCandidate>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.id, m.project_id, m.title, m.due_date
+             FROM project_milestones m
+             JOIN projects p ON p.id = m.project_id
+             WHERE m.done_at IS NULL AND m.due_date IS NOT NULL
+               AND p.archived_at IS NULL AND p.deleted_at IS NULL
+             ORDER BY m.due_date, m.created_at",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (milestone_id, project_id, title, due) = row.map_err(|e| e.to_string())?;
+        let Ok(date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
+            continue;
+        };
+        let Ok(scheduled) = local_at(date, 9, 0) else {
+            continue;
+        };
+        if scheduled <= now && recent(scheduled, now) {
+            out.push(MilestoneCandidate {
+                milestone_id,
+                project_id,
+                title,
+                due_key: due,
+                scheduled_for: scheduled,
+            });
+        }
+    }
     Ok(out)
 }
 
@@ -1015,5 +1074,107 @@ mod tests {
                 .any(|candidate| candidate.task_id == "t1" && candidate.kind == "due_tomorrow"),
             "an edit must not silence the reminder permanently"
         );
+    }
+
+    fn milestone(c: &Connection, id: &str, due: Option<&str>, done: bool) -> String {
+        let project_id = crate::services::projects::create(c, "里程碑项目", NOW)
+            .unwrap()
+            .id;
+        crate::repo::milestones::insert(c, id, &project_id, "方案评审", due, NOW).unwrap();
+        if done {
+            crate::repo::milestones::set_done(c, id, true, NOW).unwrap();
+        }
+        project_id
+    }
+
+    #[test]
+    fn a_milestone_reminds_at_nine_on_its_day() {
+        let c = crate::db::open_in_memory().unwrap();
+        milestone(&c, "m1", Some("2026-10-20"), false);
+
+        assert!(crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 8, 59))
+            .unwrap()
+            .is_empty());
+
+        let cands =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].milestone_id, "m1");
+        assert_eq!(cands[0].due_key, "2026-10-20");
+        assert_eq!(
+            cands[0].scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-10-20 09:00"
+        );
+    }
+
+    #[test]
+    fn a_finished_or_undated_milestone_does_not_remind() {
+        let c = crate::db::open_in_memory().unwrap();
+        milestone(&c, "m1", Some("2026-10-20"), true);
+        milestone(&c, "m2", None, false);
+
+        let cands =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 10, 0)).unwrap();
+
+        assert!(cands.is_empty());
+    }
+
+    #[test]
+    fn an_archived_projects_milestone_does_not_remind() {
+        let c = crate::db::open_in_memory().unwrap();
+        let project_id = milestone(&c, "m1", Some("2026-10-20"), false);
+        crate::repo::projects::set_archived(&c, &project_id, true, NOW).unwrap();
+
+        let cands =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 10, 0)).unwrap();
+
+        assert!(cands.is_empty());
+    }
+
+    #[test]
+    fn a_milestone_catches_up_for_fourteen_days() {
+        let c = crate::db::open_in_memory().unwrap();
+        milestone(&c, "m1", Some("2026-10-05"), false);
+
+        let caught =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 10, 9, 1)).unwrap();
+        assert_eq!(caught.len(), 1);
+        assert_eq!(
+            caught[0].scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-10-05 09:00"
+        );
+
+        let stale =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
+        assert!(stale.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_milestone_day_is_skipped() {
+        let c = crate::db::open_in_memory().unwrap();
+        milestone(&c, "bad", Some("周五"), false);
+        milestone(&c, "good", Some("2026-10-20"), false);
+
+        let cands =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
+
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].milestone_id, "good");
+    }
+
+    #[test]
+    fn moving_a_milestone_to_today_reminds_on_the_new_day() {
+        let c = crate::db::open_in_memory().unwrap();
+        milestone(&c, "m1", Some("2026-10-21"), false);
+        assert!(crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 9, 1))
+            .unwrap()
+            .is_empty());
+
+        crate::services::milestones::set_date(&c, "m1", Some("2026-10-20"), NOW).unwrap();
+        let cands =
+            crate::reminders::rules::milestone_candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
+
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].due_key, "2026-10-20");
     }
 }

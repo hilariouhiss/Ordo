@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { Ellipsis, GripVertical, Trash } from "@lucide/vue";
+import { Diamond, Ellipsis, GripVertical, Trash } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { shortDate, todayIso } from "../lib/dates";
 import { askConfirm, askText } from "../lib/dialog";
 import { errorText, language, t } from "../lib/i18n";
+import { isMilestoneOverdue, nextMilestone } from "../lib/milestones";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { projectSections, type ProjectSection } from "../lib/projectGroups";
-import type { ProjectGroup, ProjectSummary } from "../model/types";
+import type { Milestone, ProjectGroup, ProjectSummary } from "../model/types";
 import { projectsVM } from "../viewmodels/projectsVM";
 import { undoVM } from "../viewmodels/undoVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
 import ProjectSettings from "./overlays/ProjectSettings.vue";
 
 const router = useRouter();
+const today = todayIso();
 const name = ref("");
 const error = ref("");
 const draggingId = ref<string | null>(null);
@@ -50,6 +53,27 @@ const sections = computed(() =>
     language.value,
   ),
 );
+
+function nextOf(project: ProjectSummary): Milestone | null {
+  return nextMilestone(project.milestones);
+}
+
+function nextDate(project: ProjectSummary): string {
+  const next = nextOf(project);
+  return next?.dueDate ? shortDate(next.dueDate) : "";
+}
+
+function nextIsOverdue(project: ProjectSummary): boolean {
+  const next = nextOf(project);
+  return next !== null && isMilestoneOverdue(next, today);
+}
+
+function nextTitle(project: ProjectSummary): string {
+  const next = nextOf(project);
+  return next?.dueDate
+    ? t("milestones.nextTitle", { title: next.title, date: shortDate(next.dueDate) })
+    : "";
+}
 
 function canDrag(section: ProjectSection): boolean {
   return section.group === null && projectsVM.state.groups.length > 0;
@@ -256,8 +280,20 @@ watch(
             </span>
             <span class="text-[13.5px] font-medium">{{ project.name }}</span>
             <PriorityBadge :priority="project.priority" />
-            <span class="ml-auto text-[11px] tabular-nums text-base-content/45">
-              {{ project.done }}/{{ project.total }}
+            <span class="ml-auto flex items-center gap-2">
+              <span
+                v-if="nextOf(project)"
+                class="flex items-center gap-1 text-[11px] tabular-nums"
+                :class="nextIsOverdue(project) ? 'text-error' : 'text-base-content/45'"
+                :title="nextTitle(project)"
+                :aria-label="nextTitle(project)"
+              >
+                <Diamond :size="10" aria-hidden="true" />
+                {{ nextDate(project) }}
+              </span>
+              <span class="text-[11px] tabular-nums text-base-content/45">
+                {{ project.done }}/{{ project.total }}
+              </span>
             </span>
             <button
               class="text-base-content/35"

@@ -11,6 +11,7 @@ import type {
   PassAction,
   Person,
   Priority,
+  Milestone,
   Project,
   ProjectGroup,
   ProjectSummary,
@@ -225,6 +226,30 @@ export function restoreProject(id: string): Promise<void> {
 
 export function deleteProject(id: string): Promise<void> {
   return invoke<void>("delete_project", { id });
+}
+
+export function createMilestone(
+  projectId: string,
+  title: string,
+  dueDate: string | null,
+): Promise<Milestone> {
+  return invoke<Milestone>("create_milestone", { projectId, title, dueDate });
+}
+
+export function renameMilestone(id: string, title: string): Promise<void> {
+  return invoke<void>("rename_milestone", { id, title });
+}
+
+export function setMilestoneDate(id: string, dueDate: string | null): Promise<void> {
+  return invoke<void>("set_milestone_date", { id, dueDate });
+}
+
+export function setMilestoneDone(id: string, done: boolean): Promise<void> {
+  return invoke<void>("set_milestone_done", { id, done });
+}
+
+export function deleteMilestone(id: string): Promise<void> {
+  return invoke<void>("delete_milestone", { id });
 }
 
 export function addMember(

@@ -171,6 +171,7 @@ pub struct ProjectSummaryDto {
     pub total: i64,
     pub done: i64,
     pub by_category: Vec<CategoryProgressDto>,
+    pub milestones: Vec<MilestoneDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,6 +190,17 @@ pub struct ProjectDto {
     pub priority: String,
     pub archived_at: Option<String>,
     pub members: Vec<ProjectMemberDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MilestoneDto {
+    pub id: String,
+    pub title: String,
+    /// Local `YYYY-MM-DD`; null when the milestone has no day.
+    pub due_date: Option<String>,
+    /// RFC3339 UTC stamp of when it was marked done.
+    pub done_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

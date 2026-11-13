@@ -32,6 +32,7 @@ const project: ProjectSummary = {
   total: 0,
   done: 0,
   byCategory: [],
+  milestones: [],
 };
 
 const group: ProjectGroup = { id: "g1", name: "甲方 A", contact: null, phone: null, note: null };

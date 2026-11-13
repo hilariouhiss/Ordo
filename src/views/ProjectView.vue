@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Ellipsis } from "@lucide/vue";
+import { Check, Diamond, Ellipsis, Plus, X } from "@lucide/vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { t } from "../lib/i18n";
+import { todayIso } from "../lib/dates";
+import { errorText, t } from "../lib/i18n";
+import { isImeEnter } from "../lib/keys";
 import { panelSwapMotion, springSoft } from "../lib/motion";
-import type { Task } from "../model/types";
+import type { Milestone, Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { createProjectVM } from "../viewmodels/projectVM";
 import { projectsVM } from "../viewmodels/projectsVM";
@@ -15,6 +17,7 @@ import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import CaptureBar from "./components/CaptureBar.vue";
 import CategoryProgress from "./components/CategoryProgress.vue";
+import DateField from "./components/DateField.vue";
 import SummaryLine from "./components/SummaryLine.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TimelineView from "./components/TimelineView.vue";
@@ -59,6 +62,75 @@ watch(
   },
 );
 
+const today = todayIso();
+const milestoneTitle = ref("");
+const milestoneDate = ref("");
+const editingId = ref<string | null>(null);
+const editingTitle = ref("");
+const editInput = ref<HTMLInputElement | null>(null);
+
+function setEditInput(element: unknown): void {
+  if (element instanceof HTMLInputElement) editInput.value = element;
+}
+
+async function addMilestone(): Promise<void> {
+  if (!milestoneTitle.value.trim()) return;
+  const saved = await vm.addMilestone(props.id, milestoneTitle.value, milestoneDate.value);
+  if (!saved) return;
+  milestoneTitle.value = "";
+  milestoneDate.value = "";
+}
+
+function onAddMilestoneKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  void addMilestone();
+}
+
+function startRename(milestone: Milestone): void {
+  editingId.value = milestone.id;
+  editingTitle.value = milestone.title;
+  void nextTick(() => editInput.value?.focus());
+}
+
+function cancelRename(): void {
+  editingId.value = null;
+  editingTitle.value = "";
+}
+
+async function commitRename(milestone: Milestone): Promise<void> {
+  if (editingId.value !== milestone.id) return;
+  const title = editingTitle.value.trim();
+  editingId.value = null;
+  editingTitle.value = "";
+  if (!title || title === milestone.title) return;
+  await vm.renameMilestone(props.id, milestone, title);
+}
+
+function onRenameKey(event: KeyboardEvent, milestone: Milestone): void {
+  if (event.key === "Escape") {
+    cancelRename();
+    return;
+  }
+  if (isImeEnter(event)) return;
+  void commitRename(milestone);
+}
+
+function toggleMilestone(milestone: Milestone): void {
+  void vm.toggleMilestone(props.id, milestone);
+}
+
+function changeMilestoneDate(milestone: Milestone, dueDate: string): void {
+  void vm.setMilestoneDate(props.id, milestone, dueDate);
+}
+
+function removeMilestone(milestone: Milestone): void {
+  void vm.removeMilestone(props.id, milestone.id);
+}
+
+function milestoneOverdue(milestone: Milestone): boolean {
+  return milestone.dueDate !== null && !milestone.doneAt && milestone.dueDate < today;
+}
+
 const progressPct = computed(() => {
   const s = vm.state.summary;
   return s && s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -88,6 +160,18 @@ function closeSettings(gone = false): void {
   if (gone) void router.push("/projects");
   else void vm.load(props.id);
 }
+// Reusing this component for another project must not carry a draft, an open
+// rename, or an error across the switch.
+watch(
+  () => props.id,
+  (id) => {
+    milestoneTitle.value = "";
+    milestoneDate.value = "";
+    cancelRename();
+    vm.state.milestoneError = null;
+    void vm.load(id);
+  },
+);
 watch(
   () => undoVM.state.revision,
   () => {
@@ -143,6 +227,96 @@ watch(
       </span>
     </div>
 
+    <div class="rounded-xl bg-base-100 px-3 py-2">
+      <div class="text-[12px] font-semibold">{{ t("milestones.title") }}</div>
+
+      <ul v-if="vm.state.milestones.length" class="mt-0.5">
+        <li
+          v-for="milestone in vm.state.milestones"
+          :key="milestone.id"
+          class="group flex items-center gap-2 border-t border-base-200 py-1.5 text-[12.5px] first:border-t-0"
+        >
+          <button
+            type="button"
+            class="shrink-0 text-primary"
+            :aria-pressed="milestone.doneAt !== null"
+            :aria-label="
+              milestone.doneAt
+                ? t('milestones.markOpenAria', { title: milestone.title })
+                : t('milestones.markDoneAria', { title: milestone.title })
+            "
+            @click="toggleMilestone(milestone)"
+          >
+            <Check v-if="milestone.doneAt" :size="12" aria-hidden="true" />
+            <Diamond v-else :size="11" aria-hidden="true" />
+          </button>
+
+          <input
+            v-if="editingId === milestone.id"
+            :ref="setEditInput"
+            v-model="editingTitle"
+            class="min-w-0 flex-1 rounded-md border border-base-300 bg-base-100 px-1.5 py-0.5 text-[12.5px] outline-none focus:border-primary/60"
+            :aria-label="t('milestones.renameAria', { title: milestone.title })"
+            @blur="commitRename(milestone)"
+            @keydown="onRenameKey($event, milestone)"
+          />
+          <button
+            v-else
+            type="button"
+            class="min-w-0 flex-1 truncate text-left"
+            :class="{ 'text-base-content/40 line-through': milestone.doneAt }"
+            @click="startRename(milestone)"
+          >
+            {{ milestone.title }}
+          </button>
+
+          <DateField
+            class="w-[92px] shrink-0 text-[11px]"
+            :class="milestoneOverdue(milestone) ? 'text-error' : 'text-base-content/50'"
+            :model-value="milestone.dueDate ?? ''"
+            :aria-label="t('milestones.dateAria', { title: milestone.title })"
+            @update:model-value="changeMilestoneDate(milestone, $event)"
+          />
+
+          <button
+            type="button"
+            class="shrink-0 text-base-content/25 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            :aria-label="t('milestones.removeAria', { title: milestone.title })"
+            @click="removeMilestone(milestone)"
+          >
+            <X :size="12" aria-hidden="true" />
+          </button>
+        </li>
+      </ul>
+
+      <div class="flex items-center gap-2 border-t border-base-200 pt-2 text-[12.5px]">
+        <Plus :size="11" class="shrink-0 text-base-content/40" aria-hidden="true" />
+        <input
+          v-model="milestoneTitle"
+          class="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-base-content/40"
+          :placeholder="t('milestones.placeholder')"
+          @keydown.enter="onAddMilestoneKey"
+        />
+        <DateField
+          v-model="milestoneDate"
+          class="w-[92px] shrink-0 text-[11px] text-base-content/50"
+          :aria-label="t('milestones.addDateAria')"
+          @enter="addMilestone"
+        />
+        <button
+          type="button"
+          class="btn btn-xs shrink-0 rounded-lg border-0 bg-primary text-primary-content"
+          @click="addMilestone"
+        >
+          {{ t("milestones.add") }}
+        </button>
+      </div>
+
+      <p v-if="vm.state.milestoneError" class="mt-1.5 text-[11px] text-error">
+        {{ errorText(vm.state.milestoneError) }}
+      </p>
+    </div>
+
     <CaptureBar
       v-model="vm.state.draft"
       :project-id="props.id"
@@ -194,7 +368,7 @@ watch(
       </motion.div>
 
       <motion.div v-else key="timeline" v-bind="panelSwapMotion">
-        <TimelineView :tasks="vm.state.tasks" />
+        <TimelineView :tasks="vm.state.tasks" :milestones="vm.state.milestones" />
       </motion.div>
     </AnimatePresence>
 

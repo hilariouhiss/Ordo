@@ -14,6 +14,7 @@ use tauri_plugin_notification::NotificationExt;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReminderTarget {
     Task(String),
+    Project(String),
     Week,
 }
 
@@ -164,6 +165,26 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             );
             toasts.push((headline, ReminderTarget::Task(candidate.task_id)));
         }
+        // Milestones remind at 09:00 on their own day; the notification row keeps a
+        // restart from repeating it.
+        for candidate in rules::milestone_candidates(&conn, now)? {
+            let fired = crate::repo::notifications::fire_milestone(
+                &conn,
+                &uuid::Uuid::new_v4().to_string(),
+                &candidate.milestone_id,
+                &candidate.due_key,
+                &candidate.scheduled_for.to_rfc3339(),
+                &now_utc,
+            )
+            .map_err(|e| e.to_string())?;
+            if !fired {
+                continue;
+            }
+            toasts.push((
+                crate::i18n::milestone_headline(lang, &candidate.title),
+                ReminderTarget::Project(candidate.project_id),
+            ));
+        }
         // The digest is dated here, so a failure to show cannot fire it twice.
         let digest = rules::digest(&conn, now).unwrap_or(None);
         if digest.is_some() {
@@ -212,15 +233,22 @@ fn tick(app: &AppHandle) -> Result<(), String> {
             .register_action_types(vec![reminder_actions(lang)]);
     }
     for (headline, target) in shown {
+        let snoozable = matches!(target, ReminderTarget::Task(_));
         let id = state.reminder_targets.next_id(target);
-        let _ = app
+        let builder = app
             .notification()
             .builder()
             .id(id)
             .title(headline)
-            .body(crate::i18n::reminder_body(lang))
-            .action_type_id(ACTION_TYPE_ID)
-            .show();
+            .body(crate::i18n::reminder_body(lang));
+        // Snoozes belong to tasks; a milestone toast must not offer a button that
+        // cannot do anything.
+        let builder = if snoozable {
+            builder.action_type_id(ACTION_TYPE_ID)
+        } else {
+            builder
+        };
+        let _ = builder.show();
     }
     if let Some(digest) = digest {
         let body = crate::i18n::digest_body(
@@ -312,9 +340,11 @@ mod tests {
         let map = ReminderTargets::default();
         let a = map.next_id(ReminderTarget::Task("t1".into()));
         let b = map.next_id(ReminderTarget::Week);
+        let c = map.next_id(ReminderTarget::Project("p1".into()));
         assert_ne!(a, b);
         assert_eq!(map.target_for(a), Some(ReminderTarget::Task("t1".into())));
         assert_eq!(map.target_for(b), Some(ReminderTarget::Week));
+        assert_eq!(map.target_for(c), Some(ReminderTarget::Project("p1".into())));
         assert_eq!(map.target_for(-1), None);
     }
 

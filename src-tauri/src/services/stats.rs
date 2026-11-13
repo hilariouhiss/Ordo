@@ -1,5 +1,6 @@
 use crate::dto::{
-    CategoryProgressDto, DayStatsDto, ProjectSummaryDto, StatsOverviewDto, StatsSliceDto,
+    CategoryProgressDto, DayStatsDto, MilestoneDto, ProjectSummaryDto, StatsOverviewDto,
+    StatsSliceDto,
 };
 use crate::repo::projects;
 use chrono::{NaiveDate, TimeDelta};
@@ -254,6 +255,8 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
         .into_iter()
         .map(|(_, category)| category)
         .collect();
+    let milestones =
+        crate::repo::milestones::list(conn, project_id).map_err(|e| e.to_string())?;
 
     Ok(ProjectSummaryDto {
         id: project.id,
@@ -263,6 +266,7 @@ pub fn summary(conn: &Connection, project_id: &str) -> Result<ProjectSummaryDto,
         total,
         done,
         by_category,
+        milestones,
     })
 }
 
@@ -301,11 +305,19 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
         by_category.entry(project_id).or_default().push(category);
     }
 
+    let mut by_project: HashMap<String, Vec<MilestoneDto>> = HashMap::new();
+    for (project_id, milestone) in
+        crate::repo::milestones::all(conn).map_err(|e| e.to_string())?
+    {
+        by_project.entry(project_id).or_default().push(milestone);
+    }
+
     Ok(projects
         .into_iter()
         .map(|project| {
             let (total, done) = totals.get(&project.id).copied().unwrap_or((0, 0));
             let by_category = by_category.remove(&project.id).unwrap_or_default();
+            let milestones = by_project.remove(&project.id).unwrap_or_default();
             ProjectSummaryDto {
                 id: project.id,
                 name: project.name,
@@ -314,6 +326,7 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummaryDto>, String> {
                 total,
                 done,
                 by_category,
+                milestones,
             }
         })
         .collect())
@@ -380,6 +393,23 @@ mod tests {
         assert_eq!(s.by_category[1].name, "资料");
         assert_eq!(s.by_category[1].total, 1);
         assert_eq!(s.by_category[1].done, 0);
+    }
+
+    #[test]
+    fn project_summaries_carry_their_milestones() {
+        let c = db::open_in_memory().unwrap();
+        let p = projects::create(&c, "带里程碑", NOW).unwrap();
+        crate::services::milestones::create(&c, &p.id, "方案评审", Some("2026-11-20"), NOW)
+            .unwrap();
+        crate::services::milestones::create(&c, &p.id, "无日期", None, NOW).unwrap();
+
+        let summary = stats::summary(&c, &p.id).unwrap();
+        assert_eq!(summary.milestones.len(), 2);
+        assert_eq!(summary.milestones[0].title, "方案评审");
+
+        let listed = stats::list(&c).unwrap();
+        let one = listed.iter().find(|project| project.id == p.id).unwrap();
+        assert_eq!(one.milestones.len(), 2);
     }
 
     /// Local `YYYY-MM-DD` of an RFC3339 stamp, matching the SQL `localtime` bucket.

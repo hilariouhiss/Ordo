@@ -316,6 +316,9 @@ fn install_notification_handler(app: &tauri::App) {
                 Some(crate::reminders::ReminderTarget::Task(task_id)) => {
                     let _ = notification_handle.emit_to("main", "reminder:open", task_id);
                 }
+                Some(crate::reminders::ReminderTarget::Project(project_id)) => {
+                    let _ = notification_handle.emit_to("main", "reminder:open-project", project_id);
+                }
                 Some(crate::reminders::ReminderTarget::Week) => {
                     let _ = notification_handle.emit_to("main", "nav:week", ());
                 }
@@ -533,6 +536,11 @@ pub fn run() {
       commands::projects::archive_project,
       commands::projects::restore_project,
       commands::projects::delete_project,
+      commands::projects::create_milestone,
+      commands::projects::rename_milestone,
+      commands::projects::set_milestone_date,
+      commands::projects::set_milestone_done,
+      commands::projects::delete_milestone,
       commands::projects::list_project_groups,
       commands::projects::create_project_group,
       commands::projects::rename_project_group,

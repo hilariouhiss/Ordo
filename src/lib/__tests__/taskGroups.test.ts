@@ -40,6 +40,7 @@ function project(id: string, name: string): ProjectSummary {
     total: 0,
     done: 0,
     byCategory: [],
+    milestones: [],
   };
 }
 

@@ -6,6 +6,7 @@ pub mod deliverables;
 pub mod mode;
 pub mod export;
 pub mod overdue;
+pub mod milestones;
 pub mod people;
 pub mod projects;
 pub mod rules;

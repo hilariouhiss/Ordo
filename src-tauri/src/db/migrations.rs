@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 27;
+pub const LATEST: i64 = 28;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -638,6 +638,54 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             )?;
         }
         tx.pragma_update(None, "user_version", 27)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 28 {
+        // A milestone is a project checkpoint: a name, an optional day, and when it was
+        // marked done. The reminder table gains a second subject, so a row belongs either
+        // to a task or to a milestone, never both.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS project_milestones (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+               title TEXT NOT NULL,
+               due_date TEXT,
+               done_at TEXT,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_project_milestones_project
+               ON project_milestones(project_id, due_date);",
+        )?;
+        // A partial test ledger may never have had a notifications table.
+        if has_table(&tx, "notifications")? {
+            tx.execute_batch(
+                "CREATE TABLE notifications_new (
+                   id TEXT PRIMARY KEY,
+                   task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+                   milestone_id TEXT REFERENCES project_milestones(id) ON DELETE CASCADE,
+                   kind TEXT NOT NULL CHECK (kind IN ('due_tomorrow','overdue','suspend_start','follow_up','milestone')),
+                   due_key TEXT NOT NULL,
+                   scheduled_for TEXT NOT NULL,
+                   fired_at TEXT,
+                   seen_at TEXT,
+                   CHECK ((task_id IS NOT NULL) + (milestone_id IS NOT NULL) = 1)
+                 );
+                 INSERT INTO notifications_new (id, task_id, milestone_id, kind, due_key, scheduled_for, fired_at, seen_at)
+                 SELECT id, task_id, NULL, kind, due_key, scheduled_for, fired_at, seen_at FROM notifications;
+                 DROP TABLE notifications;
+                 ALTER TABLE notifications_new RENAME TO notifications;
+                 CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
+                 CREATE UNIQUE INDEX idx_notifications_task
+                   ON notifications(task_id, kind, due_key) WHERE task_id IS NOT NULL;
+                 CREATE UNIQUE INDEX idx_notifications_milestone
+                   ON notifications(milestone_id, due_key) WHERE milestone_id IS NOT NULL;",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 28)?;
         tx.commit()?;
     }
     Ok(())
@@ -2096,7 +2144,8 @@ mod tests {
                seen_at TEXT,
                UNIQUE (task_id, kind, due_key)
              );
-             INSERT INTO notifications_old SELECT * FROM notifications;
+             INSERT INTO notifications_old (id, task_id, kind, due_key, scheduled_for, fired_at, seen_at)
+               SELECT id, task_id, kind, due_key, scheduled_for, fired_at, seen_at FROM notifications;
              DROP TABLE notifications;
              ALTER TABLE notifications_old RENAME TO notifications;
              CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);",
@@ -2128,6 +2177,72 @@ mod tests {
             [],
         )
         .unwrap();
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn adds_project_milestones_and_their_reminder_subject() {
+        let c = crate::db::open_in_memory().unwrap();
+
+        assert!(has_table(&c, "project_milestones").unwrap());
+        assert!(has_column(&c, "notifications", "milestone_id").unwrap());
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+    }
+
+    #[test]
+    fn rebuilding_notifications_for_milestones_keeps_task_rows() {
+        let c = crate::db::open_in_memory().unwrap();
+        // Put the table back to its pre-v28 shape, then replay the step.
+        c.execute_batch(
+            "CREATE TABLE notifications_old (
+               id TEXT PRIMARY KEY,
+               task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+               kind TEXT NOT NULL CHECK (kind IN ('due_tomorrow','overdue','suspend_start','follow_up')),
+               due_key TEXT NOT NULL,
+               scheduled_for TEXT NOT NULL,
+               fired_at TEXT,
+               seen_at TEXT,
+               UNIQUE (task_id, kind, due_key)
+             );
+             INSERT INTO notifications_old (id, task_id, kind, due_key, scheduled_for, fired_at, seen_at)
+               SELECT id, task_id, kind, due_key, scheduled_for, fired_at, seen_at FROM notifications;
+             DROP TABLE notifications;
+             ALTER TABLE notifications_old RENAME TO notifications;
+             CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, created_at, updated_at)
+             VALUES ('t', '甲', '2026-11-07T08:00:00Z', '2026-11-07T08:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for)
+             VALUES ('n', 't', 'overdue', '2026-11-06', '2026-11-07T09:30:00Z')",
+            [],
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 27).unwrap();
+
+        migrate(&c).unwrap();
+
+        let kept: String = c
+            .query_row("SELECT kind FROM notifications WHERE id = 'n'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, "overdue");
+        assert!(has_column(&c, "notifications", "milestone_id").unwrap());
+        // The rebuilt table keeps the task reminder's dedupe: a second row for the same
+        // task, kind and due key is ignored.
+        let again = c.execute(
+            "INSERT OR IGNORE INTO notifications (id, task_id, kind, due_key, scheduled_for)
+             VALUES ('n2', 't', 'overdue', '2026-11-06', '2026-11-07T09:30:00Z')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(again, 0);
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
     }

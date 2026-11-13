@@ -87,6 +87,14 @@ pub fn reminder_headline(lang: Lang, kind: &str, due_today: bool, title: &str) -
     }
 }
 
+/// A milestone's day has arrived; the body is the same as any other reminder.
+pub fn milestone_headline(lang: Lang, title: &str) -> String {
+    match lang {
+        Lang::Zh => format!("里程碑：{title}"),
+        Lang::En => format!("Milestone: {title}"),
+    }
+}
+
 pub fn reminder_body(lang: Lang) -> &'static str {
     match lang {
         Lang::Zh => "打开 Ordo 查看",
@@ -303,6 +311,11 @@ mod tests {
         assert_eq!(
             reminder_headline(Lang::En, "follow_up", false, "Kickoff"),
             "Follow up: Kickoff"
+        );
+        assert_eq!(milestone_headline(Lang::Zh, "方案评审"), "里程碑：方案评审");
+        assert_eq!(
+            milestone_headline(Lang::En, "Kickoff"),
+            "Milestone: Kickoff"
         );
         assert_eq!(
             digest_body(Lang::Zh, 3, 1, &["交底".into(), "周会".into()], 1),

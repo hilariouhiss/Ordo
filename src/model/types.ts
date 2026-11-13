@@ -268,6 +268,15 @@ export interface CategoryProgress {
   done: number;
 }
 
+export interface Milestone {
+  id: string;
+  title: string;
+  /** Local `YYYY-MM-DD`; null when the milestone has no day. */
+  dueDate: string | null;
+  /** RFC3339 UTC stamp of when it was marked done; null while open. */
+  doneAt: string | null;
+}
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -276,6 +285,7 @@ export interface ProjectSummary {
   total: number;
   done: number;
   byCategory: CategoryProgress[];
+  milestones: Milestone[];
 }
 
 export interface WeekStats {
