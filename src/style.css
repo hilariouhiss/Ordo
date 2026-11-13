@@ -5,6 +5,10 @@
 
 @plugin "daisyui" {
   themes: false;
+  /* Unused component. daisyUI 5.7's join styles are wrapped in @scope with relative
+     child selectors, which the CSS optimizer drops as empty selectors (two build
+     warnings, and the rules would be lost anyway); no .join markup exists here. */
+  exclude: join;
 }
 
 @plugin "daisyui/theme" {
