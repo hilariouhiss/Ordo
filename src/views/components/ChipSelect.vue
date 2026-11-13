@@ -132,8 +132,7 @@ function onListKey(event: KeyboardEvent): void {
     @click="onTrigger"
   >
     <span class="truncate">
-      <span v-if="dim" class="mr-1.5 text-base-content/40">{{ dim }}</span
-      >{{ selectedLabel }}
+      <span v-if="dim" class="mr-1.5 text-base-content/40">{{ dim }}</span>{{ selectedLabel }}
     </span>
     <ChevronDown :size="14" class="shrink-0 text-base-content/40" aria-hidden="true" />
   </button>

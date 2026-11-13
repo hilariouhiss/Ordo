@@ -10,6 +10,10 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 
 `vp <name>` runs a built-in command. `vp run <name>` runs a `package.json` script or a `vite.config.ts` task. Scripts cannot overwrite built-ins, so `vp dev` and `vp run dev` may do different things. Check `package.json` and `vite.config.ts` first, and run `vp run <name>` when the project defines a script or task with that name.
 
+## Running Scripts
+
+Run TypeScript and JavaScript files with `vpx <file>`, for example `vpx ./scripts/seed.ts --dry-run`. It handles enums, decorators, JSX, and tsconfig `paths`, so do not add `tsx` or `ts-node` to run scripts. `vpx --watch <file>` reruns the file when a file it uses changes, in place of `tsx watch`. `vp node <file>` runs plain Node.js.
+
 ## Tool Versions
 
 Run `vp toolchain` to show versions and relationships in the active Vite+
@@ -32,7 +36,7 @@ release. Add a tool name to select part of the graph. For example, run
 
 ## 项目概览
 
-Ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍、项目进度与时间轴、延期记录、归档与提醒，数据只在本机。技术栈是 Tauri 2.12 + Rust（2024 edition，最低 1.90）、Vue 3.6 RC + TypeScript、Vite+ 1.2（`vp`）、Tailwind 4 + daisyUI 5、SQLite（rusqlite bundled）。Windows 优先，界面支持中英文；未手动选择时跟随系统 UI 语言，设置里可切换。
+Ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍、项目进度与时间轴、延期记录、归档与提醒，数据只在本机。技术栈是 Tauri 2.12 + Rust（2024 edition，最低 1.90）、Vue 3.6 RC + TypeScript 6、Vite+ 1.6（`vp`）、Tailwind 4 + daisyUI 5、SQLite（rusqlite bundled）。Windows 优先，界面支持中英文；未手动选择时跟随系统 UI 语言，设置里可切换。
 
 顶层：`src/` 是 WebView 前端；`src-tauri/` 是 Rust 核心；`docs/superpowers/specs/` 是设计与架构意图，`docs/superpowers/plans/` 是实现计划（历史记录，不是当前文件清单）。
 
@@ -83,7 +87,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 ## 约定
 
 - TS 严格按 `tsconfig.json`：`verbatimModuleSyntax`（类型用 `import type`）、`noUnusedLocals/Parameters`、`erasableSyntaxOnly`（不要 enum/namespace；用字符串联合）。测试从 `vite-plus/test` 导入，不要直接装 `vitest`。
-- 不要新增 `vite` 依赖：`pnpm-workspace.yaml` 把 `vite` 指向 `@voidzero-dev/vite-plus-core`；Vue 锁在 `3.6.0-rc.12`，不要顺手升级。格式化与 lint 走 `vp check`（Oxfmt/Oxlint），仓库没有 Prettier/ESLint 配置。
+- 不要新增 `vite` 依赖：`pnpm-workspace.yaml` 把 `vite` 指向 `@voidzero-dev/vite-plus-core`；Vue 锁在 `3.6.0-rc.15`（3.6 仍是 RC），升级依赖时一起跑门禁。TypeScript 留在 `6.0.x`：`vue-tsc` 3.3.14 还不支持 TypeScript 7（会报找不到 `typescript/lib/tsc`）。格式化与 lint 走 `vp check`（Oxfmt/Oxlint），仓库没有 Prettier/ESLint 配置。
 - Rust：命令是 `async`，通过 `with_db` 访问库；repo 返回 `rusqlite::Result`，service 通常用 `Result<_, String>` 并 `map_err(|e| e.to_string())`。领域拒绝用短 snake_case 码（`empty_title`、`suspend_until_required`、`invalid_status`），测试会断言这些字符串。
 - 时间：日期是本地 `YYYY-MM-DD`，时间戳是 RFC3339 UTC；用 `todayIso()` / `chrono::Local` 算今天，别用 UTC 截断。周一为一周起点。
 - 输入：所有输入框的回车提交都要先过 `isImeEnter(event)`（`src/lib/keys.ts`），否则中文输入法选词会误提交。

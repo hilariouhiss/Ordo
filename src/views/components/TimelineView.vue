@@ -159,8 +159,7 @@ const groups = computed(() => {
     </div>
 
     <div class="mt-2 flex items-center gap-4 text-[10.5px] text-base-content/40">
-      <span>{{ t("timeline.legendPlan") }}</span
-      ><span>{{ t("timeline.legendPartial") }}</span
+      <span>{{ t("timeline.legendPlan") }}</span><span>{{ t("timeline.legendPartial") }}</span
       ><span class="text-error">{{ t("timeline.legendToday") }}</span>
       <span class="ml-auto">{{ t("timeline.note") }}</span>
     </div>
