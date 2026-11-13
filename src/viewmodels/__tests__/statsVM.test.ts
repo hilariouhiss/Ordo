@@ -4,7 +4,7 @@ vi.mock("../../model/ipc", () => ({
   statsOverview: vi.fn(),
 }));
 
-import { addDays, todayIso } from "../../lib/dates";
+import { addDays, mondayOf, todayIso } from "../../lib/dates";
 import { closeDialog } from "../../lib/dialog";
 import { statsOverview } from "../../model/ipc";
 import type { StatsOverview } from "../../model/types";
@@ -134,12 +134,17 @@ describe("statsVM", () => {
     vi.mocked(statsOverview).mockResolvedValue(overview());
     const vm = createStatsVM();
 
+    // This week runs from Monday to today, so the span shrinks with the week.
+    await vm.setPreset("week");
+    const today = todayIso();
+    expect(statsOverview).toHaveBeenLastCalledWith(mondayOf(today), today);
+    expect(vm.state.from).toBe(mondayOf(today));
+
     await vm.setPreset("12w");
     expect(vm.state.preset).toBe("12w");
     expect(vm.span.value).toBe(84);
 
     await vm.setPreset("year");
-    const today = todayIso();
     expect(vm.state.from).toBe(`${today.slice(0, 4)}-01-01`);
     expect(vm.state.to).toBe(today);
   });

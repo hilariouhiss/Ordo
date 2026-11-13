@@ -224,6 +224,7 @@ export const zh = {
 
   "stats.title": "统计",
   "stats.range": "{from} — {to} · {days} 天",
+  "stats.presetWeek": "本周",
   "stats.preset30d": "近 30 天",
   "stats.preset12w": "近 12 周",
   "stats.presetYear": "今年",
@@ -893,6 +894,7 @@ export const en: Record<MessageKey, string> = {
 
   "stats.title": "Statistics",
   "stats.range": "{from} — {to} · {days} days",
+  "stats.presetWeek": "This week",
   "stats.preset30d": "Last 30 days",
   "stats.preset12w": "Last 12 weeks",
   "stats.presetYear": "This year",

@@ -34,6 +34,7 @@ const {
 } = statsVM;
 
 const PRESET_LABEL: Record<StatsPreset, MessageKey> = {
+  week: "stats.presetWeek",
   "30d": "stats.preset30d",
   "12w": "stats.preset12w",
   year: "stats.presetYear",

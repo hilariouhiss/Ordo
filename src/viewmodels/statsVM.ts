@@ -1,5 +1,5 @@
 import { computed, reactive } from "vue";
-import { addDays, todayIso } from "../lib/dates";
+import { addDays, mondayOf, todayIso } from "../lib/dates";
 import { askNotice } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import {
@@ -16,10 +16,10 @@ import { STATS_RANGE_DAYS } from "../lib/limits";
 import { statsOverview } from "../model/ipc";
 import type { StatsOverview } from "../model/types";
 
-export type StatsPreset = "30d" | "12w" | "year" | "custom";
+export type StatsPreset = "week" | "30d" | "12w" | "year" | "custom";
 
 /** Presets the page offers, shortest first; the view maps them to labels. */
-export const STATS_PRESETS: StatsPreset[] = ["30d", "12w", "year", "custom"];
+export const STATS_PRESETS: StatsPreset[] = ["week", "30d", "12w", "year", "custom"];
 
 /** Stands in before the first payload so the view never juggles nulls. */
 function emptyOverview(): StatsOverview {
@@ -108,6 +108,7 @@ export function createStatsVM() {
   /** The preset window, anchored on the page's own idea of today. */
   function presetRange(preset: StatsPreset): { from: string; to: string } {
     const to = state.today;
+    if (preset === "week") return { from: mondayOf(to), to };
     if (preset === "12w") return { from: addDays(to, -83), to };
     if (preset === "year") return { from: `${to.slice(0, 4)}-01-01`, to };
     if (preset === "custom") {
