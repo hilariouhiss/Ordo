@@ -97,10 +97,11 @@ describe("nextDeferDay", () => {
 });
 
 describe("timingAnchor", () => {
-  it("starts today unless the task has a later start", () => {
+  it("uses the task's own start even when it is in the past", () => {
     expect(timingAnchor("2026-10-21", null)).toBe("2026-10-21");
-    expect(timingAnchor("2026-10-21", "2026-10-19")).toBe("2026-10-21");
+    expect(timingAnchor("2026-10-21", "2026-10-19")).toBe("2026-10-19");
     expect(timingAnchor("2026-10-21", "2026-10-23")).toBe("2026-10-23");
+    expect(timingAnchor("2026-11-13", "2026-11-12")).toBe("2026-11-12");
   });
 
   it("rolls a weekend start to Monday", () => {

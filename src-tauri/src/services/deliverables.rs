@@ -91,7 +91,7 @@ pub fn defer(
         return Err("not_a_delay".into());
     }
     let today = crate::services::local_today(now)?;
-    let anchor = crate::services::timing::anchor_for(today, start.as_deref());
+    let anchor = crate::services::timing::remaining_anchor(today, start.as_deref());
     let effort = crate::services::timing::effort_for_finish(anchor, finish)?;
     tx.execute(
         "UPDATE tasks SET expected_finish_date = ?1, effort_minutes = ?2, updated_at = ?3
@@ -216,6 +216,24 @@ mod tests {
             Some("2026-11-25"),
             "the parent follows its latest child"
         );
+    }
+
+    #[test]
+    fn a_delay_with_a_past_start_counts_the_remaining_days() {
+        let c = with_finish();
+        c.execute(
+            "UPDATE tasks SET expected_start_date='2026-10-01',
+                    expected_finish_date='2026-10-19' WHERE id='t1'",
+            [],
+        )
+        .unwrap();
+
+        let task = crate::services::deliverables::defer(&c, "t1", "2026-10-21", "", NOW).unwrap();
+
+        // The estimate is the work left from today (10/20) through 10/21, not the whole
+        // span since the original start.
+        assert_eq!(task.effort_minutes, 2 * 480);
+        assert_eq!(task.expected_start_date.as_deref(), Some("2026-10-01"));
     }
 
     #[test]

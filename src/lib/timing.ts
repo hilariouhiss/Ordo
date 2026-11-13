@@ -48,10 +48,9 @@ export function effortForFinish(anchor: string, finishDay: string): number | nul
   return days === 0 ? null : days * MINUTES_PER_DAY;
 }
 
-/** Work starts today unless the task already carries a later expected start. */
+/** The plan starts on the task's own start even when it is in the past, or today without one. */
 export function timingAnchor(today: string, expectedStartDate?: string | null): string {
-  const start = expectedStartDate && expectedStartDate > today ? expectedStartDate : today;
-  return workdayOnOrAfter(start);
+  return workdayOnOrAfter(expectedStartDate || today);
 }
 
 /** The earliest day a defer may move a finish to: after the stored day, never before today. */

@@ -1288,7 +1288,7 @@ mod tests {
     }
 
     #[test]
-    fn place_on_a_past_day_still_starts_from_today() {
+    fn place_on_a_past_day_finishes_on_that_day() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
@@ -1296,9 +1296,9 @@ mod tests {
 
         let t = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-19"));
-        // The rule a start edit uses: work begins today, never in the past.
-        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-20"));
-        assert!(t.delays.is_empty(), "the finish did not move");
+        // A one-day plan dropped on Monday ends on Monday, not today.
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-19"));
+        assert!(t.delays.is_empty(), "the finish moved earlier, not later");
     }
 
     #[test]

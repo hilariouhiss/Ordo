@@ -65,8 +65,18 @@ pub fn effort_for_finish(anchor: NaiveDate, finish: NaiveDate) -> Result<i64, St
     Ok(days * MINUTES_PER_DAY)
 }
 
-/// Work starts today unless the task already carries a later expected start.
+/// The day the plan starts: the task's own start, even when it lies in the past, or
+/// today when it has none. A plan placed on Monday keeps Monday's finish on Monday.
 pub fn anchor_for(today: NaiveDate, expected_start: Option<&str>) -> NaiveDate {
+    let start = expected_start
+        .and_then(|text| NaiveDate::parse_from_str(text, "%Y-%m-%d").ok())
+        .unwrap_or(today);
+    workday_on_or_after(start)
+}
+
+/// The day a deferral counts from: a future start, otherwise today. Deferring estimates
+/// the work left, not the whole span since a start that has already passed.
+pub fn remaining_anchor(today: NaiveDate, expected_start: Option<&str>) -> NaiveDate {
     let start = expected_start
         .and_then(|text| NaiveDate::parse_from_str(text, "%Y-%m-%d").ok())
         .filter(|day| *day > today)
@@ -203,11 +213,28 @@ mod tests {
     }
 
     #[test]
-    fn an_earlier_start_rolls_to_today() {
+    fn an_earlier_start_still_anchors_the_plan() {
         let today = day("2026-10-19");
-        assert_eq!(anchor_for(today, Some("2026-10-15")), today);
+        assert_eq!(anchor_for(today, Some("2026-10-15")), day("2026-10-15"));
         assert_eq!(anchor_for(today, Some("2026-10-21")), day("2026-10-21"));
         assert_eq!(anchor_for(today, Some("2026-10-24")), day("2026-10-26"));
+    }
+
+    #[test]
+    fn a_past_start_finishes_on_its_own_day() {
+        // One day of work starting on 11/12 finishes on 11/12, even when the sheet is
+        // opened on 11/13: the plan follows its own start, not today.
+        let today = day("2026-11-13");
+        let anchor = anchor_for(today, Some("2026-11-12"));
+        assert_eq!(finish_for(anchor, 480), day("2026-11-12"));
+        assert_eq!(effort_for_finish(anchor, day("2026-11-12")), Ok(480));
+    }
+
+    #[test]
+    fn a_deferral_counts_the_remaining_days_from_today() {
+        let today = day("2026-10-20");
+        assert_eq!(remaining_anchor(today, Some("2026-10-01")), today);
+        assert_eq!(remaining_anchor(today, Some("2026-10-21")), day("2026-10-21"));
     }
 
     #[test]
