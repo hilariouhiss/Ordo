@@ -20,6 +20,8 @@ import { askConfirm, askNotice, askOverdueDefer, closeDialog } from "../../lib/d
 import { deferTask, listOverdueTasks } from "../../model/ipc";
 import { appVM } from "../appVM";
 import { createOverduePromptVM } from "../overduePromptVM";
+import { tasksVM } from "../tasksVM";
+import { weekVM } from "../weekVM";
 import { defaultSettings, task } from "./fixtures";
 
 async function flush(): Promise<void> {
@@ -66,6 +68,9 @@ describe("overduePromptVM", () => {
       ["a", "2026-11-20", "等回复"],
       ["b", "2026-11-25", "等回复"],
     ]);
+    // The new days have to reach the page the dialog interrupted.
+    expect(vi.mocked(weekVM.reload)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(tasksVM.reload)).toHaveBeenCalledTimes(1);
   });
 
   it("uses each task's default day when the dialog is dismissed", async () => {

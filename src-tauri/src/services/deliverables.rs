@@ -51,9 +51,10 @@ pub fn set_reason(conn: &Connection, delay_id: &str, reason: &str) -> Result<Tas
 }
 
 /// Moves a task's finish later and lets the estimate grow to cover the longer span; the
-/// start stays where it is. A weekend pick reads as the Friday before it, the last day the
-/// estimate counts. The status, the start and the actual times are left alone, and the
-/// ledger records why in the same transaction as the dates.
+/// start stays where it is, so the week page draws the task from its start through the
+/// new day. A weekend pick reads as the Friday before it, the last day the estimate
+/// counts. The status, the start and the actual times are left alone, and the ledger
+/// records why in the same transaction as the dates.
 pub fn defer(
     conn: &Connection,
     task_id: &str,
@@ -91,8 +92,17 @@ pub fn defer(
         return Err("not_a_delay".into());
     }
     let today = crate::services::local_today(now)?;
-    let anchor = crate::services::timing::remaining_anchor(today, start.as_deref());
-    let effort = crate::services::timing::effort_for_finish(anchor, finish)?;
+    // The span the picked day implies runs from the task's own start, even a past one:
+    // moving the finish by a day grows the estimate by that day. A start so far back that
+    // the span would overflow the estimate falls back to the work left from today.
+    let anchor = crate::services::timing::anchor_for(today, start.as_deref());
+    let effort = match crate::services::timing::effort_for_finish(anchor, finish) {
+        Ok(effort) => effort,
+        Err(code) if code == "finish_too_far" => {
+            crate::services::timing::effort_for_finish(today, finish)?
+        }
+        Err(code) => return Err(code),
+    };
     tx.execute(
         "UPDATE tasks SET expected_finish_date = ?1, effort_minutes = ?2, updated_at = ?3
          WHERE id = ?4",
@@ -219,7 +229,26 @@ mod tests {
     }
 
     #[test]
-    fn a_delay_with_a_past_start_counts_the_remaining_days() {
+    fn a_delay_spans_from_the_start_to_the_new_finish() {
+        let c = with_finish();
+        c.execute(
+            "UPDATE tasks SET expected_start_date='2026-10-19',
+                    expected_finish_date='2026-10-19' WHERE id='t1'",
+            [],
+        )
+        .unwrap();
+
+        let task = crate::services::deliverables::defer(&c, "t1", "2026-10-20", "", NOW).unwrap();
+
+        // One day later, so the estimate covers both days and the week page draws the
+        // task from 10/19 through 10/20.
+        assert_eq!(task.expected_finish_date.as_deref(), Some("2026-10-20"));
+        assert_eq!(task.effort_minutes, 2 * 480);
+        assert_eq!(task.expected_start_date.as_deref(), Some("2026-10-19"));
+    }
+
+    #[test]
+    fn a_delay_far_past_the_start_counts_the_whole_span() {
         let c = with_finish();
         c.execute(
             "UPDATE tasks SET expected_start_date='2026-10-01',
@@ -230,10 +259,26 @@ mod tests {
 
         let task = crate::services::deliverables::defer(&c, "t1", "2026-10-21", "", NOW).unwrap();
 
-        // The estimate is the work left from today (10/20) through 10/21, not the whole
-        // span since the original start.
-        assert_eq!(task.effort_minutes, 2 * 480);
+        // Every workday from the start through the picked day, weekends skipped.
+        assert_eq!(task.effort_minutes, 15 * 480);
         assert_eq!(task.expected_start_date.as_deref(), Some("2026-10-01"));
+    }
+
+    #[test]
+    fn a_start_too_far_back_reads_the_days_left() {
+        let c = with_finish();
+        c.execute(
+            "UPDATE tasks SET expected_start_date='2026-05-01',
+                    expected_finish_date='2026-10-19' WHERE id='t1'",
+            [],
+        )
+        .unwrap();
+
+        // A start this far back would overflow the estimate; the days left from today
+        // still let the task be deferred.
+        let task = crate::services::deliverables::defer(&c, "t1", "2026-10-21", "", NOW).unwrap();
+        assert_eq!(task.effort_minutes, 2 * 480);
+        assert_eq!(task.expected_start_date.as_deref(), Some("2026-05-01"));
     }
 
     #[test]

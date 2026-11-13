@@ -76,6 +76,18 @@ describe("planSchedule", () => {
     ]);
   });
 
+  it("spans a deferred task from its start through the new finish", () => {
+    // What `defer` writes: the task starts 10/19, the finish moves to 10/20, so the
+    // estimate covers both days and the row covers both columns.
+    const plan = planSchedule(
+      [t("a", 2, { expectedStartDate: "2026-10-19", expectedFinishDate: "2026-10-20" })],
+      TODAY,
+      "2026-10-19",
+    );
+    expect([plan[0].start, plan[0].end]).toEqual(["2026-10-19", "2026-10-20"]);
+    expect(plan[0].conflict).toBe(false);
+  });
+
   it("pulls a past start date back to today", () => {
     expect(spans([t("a", 1, { expectedStartDate: "2026-10-19" })])).toEqual([[TODAY, TODAY]]);
   });

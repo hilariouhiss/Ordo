@@ -74,16 +74,6 @@ pub fn anchor_for(today: NaiveDate, expected_start: Option<&str>) -> NaiveDate {
     workday_on_or_after(start)
 }
 
-/// The day a deferral counts from: a future start, otherwise today. Deferring estimates
-/// the work left, not the whole span since a start that has already passed.
-pub fn remaining_anchor(today: NaiveDate, expected_start: Option<&str>) -> NaiveDate {
-    let start = expected_start
-        .and_then(|text| NaiveDate::parse_from_str(text, "%Y-%m-%d").ok())
-        .filter(|day| *day > today)
-        .unwrap_or(today);
-    workday_on_or_after(start)
-}
-
 /// Writes the finish the estimate implies. A later finish records a reschedule, so the
 /// delay ledger keeps every day the work was pushed back. The caller owns the
 /// transaction, so its own writes and the delay record land together.
@@ -228,13 +218,6 @@ mod tests {
         let anchor = anchor_for(today, Some("2026-11-12"));
         assert_eq!(finish_for(anchor, 480), day("2026-11-12"));
         assert_eq!(effort_for_finish(anchor, day("2026-11-12")), Ok(480));
-    }
-
-    #[test]
-    fn a_deferral_counts_the_remaining_days_from_today() {
-        let today = day("2026-10-20");
-        assert_eq!(remaining_anchor(today, Some("2026-10-01")), today);
-        assert_eq!(remaining_anchor(today, Some("2026-10-21")), day("2026-10-21"));
     }
 
     #[test]
