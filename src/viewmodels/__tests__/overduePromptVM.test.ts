@@ -13,10 +13,10 @@ vi.mock("../windowModeVM", () => ({
 }));
 vi.mock("../../lib/dialog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/dialog")>();
-  return { ...actual, askAutoDefer: vi.fn(), askNotice: vi.fn() };
+  return { ...actual, askOverdueDefer: vi.fn(), askNotice: vi.fn() };
 });
 
-import { askAutoDefer, askConfirm, closeDialog } from "../../lib/dialog";
+import { askConfirm, askNotice, askOverdueDefer, closeDialog } from "../../lib/dialog";
 import { deferTask, listOverdueTasks } from "../../model/ipc";
 import { appVM } from "../appVM";
 import { createOverduePromptVM } from "../overduePromptVM";
@@ -26,18 +26,24 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
+const overdue = [
+  { id: "a", title: "交底", expectedFinishDate: "2026-11-10" },
+  { id: "b", title: "报销", expectedFinishDate: "2026-11-11" },
+];
+
 describe("overduePromptVM", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 12, 9, 30, 0));
     appVM.state.settings = { ...defaultSettings, overduePrompt: true };
-    vi.mocked(listOverdueTasks).mockResolvedValue([
-      { id: "a", title: "交底", expectedFinishDate: "2026-11-10" },
-      { id: "b", title: "报销", expectedFinishDate: "2026-11-11" },
-    ]);
-    vi.mocked(askAutoDefer)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ finish: "2026-11-20", reason: "等回复" });
+    vi.mocked(listOverdueTasks).mockResolvedValue(overdue);
+    vi.mocked(askOverdueDefer).mockResolvedValue({
+      dates: [
+        { id: "a", finish: "2026-11-20" },
+        { id: "b", finish: "2026-11-25" },
+      ],
+      reason: "等回复",
+    });
     vi.mocked(deferTask).mockResolvedValue(task({ id: "a" }));
   });
 
@@ -46,45 +52,75 @@ describe("overduePromptVM", () => {
     vi.clearAllMocks();
   });
 
-  it("asks in order and records the default when a dialog is dismissed", async () => {
+  it("asks once and defers every task to its own day", async () => {
     const vm = createOverduePromptVM();
     await vm.check();
     await flush();
 
-    expect(vi.mocked(deferTask)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(deferTask).mock.calls[0]).toEqual(["a", "2026-11-12", ""]);
-    expect(vi.mocked(deferTask).mock.calls[1]).toEqual(["b", "2026-11-20", "等回复"]);
+    expect(askOverdueDefer).toHaveBeenCalledTimes(1);
+    expect(askOverdueDefer).toHaveBeenCalledWith(expect.any(String), overdue, {
+      finish: "2026-11-12",
+      min: "2026-11-12",
+    });
+    expect(vi.mocked(deferTask).mock.calls).toEqual([
+      ["a", "2026-11-20", "等回复"],
+      ["b", "2026-11-25", "等回复"],
+    ]);
+  });
+
+  it("uses each task's default day when the dialog is dismissed", async () => {
+    vi.mocked(askOverdueDefer).mockResolvedValue(null);
+    const vm = createOverduePromptVM();
+    await vm.check();
+    await flush();
+
+    expect(vi.mocked(deferTask).mock.calls).toEqual([
+      ["a", "2026-11-12", ""],
+      ["b", "2026-11-12", ""],
+    ]);
   });
 
   it("waits for another dialog before it asks", async () => {
-    vi.mocked(listOverdueTasks).mockResolvedValue([
-      { id: "a", title: "交底", expectedFinishDate: "2026-11-10" },
-    ]);
-    vi.mocked(askAutoDefer).mockReset();
-    vi.mocked(askAutoDefer).mockResolvedValue(null);
     const other = askConfirm("删除", "确认？");
     const vm = createOverduePromptVM();
-    await vm.check();
+    const checking = vm.check();
     await flush();
-    expect(askAutoDefer).not.toHaveBeenCalled();
+    expect(askOverdueDefer).not.toHaveBeenCalled();
 
     closeDialog(null);
+    await checking;
     await flush();
-    expect(askAutoDefer).toHaveBeenCalledTimes(1);
+    expect(askOverdueDefer).toHaveBeenCalledTimes(1);
     await expect(other).resolves.toBe(false);
   });
 
-  it("stops the queue when the prompt setting is turned off", async () => {
-    vi.mocked(askAutoDefer).mockReset();
-    vi.mocked(askAutoDefer).mockImplementation(async () => {
-      appVM.state.settings = { ...defaultSettings, overduePrompt: false };
-      return { finish: "2026-11-20", reason: "" };
-    });
+  it("does not ask when the prompt setting is off", async () => {
+    appVM.state.settings = { ...defaultSettings, overduePrompt: false };
     const vm = createOverduePromptVM();
     await vm.check();
     await flush();
 
-    expect(deferTask).toHaveBeenCalledTimes(1);
+    expect(listOverdueTasks).not.toHaveBeenCalled();
+    expect(askOverdueDefer).not.toHaveBeenCalled();
+  });
+
+  it("does not ask without overdue tasks", async () => {
+    vi.mocked(listOverdueTasks).mockResolvedValue([]);
+    const vm = createOverduePromptVM();
+    await vm.check();
+    await flush();
+
+    expect(askOverdueDefer).not.toHaveBeenCalled();
+  });
+
+  it("reports one notice when a task cannot be deferred", async () => {
+    vi.mocked(deferTask).mockRejectedValueOnce("db down");
+    const vm = createOverduePromptVM();
+    await vm.check();
+    await flush();
+
+    expect(deferTask).toHaveBeenCalledTimes(2);
+    expect(askNotice).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing on a startup before nine", async () => {

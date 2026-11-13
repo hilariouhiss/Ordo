@@ -98,9 +98,9 @@ function pin(): "top" | "bottom" {
 
 export function closeOverlays(): void {
   const dialog = dialogRequest.value;
-  // The overdue defer prompt is work the user must answer: closing it would silently
-  // apply its default day. A notice stays too, because it is the only report of a failure.
-  const keep = dialog?.kind === "notice" || (dialog?.kind === "defer" && dialog.auto);
+  // The overdue summary is work the user must answer: closing it would silently apply
+  // its default days. A notice stays too, because it is the only report of a failure.
+  const keep = dialog?.kind === "notice" || dialog?.kind === "overdue";
   if (!keep) closeDialog(null);
   taskSheetVM.close();
   passVM.close();

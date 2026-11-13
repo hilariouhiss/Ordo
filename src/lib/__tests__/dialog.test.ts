@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  askAutoDefer,
   askConfirm,
   askDefer,
   askNotice,
+  askOverdueDefer,
   askSuspend,
   askTaskDefaultScope,
   askText,
@@ -149,19 +149,22 @@ describe("dialog", () => {
     await expect(pending).resolves.toBe("existing");
   });
 
-  it("marks the overdue defer dialog so the caller can use the default", async () => {
-    const pending = askAutoDefer("已逾期", {
+  it("asks the overdue summary with every task and its default day", async () => {
+    const tasks = [
+      { id: "a", title: "交底", expectedFinishDate: "2026-11-10" },
+      { id: "b", title: "报销", expectedFinishDate: "2026-11-11" },
+    ];
+    const pending = askOverdueDefer("2 项已逾期", tasks, {
       finish: "2026-11-12",
       min: "2026-11-12",
-      oldFinish: "2026-11-11",
     });
+
     expect(dialogRequest.value).toEqual({
-      kind: "defer",
-      title: "已逾期",
+      kind: "overdue",
+      title: "2 项已逾期",
+      tasks,
       finish: "2026-11-12",
       min: "2026-11-12",
-      oldFinish: "2026-11-11",
-      auto: true,
     });
     closeDialog(null);
     await expect(pending).resolves.toBeNull();

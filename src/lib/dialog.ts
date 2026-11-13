@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import type { OverdueTask } from "../model/types";
 import { errorText, t } from "./i18n";
 
 export interface SuspendDraft {
@@ -14,6 +15,12 @@ export interface WaitingDraft {
 /** A delay: the new finish day plus why it moved. */
 export interface DeferDraft {
   finish: string;
+  reason: string;
+}
+
+/** One row of the overdue summary: the task and the day it moves to. */
+export interface OverdueDeferDraft {
+  dates: { id: string; finish: string }[];
   reason: string;
 }
 
@@ -41,9 +48,8 @@ export type DialogRequest =
       finish: string;
       min: string;
       oldFinish: string;
-      /** The overdue prompt: dismissing is an answer, so the caller uses the default. */
-      auto?: boolean;
     }
+  | { kind: "overdue"; title: string; tasks: OverdueTask[]; finish: string; min: string }
   | { kind: "taskDefault"; title: string; message: string }
   | ({ kind: "client"; title: string } & ClientDraft)
   | ({ kind: "person"; title: string } & PersonDraft)
@@ -57,6 +63,7 @@ type DialogAnswer =
   | SuspendDraft
   | WaitingDraft
   | DeferDraft
+  | OverdueDeferDraft
   | ClientDraft
   | PersonDraft
   | null;
@@ -97,12 +104,13 @@ export function askDefer(
   return ask({ kind: "defer", title, ...defaults }) as Promise<DeferDraft | null>;
 }
 
-/** The overdue prompt's defer dialog: dismissing hands the caller the default day. */
-export function askAutoDefer(
+/** The overdue summary: one dialog for every task, each row picking its own day. */
+export function askOverdueDefer(
   title: string,
-  defaults: { finish: string; min: string; oldFinish: string },
-): Promise<DeferDraft | null> {
-  return ask({ kind: "defer", title, ...defaults, auto: true }) as Promise<DeferDraft | null>;
+  tasks: OverdueTask[],
+  defaults: { finish: string; min: string },
+): Promise<OverdueDeferDraft | null> {
+  return ask({ kind: "overdue", title, tasks, ...defaults }) as Promise<OverdueDeferDraft | null>;
 }
 
 /** Whether a changed task default also rewrites the tasks that already exist. */

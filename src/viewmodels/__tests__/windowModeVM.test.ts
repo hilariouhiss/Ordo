@@ -131,17 +131,17 @@ describe("windowModeVM", () => {
   it("keeps the overdue defer prompt when overlays close", async () => {
     const { windowModeVM } = await load(false);
     await windowModeVM.init();
-    const { askAutoDefer, askConfirm, closeDialog, dialogRequest } =
+    const { askOverdueDefer, askConfirm, closeDialog, dialogRequest } =
       await import("../../lib/dialog");
     const { closeOverlays } = await import("../windowModeVM");
 
-    const deferred = askAutoDefer("已逾期", {
-      finish: "2026-11-12",
-      min: "2026-11-12",
-      oldFinish: "2026-11-11",
-    });
+    const deferred = askOverdueDefer(
+      "1 项已逾期",
+      [{ id: "a", title: "交底", expectedFinishDate: "2026-11-10" }],
+      { finish: "2026-11-12", min: "2026-11-12" },
+    );
     closeOverlays();
-    expect(dialogRequest.value).toMatchObject({ kind: "defer", auto: true });
+    expect(dialogRequest.value).toMatchObject({ kind: "overdue" });
     closeDialog(null);
     await expect(deferred).resolves.toBeNull();
 

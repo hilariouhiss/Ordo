@@ -6,6 +6,7 @@ import { closeDialog, dialogRequest } from "../../lib/dialog";
 import { t } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
 import { backdropMotion, modalPanelMotion } from "../../lib/motion";
+import { overdueDays } from "../../model/mappers";
 import { appVM } from "../../viewmodels/appVM";
 import DateField from "../components/DateField.vue";
 
@@ -14,6 +15,7 @@ const reasonDraft = ref("");
 const untilDraft = ref("");
 const deferDate = ref("");
 const deferReason = ref("");
+const deferDates = reactive<Record<string, string>>({});
 const waitPerson = ref("");
 const waitDate = ref("");
 const client = reactive({ name: "", contact: "", phone: "", note: "" });
@@ -44,6 +46,11 @@ watch(dialogRequest, async (request) => {
     confirmButton.value?.focus();
   } else if (request.kind === "defer") {
     deferDate.value = request.finish;
+    deferReason.value = "";
+    await nextTick();
+    confirmButton.value?.focus();
+  } else if (request.kind === "overdue") {
+    for (const task of request.tasks) deferDates[task.id] = request.finish;
     deferReason.value = "";
     await nextTick();
     confirmButton.value?.focus();
@@ -87,10 +94,18 @@ function confirm(): void {
     return;
   }
   if (request.kind === "defer") {
-    // The overdue prompt always answers: an empty date falls back to the default day.
-    const finish = deferDate.value || (request.auto ? request.finish : "");
-    if (!finish) return;
-    closeDialog({ finish, reason: deferReason.value.trim() });
+    if (!deferDate.value) return;
+    closeDialog({ finish: deferDate.value, reason: deferReason.value.trim() });
+    return;
+  }
+  if (request.kind === "overdue") {
+    closeDialog({
+      dates: request.tasks.map((task) => ({
+        id: task.id,
+        finish: deferDates[task.id] || request.finish,
+      })),
+      reason: deferReason.value.trim(),
+    });
     return;
   }
   if (request.kind === "client") {
@@ -135,7 +150,8 @@ function onEnter(event: KeyboardEvent): void {
         role="dialog"
         aria-modal="true"
         :aria-label="dialogRequest.title"
-        class="flex max-h-[86vh] w-full max-w-[340px] flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl"
+        class="flex max-h-[86vh] w-full flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl"
+        :class="dialogRequest.kind === 'overdue' ? 'max-w-[460px]' : 'max-w-[340px]'"
       >
         <h2 class="shrink-0 px-5 pt-5 text-[15px] font-semibold">{{ dialogRequest.title }}</h2>
         <div class="min-h-0 overflow-y-auto px-5 pb-5">
@@ -216,9 +232,41 @@ function onEnter(event: KeyboardEvent): void {
                   to: shortDate(deferDate),
                 })
               }}</span>
-              <span v-if="dialogRequest.auto" class="mt-0.5 block">
-                {{ t("overdue.defaultHint", { date: shortDate(dialogRequest.finish) }) }}
-              </span>
+            </p>
+          </template>
+          <template v-else-if="dialogRequest.kind === 'overdue'">
+            <ul
+              class="mt-3 max-h-[46vh] divide-y divide-base-300 overflow-y-auto rounded-lg border border-base-300"
+            >
+              <li
+                v-for="task in dialogRequest.tasks"
+                :key="task.id"
+                class="flex items-center gap-2 px-2.5 py-1.5"
+              >
+                <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ task.title }}</span>
+                <span class="shrink-0 text-[10.5px] text-error">{{
+                  t("task.overdue", { days: overdueDays(task.expectedFinishDate, todayIso()) })
+                }}</span>
+                <DateField
+                  v-model="deferDates[task.id]"
+                  :min="dialogRequest.min"
+                  :aria-label="t('task.deferFinishLabel')"
+                  class="input input-sm h-8 w-[132px] shrink-0 rounded-lg border-base-300 text-[12px]"
+                  @enter="confirm"
+                />
+              </li>
+            </ul>
+            <label class="mt-3 block text-[11px] text-base-content/45">
+              {{ t("task.deferReasonLabel") }}
+              <input
+                v-model="deferReason"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                :placeholder="t('task.deferReasonPlaceholder')"
+                @keydown.enter="onEnter"
+              />
+            </label>
+            <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+              {{ t("overdue.batchHint", { date: shortDate(dialogRequest.finish) }) }}
             </p>
           </template>
           <template v-else-if="dialogRequest.kind === 'person'">
@@ -333,9 +381,7 @@ function onEnter(event: KeyboardEvent): void {
                 @click="closeDialog(null)"
               >
                 {{
-                  dialogRequest.kind === "defer" && dialogRequest.auto
-                    ? t("overdue.defaultAction")
-                    : t("dialog.cancel")
+                  dialogRequest.kind === "overdue" ? t("overdue.defaultAction") : t("dialog.cancel")
                 }}
               </button>
               <button
@@ -354,7 +400,9 @@ function onEnter(event: KeyboardEvent): void {
                       ? "dialog.dismiss"
                       : dialogRequest.kind === "client" || dialogRequest.kind === "person"
                         ? "common.save"
-                        : "dialog.ok",
+                        : dialogRequest.kind === "overdue"
+                          ? "overdue.deferAll"
+                          : "dialog.ok",
                   )
                 }}
               </button>
