@@ -92,7 +92,12 @@ describe("weekVM", () => {
       newProjectName: null,
     });
 
-    expect(capture).toHaveBeenCalledWith("周五前把软件方案评审发老李", CAPTURE_DEFAULTS, null);
+    expect(capture).toHaveBeenCalledWith(
+      "周五前把软件方案评审发老李",
+      CAPTURE_DEFAULTS,
+      null,
+      false,
+    );
     expect(vm.state.tasks[0].id).toBe("t1");
     expect(vm.state.draft).toBe("");
   });

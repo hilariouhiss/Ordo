@@ -12,6 +12,8 @@ export type CaptureField = keyof CaptureFields | "newProject";
  *
  * The expected finish is never typed: it is the working day the estimate needs,
  * counted from the capture day. `finish` exposes that preview without storing it.
+ * `done` records a line that already happened; it clears with the line so the next
+ * capture starts as an ordinary one.
  */
 export function createCaptureDraftVM(
   context: () => CaptureContext,
@@ -20,6 +22,7 @@ export function createCaptureDraftVM(
   const state = reactive({
     raw: "",
     manual: {} as Partial<CaptureFields>,
+    done: false,
   });
 
   const parsed = computed(() => parseCapture(state.raw, context(), base()));
@@ -35,20 +38,41 @@ export function createCaptureDraftVM(
     }),
   );
   const finish = computed(() => finishForEffort(context().today, fields.value.effortMinutes));
+  const done = computed(() => state.done);
 
   function setRaw(raw: string): void {
     state.raw = raw;
-    if (!raw.trim()) state.manual = {};
+    if (!raw.trim()) {
+      state.manual = {};
+      state.done = false;
+    }
   }
 
   function edit(patch: Partial<CaptureFields>): void {
     state.manual = { ...state.manual, ...patch };
   }
 
+  function setDone(value: boolean): void {
+    state.done = value;
+  }
+
   function reset(): void {
     state.raw = "";
     state.manual = {};
+    state.done = false;
   }
 
-  return { state, title, fields, matched, finish, newProjectName, setRaw, edit, reset };
+  return {
+    state,
+    title,
+    fields,
+    matched,
+    finish,
+    done,
+    newProjectName,
+    setRaw,
+    edit,
+    setDone,
+    reset,
+  };
 }

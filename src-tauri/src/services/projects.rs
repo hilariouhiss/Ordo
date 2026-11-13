@@ -921,6 +921,7 @@ mod tests {
             "买菜",
             &crate::dto::CaptureFields::default(),
             Some("生活"),
+            false,
             NOW,
             "t1",
         )

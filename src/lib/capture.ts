@@ -26,6 +26,8 @@ export interface CaptureSubmission {
   title: string;
   fields: CaptureFields;
   newProjectName: string | null;
+  /** Records a line that already happened: it lands complete instead of joining the week. */
+  done?: boolean;
 }
 
 export const CAPTURE_DEFAULTS: CaptureFields = {

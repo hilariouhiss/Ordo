@@ -13,6 +13,7 @@ pub async fn capture(
     title: String,
     fields: Option<crate::dto::CaptureFields>,
     new_project_name: Option<String>,
+    done: bool,
 ) -> Result<TaskDto, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_iso();
@@ -23,6 +24,7 @@ pub async fn capture(
             &title,
             &fields,
             new_project_name.as_deref(),
+            done,
             &now,
             &id,
         )

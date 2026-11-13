@@ -14,6 +14,8 @@ const props = defineProps<{
   matched: CaptureField[];
   /** The working day the estimate needs; shown read-only next to the chips. */
   finish: string;
+  /** Recording a finished line: the estimate becomes the time it took. */
+  done: boolean;
   /** A `#name` that will become a project when the line is saved. */
   newProjectName: string | null;
 }>();
@@ -121,13 +123,16 @@ const effort = computed({
     </label>
 
     <label class="flex items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{ t("capture.effort") }}</span>
+      <span class="shrink-0 text-base-content/40">{{
+        t(done ? "task.actualEffort" : "capture.effort")
+      }}</span>
       <EffortField v-model="effort" compact :class="controlClass('effortMinutes')" />
     </label>
 
     <span class="flex items-center gap-1 text-base-content/40">
-      {{ t("task.expectedFinish") }}
-      <span class="tabular-nums text-base-content/70">{{ finishLabel }}</span>
+      {{ t(done ? "task.actualFinish" : "task.expectedFinish") }}
+      <span v-if="done" class="text-base-content/70">{{ t("capture.now") }}</span>
+      <span v-else class="tabular-nums text-base-content/70">{{ finishLabel }}</span>
     </span>
 
     <p v-if="newProjectName" class="basis-full text-[10.5px] text-primary" aria-live="polite">

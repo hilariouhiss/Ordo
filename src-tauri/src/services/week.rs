@@ -25,17 +25,19 @@ pub fn capture_with_fields(
     now: &str,
     id: &str,
 ) -> Result<TaskDto, String> {
-    capture_with_project(conn, raw, fields, None, now, id)
+    capture_with_project(conn, raw, fields, None, false, now, id)
 }
 
 /// A capture whose `#project` token named a project that does not exist yet: the project
 /// is created (or an existing one with the same name reused) in the same transaction as
-/// the task, so a failed insert cannot leave an empty project behind.
+/// the task, so a failed insert cannot leave an empty project behind. `done` records a
+/// line that already happened: the row lands complete in that same transaction.
 pub fn capture_with_project(
     conn: &Connection,
     raw: &str,
     fields: &CaptureFields,
     new_project_name: Option<&str>,
+    done: bool,
     now: &str,
     id: &str,
 ) -> Result<TaskDto, String> {
@@ -48,6 +50,11 @@ pub fn capture_with_project(
         }
     }
     capture_rows(&tx, raw, &fields, None, now, id)?;
+    if done {
+        // The completion shares the insert's transaction: no list can catch the task open
+        // and then lose it again, and a failed insert leaves nothing behind.
+        tasks::set_status(&tx, id, "done", true, now).map_err(|e| e.to_string())?;
+    }
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
@@ -512,6 +519,64 @@ mod tests {
     }
 
     #[test]
+    fn a_capture_recorded_as_done_lands_complete() {
+        let c = db::open_in_memory().unwrap();
+        let fields = CaptureFields {
+            effort_minutes: Some(120),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_project(&c, "做完了", &fields, None, true, NOW, "t1").unwrap();
+
+        assert_eq!(t.status, "done");
+        assert!(!t.in_week);
+        assert_eq!(t.actual_finish_at.as_deref(), Some(NOW));
+        assert_eq!(t.actual_effort_minutes, Some(120));
+        assert!(t.actual_start_at.is_none(), "nothing was ever started");
+        assert!(week::list(&c).unwrap().is_empty(), "finished work stays off the week");
+        assert_eq!(week::list_done(&c, &local_date(NOW)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_capture_without_done_still_opens() {
+        let c = db::open_in_memory().unwrap();
+
+        let t = week::capture_with_project(
+            &c,
+            "还要做",
+            &CaptureFields::default(),
+            None,
+            false,
+            NOW,
+            "t1",
+        )
+        .unwrap();
+
+        assert_eq!(t.status, "todo");
+        assert!(t.in_week);
+        assert!(t.actual_finish_at.is_none());
+    }
+
+    #[test]
+    fn a_done_capture_creates_its_new_project_in_the_same_transaction() {
+        let c = db::open_in_memory().unwrap();
+
+        let t = week::capture_with_project(
+            &c,
+            "做完了",
+            &CaptureFields::default(),
+            Some("新项目"),
+            true,
+            NOW,
+            "t1",
+        )
+        .unwrap();
+
+        assert_eq!(t.status, "done");
+        assert!(t.project_id.is_some());
+    }
+
+    #[test]
     fn a_new_task_follows_the_default_exclusive_setting() {
         let c = db::open_in_memory().unwrap();
         let t = week::capture(&c, "交底", NOW, "t1").unwrap();
@@ -608,7 +673,16 @@ mod tests {
     fn a_new_project_token_creates_the_project_and_joins_it() {
         let c = db::open_in_memory().unwrap();
 
-        let t = week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some(" 华东客户 "), NOW, "t1").unwrap();
+        let t = week::capture_with_project(
+            &c,
+            "写方案",
+            &CaptureFields::default(),
+            Some(" 华东客户 "),
+            false,
+            NOW,
+            "t1",
+        )
+        .unwrap();
 
         let project = crate::repo::projects::find_active_by_name(
             &c,
@@ -632,7 +706,16 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         let existing = crate::services::projects::create(&c, "华东客户", NOW).unwrap();
 
-        let t = week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some("华东客户"), NOW, "t1").unwrap();
+        let t = week::capture_with_project(
+            &c,
+            "写方案",
+            &CaptureFields::default(),
+            Some("华东客户"),
+            false,
+            NOW,
+            "t1",
+        )
+        .unwrap();
 
         assert_eq!(t.project_id.as_deref(), Some(existing.id.as_str()));
         let count: i64 = c.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap();
@@ -648,7 +731,8 @@ mod tests {
             ..Default::default()
         };
 
-        let t = week::capture_with_project(&c, "写方案", &fields, Some("别的项目"), NOW, "t1").unwrap();
+        let t = week::capture_with_project(&c, "写方案", &fields, Some("别的项目"), false, NOW, "t1")
+            .unwrap();
 
         assert_eq!(t.project_id.as_deref(), Some("p1"));
         assert!(crate::repo::projects::find_active_by_name(
@@ -669,8 +753,16 @@ mod tests {
         .unwrap();
 
         assert!(
-            week::capture_with_project(&c, "写方案", &CaptureFields::default(), Some("华东客户"), NOW, "t1")
-                .is_err()
+            week::capture_with_project(
+                &c,
+                "写方案",
+                &CaptureFields::default(),
+                Some("华东客户"),
+                false,
+                NOW,
+                "t1",
+            )
+            .is_err()
         );
         assert!(crate::repo::projects::find_active_by_name(
             &c,

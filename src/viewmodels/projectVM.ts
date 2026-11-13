@@ -44,7 +44,7 @@ export function createProjectVM() {
     capturing = true;
     try {
       try {
-        await saveCapture(title, submission.fields, submission.newProjectName);
+        await saveCapture(title, submission.fields, submission.newProjectName, submission.done);
       } catch (e) {
         void askNotice(t("common.actionFailed"), errorText(e));
         return;

@@ -80,6 +80,23 @@ describe("captureDraftVM", () => {
     expect(draft.state.manual).toEqual({});
   });
 
+  it("keeps the done switch while typing and clears it with the line", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("做完了");
+    draft.setDone(true);
+
+    draft.setRaw("做完了 #华东客户交付");
+    expect(draft.done.value).toBe(true);
+
+    draft.reset();
+    expect(draft.done.value).toBe(false);
+
+    draft.setRaw("做完了");
+    draft.setDone(true);
+    draft.setRaw("   ");
+    expect(draft.done.value).toBe(false);
+  });
+
   it("resets raw and overrides together", () => {
     const draft = createCaptureDraftVM(() => ctx);
     draft.setRaw("写方案 @老李");

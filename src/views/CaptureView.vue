@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check } from "@lucide/vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emitTo, listen } from "@tauri-apps/api/event";
@@ -28,7 +29,7 @@ const draft = createCaptureDraftVM(() => ({
   projects: appVM.state.projects,
   people: appVM.state.people,
 }));
-const { title, fields, matched, finish, newProjectName } = draft;
+const { title, fields, matched, finish, newProjectName, done } = draft;
 const error = ref("");
 watch(
   () => vm.state.draft,
@@ -64,7 +65,7 @@ async function openMain(): Promise<void> {
 async function submit(): Promise<void> {
   const raw = vm.state.draft;
   try {
-    const saved = await vm.save(title.value, fields.value, newProjectName.value, hide);
+    const saved = await vm.save(title.value, fields.value, newProjectName.value, done.value, hide);
     // A second Enter while the first save runs must not erase what was typed after it.
     if (saved && vm.state.draft === raw) vm.state.draft = "";
   } catch (e) {
@@ -179,6 +180,22 @@ onUnmounted(() => {
           @keydown.enter="onEnter"
           @keydown.esc="hide"
         />
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="done"
+          class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] leading-none"
+          :class="
+            done
+              ? 'border-success/40 bg-success/10 text-success'
+              : 'border-base-300 bg-base-100 text-base-content/45 hover:text-base-content/70'
+          "
+          @mousedown.prevent
+          @click="draft.setDone(!done)"
+        >
+          <Check :size="12" aria-hidden="true" />
+          {{ t("capture.done") }}
+        </button>
         <span v-if="vm.state.saved" class="shrink-0 text-[11px] text-success">{{
           t("capture.saved")
         }}</span>
@@ -198,6 +215,7 @@ onUnmounted(() => {
         :fields="fields"
         :matched="matched"
         :finish="finish"
+        :done="done"
         :new-project-name="newProjectName"
         @edit="onEdit"
       />

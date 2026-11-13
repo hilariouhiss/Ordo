@@ -179,7 +179,7 @@ export function createWeekVM() {
     if (!title) return;
     capturing = true;
     try {
-      await saveCapture(title, submission.fields, submission.newProjectName);
+      await saveCapture(title, submission.fields, submission.newProjectName, submission.done);
       if (state.draft.trim() === submission.raw.trim()) state.draft = "";
       await load();
     } catch (e) {

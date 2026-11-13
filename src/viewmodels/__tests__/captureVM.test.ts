@@ -19,8 +19,8 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    await expect(vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide)).resolves.toBe(true);
-    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS, null);
+    await expect(vm.save("买螺丝", CAPTURE_DEFAULTS, null, false, hide)).resolves.toBe(true);
+    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS, null, false);
     expect(vm.state.saved).toBe(true);
     expect(hide).not.toHaveBeenCalled();
 
@@ -34,9 +34,9 @@ describe("captureVM", () => {
     vi.mocked(capture).mockResolvedValue(task({ id: "t1" }));
     const vm = createCaptureVM();
 
-    await vm.save("买螺丝", CAPTURE_DEFAULTS, "华东客户", vi.fn());
+    await vm.save("买螺丝", CAPTURE_DEFAULTS, "华东客户", false, vi.fn());
 
-    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS, "华东客户");
+    expect(capture).toHaveBeenCalledWith("买螺丝", CAPTURE_DEFAULTS, "华东客户", false);
     vi.advanceTimersByTime(800);
     vi.useRealTimers();
   });
@@ -52,8 +52,8 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    const first = vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide);
-    const second = vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide);
+    const first = vm.save("买螺丝", CAPTURE_DEFAULTS, null, false, hide);
+    const second = vm.save("买螺丝", CAPTURE_DEFAULTS, null, false, hide);
     resolve(task({ id: "t1" }));
     const results = await Promise.all([first, second]);
 
@@ -69,7 +69,7 @@ describe("captureVM", () => {
     const hide = vi.fn();
     const vm = createCaptureVM();
 
-    await vm.save("买螺丝", CAPTURE_DEFAULTS, null, hide);
+    await vm.save("买螺丝", CAPTURE_DEFAULTS, null, false, hide);
     vm.state.draft = "下一个";
     vi.advanceTimersByTime(800);
 

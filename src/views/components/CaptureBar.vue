@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
 import type { CaptureSubmission } from "../../lib/capture";
 import { todayIso } from "../../lib/dates";
@@ -17,7 +18,7 @@ const draft = createCaptureDraftVM(
   () => ({ today: todayIso(), projects: appVM.state.projects, people: appVM.state.people }),
   () => (props.projectId ? { projectId: props.projectId } : {}),
 );
-const { title, fields, matched, finish, newProjectName } = draft;
+const { title, fields, matched, finish, newProjectName, done } = draft;
 
 const input = ref<HTMLInputElement | null>(null);
 let refreshedAt = 0;
@@ -44,6 +45,7 @@ function submit(): void {
     title: title.value,
     fields: { ...fields.value },
     newProjectName: newProjectName.value,
+    done: done.value,
   });
 }
 
@@ -67,6 +69,22 @@ defineExpose({ submit, focus: () => input.value?.focus() });
         @focus="refreshContext"
         @keydown.enter="onSubmit"
       />
+      <button
+        type="button"
+        role="switch"
+        :aria-checked="done"
+        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] leading-none"
+        :class="
+          done
+            ? 'border-success/40 bg-success/10 text-success'
+            : 'border-base-300 bg-base-100 text-base-content/45 hover:text-base-content/70'
+        "
+        @mousedown.prevent
+        @click="draft.setDone(!done)"
+      >
+        <Check :size="12" aria-hidden="true" />
+        {{ t("capture.done") }}
+      </button>
       <span class="shrink-0 text-[10.5px] text-base-content/35">{{ t("capture.saveHint") }}</span>
     </div>
     <CaptureChips
@@ -74,6 +92,7 @@ defineExpose({ submit, focus: () => input.value?.focus() });
       :fields="fields"
       :matched="matched"
       :finish="finish"
+      :done="done"
       :new-project-name="newProjectName"
       @edit="onEdit"
     />

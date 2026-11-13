@@ -282,6 +282,8 @@ export const zh = {
   "capture.priority": "优先级",
   "capture.ownerDefault": "默认（我）",
   "capture.effort": "预计耗时",
+  "capture.done": "已完成",
+  "capture.now": "现在",
   "capture.newProject": "保存时新建项目「{name}」",
 
   "quickCreate.taskTitle": "新建任务",
@@ -933,6 +935,8 @@ export const en: Record<MessageKey, string> = {
   "capture.priority": "Priority",
   "capture.ownerDefault": "Default (me)",
   "capture.effort": "Estimate",
+  "capture.done": "Done",
+  "capture.now": "now",
   "capture.newProject": 'Saves as new project "{name}"',
 
   "quickCreate.taskTitle": "New task",

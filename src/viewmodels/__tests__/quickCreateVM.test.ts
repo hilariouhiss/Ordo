@@ -62,11 +62,20 @@ describe("quickCreateVM", () => {
 
     await expect(vm.createTask(submission)).resolves.toBe(true);
 
-    expect(capture).toHaveBeenCalledWith("写方案", submission.fields, null);
+    expect(capture).toHaveBeenCalledWith("写方案", submission.fields, null, false);
     expect(aiEnrich).toHaveBeenCalledWith("t1");
     expect(emit).toHaveBeenCalledWith("capture:created", expect.objectContaining({ id: "t1" }));
     expect(vm.state.mode).toBeNull();
     expect(vm.state.error).toBe("");
+  });
+
+  it("passes the done switch to the backend", async () => {
+    const vm = createQuickCreateVM();
+    vm.openTask();
+
+    await expect(vm.createTask({ ...submission, done: true })).resolves.toBe(true);
+
+    expect(capture).toHaveBeenCalledWith("写方案", submission.fields, null, true);
   });
 
   it("keeps the task modal open with the error", async () => {

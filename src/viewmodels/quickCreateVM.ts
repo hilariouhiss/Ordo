@@ -40,7 +40,12 @@ export function createQuickCreateVM() {
     state.busy = true;
     state.error = "";
     try {
-      const task = await saveCapture(title, submission.fields, submission.newProjectName);
+      const task = await saveCapture(
+        title,
+        submission.fields,
+        submission.newProjectName,
+        submission.done,
+      );
       // The main window's own capture skips the capture window's Rust event, so
       // send the same event the other lists already listen to.
       if (isTauri()) void emit("capture:created", task);

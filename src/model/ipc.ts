@@ -38,8 +38,9 @@ export function capture(
   title: string,
   fields: CaptureFields,
   newProjectName: string | null = null,
+  done = false,
 ): Promise<Task> {
-  return invoke<Task>("capture", { title, fields, newProjectName });
+  return invoke<Task>("capture", { title, fields, newProjectName, done });
 }
 
 export function listWeek(): Promise<Task[]> {

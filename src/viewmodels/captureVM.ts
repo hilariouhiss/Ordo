@@ -14,6 +14,7 @@ export function createCaptureVM() {
     title: string,
     fields: CaptureFields,
     newProjectName: string | null,
+    done: boolean,
     hide: () => void,
   ): Promise<boolean> {
     if (state.saving) return false;
@@ -21,7 +22,7 @@ export function createCaptureVM() {
     if (!text) return false;
     state.saving = true;
     try {
-      await saveCapture(text, fields, newProjectName);
+      await saveCapture(text, fields, newProjectName, done);
       state.saved = true;
       setTimeout(() => {
         state.saved = false;
