@@ -7,6 +7,7 @@ import { formatEffort } from "../lib/effort";
 import { listItemMotion } from "../lib/motion";
 import { ruleSummary } from "../lib/rules";
 import type { TaskRule, TaskTemplate } from "../model/types";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { templatesVM as vm } from "../viewmodels/templatesVM";
 import RuleSheet from "./overlays/RuleSheet.vue";
@@ -17,6 +18,10 @@ import TemplateSheet from "./overlays/TemplateSheet.vue";
 // can see it; a local ref would be invisible to both.
 const ruleSheet = computed(() => vm.state.ruleSheet);
 const templateSheet = computed(() => vm.state.templateSheet);
+usePageHeader(() => ({
+  title: t("templates.title"),
+  context: `${vm.state.rules.length} ${t("templates.rulesTitle")} · ${vm.state.templates.length} ${t("templates.templatesTitle")}`,
+}));
 
 onMounted(() => void vm.load());
 // Leaving the page must not leave a sheet mounted over the next one.
@@ -49,29 +54,25 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
 
 <template>
   <section class="space-y-2">
-    <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("templates.title") }}</h1>
-    </div>
-
     <div class="rounded-xl bg-base-100 px-3 py-2.5">
       <div class="flex items-center gap-3">
-        <span class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+        <span class="text-[12px] font-medium tracking-wide text-base-content/60">
           {{ t("templates.rulesTitle") }}
         </span>
-        <button class="ml-auto text-[11px] text-primary" @click="vm.openRule('new')">
+        <button class="ml-auto text-[12px] text-primary" @click="vm.openRule('new')">
           {{ t("templates.addRule") }}
         </button>
       </div>
-      <p class="mt-1 text-[10.5px] text-base-content/35">{{ t("templates.rulesHint") }}</p>
+      <p class="mt-1 text-[12px] text-base-content/60">{{ t("templates.rulesHint") }}</p>
       <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-0.5">
         <motion.li
           v-for="rule in vm.state.rules"
           :key="rule.id"
           v-bind="listItemMotion"
-          class="flex items-center gap-2 rounded-lg px-1 py-1 text-[12.5px] hover:bg-base-200"
+          class="flex items-center gap-2 rounded-lg px-1 py-1 text-[13px] hover:bg-base-200"
         >
           <span class="min-w-0 truncate">{{ rule.title }}</span>
-          <span class="shrink-0 text-[10.5px] text-base-content/45">{{ ruleSummary(rule) }}</span>
+          <span class="shrink-0 text-[12px] text-base-content/65">{{ ruleSummary(rule) }}</span>
           <div class="ml-auto flex shrink-0 items-center gap-2">
             <input
               type="checkbox"
@@ -85,13 +86,13 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
               @change="toggleRule(rule)"
             />
             <button
-              class="text-[11px] text-base-content/45 hover:text-base-content"
+              class="text-[12px] text-base-content/65 hover:text-base-content"
               @click="vm.openRule(rule)"
             >
               {{ t("common.edit") }}
             </button>
             <button
-              class="text-[11px] text-base-content/45 hover:text-error"
+              class="text-[12px] text-base-content/65 hover:text-error"
               @click="removeRule(rule)"
             >
               {{ t("common.delete") }}
@@ -101,7 +102,7 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
       </AnimatePresence>
       <p
         v-if="!vm.state.rules.length && !vm.state.loading"
-        class="mt-1 px-1 text-[11px] text-base-content/35"
+        class="mt-1 px-1 text-[12px] text-base-content/60"
       >
         {{ t("templates.emptyRules") }}
       </p>
@@ -109,40 +110,40 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
 
     <div class="rounded-xl bg-base-100 px-3 py-2.5">
       <div class="flex items-center gap-3">
-        <span class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+        <span class="text-[12px] font-medium tracking-wide text-base-content/60">
           {{ t("templates.templatesTitle") }}
         </span>
-        <button class="ml-auto text-[11px] text-primary" @click="vm.openTemplate('new')">
+        <button class="ml-auto text-[12px] text-primary" @click="vm.openTemplate('new')">
           {{ t("templates.addTemplate") }}
         </button>
       </div>
-      <p class="mt-1 text-[10.5px] text-base-content/35">{{ t("templates.templatesHint") }}</p>
+      <p class="mt-1 text-[12px] text-base-content/60">{{ t("templates.templatesHint") }}</p>
       <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-0.5">
         <motion.li
           v-for="template in vm.state.templates"
           :key="template.id"
           v-bind="listItemMotion"
-          class="flex items-center gap-2 rounded-lg px-1 py-1 text-[12.5px] hover:bg-base-200"
+          class="flex items-center gap-2 rounded-lg px-1 py-1 text-[13px] hover:bg-base-200"
         >
           <span class="min-w-0 truncate">{{ template.name }}</span>
-          <span class="shrink-0 text-[10.5px] text-base-content/45">
+          <span class="shrink-0 text-[12px] text-base-content/65">
             {{ formatEffort(template.effortMinutes) }}
             <template v-if="template.steps.length">
               · {{ t("templates.stepCount", { count: template.steps.length }) }}
             </template>
           </span>
           <div class="ml-auto flex shrink-0 items-center gap-2">
-            <button class="text-[11px] text-primary" @click="useTemplate(template)">
+            <button class="text-[12px] text-primary" @click="useTemplate(template)">
               {{ t("templates.use") }}
             </button>
             <button
-              class="text-[11px] text-base-content/45 hover:text-base-content"
+              class="text-[12px] text-base-content/65 hover:text-base-content"
               @click="vm.openTemplate(template)"
             >
               {{ t("common.edit") }}
             </button>
             <button
-              class="text-[11px] text-base-content/45 hover:text-error"
+              class="text-[12px] text-base-content/65 hover:text-error"
               @click="removeTemplate(template)"
             >
               {{ t("common.delete") }}
@@ -152,7 +153,7 @@ async function removeTemplate(template: TaskTemplate): Promise<void> {
       </AnimatePresence>
       <p
         v-if="!vm.state.templates.length && !vm.state.loading"
-        class="mt-1 px-1 text-[11px] text-base-content/35"
+        class="mt-1 px-1 text-[12px] text-base-content/60"
       >
         {{ t("templates.emptyTemplates") }}
       </p>

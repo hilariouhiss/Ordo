@@ -69,7 +69,7 @@ const attrs = defineModel<TaskAttrs>({ required: true });
     <button
       type="button"
       class="btn btn-xs rounded-md border-base-300 font-normal"
-      :class="attrs.exclusive ? 'bg-base-100' : 'border-0 bg-primary text-primary-content'"
+      :class="attrs.exclusive ? 'bg-base-100' : 'border-0 bg-base-content text-base-100'"
       @click="attrs.exclusive = false"
     >
       {{ t("task.shared") }}
@@ -77,7 +77,7 @@ const attrs = defineModel<TaskAttrs>({ required: true });
     <button
       type="button"
       class="btn btn-xs rounded-md border-base-300 font-normal"
-      :class="attrs.exclusive ? 'border-0 bg-primary text-primary-content' : 'bg-base-100'"
+      :class="attrs.exclusive ? 'border-0 bg-base-content text-base-100' : 'bg-base-100'"
       @click="attrs.exclusive = true"
     >
       {{ t("task.exclusive") }}

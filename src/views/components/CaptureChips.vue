@@ -83,61 +83,61 @@ const effort = computed({
 </script>
 
 <template>
-  <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px]">
+  <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
     <label class="flex min-w-0 items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{ t("task.project") }}</span>
+      <span class="shrink-0 text-base-content/60">{{ t("task.project") }}</span>
       <ChipSelect
         :model-value="fields.projectId ?? ''"
         :options="projectOptions"
         :label="t('task.project')"
         :create-placeholder="t('projects.placeholder')"
         :class="newProjectName ? 'text-primary' : controlClass('projectId')"
-        class="select select-xs max-w-[120px] rounded-md border-base-300 bg-base-100 pl-1! text-[10.5px]"
+        class="select select-xs max-w-[120px] rounded-md border-base-300 bg-base-100 pl-1! text-[12px]"
         @update:model-value="onProject"
         @create="onCreateProject"
       />
     </label>
 
     <label class="flex min-w-0 items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{ t("task.owner") }}</span>
+      <span class="shrink-0 text-base-content/60">{{ t("task.owner") }}</span>
       <ChipSelect
         :model-value="fields.ownerId ?? ''"
         :options="ownerOptions"
         :label="t('task.owner')"
         :class="controlClass('ownerId')"
-        class="select select-xs max-w-[104px] rounded-md border-base-300 bg-base-100 pl-1! text-[10.5px]"
+        class="select select-xs max-w-[104px] rounded-md border-base-300 bg-base-100 pl-1! text-[12px]"
         @update:model-value="onOwner"
       />
     </label>
 
     <label class="flex items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{ t("capture.priority") }}</span>
+      <span class="shrink-0 text-base-content/60">{{ t("capture.priority") }}</span>
       <ChipSelect
         :model-value="fields.priority"
         :options="priorityOptions"
         :label="t('capture.priority')"
         :class="controlClass('priority')"
-        class="select select-xs max-w-[96px] rounded-md border-base-300 bg-base-100 pl-1! text-[10.5px]"
+        class="select select-xs max-w-[96px] rounded-md border-base-300 bg-base-100 pl-1! text-[12px]"
         @update:model-value="onPriority"
       />
     </label>
 
     <label class="flex items-center gap-1">
-      <span class="shrink-0 text-base-content/40">{{
+      <span class="shrink-0 text-base-content/60">{{
         t(done ? "task.actualEffort" : "capture.effort")
       }}</span>
       <EffortField v-model="effort" compact :class="controlClass('effortMinutes')" />
     </label>
 
-    <span class="flex items-center gap-1 text-base-content/40">
+    <span class="flex items-center gap-1 text-base-content/60">
       {{ t(done ? "task.actualFinish" : "task.expectedFinish") }}
       <span v-if="done" class="text-base-content/70">{{ t("capture.now") }}</span>
       <span v-else class="tabular-nums text-base-content/70">{{ finishLabel }}</span>
     </span>
 
-    <p v-if="newProjectName" class="basis-full text-[10.5px] text-primary" aria-live="polite">
+    <p v-if="newProjectName" class="basis-full text-[12px] text-primary" aria-live="polite">
       {{ t("capture.newProject", { name: newProjectName }) }}
     </p>
-    <p v-if="error" class="basis-full text-[10.5px] text-error">{{ error }}</p>
+    <p v-if="error" class="basis-full text-[12px] text-error">{{ error }}</p>
   </div>
 </template>

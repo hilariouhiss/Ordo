@@ -223,11 +223,11 @@ async function archive(): Promise<void> {
 
         <div class="mt-4 space-y-2 text-[12px]">
           <label class="flex items-center gap-3">
-            <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.name") }}</span>
+            <span class="w-16 shrink-0 text-base-content/65">{{ t("projectSettings.name") }}</span>
             <input v-model="form.name" class="input input-sm flex-1 rounded-lg border-base-300" />
           </label>
           <div class="flex items-center gap-3">
-            <span class="w-16 shrink-0 text-base-content/50">{{ t("projectSettings.group") }}</span>
+            <span class="w-16 shrink-0 text-base-content/65">{{ t("projectSettings.group") }}</span>
             <select
               v-model="form.groupId"
               class="select select-sm flex-1 rounded-lg border-base-300"
@@ -239,14 +239,14 @@ async function archive(): Promise<void> {
               </option>
             </select>
             <button
-              class="shrink-0 text-[11px] text-base-content/45 hover:text-base-content"
+              class="shrink-0 text-[12px] text-base-content/65 hover:text-base-content"
               @click="newGroup"
             >
               + {{ t("projects.newGroup") }}
             </button>
           </div>
           <label class="flex items-center gap-3">
-            <span class="w-16 shrink-0 text-base-content/50">{{
+            <span class="w-16 shrink-0 text-base-content/65">{{
               t("projectSettings.importance")
             }}</span>
             <select
@@ -265,7 +265,7 @@ async function archive(): Promise<void> {
         <div class="mt-4">
           <div class="flex items-baseline gap-2">
             <span class="text-[12px] font-medium">{{ t("projectSettings.members") }}</span>
-            <span class="text-[10.5px] text-base-content/40">{{
+            <span class="text-[12px] text-base-content/60">{{
               t("projectSettings.membersHint")
             }}</span>
           </div>
@@ -288,7 +288,7 @@ async function archive(): Promise<void> {
                 >{{ memberNameOf(member.personId) }}</span
               >
               <select
-                class="select select-xs min-w-0 flex-1 rounded-md border-base-300 bg-base-100 text-[11px]"
+                class="select select-xs min-w-0 flex-1 rounded-md border-base-300 bg-base-100 text-[12px]"
                 :value="member.categoryId ?? ''"
                 :aria-label="t('projectSettings.memberCategory')"
                 @change="onMemberCategory(member.personId, $event)"
@@ -339,7 +339,7 @@ async function archive(): Promise<void> {
               </button>
             </div>
           </div>
-          <p v-if="memberHint" class="mt-1.5 text-[10.5px] text-primary">{{ memberHint }}</p>
+          <p v-if="memberHint" class="mt-1.5 text-[12px] text-primary">{{ memberHint }}</p>
         </div>
 
         <div class="mt-5 flex items-center gap-2 border-t border-base-200 pt-3">
@@ -356,7 +356,7 @@ async function archive(): Promise<void> {
             {{ t("common.close") }}
           </button>
           <button
-            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+            class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
             @click="save"
           >
             {{ t("common.save") }}

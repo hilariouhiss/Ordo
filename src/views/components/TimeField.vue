@@ -166,7 +166,7 @@ function onEnter(event: KeyboardEvent): void {
             :data-hour="hour"
             :aria-pressed="hour === picked.hour"
             class="block w-full rounded-md py-1 text-center text-[12px] tabular-nums"
-            :class="hour === picked.hour ? 'bg-primary text-primary-content' : 'hover:bg-base-200'"
+            :class="hour === picked.hour ? 'bg-base-content text-base-100' : 'hover:bg-base-200'"
             @click="write(hour, picked.minute)"
           >
             {{ pad(hour) }}
@@ -181,7 +181,7 @@ function onEnter(event: KeyboardEvent): void {
             :aria-pressed="minute === picked.minute"
             class="block w-full rounded-md py-1 text-center text-[12px] tabular-nums"
             :class="
-              minute === picked.minute ? 'bg-primary text-primary-content' : 'hover:bg-base-200'
+              minute === picked.minute ? 'bg-base-content text-base-100' : 'hover:bg-base-200'
             "
             @click="chooseMinute(minute)"
           >

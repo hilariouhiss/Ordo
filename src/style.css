@@ -36,9 +36,9 @@
   --color-warning-content: #fdf8ee;
   --color-error: #a85547;
   --color-error-content: #fdf5f3;
-  --radius-selector: 1rem;
-  --radius-field: 0.5rem;
-  --radius-box: 1rem;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -73,9 +73,9 @@
   --color-warning-content: #1a1409;
   --color-error: #d98f81;
   --color-error-content: #1c0f0c;
-  --radius-selector: 1rem;
-  --radius-field: 0.5rem;
-  --radius-box: 1rem;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -109,11 +109,6 @@ input[type="number"]::-webkit-outer-spin-button {
   button:active {
     scale: 0.97;
   }
-}
-
-/* The week's bottom stack: reading one card opens a gap after it and raises it. */
-.week-later li:hover + li {
-  margin-left: 8px !important;
 }
 
 /* The top nav slides a shared underline instead of daisyUI's static border. */
@@ -168,9 +163,9 @@ html[data-window="main"] .window-edge-panel {
   --color-warning-content: #fdf8ee;
   --color-error: #a85547;
   --color-error-content: #fdf5f3;
-  --radius-selector: 1rem;
-  --radius-field: 0.5rem;
-  --radius-box: 1rem;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -203,12 +198,47 @@ html[data-window="main"] .window-edge-panel {
   --color-warning-content: #1a1409;
   --color-error: #d98f81;
   --color-error-content: #1c0f0c;
-  --radius-selector: 1rem;
-  --radius-field: 0.5rem;
-  --radius-box: 1rem;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
   --depth: 0;
   --noise: 0;
+}
+
+/* ---------- shell atoms ---------- */
+/* The one primary action is ink, never the brand hue: the hue is for data. */
+.btn-ink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--color-base-content);
+  color: var(--color-base-100);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.btn-ink:hover {
+  opacity: 0.88;
+}
+.btn-ink .n {
+  padding-left: 8px;
+  margin-left: 1px;
+  border-left: 1px solid currentColor;
+  font-size: 11.5px;
+  font-weight: 500;
+  opacity: 0.66;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn-ink {
+    transition: opacity 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .btn-ink:active {
+    scale: 0.98;
+  }
 }

@@ -3,13 +3,17 @@ import { ChevronRight, GripVertical, Plus, Search, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, ref, watch } from "vue";
 import { askConfirm, askText } from "../lib/dialog";
-import { localDate, shortDate } from "../lib/dates";
+import { localDate, shortDate, todayIso } from "../lib/dates";
+import { formatEffort } from "../lib/effort";
 import { t } from "../lib/i18n";
 import { listItemMotion, panelSwapMotion, weekViewMotion } from "../lib/motion";
 import { prefersReducedMotion } from "../lib/windowMotion";
-import { NONE_GROUP_KEY, type TaskGroup } from "../lib/taskGroups";
+import { NONE_GROUP_KEY, type TaskGroup, type TaskGrouping } from "../lib/taskGroups";
 import type { Priority, Task } from "../model/types";
+import { overdueDays } from "../model/mappers";
 import { appVM } from "../viewmodels/appVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
+import { quickCreateVM } from "../viewmodels/quickCreateVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { tasksVM } from "../viewmodels/tasksVM";
 import { undoVM } from "../viewmodels/undoVM";
@@ -18,17 +22,14 @@ import ViewSwitch from "./components/ViewSwitch.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
 
-const groupOptions = computed(
-  () =>
-    [
-      { value: "project", label: t("tasks.groupProject") },
-      { value: "none", label: t("tasks.groupNone") },
-      { value: "category", label: t("tasks.groupCategory") },
-      { value: "tag", label: t("tasks.groupTag") },
-      { value: "owner", label: t("tasks.groupOwner") },
-      { value: "priority", label: t("tasks.groupPriority") },
-    ] as const,
-);
+const groupOptions = computed(() => [
+  { value: "project", label: t("tasks.groupProject") },
+  { value: "none", label: t("tasks.groupNone") },
+  { value: "category", label: t("tasks.groupCategory") },
+  { value: "tag", label: t("tasks.groupTag") },
+  { value: "owner", label: t("tasks.groupOwner") },
+  { value: "priority", label: t("tasks.groupPriority") },
+]);
 // A ref nested in the VM object is not unwrapped by the template.
 const sections = computed(() => tasksVM.sections.value);
 
@@ -42,6 +43,10 @@ const openSwap = reducedMotion ? {} : weekViewMotion(-1);
 const doneSwap = reducedMotion ? {} : weekViewMotion(1);
 function setMode(next: string): void {
   void tasksVM.setMode(next as "open" | "done");
+}
+
+function setGroupBy(value: string): void {
+  tasksVM.setGroupBy(value as TaskGrouping);
 }
 
 /** The done list searches on its own so the open-task filter survives the switch. */
@@ -142,11 +147,6 @@ function setPriority(value: string): void {
   tasksVM.state.filter.priority = (value || null) as Priority | null;
 }
 
-/** A facet that holds a value stands out from the five plain "All" chips. */
-function facetClass(active: boolean): string {
-  return active ? "border-primary/40 bg-primary/5 text-primary" : "border-base-300 bg-base-100";
-}
-
 async function saveView(): Promise<void> {
   const name = await askText(t("filters.saveTitle"), "");
   if (name) await tasksVM.saveView(name);
@@ -156,11 +156,66 @@ const draggingTaskId = ref<string | null>(null);
 const dragOverGroup = ref<string | null>(null);
 let dragEndedAt = 0;
 
+/** The toolbar's one search field serves both halves of the page. */
+const searchText = computed({
+  get: () => (tasksVM.state.mode === "open" ? tasksVM.state.filter.query : tasksVM.state.doneQuery),
+  set: (value: string) => {
+    if (tasksVM.state.mode === "open") {
+      tasksVM.state.filter.query = value;
+      return;
+    }
+    tasksVM.state.doneQuery = value;
+    onDoneSearch();
+  },
+});
+
+function clearSearch(): void {
+  searchText.value = "";
+}
+
+function groupEffort(group: TaskGroup): string {
+  const minutes = group.tasks.reduce((sum, one) => sum + one.effortMinutes, 0);
+  return formatEffort(minutes);
+}
+
 const hint = computed(() => {
   if (tasksVM.state.groupBy === "project") return t("tasks.dragProjectHint");
   if (tasksVM.state.groupBy === "tag") return t("tasks.tagHint");
   return t("tasks.hint");
 });
+
+/** The filter row is closed until used; a live filter keeps it open. */
+const filtersOpen = ref(false);
+const activeFilterCount = computed(
+  () =>
+    [
+      tasksVM.state.filter.projectId,
+      tasksVM.state.filter.categoryId,
+      tasksVM.state.filter.ownerId,
+      tasksVM.state.filter.tagId,
+      tasksVM.state.filter.priority,
+    ].filter(Boolean).length,
+);
+
+const openCount = computed(() => tasksVM.state.tasks.filter((one) => one.status !== "done").length);
+const overdueCount = computed(
+  () =>
+    tasksVM.state.tasks.filter(
+      (one) =>
+        one.status !== "done" &&
+        !one.suspended &&
+        !one.waiting &&
+        overdueDays(one.expectedFinishDate, todayIso()) > 0,
+    ).length,
+);
+
+usePageHeader(() => ({
+  title: t("nav.tasks"),
+  context: `${t("tasks.count", { count: tasksVM.state.tasks.length })} · ${t("tasks.openCount", { count: openCount.value })}`,
+  warning: overdueCount.value ? t("week.overdueCount", { count: overdueCount.value }) : "",
+  actionLabel: t("quickCreate.taskTitle"),
+  action: () => quickCreateVM.openTask(),
+}));
 
 onMounted(() => void tasksVM.load());
 
@@ -240,20 +295,68 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
 </script>
 
 <template>
-  <section class="space-y-2">
-    <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("tasks.title") }}</h1>
-      <span class="text-[11px] tabular-nums text-base-content/45">
-        {{
-          tasksVM.state.mode === "done"
-            ? t("tasks.doneCount", { count: tasksVM.state.done.length })
-            : filtering
-              ? t("filters.count", { shown: shownCount, total: tasksVM.state.tasks.length })
-              : t("tasks.count", { count: tasksVM.state.tasks.length })
-        }}
-      </span>
-      <span class="ml-auto text-[10.5px] text-base-content/35">{{ hint }}</span>
+  <section class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <label
+        class="flex h-8 w-60 shrink-0 items-center gap-2 rounded-md border border-base-300 bg-base-100 px-2.5"
+      >
+        <Search :size="14" class="shrink-0 text-base-content/55" aria-hidden="true" />
+        <input
+          v-model="searchText"
+          class="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-base-content/55"
+          :placeholder="
+            tasksVM.state.mode === 'open' ? t('filters.searchPlaceholder') : t('tasks.doneSearch')
+          "
+          :aria-label="
+            tasksVM.state.mode === 'open' ? t('filters.searchPlaceholder') : t('tasks.doneSearch')
+          "
+        />
+        <button
+          v-if="searchText"
+          type="button"
+          class="shrink-0 text-base-content/55 hover:text-base-content"
+          :aria-label="t('filters.clearQuery')"
+          @click="clearSearch"
+        >
+          <X :size="12" aria-hidden="true" />
+        </button>
+      </label>
+
+      <ChipSelect
+        v-if="tasksVM.state.mode === 'open'"
+        :model-value="tasksVM.state.groupBy"
+        :options="groupOptions"
+        :label="t('tasks.groupByAria')"
+        :dim="t('tasks.groupByShort')"
+        class="select-sm h-8 w-36 shrink-0 rounded-md border border-base-300 bg-base-100 px-2.5 text-[13px]"
+        @update:model-value="setGroupBy"
+      />
+      <button
+        v-if="tasksVM.state.mode === 'open'"
+        type="button"
+        class="flex h-8 shrink-0 items-center gap-1 rounded-md border px-2.5 text-[13px]"
+        :class="
+          filtersOpen || activeFilterCount
+            ? 'border-base-content/25 text-base-content'
+            : 'border-base-300 text-base-content/70 hover:text-base-content'
+        "
+        :aria-expanded="filtersOpen"
+        @click="filtersOpen = !filtersOpen"
+      >
+        {{ t("filters.filter") }}
+        <span v-if="activeFilterCount" class="tabular-nums">· {{ activeFilterCount }}</span>
+      </button>
+      <button
+        v-if="filtering"
+        type="button"
+        class="shrink-0 px-1 text-[12px] text-base-content/65 hover:text-error"
+        @click="tasksVM.clearFilter()"
+      >
+        {{ t("filters.clear") }}
+      </button>
+
       <ViewSwitch
+        class="ml-auto"
         :label="t('tasks.modeAria')"
         :options="modeOptions"
         :model-value="tasksVM.state.mode"
@@ -261,222 +364,190 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
       />
     </div>
 
-    <AnimatePresence mode="wait" :initial="false">
-      <motion.div
-        v-if="tasksVM.state.mode === 'open'"
-        key="open"
-        v-bind="openSwap"
-        class="space-y-2"
+    <div
+      v-if="tasksVM.state.mode === 'open' && (filtersOpen || filtering)"
+      class="flex flex-wrap items-center gap-1.5"
+    >
+      <ChipSelect
+        :model-value="tasksVM.state.filter.projectId ?? ''"
+        :options="projectOptions"
+        :label="t('filters.project')"
+        :dim="t('filters.project')"
+        class="select-sm h-8 min-w-28 flex-1 rounded-md border border-base-300 bg-base-100 px-2.5 text-[12px]"
+        :class="tasksVM.state.filter.projectId ? 'text-primary' : ''"
+        @update:model-value="setFacet('projectId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.categoryId ?? ''"
+        :options="categoryOptions"
+        :label="t('filters.category')"
+        :dim="t('filters.category')"
+        class="select-sm h-8 min-w-28 flex-1 rounded-md border border-base-300 bg-base-100 px-2.5 text-[12px]"
+        :class="tasksVM.state.filter.categoryId ? 'text-primary' : ''"
+        @update:model-value="setFacet('categoryId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.ownerId ?? ''"
+        :options="ownerOptions"
+        :label="t('filters.owner')"
+        :dim="t('filters.owner')"
+        class="select-sm h-8 min-w-28 flex-1 rounded-md border border-base-300 bg-base-100 px-2.5 text-[12px]"
+        :class="tasksVM.state.filter.ownerId ? 'text-primary' : ''"
+        @update:model-value="setFacet('ownerId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.tagId ?? ''"
+        :options="tagOptions"
+        :label="t('filters.tag')"
+        :dim="t('filters.tag')"
+        class="select-sm h-8 min-w-28 flex-1 rounded-md border border-base-300 bg-base-100 px-2.5 text-[12px]"
+        :class="tasksVM.state.filter.tagId ? 'text-primary' : ''"
+        @update:model-value="setFacet('tagId', $event)"
+      />
+      <ChipSelect
+        :model-value="tasksVM.state.filter.priority ?? ''"
+        :options="priorityOptions"
+        :label="t('filters.priority')"
+        :dim="t('filters.priority')"
+        class="select-sm h-8 min-w-28 flex-1 rounded-md border border-base-300 bg-base-100 px-2.5 text-[12px]"
+        :class="tasksVM.state.filter.priority ? 'text-primary' : ''"
+        @update:model-value="setPriority"
+      />
+    </div>
+
+    <div v-if="savedViews.length || filtering" class="flex flex-wrap items-center gap-1.5">
+      <span class="text-[11.5px] text-base-content/60">{{ t("filters.savedViews") }}</span>
+      <div
+        v-for="view in savedViews"
+        :key="view.id"
+        class="flex items-center rounded-md border pr-1 pl-2.5 text-[12px]"
+        :class="
+          activeViewId === view.id
+            ? 'border-primary/30 bg-primary/5 text-primary'
+            : 'border-base-300 bg-base-100 text-base-content/70'
+        "
       >
-        <div role="tablist" :aria-label="t('tasks.groupByAria')" class="tabs tabs-border tabs-sm">
-          <button
-            v-for="option in groupOptions"
-            :key="option.value"
-            role="tab"
-            class="tab"
-            :class="{ 'tab-active': tasksVM.state.groupBy === option.value }"
-            :aria-selected="tasksVM.state.groupBy === option.value"
-            @click="tasksVM.setGroupBy(option.value)"
-          >
-            {{ option.label }}
-          </button>
-        </div>
+        <button type="button" class="py-1" @click="tasksVM.applyView(view.id)">
+          {{ view.name }}
+        </button>
+        <button
+          type="button"
+          class="ml-1 grid size-4 place-items-center rounded text-base-content/50 hover:bg-base-200 hover:text-error"
+          :aria-label="t('filters.deleteAria', { name: view.name })"
+          @click.stop="tasksVM.removeView(view.id)"
+        >
+          <X :size="10" aria-hidden="true" />
+        </button>
+      </div>
+      <button
+        v-if="filtering"
+        type="button"
+        class="flex items-center gap-1 rounded-md border border-dashed border-base-300 px-2.5 py-1 text-[12px] text-base-content/65 hover:border-primary/30 hover:text-primary"
+        @click="saveView"
+      >
+        <Plus :size="11" aria-hidden="true" />
+        {{ t("filters.save") }}
+      </button>
+    </div>
 
-        <div class="flex flex-wrap items-center gap-1.5">
-          <div
-            class="input input-sm flex w-56 shrink-0 items-center gap-1.5 rounded-lg border-0 bg-base-100"
-          >
-            <Search :size="13" class="shrink-0 text-base-content/35" aria-hidden="true" />
-            <input
-              v-model="tasksVM.state.filter.query"
-              class="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-base-content/35"
-              :placeholder="t('filters.searchPlaceholder')"
-              :aria-label="t('filters.searchPlaceholder')"
-            />
-            <button
-              v-if="tasksVM.state.filter.query"
-              type="button"
-              class="shrink-0 text-base-content/35 hover:text-base-content"
-              :aria-label="t('filters.clearQuery')"
-              @click="tasksVM.state.filter.query = ''"
-            >
-              <X :size="12" aria-hidden="true" />
-            </button>
-          </div>
-          <ChipSelect
-            :model-value="tasksVM.state.filter.projectId ?? ''"
-            :options="projectOptions"
-            :label="t('filters.project')"
-            :dim="t('filters.project')"
-            class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
-            :class="facetClass(!!tasksVM.state.filter.projectId)"
-            @update:model-value="setFacet('projectId', $event)"
-          />
-          <ChipSelect
-            :model-value="tasksVM.state.filter.categoryId ?? ''"
-            :options="categoryOptions"
-            :label="t('filters.category')"
-            :dim="t('filters.category')"
-            class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
-            :class="facetClass(!!tasksVM.state.filter.categoryId)"
-            @update:model-value="setFacet('categoryId', $event)"
-          />
-          <ChipSelect
-            :model-value="tasksVM.state.filter.ownerId ?? ''"
-            :options="ownerOptions"
-            :label="t('filters.owner')"
-            :dim="t('filters.owner')"
-            class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
-            :class="facetClass(!!tasksVM.state.filter.ownerId)"
-            @update:model-value="setFacet('ownerId', $event)"
-          />
-          <ChipSelect
-            :model-value="tasksVM.state.filter.tagId ?? ''"
-            :options="tagOptions"
-            :label="t('filters.tag')"
-            :dim="t('filters.tag')"
-            class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
-            :class="facetClass(!!tasksVM.state.filter.tagId)"
-            @update:model-value="setFacet('tagId', $event)"
-          />
-          <ChipSelect
-            :model-value="tasksVM.state.filter.priority ?? ''"
-            :options="priorityOptions"
-            :label="t('filters.priority')"
-            :dim="t('filters.priority')"
-            class="select-sm min-w-24 flex-1 rounded-lg border text-[11px]"
-            :class="facetClass(!!tasksVM.state.filter.priority)"
-            @update:model-value="setPriority($event)"
-          />
-          <!-- Always drawn so the row does not resize when the first filter lands. -->
-          <button
-            type="button"
-            class="shrink-0 px-1 text-[11px] text-base-content/40 hover:text-error"
-            :class="{ invisible: !filtering }"
-            @click="tasksVM.clearFilter()"
-          >
-            {{ t("filters.clear") }}
-          </button>
-        </div>
+    <p
+      v-if="tasksVM.state.mode === 'open' && tasksVM.state.groupBy === 'project' && !filtering"
+      class="text-[11.5px] text-base-content/60"
+    >
+      {{ hint }}
+    </p>
 
-        <div v-if="savedViews.length || filtering" class="flex flex-wrap items-center gap-1.5">
-          <span class="text-[10.5px] text-base-content/40">{{ t("filters.savedViews") }}</span>
-          <div
-            v-for="view in savedViews"
-            :key="view.id"
-            class="flex items-center rounded-full border pr-1 pl-2.5 text-[11px]"
-            :class="
-              activeViewId === view.id
-                ? 'border-primary/30 bg-primary/10 text-primary'
-                : 'border-base-300 bg-base-100 text-base-content/60'
-            "
-          >
-            <button type="button" class="py-1" @click="tasksVM.applyView(view.id)">
-              {{ view.name }}
-            </button>
-            <button
-              type="button"
-              class="ml-1 grid size-4 place-items-center rounded-full text-base-content/35 hover:bg-base-200 hover:text-error"
-              :aria-label="t('filters.deleteAria', { name: view.name })"
-              @click.stop="tasksVM.removeView(view.id)"
-            >
-              <X :size="10" aria-hidden="true" />
-            </button>
-          </div>
-          <button
-            v-if="filtering"
-            type="button"
-            class="flex items-center gap-1 rounded-full border border-dashed border-base-300 px-2.5 py-1 text-[11px] text-base-content/50 hover:border-primary/30 hover:text-primary"
-            @click="saveView"
-          >
-            <Plus :size="11" aria-hidden="true" />
-            {{ t("filters.save") }}
-          </button>
-        </div>
-
+    <AnimatePresence mode="wait" :initial="false">
+      <motion.div v-if="tasksVM.state.mode === 'open'" key="open" v-bind="openSwap">
         <AnimatePresence mode="wait" :initial="false">
           <motion.div :key="tasksVM.state.groupBy" v-bind="panelSwapMotion">
-            <div v-if="shownCount" class="space-y-2">
+            <div v-if="shownCount" class="space-y-3">
               <section
                 v-for="group in sections"
                 :key="group.key"
                 :class="
                   tasksVM.state.groupBy === 'project' && dragOverGroup === group.key
-                    ? 'rounded-xl bg-primary/5 ring-2 ring-primary/30'
+                    ? 'rounded-lg bg-primary/5 ring-2 ring-primary/30'
                     : ''
                 "
                 @dragover="onGroupDragOver($event, group)"
                 @dragleave="onGroupDragLeave($event, group)"
                 @drop="onGroupDrop($event, group)"
               >
-                <h2 v-if="tasksVM.state.groupBy !== 'none'">
-                  <button
-                    type="button"
-                    class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-1 pt-2 pb-1 text-left text-[10.5px] text-base-content/45 hover:text-base-content/70 focus-visible:ring-2 focus-visible:ring-primary/40"
-                    :aria-expanded="!tasksVM.isGroupCollapsed(group.key)"
-                    :aria-controls="groupListId(group.key)"
-                    :aria-label="
-                      t(
-                        tasksVM.isGroupCollapsed(group.key)
-                          ? 'tasks.expandGroup'
-                          : 'tasks.collapseGroup',
-                        {
-                          name: group.name,
-                        },
-                      )
-                    "
-                    @click="tasksVM.toggleGroup(group.key)"
-                  >
-                    <ChevronRight
-                      :size="12"
-                      aria-hidden="true"
-                      class="shrink-0 transition-transform duration-150"
-                      :class="{ 'rotate-90': !tasksVM.isGroupCollapsed(group.key) }"
-                    />
-                    <span class="font-medium text-base-content/60">{{ group.name }}</span>
-                    <span class="tabular-nums">{{ group.tasks.length }}</span>
-                    <span class="h-px flex-1 bg-base-300/70"></span>
-                  </button>
-                </h2>
-                <div :id="groupListId(group.key)">
-                  <AnimatePresence
-                    v-if="tasksVM.state.groupBy === 'none' || !tasksVM.isGroupCollapsed(group.key)"
-                    as="ul"
-                    mode="popLayout"
-                    :initial="false"
-                    class="space-y-1.5"
-                  >
-                    <TaskRow
-                      v-for="task in group.tasks"
-                      :key="task.id"
-                      :task="task"
-                      :show-project="tasksVM.state.groupBy !== 'project'"
-                      :draggable="tasksVM.state.groupBy === 'project' && !filtering"
-                      :dimmed="draggingTaskId === task.id"
-                      @open="openTask"
-                      @changed="refresh"
-                      @drag-start="onTaskDragStart"
-                      @drag-end="onTaskDragEnd"
+                <div class="overflow-hidden rounded-lg bg-base-100">
+                  <h2 v-if="tasksVM.state.groupBy !== 'none'">
+                    <button
+                      type="button"
+                      class="flex w-full cursor-pointer items-center gap-2 border-b border-base-200 px-3 py-2 text-left text-[13px] hover:bg-base-200/50 focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none"
+                      :aria-expanded="!tasksVM.isGroupCollapsed(group.key)"
+                      :aria-controls="groupListId(group.key)"
+                      :aria-label="
+                        t(
+                          tasksVM.isGroupCollapsed(group.key)
+                            ? 'tasks.expandGroup'
+                            : 'tasks.collapseGroup',
+                          { name: group.name },
+                        )
+                      "
+                      @click="tasksVM.toggleGroup(group.key)"
                     >
-                      <template #leading>
-                        <span
-                          v-if="tasksVM.state.groupBy === 'project'"
-                          class="mt-0.5 shrink-0 cursor-grab text-base-content/25 active:cursor-grabbing"
-                          :title="t('tasks.dragProjectHint')"
-                          aria-hidden="true"
-                          @click.stop
-                        >
-                          <GripVertical :size="14" />
-                        </span>
-                      </template>
-                    </TaskRow>
-                  </AnimatePresence>
+                      <ChevronRight
+                        :size="13"
+                        aria-hidden="true"
+                        class="shrink-0 text-base-content/55 transition-transform duration-150"
+                        :class="{ 'rotate-90': !tasksVM.isGroupCollapsed(group.key) }"
+                      />
+                      <span class="font-medium">{{ group.name }}</span>
+                      <span class="tabular-nums text-base-content/55">{{
+                        group.tasks.length
+                      }}</span>
+                      <span class="ml-auto text-[11.5px] text-base-content/55">{{
+                        groupEffort(group)
+                      }}</span>
+                    </button>
+                  </h2>
+                  <div :id="groupListId(group.key)">
+                    <AnimatePresence
+                      v-if="
+                        tasksVM.state.groupBy === 'none' || !tasksVM.isGroupCollapsed(group.key)
+                      "
+                      as="ul"
+                      mode="popLayout"
+                      :initial="false"
+                      class="divide-y divide-base-200"
+                    >
+                      <TaskRow
+                        v-for="task in group.tasks"
+                        :key="task.id"
+                        :task="task"
+                        :show-project="tasksVM.state.groupBy !== 'project'"
+                        :draggable="tasksVM.state.groupBy === 'project' && !filtering"
+                        :dimmed="draggingTaskId === task.id"
+                        @open="openTask"
+                        @changed="refresh"
+                        @drag-start="onTaskDragStart"
+                        @drag-end="onTaskDragEnd"
+                      >
+                        <template #leading>
+                          <span
+                            v-if="tasksVM.state.groupBy === 'project'"
+                            class="cursor-grab text-base-content/25 active:cursor-grabbing"
+                            :title="t('tasks.dragProjectHint')"
+                            aria-hidden="true"
+                            @click.stop
+                          >
+                            <GripVertical :size="13" />
+                          </span>
+                        </template>
+                      </TaskRow>
+                    </AnimatePresence>
+                  </div>
                 </div>
               </section>
             </div>
             <p
               v-else-if="!tasksVM.state.loading && filtering"
-              class="px-1 text-[13px] text-base-content/40"
+              class="text-[13px] text-base-content/65"
             >
               {{ t("filters.empty") }}
               <button
@@ -487,64 +558,54 @@ async function onGroupDrop(event: DragEvent, group: TaskGroup): Promise<void> {
                 {{ t("filters.clear") }}
               </button>
             </p>
-            <p v-else-if="!tasksVM.state.loading" class="px-1 text-[13px] text-base-content/40">
+            <p v-else-if="!tasksVM.state.loading" class="text-[13px] text-base-content/65">
               {{ t("tasks.empty") }}
             </p>
           </motion.div>
         </AnimatePresence>
       </motion.div>
 
-      <motion.div v-else key="done" v-bind="doneSwap" class="space-y-2">
-        <div class="flex flex-wrap items-center gap-1.5">
-          <div
-            class="input input-sm flex w-56 shrink-0 items-center gap-1.5 rounded-lg border-0 bg-base-100"
-          >
-            <Search :size="13" class="shrink-0 text-base-content/35" aria-hidden="true" />
-            <input
-              v-model="tasksVM.state.doneQuery"
-              class="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-base-content/35"
-              :placeholder="t('tasks.doneSearch')"
-              :aria-label="t('tasks.doneSearch')"
-              @input="onDoneSearch"
-            />
-          </div>
-        </div>
-
-        <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
+      <motion.div v-else key="done" v-bind="doneSwap" class="space-y-3">
+        <AnimatePresence
+          as="ul"
+          mode="popLayout"
+          :initial="false"
+          class="divide-y divide-base-200 overflow-hidden rounded-lg bg-base-100"
+        >
           <motion.li
             v-for="task in tasksVM.state.done"
             :key="task.id"
             v-bind="listItemMotion"
-            class="flex cursor-pointer items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
+            class="flex h-11 cursor-pointer items-center gap-3 px-3 text-[13px] hover:bg-base-200/60"
             @click="taskSheetVM.open(task.id)"
           >
-            <span class="min-w-0 flex-1 truncate text-base-content/65">{{ task.title }}</span>
+            <span class="min-w-0 flex-1 truncate text-base-content/70">{{ task.title }}</span>
             <span
               v-if="task.actualFinishAt"
-              class="shrink-0 text-[10.5px] tabular-nums text-base-content/35"
+              class="shrink-0 text-[11.5px] tabular-nums text-base-content/55"
             >
               {{ t("tasks.doneAt", { date: shortDate(localDate(task.actualFinishAt)) }) }}
             </span>
             <button
               type="button"
-              class="shrink-0 text-base-content/35 hover:text-base-content"
+              class="shrink-0 text-[12px] text-base-content/65 hover:text-base-content"
               @click.stop="tasksVM.restoreDone(task.id)"
             >
               {{ t("common.restore") }}
             </button>
             <button
               type="button"
-              class="shrink-0 text-base-content/35 hover:text-error"
+              class="shrink-0 text-[12px] text-base-content/65 hover:text-error"
               @click.stop="removeDone(task)"
             >
               {{ t("common.delete") }}
             </button>
           </motion.li>
         </AnimatePresence>
-        <p v-if="!tasksVM.state.done.length" class="px-1 text-[12px] text-base-content/40">
+        <p v-if="!tasksVM.state.done.length" class="text-[13px] text-base-content/65">
           {{ t("tasks.doneEmpty") }}
         </p>
-        <p class="px-1 text-[10.5px] text-base-content/35">{{ t("tasks.doneFooter") }}</p>
+        <p class="text-[11.5px] text-base-content/60">{{ t("tasks.doneFooter") }}</p>
       </motion.div>
     </AnimatePresence>
 

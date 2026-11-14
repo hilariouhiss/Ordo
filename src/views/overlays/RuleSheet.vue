@@ -85,7 +85,7 @@ async function save(): Promise<void> {
           {{ t(rule ? "rule.editTitle" : "rule.newTitle") }}
         </h2>
         <button
-          class="ml-auto grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-base-content"
+          class="ml-auto grid size-6 place-items-center rounded-md text-base-content/60 hover:bg-base-200 hover:text-base-content"
           :aria-label="t('common.close')"
           @click="emit('close')"
         >
@@ -96,13 +96,13 @@ async function save(): Promise<void> {
       <div class="min-h-0 overflow-y-auto px-4 pb-4">
         <input
           v-model="form.title"
-          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[13px]"
           :placeholder="t('rule.titlePlaceholder')"
           :aria-label="t('rule.name')"
           autofocus
         />
 
-        <div class="mt-3 text-[10.5px] font-medium tracking-wide text-base-content/40">
+        <div class="mt-3 text-[12px] font-medium tracking-wide text-base-content/60">
           {{ t("rule.weekdays") }}
         </div>
         <div class="mt-1.5 flex flex-wrap items-center gap-1">
@@ -112,15 +112,13 @@ async function save(): Promise<void> {
             type="button"
             class="btn btn-xs rounded-md border-base-300 font-normal"
             :class="
-              form.weekdays.includes(day)
-                ? 'border-0 bg-primary text-primary-content'
-                : 'bg-base-100'
+              form.weekdays.includes(day) ? 'border-0 bg-base-content text-base-100' : 'bg-base-100'
             "
             @click="toggleDay(day)"
           >
             {{ weekdayName(day) }}
           </button>
-          <label class="ml-1 flex items-center gap-1.5 text-[11px] text-base-content/45">
+          <label class="ml-1 flex items-center gap-1.5 text-[12px] text-base-content/65">
             {{ t("rule.time") }}
             <TimeField v-model="form.at" class="input input-sm w-28 rounded-lg border-base-300" />
           </label>
@@ -128,7 +126,7 @@ async function save(): Promise<void> {
 
         <TaskAttrFields v-model="attrs" />
 
-        <p v-if="error" class="mt-2 text-[11px] text-error">{{ error }}</p>
+        <p v-if="error" class="mt-2 text-[12px] text-error">{{ error }}</p>
 
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -138,7 +136,7 @@ async function save(): Promise<void> {
             {{ t("common.cancel") }}
           </button>
           <button
-            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+            class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
             :disabled="saving || !form.title.trim() || !form.weekdays.length"
             @click="save"
           >

@@ -91,6 +91,7 @@ export const zh = {
   "tasks.doneEmpty": "还没有已完成的任务。",
   "tasks.doneFooter": "恢复会把任务放回本周；删除只对这里列出的已完成任务生效。",
   "tasks.groupByAria": "分组方式",
+  "tasks.groupByShort": "分组",
   "tasks.noTag": "无标签",
   "tasks.tagHint": "同一任务可出现在多个标签下",
   "tasks.dragProjectHint": "拖到项目分组可改所属项目",
@@ -112,6 +113,7 @@ export const zh = {
   "filters.all": "全部",
   "filters.searchPlaceholder": "在任务里搜…",
   "filters.clearQuery": "清空关键词",
+  "filters.filter": "筛选",
   "filters.project": "项目",
   "filters.category": "分类",
   "filters.owner": "负责人",
@@ -668,6 +670,18 @@ export const zh = {
   "error.template_not_found": "这个模板已经不在了。",
   "error.invalid_stats_range": "统计区间不对，换两天再试。",
   "error.stats_range_too_long": "统计区间最长 {days} 天。",
+
+  "nav.reference": "资料",
+  "nav.collapse": "收起侧栏",
+  "nav.expand": "展开侧栏",
+  "nav.mainAria": "主导航",
+  "mode.rowLabel": "{mode}模式",
+  "mode.switchLabel": "切换",
+  "desk.rowLabel": "桌面小窗",
+  "week.overdueCount": "{count} 件逾期",
+  "tasks.openCount": "待办 {count}",
+  "projects.count": "{count} 个项目",
+  "project.next": "下一步 {title} {date}",
 } as const;
 
 export type MessageKey = keyof typeof zh;
@@ -758,6 +772,7 @@ export const en: Record<MessageKey, string> = {
   "tasks.doneFooter":
     "Restore puts the task back in the week; delete only removes the finished rows listed here.",
   "tasks.groupByAria": "Group by",
+  "tasks.groupByShort": "Group",
   "tasks.noTag": "No tag",
   "tasks.tagHint": "A task can appear under more than one tag",
   "tasks.dragProjectHint": "Drag onto a project group to move it",
@@ -780,6 +795,7 @@ export const en: Record<MessageKey, string> = {
   "filters.all": "All",
   "filters.searchPlaceholder": "Search tasks…",
   "filters.clearQuery": "Clear the keyword",
+  "filters.filter": "Filter",
   "filters.project": "Project",
   "filters.category": "Category",
   "filters.owner": "Owner",
@@ -1347,6 +1363,18 @@ export const en: Record<MessageKey, string> = {
   "error.template_not_found": "That template is gone.",
   "error.invalid_stats_range": "That date range does not work; pick two days again.",
   "error.stats_range_too_long": "A statistics range can cover at most {days} days.",
+
+  "nav.reference": "Reference",
+  "nav.collapse": "Collapse sidebar",
+  "nav.expand": "Expand sidebar",
+  "nav.mainAria": "Main navigation",
+  "mode.rowLabel": "{mode} mode",
+  "mode.switchLabel": "Switch",
+  "desk.rowLabel": "Desk widget",
+  "week.overdueCount": "{count} overdue",
+  "tasks.openCount": "{count} open",
+  "projects.count": "{count} projects",
+  "project.next": "Next {title} {date}",
 };
 
 export const messages = { zh, en } as const;

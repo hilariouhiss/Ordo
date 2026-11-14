@@ -168,7 +168,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </span>
             <span v-if="projectName" class="badge badge-ghost badge-sm">{{ projectName }}</span>
             <span v-if="categoryName" class="badge badge-ghost badge-sm">{{ categoryName }}</span>
-            <span class="text-[11.5px] text-base-content/45">
+            <span class="text-[12px] text-base-content/65">
               {{
                 t("pass.due", {
                   owner: ownerName || "",
@@ -184,7 +184,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
           <p
             v-if="passVM.current.value.carryCount >= 3"
-            class="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-[11.5px] text-warning"
+            class="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning"
           >
             {{ t("pass.warning", { count: passVM.current.value.carryCount }) }}
           </p>
@@ -226,9 +226,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </button>
           </div>
 
-          <div v-if="suspendOpen" class="mt-4 rounded-xl bg-base-200 p-3">
+          <div v-if="suspendOpen" class="mt-4 rounded-lg bg-base-200 p-3">
             <div class="text-[12px] font-medium">{{ t("pass.suspendPrompt") }}</div>
-            <label class="mt-2 block text-[10.5px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("task.suspendReasonLabel") }}
               <input
                 v-model="suspendReason"
@@ -237,7 +237,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 @keydown.enter="onSuspendEnter"
               />
             </label>
-            <label class="mt-2 block text-[10.5px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("task.suspendUntilLabel") }}
               <DateField
                 v-model="suspendDate"
@@ -249,7 +249,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </label>
             <div class="mt-3 flex items-center gap-2">
               <button
-                class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+                class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
                 @click="actSuspend"
               >
                 {{ t("pass.suspend") }}
@@ -261,10 +261,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                 {{ t("pass.back") }}
               </button>
             </div>
-            <p v-if="suspendError" class="mt-2 text-[10.5px] text-error">
+            <p v-if="suspendError" class="mt-2 text-[12px] text-error">
               {{ errorText(suspendError) }}
             </p>
-            <p class="mt-2 text-[10.5px] text-base-content/45">
+            <p class="mt-2 text-[12px] text-base-content/65">
               {{ t("pass.suspendHint") }}
             </p>
           </div>
@@ -277,7 +277,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           class="mt-5 rounded-2xl bg-base-100 p-8 text-center text-base-content"
         >
           <p class="text-[16px] font-semibold">{{ t("pass.finished") }}</p>
-          <p class="mt-1 text-[12px] text-base-content/45">
+          <p class="mt-1 text-[12px] text-base-content/65">
             {{
               t("pass.counts", {
                 keep: passVM.state.counts.keep,
@@ -289,7 +289,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             }}
           </p>
           <button
-            class="btn mt-4 rounded-lg border-0 bg-primary text-primary-content"
+            class="btn mt-4 rounded-lg border-0 bg-base-content text-base-100"
             @click="finish"
           >
             {{ t("pass.backToWeek") }}

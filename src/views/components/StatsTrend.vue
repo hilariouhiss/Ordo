@@ -46,8 +46,8 @@ const total = computed(() => props.buckets.reduce((sum, b) => sum + b.completed,
 <template>
   <div class="rounded-xl bg-base-100 p-3">
     <div class="mb-2 flex items-baseline gap-3">
-      <h2 class="text-[12.5px] font-semibold">{{ t("stats.trend") }}</h2>
-      <div class="flex items-center gap-3 text-[11px] text-base-content/45">
+      <h2 class="text-[13px] font-semibold">{{ t("stats.trend") }}</h2>
+      <div class="flex items-center gap-3 text-[12px] text-base-content/65">
         <span class="flex items-center gap-1">
           <i class="size-2 rounded-[2px] bg-primary" aria-hidden="true"></i>
           {{ t("stats.trendCompleted") }}
@@ -60,7 +60,7 @@ const total = computed(() => props.buckets.reduce((sum, b) => sum + b.completed,
           {{ t("stats.trendCreated") }}
         </span>
       </div>
-      <span class="ml-auto text-[11px] text-base-content/40">
+      <span class="ml-auto text-[12px] text-base-content/60">
         {{
           granularity === "day"
             ? t("stats.byDay")
@@ -76,7 +76,7 @@ const total = computed(() => props.buckets.reduce((sum, b) => sum + b.completed,
       role="img"
       :aria-label="t('stats.chartAria', { title: t('stats.trend'), count: total })"
     >
-      <div class="relative h-[132px] text-[10px] text-base-content/40 tabular-nums">
+      <div class="relative h-[132px] text-[12px] text-base-content/60 tabular-nums">
         <span
           v-for="tick in ticks"
           :key="tick"
@@ -127,7 +127,7 @@ const total = computed(() => props.buckets.reduce((sum, b) => sum + b.completed,
 
       <div></div>
       <!-- Labels are drawn every few columns, so let them spill past their tick. -->
-      <div class="flex gap-0.5 text-[10px] text-base-content/40">
+      <div class="flex gap-0.5 text-[12px] text-base-content/60">
         <span
           v-for="(bucket, index) in buckets"
           :key="bucket.key"

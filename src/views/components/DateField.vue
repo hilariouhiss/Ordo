@@ -256,7 +256,7 @@ defineExpose({ focus: () => inputEl.value?.focus() });
             :aria-pressed="iso === model"
             class="size-8 rounded-md text-[12px] tabular-nums focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-base-100 focus-visible:outline-none disabled:opacity-25 disabled:hover:bg-transparent"
             :class="{
-              'bg-primary text-primary-content hover:bg-primary': iso === model,
+              'bg-base-content text-base-100 hover:bg-base-content': iso === model,
               'hover:bg-base-200': iso !== model,
               'font-semibold text-primary': iso === today && iso !== model,
             }"

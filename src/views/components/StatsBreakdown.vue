@@ -29,21 +29,21 @@ function width(completed: number): string {
 <template>
   <div class="rounded-xl bg-base-100 p-3">
     <div class="mb-2 flex items-baseline gap-3">
-      <h2 class="text-[12.5px] font-semibold">{{ title }}</h2>
-      <span class="ml-auto text-[11px] text-base-content/40">{{ t("stats.sliceUnit") }}</span>
+      <h2 class="text-[13px] font-semibold">{{ title }}</h2>
+      <span class="ml-auto text-[12px] text-base-content/60">{{ t("stats.sliceUnit") }}</span>
     </div>
 
-    <p v-if="!rows.length" class="py-1 text-[11.5px] text-base-content/40">{{ emptyText }}</p>
+    <p v-if="!rows.length" class="py-1 text-[12px] text-base-content/60">{{ emptyText }}</p>
 
     <div v-else class="flex flex-col gap-1.5">
       <div
         v-for="(row, index) in rows"
         :key="index"
-        class="grid grid-cols-[minmax(0,92px)_minmax(0,1fr)_24px_34px] items-center gap-2 text-[11.5px]"
+        class="grid grid-cols-[minmax(0,92px)_minmax(0,1fr)_24px_34px] items-center gap-2 text-[12px]"
       >
         <span
           class="truncate"
-          :class="row.merged ? 'text-base-content/40' : 'text-base-content/55'"
+          :class="row.merged ? 'text-base-content/60' : 'text-base-content/60'"
           :title="rowName(row.name, row.merged)"
         >
           {{ rowName(row.name, row.merged) }}
@@ -61,7 +61,7 @@ function width(completed: number): string {
           ></i>
         </span>
         <span class="text-right font-medium tabular-nums">{{ row.completed }}</span>
-        <span class="text-right text-[11px] tabular-nums text-base-content/40">
+        <span class="text-right text-[12px] tabular-nums text-base-content/60">
           {{ t("stats.personDays", { value: personDays(row.minutes) }) }}
         </span>
       </div>

@@ -93,8 +93,8 @@ const heatmapAria = computed(() => {
 <template>
   <div class="rounded-xl bg-base-100 p-3">
     <div class="mb-2 flex items-baseline gap-3">
-      <h2 class="text-[12.5px] font-semibold">{{ t("stats.heatmap") }}</h2>
-      <div class="flex items-center gap-1 text-[10.5px] text-base-content/40">
+      <h2 class="text-[13px] font-semibold">{{ t("stats.heatmap") }}</h2>
+      <div class="flex items-center gap-1 text-[12px] text-base-content/60">
         <span>{{ t("stats.heatmapLess") }}</span>
         <i
           v-for="step in LEVELS"
@@ -105,7 +105,7 @@ const heatmapAria = computed(() => {
         ></i>
         <span>{{ t("stats.heatmapMore") }}</span>
       </div>
-      <span class="ml-auto text-[11px] text-base-content/40">
+      <span class="ml-auto text-[12px] text-base-content/60">
         {{
           peak
             ? t("stats.heatmapPeak", { date: shortDate(peak.date), count: peak.completed })
@@ -116,14 +116,14 @@ const heatmapAria = computed(() => {
 
     <!-- Few weeks: a month-style grid, one row per week, one cell per day. -->
     <div v-if="compact" class="grid grid-cols-7 gap-1" role="img" :aria-label="heatmapAria">
-      <span v-for="key in WEEKDAYS" :key="key" class="pl-1 text-[10px] text-base-content/40">
+      <span v-for="key in WEEKDAYS" :key="key" class="pl-1 text-[12px] text-base-content/60">
         {{ t(key) }}
       </span>
       <template v-for="(week, weekIndex) in weeks" :key="week">
         <div
           v-for="row in rows"
           :key="week + row.weekday"
-          class="flex h-[42px] items-end justify-end rounded-md px-1.5 pb-1 text-[10.5px] tabular-nums"
+          class="flex h-[42px] items-end justify-end rounded-md px-1.5 pb-1 text-[12px] tabular-nums"
           :class="[dayClass(row.cells[weekIndex].completed), animate ? 'opacity-100' : 'opacity-0']"
           :style="{
             transition: `opacity 260ms ease-out ${delay(weekIndex * 7 + row.weekday)}`,
@@ -142,7 +142,7 @@ const heatmapAria = computed(() => {
     <!-- Long ranges: one row per weekday, one square per week. -->
     <div v-else class="flex flex-col gap-[3px]" role="img" :aria-label="heatmapAria">
       <div v-for="row in rows" :key="row.weekday" class="flex items-center gap-[3px]">
-        <span class="w-6 shrink-0 text-[10px] leading-none whitespace-nowrap text-base-content/40">
+        <span class="w-6 shrink-0 text-[12px] leading-none whitespace-nowrap text-base-content/60">
           {{ t(WEEKDAYS[row.weekday]) }}
         </span>
         <div

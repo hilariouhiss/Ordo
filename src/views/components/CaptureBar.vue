@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check } from "@lucide/vue";
+import { Check, Plus } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
 import type { CaptureSubmission } from "../../lib/capture";
 import { todayIso } from "../../lib/dates";
@@ -58,12 +58,13 @@ defineExpose({ submit, focus: () => input.value?.focus() });
 </script>
 
 <template>
-  <div class="rounded-xl bg-base-100 px-4 py-2.5">
-    <div class="flex items-center gap-2">
+  <div class="rounded-lg bg-base-100 px-3">
+    <div class="flex min-h-12 items-center gap-2.5">
+      <Plus :size="15" class="shrink-0 text-base-content/55" aria-hidden="true" />
       <input
         ref="input"
         v-model="model"
-        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
+        class="w-full bg-transparent text-[14px] outline-none placeholder:text-base-content/55"
         :placeholder="t('capture.placeholder')"
         :title="t('capture.syntax')"
         @focus="refreshContext"
@@ -73,11 +74,11 @@ defineExpose({ submit, focus: () => input.value?.focus() });
         type="button"
         role="switch"
         :aria-checked="done"
-        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] leading-none"
+        class="inline-flex h-[26px] shrink-0 items-center gap-1 rounded-md border px-2 text-[12px] leading-none"
         :class="
           done
             ? 'border-success/40 bg-success/10 text-success'
-            : 'border-base-300 bg-base-100 text-base-content/45 hover:text-base-content/70'
+            : 'border-base-300 bg-base-100 text-base-content/65 hover:border-base-content/30 hover:text-base-content'
         "
         @mousedown.prevent
         @click="draft.setDone(!done)"
@@ -85,7 +86,7 @@ defineExpose({ submit, focus: () => input.value?.focus() });
         <Check :size="12" aria-hidden="true" />
         {{ t("capture.done") }}
       </button>
-      <span class="shrink-0 text-[10.5px] text-base-content/35">{{ t("capture.saveHint") }}</span>
+      <span class="shrink-0 text-[11.5px] text-base-content/55">{{ t("capture.saveHint") }}</span>
     </div>
     <CaptureChips
       v-if="model.trim()"

@@ -13,18 +13,18 @@ const emit = defineEmits<{ "update:modelValue": [value: string] }>();
   <div
     role="tablist"
     :aria-label="label"
-    class="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-base-300 bg-base-100 p-0.5"
+    class="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-base-300 bg-base-100 p-0.5"
   >
     <button
       v-for="option in options"
       :key="option.value"
       role="tab"
       :aria-selected="modelValue === option.value"
-      class="rounded-md px-2.5 py-1 text-[10.5px] leading-none"
+      class="rounded px-2.5 py-1 text-[12px] leading-none"
       :class="
         modelValue === option.value
-          ? 'bg-primary/10 font-medium text-primary'
-          : 'text-base-content/45 hover:text-base-content'
+          ? 'bg-base-300 font-medium text-base-content'
+          : 'text-base-content/65 hover:text-base-content'
       "
       @click="emit('update:modelValue', option.value)"
     >

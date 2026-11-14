@@ -27,8 +27,8 @@ function height(value: number): string {
 <template>
   <div class="rounded-xl bg-base-100 p-3">
     <div class="mb-2 flex items-baseline gap-3">
-      <h2 class="text-[12.5px] font-semibold">{{ t("stats.weekday") }}</h2>
-      <span class="ml-auto text-[11px] text-base-content/40">{{ t("stats.weekdayHint") }}</span>
+      <h2 class="text-[13px] font-semibold">{{ t("stats.weekday") }}</h2>
+      <span class="ml-auto text-[12px] text-base-content/60">{{ t("stats.weekdayHint") }}</span>
     </div>
 
     <div
@@ -57,8 +57,8 @@ function height(value: number): string {
             }"
           ></i>
         </div>
-        <span class="text-[10.5px] text-base-content/40">{{ t(WEEKDAYS[index]) }}</span>
-        <span class="text-[11.5px] font-medium tabular-nums">{{ total }}</span>
+        <span class="text-[12px] text-base-content/60">{{ t(WEEKDAYS[index]) }}</span>
+        <span class="text-[12px] font-medium tabular-nums">{{ total }}</span>
       </div>
     </div>
   </div>

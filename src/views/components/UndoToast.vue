@@ -12,7 +12,7 @@ import { undoVM as vm } from "../../viewmodels/undoVM";
         v-if="vm.state.entry"
         :key="vm.state.entry.message"
         role="status"
-        class="pointer-events-auto flex max-w-full items-center gap-2.5 rounded-xl bg-neutral px-3 py-2 text-[12px] text-neutral-content shadow-2xl"
+        class="pointer-events-auto flex max-w-full items-center gap-2.5 rounded-lg bg-neutral px-3 py-2 text-[12px] text-neutral-content shadow-2xl"
         :initial="{ opacity: 0, y: 10 }"
         :animate="{ opacity: 1, y: 0 }"
         :exit="{ opacity: 0, y: 6, transition: { duration: 0.14 } }"
@@ -28,7 +28,7 @@ import { undoVM as vm } from "../../viewmodels/undoVM";
         >
           {{ t("undo.action") }}
         </button>
-        <span class="shrink-0 text-[10px] opacity-60">{{ t("undo.shortcut") }}</span>
+        <span class="shrink-0 text-[12px] opacity-60">{{ t("undo.shortcut") }}</span>
         <button
           type="button"
           class="grid size-5 shrink-0 place-items-center rounded-md opacity-60 hover:bg-neutral-content/15 hover:opacity-100"

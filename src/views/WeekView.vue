@@ -3,25 +3,29 @@ import { GripVertical } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { shortDate, todayIso, weekWorkdays, weekdayLabel } from "../lib/dates";
-import { DECK_CARD_W, DECK_MAX_STEP, stackStep } from "../lib/deck";
 import { askNotice } from "../lib/dialog";
 import { formatEffort } from "../lib/effort";
 import { errorText, t } from "../lib/i18n";
-import { listItemMotion, weekViewMotion } from "../lib/motion";
+import { easeOut, springSnappy, weekViewMotion } from "../lib/motion";
 import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
 import { isRuleTask } from "../lib/rules";
+import { LOAD_WARN_HOURS } from "../lib/schedule";
+import { waitingOnName } from "../lib/waiting";
 import { prefersReducedMotion } from "../lib/windowMotion";
 import ViewSwitch from "./components/ViewSwitch.vue";
 import { anchorFor, coveredDays, ganttDropAt, listDropAt } from "../lib/weekDrop";
+import { overdueDays } from "../model/mappers";
 import type { Task, WeekView } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { passVM } from "../viewmodels/passVM";
 import { settingsVM } from "../viewmodels/settingsVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
+import StatusDot from "./components/StatusDot.vue";
 import TaskRow from "./components/TaskRow.vue";
 import WeekGantt from "./components/WeekGantt.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
@@ -136,15 +140,14 @@ const poolColumn = computed(() => {
   const index = day ? week.value.indexOf(day) : -1;
   return index >= 0 ? index : null;
 });
-/**
- * The stack's enter/exit. Movement there is margin-driven (the step-aside transition), so
- * layout is off; the card being dragged stays dimmed instead of animating to full opacity.
- */
-function stackMotion(dimmed: boolean) {
+/** The rail's cards: laid out vertically, so the FLIP layout animation is the movement. */
+function laterMotion(dimmed: boolean) {
   return {
-    ...listItemMotion,
-    layout: false,
-    animate: { ...listItemMotion.animate, opacity: dimmed ? 0.4 : 1 },
+    layout: true,
+    initial: false,
+    animate: { opacity: dimmed ? 0.4 : 1 },
+    exit: { opacity: 0, transition: { duration: 0.12, ease: easeOut } },
+    transition: springSnappy,
   };
 }
 
@@ -156,20 +159,45 @@ const poolDropLabel = computed(() => {
     ? t("week.dropTo", { date: shortDate(day), weekday: weekdayLabel(day) })
     : t("week.dropBack");
 });
-/** The bottom stack fits the row: the gap between cards shrinks as tasks come in. */
-const deckEl = ref<HTMLElement | null>(null);
-const deckStep = ref(DECK_MAX_STEP);
-let deckObserver: ResizeObserver | undefined;
+/** The title row's one number: how much of today is already booked. */
+const todayLoad = computed(() => loads.value.get(today.value) ?? 0);
+/** Work that already missed its day; suspended and waiting tasks are not chased. */
+const overdueCount = computed(
+  () =>
+    weekTasks.value.filter(
+      (task) =>
+        task.status !== "done" &&
+        !task.suspended &&
+        !task.waiting &&
+        overdueDays(task.expectedFinishDate, today.value) > 0,
+    ).length,
+);
 
-function fitDeck(): void {
-  deckStep.value = stackStep(deckEl.value?.clientWidth ?? 0, laterTasks.value.length);
-}
+usePageHeader(() => ({
+  title: t("nav.week"),
+  context: [
+    week.value.length
+      ? `${shortDate(week.value[0])} – ${shortDate(week.value[week.value.length - 1])}`
+      : "",
+    todayLoad.value > 0
+      ? `${t("common.today")} ${formatEffort(Math.round(todayLoad.value * 60))}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · "),
+  warning: overdueCount.value ? t("week.overdueCount", { count: overdueCount.value }) : "",
+  actionLabel: t("week.pass"),
+  actionCount: passNeeded.value ? state.tasks.length : null,
+  action: passNeeded.value ? () => void passVM.start() : null,
+}));
 
-function observeDeck(): void {
-  deckObserver ??= new ResizeObserver(fitDeck);
-  deckObserver.disconnect();
-  if (deckEl.value) deckObserver.observe(deckEl.value);
-  fitDeck();
+/** The rail's waiting line: who it waits on and when to chase them. */
+function waitingLine(task: Task): string {
+  const who = waitingOnName(task, appVM.state.people);
+  const follow = task.followUpDate
+    ? t("task.followUpOn", { date: shortDate(task.followUpDate) })
+    : t("task.noFollowUp");
+  return `${who ? t("task.waitingOn", { name: who }) : t("task.waitingNoName")} · ${follow}`;
 }
 const draggingId = computed(() => drag.id.value ?? poolDrag.id.value);
 const dropTarget = computed(() => drag.target.value ?? poolDrag.target.value);
@@ -240,13 +268,11 @@ onMounted(() => {
   // Seeing this page is what clears the tray's unread count; other pages do not.
   void markSeen();
   dayTick = window.setInterval(checkDay, DAY_TICK_MS);
-  observeDeck();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
   window.removeEventListener("focus", onWindowFocus);
   window.clearInterval(dayTick);
-  deckObserver?.disconnect();
 });
 
 watch(
@@ -267,7 +293,6 @@ watch(
 );
 
 // A reload changes how many cards the row holds: re-measure once the DOM has them.
-watch(() => laterTasks.value.length, observeDeck, { flush: "post" });
 
 function dayLoad(date: string): number {
   return loads.value.get(date) ?? 0;
@@ -340,267 +365,282 @@ watch(
 </script>
 
 <template>
-  <section class="flex grow flex-col space-y-2" :class="{ 'select-none': draggingId }">
-    <div v-if="passNeeded" class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5">
-      <span class="text-[12.5px]">{{ t("week.passNeeded") }}</span>
-      <span class="text-[11px] text-base-content/45">{{
-        t("week.pending", { count: state.tasks.length })
-      }}</span>
-      <button
-        class="btn btn-sm ml-auto rounded-lg border-0 bg-primary text-primary-content"
-        @click="passVM.start"
-      >
-        {{ t("week.pass") }}
-      </button>
-    </div>
-
+  <section class="flex grow flex-col gap-3" :class="{ 'select-none': draggingId }">
     <CaptureBar v-model="state.draft" @submit="capture" />
 
-    <div class="flex items-center gap-2 px-1">
-      <div
-        v-if="planEnd"
-        class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[10.5px] text-base-content/45"
-        aria-live="polite"
-      >
-        <span>
-          {{
-            t("week.planEnd", {
-              date: shortDate(planEnd),
-              weekday: planEnd ? weekdayLabel(planEnd) : "",
-            })
-          }}
-        </span>
-        <span v-if="conflictCount" class="badge badge-soft badge-error badge-xs">
-          {{ t("week.conflict", { count: conflictCount }) }}
-        </span>
-        <span v-if="overloadDates.length" class="badge badge-soft badge-warning badge-xs">
-          {{ t("week.overloaded", { dates: overloadText }) }}
-        </span>
-      </div>
-      <ViewSwitch
-        class="ml-auto"
-        :label="t('settings.weekView')"
-        :options="weekViewOptions"
-        :model-value="weekView"
-        @update:model-value="saveWeekView"
-      />
-    </div>
-
-    <AnimatePresence mode="wait" :initial="false">
-      <motion.div
-        v-if="ganttView && (days.some((day) => day.rows.length) || laterTasks.length)"
-        key="gantt"
-        v-bind="ganttSwap"
-        class="flex grow flex-col"
-      >
-        <WeekGantt
-          :days="days"
-          :dates="week"
-          :today="today"
-          :outside-moved="poolMoved"
-          :outside-column="poolColumn"
-          :outside-before="poolTarget?.beforeId ?? null"
-          @changed="refresh"
-        />
-      </motion.div>
-
-      <motion.div v-else key="list" v-bind="listSwap">
-        <p
-          v-if="emptyWeek && !(ganttView && laterTasks.length)"
-          class="px-1 text-[13px] text-base-content/40"
-        >
-          {{ t("week.empty") }}
-        </p>
-
-        <div
-          v-if="!ganttView && shownDays.length"
-          ref="listEl"
-          :class="{ 'select-none': draggingId }"
-        >
-          <section
-            v-for="day in shownDays"
-            :key="day.date"
-            :data-day="day.date"
-            :class="{ 'opacity-75': day.isPast }"
+    <div
+      class="grid grid-cols-1 gap-[18px] min-[1320px]:grid-cols-[minmax(0,1fr)_320px] min-[1320px]:items-start"
+    >
+      <div class="min-w-0">
+        <div class="flex min-h-[30px] items-center gap-2 px-0.5">
+          <div
+            v-if="planEnd"
+            class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-base-content/65"
+            aria-live="polite"
           >
-            <div
-              class="flex items-center gap-2 px-1 pt-1.5 pb-1 text-[10.5px] text-base-content/40"
-            >
-              <span class="font-medium">{{ day.weekday }}</span>
-              <span>{{ shortDate(day.date) }}</span>
-              <span v-if="day.isToday" class="badge badge-soft badge-primary badge-xs">{{
-                t("week.today")
-              }}</span>
-              <span v-else-if="day.isPast" class="badge badge-ghost badge-xs">{{
-                t("week.past")
-              }}</span>
-              <span v-if="dayLoad(day.date)" class="ml-auto text-[10px] text-base-content/40">
-                {{ t("week.dayLoad", { hours: dayLoad(day.date) }) }}
-              </span>
-              <span
-                v-if="dragMoved && dropTarget?.day === day.date"
-                class="text-[10px] text-primary"
-                :class="{ 'ml-auto': !dayLoad(day.date) }"
-              >
-                {{ t("week.dropDay") }}
-              </span>
-            </div>
-            <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
-              <TaskRow
-                v-for="row in day.rows"
-                :key="row.task.id"
-                :task="row.task"
-                :readonly="row.history === true"
-                :plan="{
-                  start: row.start,
-                  end: row.end,
-                  spans: row.spans,
-                  days: row.days,
-                  clamped: row.clamped,
-                  conflict: row.conflict,
-                }"
-                :data-task-id="row.history ? undefined : row.task.id"
-                :drop-line="
-                  dragMoved &&
-                  dropTarget?.day === day.date &&
-                  dropTarget.beforeId === row.task.id &&
-                  draggingId !== row.task.id
-                "
-                :dimmed="draggingId === row.task.id"
-                @open="openTask"
-                @changed="refresh"
-              >
-                <template v-if="!row.history && !isRuleTask(row.task)" #leading>
-                  <button
-                    class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
-                    :aria-label="t('week.reorderAria', { title: row.task.title })"
-                    @click.stop
-                    @pointerdown="startDrag($event, row.task.id)"
-                    @pointermove="drag.move"
-                    @pointerup="drag.end"
-                    @pointercancel="drag.cancel"
-                    @keydown.up.prevent="onMoveBy(row.task.id, -1)"
-                    @keydown.down.prevent="onMoveBy(row.task.id, 1)"
-                  >
-                    <GripVertical :size="14" aria-hidden="true" />
-                  </button>
-                </template>
-              </TaskRow>
-            </AnimatePresence>
-            <div
-              v-if="!day.rows.length"
-              class="mt-0.5 flex h-9 items-center justify-center rounded-xl border border-dashed text-[10.5px]"
-              :class="
-                dragMoved && dropTarget?.day === day.date
-                  ? 'border-primary/60 bg-primary/5 text-primary'
-                  : 'border-base-content/15 text-base-content/30'
-              "
-            >
-              {{ dragMoved ? t("week.dropDay") : t("week.emptyDay") }}
-            </div>
-            <div
-              v-else-if="dragMoved && dropTarget?.day === day.date && dropTarget.beforeId === null"
-              class="mt-1.5 h-6 rounded-xl border border-dashed border-primary/50"
-            ></div>
-          </section>
+            <span>
+              {{
+                t("week.planEnd", {
+                  date: shortDate(planEnd),
+                  weekday: planEnd ? weekdayLabel(planEnd) : "",
+                })
+              }}
+            </span>
+            <span v-if="conflictCount" class="text-error">
+              {{ t("week.conflict", { count: conflictCount }) }}
+            </span>
+            <span v-if="overloadDates.length" class="text-warning">
+              {{ t("week.overloaded", { dates: overloadText }) }}
+            </span>
+          </div>
+          <ViewSwitch
+            class="ml-auto"
+            :label="t('settings.weekView')"
+            :options="weekViewOptions"
+            :model-value="weekView"
+            @update:model-value="saveWeekView"
+          />
         </div>
-      </motion.div>
-    </AnimatePresence>
 
-    <div v-if="waitingOpen" class="space-y-1.5">
-      <div class="px-1 text-[10.5px] font-medium tracking-wide text-base-content/40">
-        {{ t("week.waiting", { count: state.waiting.length }) }}
-      </div>
-      <ul class="space-y-1.5">
-        <TaskRow
-          v-for="task in state.waiting"
-          :key="task.id"
-          :task="task"
-          :dimmed="draggingId === task.id"
-          @open="openTask"
-          @changed="refresh"
-        >
-          <template v-if="!ganttView && !isRuleTask(task)" #leading>
-            <button
-              class="shrink-0 cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
-              :aria-label="t('week.reorderAria', { title: task.title })"
-              @click.stop
-              @pointerdown="startDrag($event, task.id)"
-              @pointermove="drag.move"
-              @pointerup="drag.end"
-              @pointercancel="drag.cancel"
-            >
-              <GripVertical :size="14" aria-hidden="true" />
-            </button>
-          </template>
-          <template #actions>
-            <button
-              class="grid h-5 place-items-center rounded-md px-1 text-[10.5px] text-primary hover:bg-base-200"
-              @click.stop="resumeWaiting(task.id)"
-            >
-              {{ t("task.replied") }}
-            </button>
-          </template>
-        </TaskRow>
-      </ul>
-    </div>
-
-    <div v-if="laterTasks.length" class="week-later space-y-1.5 px-1">
-      <div
-        class="flex items-center gap-2 px-1 text-[10.5px] font-medium tracking-wide text-base-content/40"
-      >
-        <span>{{ t("week.later", { count: laterTasks.length }) }}</span>
-        <span class="ml-auto text-[10px]">{{ t("week.laterHint") }}</span>
-      </div>
-      <ul ref="deckEl" class="flex items-end pt-1 pb-1">
-        <AnimatePresence mode="popLayout" :initial="false">
-          <motion.li
-            v-for="(task, index) in laterTasks"
-            :key="task.id"
-            v-bind="stackMotion(poolDraggingId === task.id)"
-            class="week-later-card relative flex h-[66px] w-[260px] shrink-0 cursor-grab touch-none flex-col justify-center gap-1 rounded-xl border border-base-300 bg-base-100 px-3 py-2 select-none shadow-sm transition-[margin,border-color,box-shadow] duration-200 ease-out hover:z-40 hover:border-primary/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary/40 motion-reduce:transition-none"
-            :style="{ marginLeft: index ? `${deckStep - DECK_CARD_W}px` : undefined }"
-            role="button"
-            tabindex="0"
-            :aria-label="t('week.laterCardAria', { title: task.title })"
-            @pointerdown="startPoolDrag($event, task)"
-            @pointermove="movePoolDrag"
-            @pointerup="endPoolDrag"
-            @pointercancel="cancelPoolDrag"
-            @click="openLater(task)"
-            @keydown.enter.prevent="openLater(task)"
+        <AnimatePresence mode="wait" :initial="false">
+          <motion.div
+            v-if="ganttView && (days.some((day) => day.rows.length) || laterTasks.length)"
+            key="gantt"
+            v-bind="ganttSwap"
+            class="flex grow flex-col"
           >
-            <span class="flex min-w-0 items-center gap-1.5">
-              <span class="truncate text-[13px]">{{ task.title }}</span>
-              <span
-                v-if="task.projectName"
-                class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
-                :title="task.projectName"
-              >
-                <span class="min-w-0 truncate">{{ task.projectName }}</span>
-              </span>
-            </span>
-            <span class="flex min-w-0 items-center gap-1.5 text-[10.5px] text-base-content/45">
-              <span class="truncate">{{ laterStart(task) }}</span>
-              <span v-if="task.effortMinutes !== 480" class="badge badge-ghost badge-xs shrink-0">
-                {{ formatEffort(task.effortMinutes) }}
-              </span>
-            </span>
-          </motion.li>
-        </AnimatePresence>
-      </ul>
-    </div>
+            <WeekGantt
+              :days="days"
+              :dates="week"
+              :today="today"
+              :outside-moved="poolMoved"
+              :outside-column="poolColumn"
+              :outside-before="poolTarget?.beforeId ?? null"
+              @changed="refresh"
+            />
+          </motion.div>
 
-    <div class="flex items-center gap-3 px-1 text-[11px] text-base-content/45">
-      <span class="tabular-nums">
-        {{
-          t("week.stats", {
-            done: state.stats.done,
-            added: state.stats.added,
-            delayed: state.stats.delayed,
-          })
-        }}
-      </span>
+          <motion.div v-else key="list" v-bind="listSwap">
+            <p
+              v-if="emptyWeek && !(ganttView && laterTasks.length)"
+              class="px-1 pb-2 text-[13px] text-base-content/65"
+            >
+              {{ t("week.empty") }}
+            </p>
+
+            <div
+              v-if="!ganttView && shownDays.length"
+              ref="listEl"
+              :class="{ 'select-none': draggingId }"
+            >
+              <section
+                v-for="day in shownDays"
+                :key="day.date"
+                :data-day="day.date"
+                class="mb-3.5 last:mb-0"
+              >
+                <div class="flex h-[30px] items-center gap-2 px-0.5">
+                  <span class="text-[13px] font-semibold">{{ day.weekday }}</span>
+                  <span class="text-[12px] text-base-content/65">{{ shortDate(day.date) }}</span>
+                  <span v-if="day.isToday" class="text-[12px] font-medium text-primary">{{
+                    t("week.today")
+                  }}</span>
+                  <span v-else-if="day.isPast" class="text-[12px] text-base-content/60">{{
+                    t("week.past")
+                  }}</span>
+                  <span
+                    v-if="dragMoved && dropTarget?.day === day.date"
+                    class="text-[11.5px] text-primary"
+                  >
+                    {{ t("week.dropDay") }}
+                  </span>
+                  <span
+                    v-if="dayLoad(day.date)"
+                    class="ml-auto flex items-center gap-2 tabular-nums text-[11.5px] text-base-content/65"
+                    :class="{ 'text-error': dayLoad(day.date) > LOAD_WARN_HOURS }"
+                  >
+                    <span>{{ formatEffort(Math.round(dayLoad(day.date) * 60)) }}</span>
+                    <span class="h-1 w-14 overflow-hidden rounded-full bg-base-300">
+                      <span
+                        class="block h-full rounded-full"
+                        :class="dayLoad(day.date) > LOAD_WARN_HOURS ? 'bg-error' : 'bg-primary'"
+                        :style="{ width: `${Math.min(100, (dayLoad(day.date) / 8) * 100)}%` }"
+                      ></span>
+                    </span>
+                  </span>
+                </div>
+                <div
+                  class="overflow-hidden rounded-lg bg-base-100"
+                  :class="day.isToday ? 'shadow-[inset_2px_0_0_0_var(--color-primary)]' : ''"
+                >
+                  <AnimatePresence
+                    as="ul"
+                    mode="popLayout"
+                    :initial="false"
+                    class="divide-y divide-base-200"
+                  >
+                    <TaskRow
+                      v-for="row in day.rows"
+                      :key="row.task.id"
+                      :task="row.task"
+                      :readonly="row.history === true"
+                      :plan="{
+                        start: row.start,
+                        end: row.end,
+                        spans: row.spans,
+                        days: row.days,
+                        clamped: row.clamped,
+                        conflict: row.conflict,
+                      }"
+                      :data-task-id="row.history ? undefined : row.task.id"
+                      :drop-line="
+                        dragMoved &&
+                        dropTarget?.day === day.date &&
+                        dropTarget.beforeId === row.task.id &&
+                        draggingId !== row.task.id
+                      "
+                      :dimmed="draggingId === row.task.id"
+                      @open="openTask"
+                      @changed="refresh"
+                    >
+                      <template v-if="!row.history && !isRuleTask(row.task)" #leading>
+                        <button
+                          type="button"
+                          class="cursor-grab touch-none text-base-content/25 hover:text-base-content/60"
+                          :aria-label="t('week.reorderAria', { title: row.task.title })"
+                          @click.stop
+                          @pointerdown="startDrag($event, row.task.id)"
+                          @pointermove="drag.move"
+                          @pointerup="drag.end"
+                          @pointercancel="drag.cancel"
+                          @keydown.up.prevent="onMoveBy(row.task.id, -1)"
+                          @keydown.down.prevent="onMoveBy(row.task.id, 1)"
+                        >
+                          <GripVertical :size="13" aria-hidden="true" />
+                        </button>
+                      </template>
+                    </TaskRow>
+                  </AnimatePresence>
+                  <div
+                    v-if="!day.rows.length"
+                    class="flex h-11 items-center px-3 text-[12px]"
+                    :class="
+                      dragMoved && dropTarget?.day === day.date
+                        ? 'bg-primary/5 text-primary'
+                        : 'text-base-content/55'
+                    "
+                  >
+                    {{ dragMoved ? t("week.dropDay") : t("week.emptyDay") }}
+                  </div>
+                  <div
+                    v-else-if="
+                      dragMoved && dropTarget?.day === day.date && dropTarget.beforeId === null
+                    "
+                    class="h-1.5 bg-primary/25"
+                  ></div>
+                </div>
+              </section>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      <aside
+        class="grid min-w-0 grid-cols-1 gap-5 min-[1000px]:grid-cols-3 min-[1320px]:flex min-[1320px]:flex-col"
+      >
+        <div
+          class="grid grid-cols-3 gap-2 rounded-lg bg-base-100 px-3.5 py-3 min-[1000px]:col-span-3 min-[1320px]:col-span-1"
+        >
+          <div>
+            <div class="text-[11.5px] text-base-content/65">{{ t("stats.completed") }}</div>
+            <div class="mt-0.5 text-[20px] font-medium tabular-nums">{{ state.stats.done }}</div>
+          </div>
+          <div>
+            <div class="text-[11.5px] text-base-content/65">{{ t("stats.trendCreated") }}</div>
+            <div class="mt-0.5 text-[20px] font-medium tabular-nums">{{ state.stats.added }}</div>
+          </div>
+          <div>
+            <div class="text-[11.5px] text-base-content/65">{{ t("stats.delayed") }}</div>
+            <div class="mt-0.5 text-[20px] font-medium tabular-nums">{{ state.stats.delayed }}</div>
+          </div>
+        </div>
+
+        <section v-if="waitingOpen" class="min-w-0">
+          <h2 class="mb-2 text-[14px] font-semibold">
+            {{ t("week.waiting", { count: state.waiting.length }) }}
+          </h2>
+          <div class="overflow-hidden rounded-lg bg-base-100">
+            <div
+              v-for="task in state.waiting"
+              :key="task.id"
+              class="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 hover:bg-base-200/60"
+              @click="openTask(task)"
+            >
+              <StatusDot :status="task.status" :waiting="task.waiting" class="mt-0.5" />
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-[13px]">{{ task.title }}</div>
+                <div class="mt-0.5 truncate text-[11.5px] text-base-content/65">
+                  {{ waitingLine(task) }}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 rounded px-1 py-0.5 text-[12px] text-primary hover:bg-base-300/60"
+                @click.stop="resumeWaiting(task.id)"
+              >
+                {{ t("task.replied") }}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="laterTasks.length" class="min-w-0">
+          <div class="mb-2 flex items-baseline gap-2">
+            <h2 class="text-[14px] font-semibold">
+              {{ t("week.later", { count: laterTasks.length }) }}
+            </h2>
+            <span class="ml-auto truncate text-[11.5px] text-base-content/55">{{
+              t("week.laterHint")
+            }}</span>
+          </div>
+          <ul class="week-later overflow-hidden rounded-lg bg-base-100">
+            <AnimatePresence mode="popLayout" :initial="false">
+              <motion.li
+                v-for="task in laterTasks"
+                :key="task.id"
+                v-bind="laterMotion(poolDraggingId === task.id)"
+                class="relative cursor-grab touch-none px-3 py-2.5 select-none transition-colors hover:bg-base-200/60 focus-visible:ring-2 focus-visible:ring-primary/40 [&+&]:border-t [&+&]:border-base-200"
+                role="button"
+                tabindex="0"
+                :aria-label="t('week.laterCardAria', { title: task.title })"
+                @pointerdown="startPoolDrag($event, task)"
+                @pointermove="movePoolDrag"
+                @pointerup="endPoolDrag"
+                @pointercancel="cancelPoolDrag"
+                @click="openLater(task)"
+                @keydown.enter.prevent="openLater(task)"
+              >
+                <div class="flex min-w-0 items-center gap-2">
+                  <span class="truncate text-[13px]">{{ task.title }}</span>
+                  <span
+                    v-if="task.projectName"
+                    class="ml-auto max-w-24 shrink-0 truncate rounded border border-base-300 px-1.5 py-px text-[11px] text-base-content/70"
+                    :title="task.projectName"
+                  >
+                    {{ task.projectName }}
+                  </span>
+                </div>
+                <div class="mt-0.5 flex items-center gap-2 text-[11.5px] text-base-content/65">
+                  <span class="truncate">{{ laterStart(task) }}</span>
+                  <span v-if="task.effortMinutes !== 480" class="shrink-0">{{
+                    formatEffort(task.effortMinutes)
+                  }}</span>
+                </div>
+              </motion.li>
+            </AnimatePresence>
+          </ul>
+        </section>
+      </aside>
     </div>
 
     <AnimatePresence>
@@ -612,7 +652,7 @@ watch(
 
     <div
       v-if="poolGhost.task && poolMoved"
-      class="pointer-events-none fixed z-50 flex w-[260px] select-none flex-col justify-center gap-1 rounded-xl border bg-base-100 px-3 py-2 shadow-xl"
+      class="pointer-events-none fixed z-50 flex w-[260px] select-none flex-col justify-center gap-1 rounded-lg border bg-base-100 px-3 py-2 shadow-lg"
       :class="poolGhost.over ? 'border-primary/60' : 'border-base-300 opacity-80'"
       :style="{
         transform: `translate3d(${poolGhost.x - 130}px, ${poolGhost.y - 40}px, 0)`,
@@ -623,8 +663,8 @@ watch(
         <span class="truncate text-[13px]">{{ poolGhost.task.title }}</span>
       </span>
       <span
-        class="truncate text-[10.5px]"
-        :class="poolGhost.over ? 'text-primary' : 'text-base-content/45'"
+        class="truncate text-[11.5px]"
+        :class="poolGhost.over ? 'text-primary' : 'text-base-content/55'"
       >
         {{ poolDropLabel }}
       </span>

@@ -8,9 +8,11 @@ import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 
 const name = ref("");
 const adding = ref(false);
+usePageHeader(() => ({ title: t("categories.title"), context: t("categories.hint") }));
 
 async function add(): Promise<void> {
   if (adding.value) return;
@@ -50,41 +52,36 @@ function move(id: string, direction: -1 | 1): void {
 
 <template>
   <section class="space-y-2">
-    <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("categories.title") }}</h1>
-      <span class="text-[11px] text-base-content/45">{{ t("categories.hint") }}</span>
-    </div>
-
     <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
       <motion.li
         v-for="category in appVM.state.categories"
         :key="category.id"
         v-bind="listItemMotion"
-        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
+        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[13px]"
       >
         <span class="flex-1">{{ category.name }}</span>
         <button
-          class="text-base-content/35 hover:text-base-content"
+          class="text-base-content/60 hover:text-base-content"
           @click="rename(category.id, category.name)"
         >
           {{ t("common.edit") }}
         </button>
         <button
-          class="text-base-content/35 hover:text-base-content"
+          class="text-base-content/60 hover:text-base-content"
           :aria-label="t('categories.upAria')"
           @click="move(category.id, -1)"
         >
           <ArrowUp :size="14" aria-hidden="true" />
         </button>
         <button
-          class="text-base-content/35 hover:text-base-content"
+          class="text-base-content/60 hover:text-base-content"
           :aria-label="t('categories.downAria')"
           @click="move(category.id, 1)"
         >
           <ArrowDown :size="14" aria-hidden="true" />
         </button>
         <button
-          class="text-base-content/35 hover:text-error"
+          class="text-base-content/60 hover:text-error"
           :aria-label="t('categories.deleteAria')"
           @click="remove(category.id, category.name)"
         >
@@ -96,11 +93,11 @@ function move(id: string, direction: -1 | 1): void {
     <div class="flex items-center gap-2 rounded-xl bg-base-100 px-4 py-2.5">
       <input
         v-model="name"
-        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
+        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/60"
         :placeholder="t('categories.placeholder')"
         @keydown.enter="onKey"
       />
     </div>
-    <p class="px-1 text-[10.5px] text-base-content/35">{{ t("categories.footer") }}</p>
+    <p class="px-1 text-[12px] text-base-content/60">{{ t("categories.footer") }}</p>
   </section>
 </template>

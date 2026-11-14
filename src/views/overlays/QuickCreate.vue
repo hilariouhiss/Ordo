@@ -66,7 +66,7 @@ async function submitProject(): Promise<void> {
             {{ mode === "task" ? t("quickCreate.taskTitle") : t("quickCreate.projectTitle") }}
           </h2>
           <button
-            class="ml-auto grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-base-content"
+            class="ml-auto grid size-6 place-items-center rounded-md text-base-content/60 hover:bg-base-200 hover:text-base-content"
             :aria-label="t('common.close')"
             @click="close"
           >
@@ -84,13 +84,13 @@ async function submitProject(): Promise<void> {
             v-else
             ref="projectInput"
             v-model="projectName"
-            class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+            class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[13px]"
             :placeholder="t('projects.placeholder')"
             :aria-label="t('quickCreate.projectTitle')"
             @keydown.enter="onProjectEnter"
           />
 
-          <p v-if="warning" class="mt-2 text-[11px] text-error">{{ warning }}</p>
+          <p v-if="warning" class="mt-2 text-[12px] text-error">{{ warning }}</p>
 
           <div class="mt-4 flex justify-end gap-2">
             <button
@@ -101,7 +101,7 @@ async function submitProject(): Promise<void> {
             </button>
             <button
               v-if="mode === 'task'"
-              class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+              class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
               :disabled="vm.state.busy || !taskDraft.trim()"
               @click="bar?.submit()"
             >
@@ -109,7 +109,7 @@ async function submitProject(): Promise<void> {
             </button>
             <button
               v-else
-              class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+              class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
               :disabled="vm.state.busy || !projectName.trim()"
               @click="submitProject"
             >

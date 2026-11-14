@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ChevronRight, Hourglass, Pause, Play } from "@lucide/vue";
+import { Check, ChevronRight, Hourglass, Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
-import { shortDate, shortDateTime, todayIso } from "../../lib/dates";
+import { shortDate, localTime, todayIso } from "../../lib/dates";
 import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
-import { listItemMotion } from "../../lib/motion";
+import { easeOut, springSnappy } from "../../lib/motion";
 import { canSuspendTask, canWaitTask } from "../../lib/status";
 import { waitDefaults, waitingOnName } from "../../lib/waiting";
 import { currentSubtask, subtaskLabel, subtasksDone } from "../../lib/subtasks";
@@ -15,7 +15,6 @@ import type { Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
 import ParentBadge from "./ParentBadge.vue";
-import PriorityBadge from "./PriorityBadge.vue";
 import StatusDot from "./StatusDot.vue";
 
 const props = withDefaults(
@@ -47,18 +46,21 @@ const emit = defineEmits<{
   dragEnd: [];
 }>();
 
-const category = computed(
-  () => appVM.state.categories.find((c) => c.id === props.task.categoryId)?.name ?? null,
-);
-const owner = computed(
+const ownerName = computed(
   () => appVM.state.people.find((p) => p.id === props.task.ownerId)?.name ?? null,
 );
+const meId = computed(() => appVM.me.value?.id ?? null);
+/** "我" on every row is noise in a one-person ledger; only someone else is worth a column. */
+const showOwner = computed(() => !!ownerName.value && props.task.ownerId !== meId.value);
 const done = computed(() => subtasksDone(props.task.children));
 const current = computed(() => currentSubtask(props.task.children));
 const stepLine = computed(() => subtaskLabel(props.task.children));
 const subtasksId = computed(() => `subtasks-${props.task.id}`);
 const late = computed(() => overdueDays(props.task.expectedFinishDate, todayIso()));
-const overdue = computed(() => late.value > 0 && props.task.status !== "done");
+const overdue = computed(
+  () =>
+    late.value > 0 && props.task.status !== "done" && !props.task.suspended && !props.task.waiting,
+);
 const conflictTitle = computed(() =>
   t("task.conflictTitle", {
     date: shortDate(props.plan?.end ?? null),
@@ -71,11 +73,13 @@ const conflictTitle = computed(() =>
  * the same job, but motion scrapes it as a forced value whenever `layout` is on and
  * then drops the animated opacity on the next render, freezing the row half-faded.
  */
-const rowMotion = computed(() =>
-  props.dimmed
-    ? { ...listItemMotion, animate: { ...listItemMotion.animate, opacity: 0.4 } }
-    : listItemMotion,
-);
+const rowMotion = computed(() => ({
+  layout: true,
+  initial: false,
+  animate: { opacity: props.dimmed ? 0.4 : 1 },
+  exit: { opacity: 0, transition: { duration: 0.12, ease: easeOut } },
+  transition: springSnappy,
+}));
 
 const busy = ref(false);
 const expanded = ref(false);
@@ -94,18 +98,35 @@ const suspendLabel = computed(() => t("task.suspendAria", { title: props.task.ti
 const subtasksLabel = computed(() =>
   t(expanded.value ? "task.collapseSubtasks" : "task.expandSubtasks"),
 );
-const suspendedBadge = computed(() =>
-  props.task.suspendedAt
-    ? t("task.suspendedFor", { days: daysSince(props.task.suspendedAt, todayIso()) })
-    : t("task.suspendedNoDate"),
-);
 const canWait = computed(() => canWaitTask(props.task));
 const waitLabel = computed(() =>
   t(props.task.waiting ? "task.followUpAria" : "task.waitAria", { title: props.task.title }),
 );
 const waitingName = computed(() => waitingOnName(props.task, appVM.state.people));
-const waitingDays = computed(() => daysSince(props.task.waitingSince, todayIso()));
-const followUpToday = computed(() => props.task.followUpDate === todayIso());
+const high = computed(() => props.task.priority === "high");
+const doneAt = computed(() => localTime(props.task.actualFinishAt));
+
+/** One quiet second line: who it waits on, the way it is parked, or the next subtask. */
+const subline = computed(() => {
+  if (props.task.waiting) {
+    const who = waitingName.value
+      ? t("task.waitingOn", { name: waitingName.value })
+      : t("task.waitingNoName");
+    const follow = props.task.followUpDate
+      ? t("task.followUpOn", { date: shortDate(props.task.followUpDate) })
+      : t("task.noFollowUp");
+    return `${who} · ${follow}`;
+  }
+  if (props.task.suspended) {
+    if (props.task.suspendedUntil) {
+      return t("task.suspended", { date: shortDate(props.task.suspendedUntil) });
+    }
+    return props.task.suspendedAt
+      ? t("task.suspendedFor", { days: daysSince(props.task.suspendedAt, todayIso()) })
+      : t("task.suspendedNoDate");
+  }
+  return stepLine.value;
+});
 
 async function run(action: () => Promise<unknown>): Promise<void> {
   if (busy.value) return;
@@ -190,8 +211,7 @@ async function suspend(): Promise<void> {
 <template>
   <motion.li
     v-bind="rowMotion"
-    class="relative cursor-pointer rounded-xl bg-base-100 px-3 py-3 focus-visible:ring-2 focus-visible:ring-primary/40"
-    :class="{ 'transition-opacity hover:opacity-90': !hasSubtasks }"
+    class="group relative grid min-h-11 cursor-pointer grid-cols-[14px_16px_minmax(0,1fr)_104px_66px_48px_58px] items-center gap-2 px-3 py-2 hover:bg-base-200/60 focus-visible:ring-2 focus-visible:ring-primary/40"
     :draggable="draggable"
     tabindex="0"
     @click="onRowClick"
@@ -201,217 +221,190 @@ async function suspend(): Promise<void> {
   >
     <span
       v-if="dropLine"
-      class="pointer-events-none absolute -top-1 right-2 left-2 h-0.5 rounded-full bg-primary"
+      class="pointer-events-none absolute -top-px right-3 left-3 h-0.5 rounded-full bg-primary"
     ></span>
-    <div class="flex items-start gap-2.5">
-      <slot name="leading" />
-      <button
-        v-if="!hasSubtasks && !readonly"
-        class="mt-0.5 flex shrink-0 rounded-full disabled:opacity-60"
-        :aria-label="doneLabel"
-        :title="doneLabel"
-        :disabled="busy"
-        @click.stop="toggleDone"
+    <span class="grid size-3.5 place-items-center"><slot name="leading" /></span>
+    <button
+      v-if="!hasSubtasks && !readonly"
+      type="button"
+      class="grid size-4 place-items-center rounded-full disabled:opacity-60"
+      :aria-label="doneLabel"
+      :title="doneLabel"
+      :disabled="busy"
+      @click.stop="toggleDone"
+    >
+      <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
+    </button>
+    <span
+      v-else
+      class="grid size-4 place-items-center"
+      :title="hasSubtasks ? t('task.subtasksHint') : undefined"
+      @click.stop
+    >
+      <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
+    </span>
+
+    <div class="flex min-w-0 flex-col justify-center gap-0.5">
+      <div class="flex min-w-0 items-center gap-2">
+        <span
+          class="size-1 shrink-0 rounded-full"
+          :class="high ? 'bg-error' : 'bg-transparent'"
+          :title="high ? t('task.priorityHigh') : undefined"
+          aria-hidden="true"
+        ></span>
+        <ParentBadge v-if="task.parentTitle" :title="task.parentTitle" class="max-w-28" />
+        <span
+          class="min-w-0 truncate text-[14px]"
+          :class="{ 'text-base-content/55 line-through': isDone }"
+        >
+          {{ task.title }}
+        </span>
+        <span class="shrink-0 text-[12px] tabular-nums text-base-content/60">
+          {{ formatEffort(task.effortMinutes) }}
+        </span>
+        <button
+          v-if="hasSubtasks"
+          type="button"
+          class="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums text-base-content/60 hover:bg-base-300/60 hover:text-base-content"
+          :aria-expanded="expanded"
+          :aria-controls="expanded ? subtasksId : undefined"
+          :title="subtasksLabel"
+          :aria-label="subtasksLabel"
+          @click.stop="toggleExpanded"
+        >
+          {{ done }}/{{ task.children.length }}
+          <ChevronRight
+            :size="11"
+            aria-hidden="true"
+            class="transition-transform duration-200"
+            :class="{ 'rotate-90': expanded }"
+          />
+        </button>
+        <span
+          v-if="task.carryCount"
+          class="shrink-0 text-[11.5px] text-warning"
+          :title="t('task.carry', { count: task.carryCount })"
+        >
+          {{ t("task.carry", { count: task.carryCount }) }}
+        </span>
+        <span
+          v-if="plan?.conflict"
+          class="shrink-0 text-[11.5px] font-medium text-warning"
+          :title="conflictTitle"
+        >
+          {{ t("task.notFit") }}
+        </span>
+      </div>
+      <p
+        v-if="subline"
+        class="truncate text-[11.5px] leading-4"
+        :class="task.waiting || task.suspended ? 'text-warning' : 'text-base-content/60'"
       >
-        <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
-      </button>
+        {{ subline }}
+      </p>
+    </div>
+
+    <span class="min-w-0 justify-self-end">
       <span
-        v-else
-        class="mt-0.5 shrink-0"
-        :title="hasSubtasks ? t('task.subtasksHint') : undefined"
-        @click.stop
+        v-if="showProject && task.projectName"
+        class="inline-block max-w-full truncate rounded border border-base-300 px-1.5 py-px align-middle text-[11.5px] text-base-content/70"
+        :title="task.projectName"
       >
-        <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
+        {{ task.projectName }}
       </span>
-      <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2.5">
-          <ParentBadge v-if="task.parentTitle" :title="task.parentTitle" class="max-w-32" />
-          <span
-            class="text-[13px]"
-            :class="{ 'text-base-content/40 line-through': task.status === 'done' }"
-          >
-            {{ task.title }}
-          </span>
-          <span
-            v-if="showProject && task.projectName"
-            class="badge badge-soft badge-primary badge-xs max-w-32"
-            :title="task.projectName"
-          >
-            <span class="min-w-0 truncate">{{ task.projectName }}</span>
-          </span>
-          <span v-if="category" class="badge badge-ghost badge-xs">{{ category }}</span>
-          <PriorityBadge :priority="task.priority" />
-          <button
-            v-if="hasSubtasks"
-            type="button"
-            class="flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[10px] text-base-content/40 hover:bg-base-200"
-            :aria-expanded="expanded"
-            :aria-controls="expanded ? subtasksId : undefined"
-            :title="subtasksLabel"
-            :aria-label="subtasksLabel"
-            @click.stop="toggleExpanded"
-          >
-            {{ done }}/{{ task.children.length }}
-            <ChevronRight
-              :size="11"
-              aria-hidden="true"
-              class="transition-transform duration-200"
-              :class="{ 'rotate-90': expanded }"
-            />
-          </button>
-          <span v-if="task.effortMinutes !== 480" class="badge badge-ghost badge-xs">
-            {{ formatEffort(task.effortMinutes) }}
-          </span>
-          <span
-            v-if="!task.exclusive"
-            class="badge badge-ghost badge-xs"
-            :title="t('task.sharedHint')"
-          >
-            {{ t("task.shared") }}
-          </span>
-          <span v-if="plan?.spans" class="text-[10px] text-base-content/40">
-            {{ t("task.spanEnd", { days: plan.days, date: shortDate(plan.end) }) }}
-          </span>
-          <span v-if="plan?.clamped" class="badge badge-ghost badge-xs">
-            {{ t("task.laterStart", { date: shortDate(plan.start ?? null) }) }}
-          </span>
-          <span v-if="task.carryCount" class="badge badge-soft badge-warning badge-xs">
-            {{ t("task.carry", { count: task.carryCount }) }}
-          </span>
-          <span
-            v-if="task.suspended"
-            class="badge badge-ghost badge-xs"
-            :title="task.suspendReason ?? undefined"
-          >
-            {{ suspendedBadge }}
-          </span>
-          <span v-if="task.suspended && task.suspendedUntil" class="badge badge-ghost badge-xs">
-            {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
-          </span>
-          <span
-            v-if="task.waiting"
-            class="badge badge-soft badge-info badge-xs"
-            :title="waitingName ?? undefined"
-          >
-            {{ waitingName ? t("task.waitingOn", { name: waitingName }) : t("task.waitingNoName") }}
-          </span>
-          <span v-if="task.waiting && waitingDays > 0" class="badge badge-ghost badge-xs">
-            {{ t("task.waitingFor", { days: waitingDays }) }}
-          </span>
-          <span
-            v-if="task.waiting"
-            class="badge badge-ghost badge-xs"
-            :class="{ 'text-info': followUpToday }"
-          >
-            {{
-              task.followUpDate
-                ? t("task.followUpOn", { date: shortDate(task.followUpDate) })
-                : t("task.noFollowUp")
-            }}
-          </span>
-          <span v-if="overdue" class="badge badge-soft badge-error badge-xs">{{
-            t("task.overdue", { days: late })
+    </span>
+
+    <span class="flex min-w-0 flex-col items-end text-[12px] leading-tight tabular-nums">
+      <template v-if="isDone">
+        <span class="flex items-center gap-1 text-base-content/55">
+          <Check :size="11" aria-hidden="true" />
+          {{ doneAt }}
+        </span>
+      </template>
+      <template v-else-if="overdue">
+        <span class="font-medium text-error">{{ t("task.overdue", { days: late }) }}</span>
+      </template>
+      <template v-else-if="task.expectedFinishDate">
+        <span class="text-base-content/70">{{ shortDate(task.expectedFinishDate) }}</span>
+        <span v-if="task.expectedFinishTime" class="text-[11.5px] text-base-content/55">
+          {{ task.expectedFinishTime }}
+        </span>
+      </template>
+    </span>
+
+    <span class="truncate text-[12px] text-base-content/70">{{ showOwner ? ownerName : "" }}</span>
+
+    <span
+      class="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+    >
+      <slot name="actions" />
+      <button
+        v-if="canStart"
+        type="button"
+        class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-primary disabled:opacity-50"
+        :aria-label="startLabel"
+        :title="startLabel"
+        :disabled="busy"
+        @click.stop="start"
+      >
+        <Play :size="13" aria-hidden="true" />
+      </button>
+      <button
+        v-if="canSuspend"
+        type="button"
+        class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-warning disabled:opacity-50"
+        :aria-label="suspendLabel"
+        :title="suspendLabel"
+        :disabled="busy"
+        @click.stop="suspend"
+      >
+        <Pause :size="13" aria-hidden="true" />
+      </button>
+      <button
+        v-if="canWait"
+        type="button"
+        class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-primary disabled:opacity-50"
+        :aria-label="waitLabel"
+        :title="waitLabel"
+        :disabled="busy"
+        @click.stop="wait"
+      >
+        <Hourglass :size="13" aria-hidden="true" />
+      </button>
+    </span>
+
+    <ul v-if="expanded" :id="subtasksId" class="col-span-full mt-1 mb-0.5 space-y-0.5 pl-8">
+      <li v-for="(child, index) in task.children" :key="child.id">
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-base-200/70 disabled:opacity-60"
+          :aria-label="child.title"
+          :disabled="busy || readonly"
+          @click.stop="toggleSubtask(child.id)"
+        >
+          <span class="w-3 shrink-0 text-[11px] tabular-nums text-base-content/45">{{
+            index + 1
           }}</span>
           <span
-            v-if="plan?.conflict"
-            class="badge badge-soft badge-error badge-xs"
-            :title="conflictTitle"
-          >
-            {{ t("task.notFit") }}
-          </span>
-          <span class="ml-auto text-[11px] text-base-content/45">{{ owner }}</span>
-          <span v-if="task.actualFinishAt" class="text-right text-[11px] text-base-content/45">
-            {{ t("task.doneAt", { date: shortDateTime(task.actualFinishAt) }) }}
-          </span>
+            class="grid size-3.5 shrink-0 place-items-center rounded-full border-[1.5px]"
+            :class="
+              child.status === 'done'
+                ? 'border-primary bg-primary'
+                : current?.id === child.id
+                  ? 'border-primary/60'
+                  : 'border-base-content/25'
+            "
+          ></span>
           <span
-            v-else-if="!task.waiting && task.expectedFinishDate"
-            class="text-right text-[11px]"
-            :class="[
-              overdue ? 'text-error' : 'text-base-content/45',
-              task.expectedFinishTime ? 'w-20' : 'w-11',
-            ]"
+            class="truncate text-[12px]"
+            :class="{ 'text-base-content/55 line-through': child.status === 'done' }"
+            >{{ child.title }}</span
           >
-            {{ shortDate(task.expectedFinishDate) }}
-            <span v-if="task.expectedFinishTime" class="text-[10px]">{{
-              task.expectedFinishTime
-            }}</span>
-          </span>
-          <div class="flex shrink-0 items-center gap-0.5">
-            <slot name="actions" />
-            <button
-              v-if="canStart"
-              class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-primary disabled:opacity-50"
-              :aria-label="startLabel"
-              :title="startLabel"
-              :disabled="busy"
-              @click.stop="start"
-            >
-              <Play :size="13" aria-hidden="true" />
-            </button>
-            <button
-              v-if="canSuspend"
-              class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning disabled:opacity-50"
-              :aria-label="suspendLabel"
-              :title="suspendLabel"
-              :disabled="busy"
-              @click.stop="suspend"
-            >
-              <Pause :size="13" aria-hidden="true" />
-            </button>
-            <button
-              v-if="canWait"
-              class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-info disabled:opacity-50"
-              :aria-label="waitLabel"
-              :title="waitLabel"
-              :disabled="busy"
-              @click.stop="wait"
-            >
-              <Hourglass :size="13" aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-        <p
-          v-if="stepLine && !expanded"
-          class="truncate text-[10.5px] leading-4 text-base-content/45"
-        >
-          {{ stepLine }}
-        </p>
-        <ul v-if="expanded" :id="subtasksId" class="mt-1 mb-0.5 space-y-0.5">
-          <li v-for="(child, index) in task.children" :key="child.id">
-            <button
-              type="button"
-              class="flex w-full items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-base-200 disabled:opacity-60"
-              :aria-label="child.title"
-              :disabled="busy || readonly"
-              @click.stop="toggleSubtask(child.id)"
-            >
-              <span class="w-3 shrink-0 text-[10px] tabular-nums text-base-content/30">{{
-                index + 1
-              }}</span>
-              <span
-                class="grid size-3.5 shrink-0 place-items-center rounded-full border-[1.5px]"
-                :class="
-                  child.status === 'done'
-                    ? 'border-success bg-success'
-                    : current?.id === child.id
-                      ? 'border-primary/60'
-                      : 'border-base-content/25'
-                "
-              ></span>
-              <span
-                class="truncate text-[11px]"
-                :class="{ 'text-base-content/40 line-through': child.status === 'done' }"
-                >{{ child.title }}</span
-              >
-              <span
-                v-if="current?.id === child.id"
-                class="badge badge-ghost badge-xs text-primary"
-                >{{ t("task.current") }}</span
-              >
-            </button>
-          </li>
-        </ul>
-      </div>
-    </div>
+          <span v-if="current?.id === child.id" class="text-[11.5px] text-primary">{{
+            t("task.current")
+          }}</span>
+        </button>
+      </li>
+    </ul>
   </motion.li>
 </template>

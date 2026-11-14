@@ -11,6 +11,7 @@ import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { projectSections, type ProjectSection } from "../lib/projectGroups";
 import type { Milestone, ProjectGroup, ProjectSummary } from "../model/types";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { projectsVM } from "../viewmodels/projectsVM";
 import { undoVM } from "../viewmodels/undoVM";
 import PriorityBadge from "./components/PriorityBadge.vue";
@@ -20,6 +21,10 @@ const router = useRouter();
 const today = todayIso();
 const name = ref("");
 const error = ref("");
+usePageHeader(() => ({
+  title: t("nav.projects"),
+  context: t("projects.count", { count: projectsVM.state.projects.length }),
+}));
 const draggingId = ref<string | null>(null);
 const dragOverGroupId = ref<string | null>(null);
 
@@ -174,12 +179,12 @@ watch(
     <div class="flex items-center gap-2 rounded-xl bg-base-100 px-4 py-2.5">
       <input
         v-model="name"
-        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
+        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/60"
         :placeholder="t('projects.placeholder')"
         @keydown.enter="onCreateKey"
       />
       <button
-        class="btn btn-sm shrink-0 rounded-lg border-0 bg-primary text-primary-content"
+        class="btn btn-sm shrink-0 rounded-md border-0 bg-base-content font-medium text-base-100"
         @click="create"
       >
         {{ t("projects.create") }}
@@ -187,9 +192,9 @@ watch(
     </div>
 
     <div class="flex items-center gap-2 px-1">
-      <span class="text-[10.5px] text-base-content/35">{{ t("projects.groupsHint") }}</span>
+      <span class="text-[12px] text-base-content/60">{{ t("projects.groupsHint") }}</span>
       <button
-        class="ml-auto text-[11.5px] text-base-content/45 hover:text-base-content"
+        class="ml-auto text-[12px] text-base-content/65 hover:text-base-content"
         @click="newGroup"
       >
         + {{ t("projects.newGroup") }}
@@ -216,33 +221,33 @@ watch(
           v-if="section.group || projectsVM.state.groups.length"
           class="flex items-center gap-2 px-1"
         >
-          <span class="text-[10.5px] font-medium tracking-wide text-base-content/45">
+          <span class="text-[12px] font-medium tracking-wide text-base-content/65">
             {{ section.name }}
           </span>
-          <span class="text-[10.5px] text-base-content/30">
+          <span class="text-[12px] text-base-content/30">
             {{ t("projects.groupCount", { count: section.projects.length }) }}
           </span>
           <span
             v-if="section.group && dragOverGroupId === section.group.id"
-            class="text-[10.5px] text-primary"
+            class="text-[12px] text-primary"
           >
             {{ t("projects.dropHint") }}
           </span>
           <span
             v-else-if="!section.group && projectsVM.state.groups.length"
-            class="text-[10.5px] text-base-content/30"
+            class="text-[12px] text-base-content/30"
           >
             {{ t("projects.dragHint") }}
           </span>
           <template v-if="section.group">
             <button
-              class="ml-auto text-[11px] text-base-content/35 hover:text-base-content"
+              class="ml-auto text-[12px] text-base-content/60 hover:text-base-content"
               @click="renameGroup(section.group)"
             >
               {{ t("common.edit") }}
             </button>
             <button
-              class="text-base-content/35 hover:text-error"
+              class="text-base-content/60 hover:text-error"
               :aria-label="t('projects.deleteGroupAria')"
               @click="removeGroup(section.group)"
             >
@@ -253,7 +258,7 @@ watch(
 
         <div
           v-if="section.group && draggingId && !section.projects.length"
-          class="rounded-xl border border-dashed border-primary/25 px-4 py-3 text-center text-[11px] text-primary/60"
+          class="rounded-xl border border-dashed border-primary/25 px-4 py-3 text-center text-[12px] text-primary/60"
         >
           {{ t("projects.dropHint") }}
         </div>
@@ -283,20 +288,20 @@ watch(
             <span class="ml-auto flex items-center gap-2">
               <span
                 v-if="nextOf(project)"
-                class="flex items-center gap-1 text-[11px] tabular-nums"
-                :class="nextIsOverdue(project) ? 'text-error' : 'text-base-content/45'"
+                class="flex items-center gap-1 text-[12px] tabular-nums"
+                :class="nextIsOverdue(project) ? 'text-error' : 'text-base-content/65'"
                 :title="nextTitle(project)"
                 :aria-label="nextTitle(project)"
               >
                 <Diamond :size="10" aria-hidden="true" />
                 {{ nextDate(project) }}
               </span>
-              <span class="text-[11px] tabular-nums text-base-content/45">
+              <span class="text-[12px] tabular-nums text-base-content/65">
                 {{ project.done }}/{{ project.total }}
               </span>
             </span>
             <button
-              class="text-base-content/35"
+              class="text-base-content/60"
               :aria-label="t('projects.settingsAria')"
               @click.stop="projectsVM.openSettings(project.id)"
             >
@@ -309,7 +314,7 @@ watch(
 
     <p
       v-if="!projectsVM.state.projects.length && !projectsVM.state.loading"
-      class="px-1 text-[13px] text-base-content/40"
+      class="px-1 text-[13px] text-base-content/60"
     >
       {{ t("projects.empty") }}
     </p>

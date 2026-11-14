@@ -9,9 +9,11 @@ import { listItemMotion } from "../lib/motion";
 import type { Person } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 
 const name = ref("");
 const error = ref("");
+usePageHeader(() => ({ title: t("people.title"), context: t("people.hint") }));
 
 async function add(): Promise<void> {
   if (!name.value.trim()) return;
@@ -68,11 +70,6 @@ async function remove(person: Person): Promise<void> {
 
 <template>
   <section class="space-y-2">
-    <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("people.title") }}</h1>
-      <span class="text-[11px] text-base-content/45">{{ t("people.hint") }}</span>
-    </div>
-
     <p v-if="error" class="px-1 text-[12px] text-error">{{ errorText(error) }}</p>
 
     <AnimatePresence as="ul" mode="popLayout" :initial="false" class="space-y-1.5">
@@ -80,21 +77,21 @@ async function remove(person: Person): Promise<void> {
         v-for="person in appVM.state.people"
         :key="person.id"
         v-bind="listItemMotion"
-        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
+        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[13px]"
       >
         <span>{{ person.name }}</span>
         <span v-if="person.isMe" class="badge badge-soft badge-primary badge-xs">{{
           t("people.me")
         }}</span>
-        <span class="min-w-0 flex-1 truncate text-[11px] text-base-content/45">
+        <span class="min-w-0 flex-1 truncate text-[12px] text-base-content/65">
           {{ rolesLine(person) }}
         </span>
-        <button class="shrink-0 text-base-content/35 hover:text-base-content" @click="edit(person)">
+        <button class="shrink-0 text-base-content/60 hover:text-base-content" @click="edit(person)">
           {{ t("common.edit") }}
         </button>
         <button
           v-if="!person.isMe"
-          class="shrink-0 text-base-content/35 hover:text-error"
+          class="shrink-0 text-base-content/60 hover:text-error"
           :aria-label="t('people.deleteAria')"
           @click="remove(person)"
         >
@@ -106,12 +103,12 @@ async function remove(person: Person): Promise<void> {
     <div class="flex items-center gap-2 rounded-xl bg-base-100 px-4 py-2.5">
       <input
         v-model="name"
-        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
+        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/60"
         :placeholder="t('people.placeholder')"
         @keydown.enter="onKey"
       />
     </div>
-    <p class="px-1 text-[10.5px] text-base-content/35">
+    <p class="px-1 text-[12px] text-base-content/60">
       {{ t("people.footer") }}
     </p>
   </section>

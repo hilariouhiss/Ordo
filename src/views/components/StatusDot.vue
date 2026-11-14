@@ -12,16 +12,16 @@ const display = computed(() =>
 const dotClass = computed(() => {
   switch (display.value) {
     case "done":
-      return "border-success bg-success";
+      // Settled work recedes: a filled grey dot, not a second green.
+      return "border-base-content/45 bg-base-content/45";
     case "doing":
-      // Half filled: the right side solid, the left still open.
-      return "border-primary bg-[linear-gradient(90deg,transparent_50%,var(--color-primary)_50%)]";
+      return "border-primary";
     case "suspended":
-      return "border-warning bg-warning/15";
+      return "border-warning bg-warning/10";
     case "waiting":
-      return "border-info bg-info/15";
+      return "border-base-content/40";
     default:
-      return "border-base-content/25";
+      return "border-base-content/30";
   }
 });
 </script>
@@ -35,16 +35,22 @@ const dotClass = computed(() => {
     :transition="springSnappy"
   >
     <span
-      class="relative grid size-4 place-items-center rounded-full border-[1.5px] transition-colors"
+      class="relative grid size-4 place-items-center overflow-hidden rounded-full border-[1.5px] transition-colors"
       :class="dotClass"
     >
+      <!-- The right half solid, the left open: drawn, not a CSS gradient. -->
+      <span
+        v-if="display === 'doing'"
+        class="absolute inset-y-0 right-0 left-1/2 bg-primary"
+        aria-hidden="true"
+      ></span>
       <span v-if="display === 'suspended'" class="flex gap-[2px]" aria-hidden="true">
         <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
         <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
       </span>
       <span
         v-else-if="display === 'waiting'"
-        class="size-1 rounded-full bg-info"
+        class="size-1 rounded-full bg-base-content/40"
         aria-hidden="true"
       ></span>
     </span>

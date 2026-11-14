@@ -8,8 +8,10 @@ import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { metaVM } from "../viewmodels/metaVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 
 const name = ref("");
+usePageHeader(() => ({ title: t("tags.title"), context: t("tags.hint") }));
 
 async function add(): Promise<void> {
   if (await runWithNotice(() => metaVM.addTag(name.value))) name.value = "";
@@ -28,13 +30,8 @@ function onKey(event: KeyboardEvent): void {
 
 <template>
   <section class="space-y-2">
-    <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("tags.title") }}</h1>
-      <span class="text-[11px] text-base-content/45">{{ t("tags.hint") }}</span>
-    </div>
-
     <div class="rounded-xl bg-base-100 p-4">
-      <p v-if="!appVM.state.tags.length" class="text-[12px] text-base-content/40">
+      <p v-if="!appVM.state.tags.length" class="text-[12px] text-base-content/60">
         {{ t("tags.empty") }}
       </p>
       <AnimatePresence
@@ -66,7 +63,7 @@ function onKey(event: KeyboardEvent): void {
         :placeholder="t('tags.placeholder')"
         @keydown.enter="onKey"
       />
-      <p class="mt-1.5 text-[10.5px] text-base-content/35">
+      <p class="mt-1.5 text-[12px] text-base-content/60">
         {{ t("tags.footer") }}
       </p>
     </div>

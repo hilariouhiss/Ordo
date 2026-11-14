@@ -1,15 +1,34 @@
 <script setup lang="ts">
-import { Briefcase, House, Moon, PanelRight, Search, Settings, Sun } from "@lucide/vue";
+import {
+  Archive,
+  Briefcase,
+  Building,
+  CalendarDays,
+  ChartColumn,
+  FolderKanban,
+  House,
+  ListChecks,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRight,
+  Repeat2,
+  Search,
+  Settings,
+  Shapes,
+  Sun,
+  Tags,
+  Users,
+} from "@lucide/vue";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion-v";
+import { AnimatePresence, MotionConfig } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { askNotice, dialogRequest } from "./lib/dialog";
 import { errorText, setLanguage, t } from "./lib/i18n";
 import { createShortcut, isEditableTarget, searchShortcut, undoShortcut } from "./lib/keys";
-import { pageDirection, pageMotion, springSnappy } from "./lib/motion";
 import {
   applyTheme,
   systemPrefersDark,
@@ -22,6 +41,7 @@ import type { Mode } from "./model/types";
 import { appVM } from "./viewmodels/appVM";
 import { archiveVM } from "./viewmodels/archiveVM";
 import { passVM } from "./viewmodels/passVM";
+import { pageHeaderState } from "./viewmodels/pageHeaderVM";
 import { overduePromptVM } from "./viewmodels/overduePromptVM";
 import { projectsVM } from "./viewmodels/projectsVM";
 import { quickCreateVM } from "./viewmodels/quickCreateVM";
@@ -42,30 +62,46 @@ import QuickCreate from "./views/overlays/QuickCreate.vue";
 import SearchPalette from "./views/overlays/SearchPalette.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
-const navItems = computed(
+const primaryNav = computed(
   () =>
     [
-      { name: "week", to: "/week", label: t("nav.week") },
-      { name: "tasks", to: "/tasks", label: t("nav.tasks") },
-      { name: "templates", to: "/templates", label: t("nav.templates") },
-      { name: "projects", to: "/projects", label: t("nav.projects") },
-      { name: "clients", to: "/clients", label: t("nav.clients") },
-      { name: "categories", to: "/categories", label: t("nav.categories") },
-      { name: "tags", to: "/tags", label: t("nav.tags") },
-      { name: "people", to: "/people", label: t("nav.people") },
-      { name: "stats", to: "/stats", label: t("nav.stats") },
-      { name: "archive", to: "/archive", label: t("nav.archive") },
+      { name: "week", to: "/week", label: t("nav.week"), icon: CalendarDays },
+      { name: "tasks", to: "/tasks", label: t("nav.tasks"), icon: ListChecks },
+      { name: "projects", to: "/projects", label: t("nav.projects"), icon: FolderKanban },
+      { name: "templates", to: "/templates", label: t("nav.templates"), icon: Repeat2 },
+      { name: "stats", to: "/stats", label: t("nav.stats"), icon: ChartColumn },
+      { name: "archive", to: "/archive", label: t("nav.archive"), icon: Archive },
+    ] as const,
+);
+/** The shared vocabulary: real pages, but rarely opened, so they sit below a label. */
+const referenceNav = computed(
+  () =>
+    [
+      { name: "clients", to: "/clients", label: t("nav.clients"), icon: Building },
+      { name: "categories", to: "/categories", label: t("nav.categories"), icon: Shapes },
+      { name: "tags", to: "/tags", label: t("nav.tags"), icon: Tags },
+      { name: "people", to: "/people", label: t("nav.people"), icon: Users },
     ] as const,
 );
 
-/** What the page is painted with right now, which is what the header button shows. */
+/** What the page painted with right now, which is what the theme button shows. */
 const appliedTheme = ref<AppliedTheme>("light");
-/** What the header shows and the lists are filtered by. */
+/** What the lists are filtered by. */
 const mode = computed<Mode>(() => appVM.state.settings?.mode ?? "work");
 const modeIcon = computed(() => (mode.value === "personal" ? House : Briefcase));
 const modeLabel = computed(() => t(mode.value === "personal" ? "mode.personal" : "mode.work"));
+const deskOn = computed(() => !!appVM.state.settings?.deskEnabled);
 
-/** Mirrors the light/dark button: the icon names the current world, a click flips it. */
+/** How wide the sidebar is belongs to the window, not the ledger: localStorage, not Rust settings. */
+const SIDEBAR_KEY = "ordo.sidebar";
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === "collapsed");
+watch(sidebarCollapsed, (collapsed) =>
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? "collapsed" : "expanded"),
+);
+function toggleSidebar(): void {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+}
+
 function cycleMode(): void {
   if (!appVM.state.ready || windowModeVM.state.phase !== "idle") return;
   void settingsVM.switchMode(mode.value === "personal" ? "work" : "personal");
@@ -87,28 +123,27 @@ const route = useRoute();
 const ganttWeek = computed(
   () => route.name === "week" && appVM.state.settings?.weekView === "gantt",
 );
-const direction = ref<1 | -1>(1);
-const pageMotions = computed(() => pageMotion(direction.value));
 /** The surface the window morph scales; windowModeVM writes its morph styles directly. */
 const appSurface = ref<HTMLElement | null>(null);
 /** The widget layer holds the card; the exit keeps it on screen while the window jumps. */
 const widgetLayer = ref<HTMLElement | null>(null);
 watch(widgetLayer, (el) => windowModeVM.attachWidgetLayer(el));
 
-function routeName(name: unknown): string | null {
-  return typeof name === "string" ? name : null;
+/** A page sets its own title row; until it does, the route names the page. */
+const fallbackTitle = computed(() => {
+  if (route.name === "project") return t("nav.projects");
+  const item = [...primaryNav.value, ...referenceNav.value].find((one) => one.name === route.name);
+  return item?.label ?? "Ordo";
+});
+const headerTitle = computed(() => pageHeaderState.title || fallbackTitle.value);
+
+function runHeaderAction(): void {
+  pageHeaderState.action?.();
 }
 
 function isActive(name: string): boolean {
   return route.name === name || (name === "projects" && route.name === "project");
 }
-
-watch(
-  () => route.name,
-  (to, from) => {
-    direction.value = pageDirection(routeName(from), routeName(to));
-  },
-);
 
 watch(
   () => appVM.state.settings?.language,
@@ -389,112 +424,240 @@ onUnmounted(() => {
           windowModeVM.state.appOpacity === 0 ? 'pointer-events-none opacity-0' : 'opacity-100'
         "
       >
-        <div
-          class="flex h-full flex-col bg-base-200 text-base-content"
-          @dragover.prevent
-          @drop.prevent
-        >
-          <header
-            data-tauri-drag-region="deep"
-            class="flex h-12 shrink-0 items-center gap-4 border-b border-base-300 bg-base-100 pl-6 select-none"
+        <div class="flex h-full bg-base-200 text-base-content" @dragover.prevent @drop.prevent>
+          <aside
+            class="flex shrink-0 flex-col border-r border-base-300 pb-2.5 transition-[width] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            :class="sidebarCollapsed ? 'w-14' : 'w-56'"
           >
-            <span class="text-[15px] font-semibold tracking-tight">Ordo</span>
-            <LayoutGroup>
-              <nav role="tablist" class="app-nav tabs tabs-border tabs-sm">
-                <RouterLink
-                  v-for="item in navItems"
-                  :key="item.name"
-                  :to="item.to"
-                  class="tab"
-                  active-class="tab-active"
-                >
-                  {{ item.label }}
-                  <motion.span
-                    v-if="isActive(item.name)"
-                    layout-id="nav-underline"
-                    aria-hidden="true"
-                    class="absolute inset-x-3 bottom-0 h-[3px] rounded-full bg-primary"
-                    :initial="false"
-                    :transition="springSnappy"
-                  />
-                </RouterLink>
-              </nav>
-            </LayoutGroup>
-            <div class="ml-auto flex h-full items-center gap-2">
-              <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+            <div
+              class="flex h-14 items-center"
+              :class="sidebarCollapsed ? 'justify-center' : 'gap-2.5 px-4.5'"
+              data-tauri-drag-region
+            >
+              <img src="/favicon.svg" alt="" class="size-7 shrink-0" aria-hidden="true" />
+              <span v-if="!sidebarCollapsed" class="text-[15px] font-semibold tracking-[0.01em]"
+                >Ordo</span
+              >
+            </div>
+            <nav class="mt-2 flex flex-col gap-0.5 px-3" :aria-label="t('nav.mainAria')">
+              <RouterLink
+                v-for="item in primaryNav"
+                :key="item.name"
+                :to="item.to"
+                class="flex h-8 items-center gap-2.5 rounded-md text-[13.5px]"
+                :class="[
+                  isActive(item.name)
+                    ? 'bg-base-300 font-medium text-base-content'
+                    : 'text-base-content/70 hover:bg-base-300/60 hover:text-base-content',
+                  sidebarCollapsed ? 'justify-center px-0' : 'px-2.5',
+                ]"
+                :title="sidebarCollapsed ? item.label : undefined"
+                :aria-label="sidebarCollapsed ? item.label : undefined"
+              >
+                <component
+                  :is="item.icon"
+                  :size="16"
+                  :stroke-width="1.6"
+                  aria-hidden="true"
+                  :class="isActive(item.name) ? 'text-base-content' : 'text-base-content/55'"
+                />
+                <span v-if="!sidebarCollapsed">{{ item.label }}</span>
+              </RouterLink>
+              <div
+                v-if="!sidebarCollapsed"
+                class="mt-5 px-2.5 pb-1.5 text-[11.5px] text-base-content/55"
+              >
+                {{ t("nav.reference") }}
+              </div>
+              <div v-else class="mx-2 my-3 border-t border-base-300" aria-hidden="true"></div>
+              <RouterLink
+                v-for="item in referenceNav"
+                :key="item.name"
+                :to="item.to"
+                class="flex h-8 items-center gap-2.5 rounded-md text-[13.5px]"
+                :class="[
+                  isActive(item.name)
+                    ? 'bg-base-300 font-medium text-base-content'
+                    : 'text-base-content/70 hover:bg-base-300/60 hover:text-base-content',
+                  sidebarCollapsed ? 'justify-center px-0' : 'px-2.5',
+                ]"
+                :title="sidebarCollapsed ? item.label : undefined"
+                :aria-label="sidebarCollapsed ? item.label : undefined"
+              >
+                <component
+                  :is="item.icon"
+                  :size="16"
+                  :stroke-width="1.6"
+                  aria-hidden="true"
+                  :class="isActive(item.name) ? 'text-base-content' : 'text-base-content/55'"
+                />
+                <span v-if="!sidebarCollapsed">{{ item.label }}</span>
+              </RouterLink>
+            </nav>
+            <div class="mt-auto flex flex-col gap-0.5 border-t border-base-300 px-3 pt-2.5">
               <button
-                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
-                :aria-label="t('app.modeAria', { mode: modeLabel })"
-                :title="t('app.modeAria', { mode: modeLabel })"
+                type="button"
+                class="flex h-[34px] items-center gap-2.5 rounded-md text-[13px] text-base-content/70 hover:bg-base-300/60 hover:text-base-content disabled:opacity-50"
+                :class="sidebarCollapsed ? 'justify-center px-0' : 'px-2.5'"
                 :disabled="!appVM.state.ready || windowModeVM.state.phase !== 'idle'"
+                :title="t('app.modeAria', { mode: modeLabel })"
+                :aria-label="t('mode.rowLabel', { mode: modeLabel })"
                 @click="cycleMode"
               >
-                <component :is="modeIcon" :size="16" aria-hidden="true" />
+                <component
+                  :is="modeIcon"
+                  :size="15"
+                  :stroke-width="1.6"
+                  aria-hidden="true"
+                  class="text-base-content/55"
+                />
+                <span v-if="!sidebarCollapsed" class="truncate">{{
+                  t("mode.rowLabel", { mode: modeLabel })
+                }}</span>
+                <span
+                  v-if="!sidebarCollapsed"
+                  class="ml-auto shrink-0 text-[11.5px] text-base-content/50"
+                  >{{ t("mode.switchLabel") }}</span
+                >
               </button>
               <button
-                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
-                :aria-label="t('search.openAria')"
-                :title="t('search.openAria')"
-                :disabled="windowModeVM.state.phase !== 'idle'"
-                @click="openSearch"
-              >
-                <Search :size="16" aria-hidden="true" />
-              </button>
-              <button
-                class="grid size-8 place-items-center rounded-lg disabled:opacity-50"
-                :class="
-                  appVM.state.settings?.deskEnabled
+                type="button"
+                class="flex h-8 items-center gap-2.5 rounded-md text-[13px] disabled:opacity-50"
+                :class="[
+                  deskOn
                     ? 'bg-primary/10 text-primary'
-                    : 'text-base-content/45 hover:bg-base-200 hover:text-base-content'
-                "
-                :aria-label="t('desk.toggle')"
+                    : 'text-base-content/70 hover:bg-base-300/60 hover:text-base-content',
+                  sidebarCollapsed ? 'justify-center px-0' : 'px-2.5',
+                ]"
+                :aria-pressed="deskOn"
+                :aria-label="t('desk.rowLabel')"
                 :title="t('desk.toggle')"
-                :aria-pressed="!!appVM.state.settings?.deskEnabled"
                 :disabled="windowModeVM.state.phase !== 'idle'"
                 @click="enterWidget"
               >
-                <PanelRight :size="16" aria-hidden="true" />
+                <PanelRight
+                  :size="15"
+                  :stroke-width="1.6"
+                  aria-hidden="true"
+                  :class="deskOn ? 'text-primary' : 'text-base-content/55'"
+                />
+                <span v-if="!sidebarCollapsed" class="truncate">{{ t("desk.rowLabel") }}</span>
               </button>
               <button
-                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
-                :aria-label="t('app.themeAria', { mode: themeLabel })"
-                :title="t('app.themeAria', { mode: themeLabel })"
-                @click="cycleTheme"
-              >
-                <component :is="themeIcon" :size="16" aria-hidden="true" />
-              </button>
-              <button
-                class="grid size-8 place-items-center rounded-lg text-base-content/45 hover:bg-base-200 hover:text-base-content"
+                type="button"
+                class="flex h-8 items-center gap-2.5 rounded-md text-[13px] text-base-content/70 hover:bg-base-300/60 hover:text-base-content"
+                :class="sidebarCollapsed ? 'justify-center px-0' : 'px-2.5'"
                 :aria-label="t('app.settings')"
+                :title="t('app.settings')"
                 @click="settingsVM.open()"
               >
-                <Settings :size="16" aria-hidden="true" />
+                <Settings
+                  :size="15"
+                  :stroke-width="1.6"
+                  aria-hidden="true"
+                  class="text-base-content/55"
+                />
+                <span v-if="!sidebarCollapsed">{{ t("app.settings") }}</span>
               </button>
-              <WindowControls />
+              <button
+                type="button"
+                class="flex h-8 items-center gap-2.5 rounded-md text-[13px] text-base-content/70 hover:bg-base-300/60 hover:text-base-content"
+                :class="sidebarCollapsed ? 'justify-center px-0' : 'px-2.5'"
+                :aria-label="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')"
+                :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')"
+                @click="toggleSidebar"
+              >
+                <component
+                  :is="sidebarCollapsed ? PanelLeftOpen : PanelLeftClose"
+                  :size="15"
+                  :stroke-width="1.6"
+                  aria-hidden="true"
+                  class="text-base-content/55"
+                />
+                <span v-if="!sidebarCollapsed">{{ t("nav.collapse") }}</span>
+              </button>
             </div>
-          </header>
-          <main class="min-h-0 flex-1 overflow-y-auto">
-            <div
-              class="mx-auto max-w-[980px] px-6 py-5"
-              :class="{ 'flex min-h-full flex-col': ganttWeek }"
+          </aside>
+
+          <div class="flex min-w-0 flex-1 flex-col">
+            <header
+              data-tauri-drag-region="deep"
+              class="flex h-14 shrink-0 items-center gap-3 pl-7 select-none"
             >
-              <RouterView v-slot="{ Component }">
-                <AnimatePresence mode="wait" :initial="false">
-                  <motion.div
-                    :key="route.fullPath"
-                    v-bind="pageMotions"
-                    :class="{ 'flex grow flex-col': ganttWeek }"
+              <div class="flex min-w-0 items-center gap-3.5">
+                <h1
+                  class="shrink-0 text-[20px] font-semibold tracking-[-0.015em] whitespace-nowrap"
+                >
+                  {{ headerTitle }}
+                </h1>
+                <span
+                  v-if="pageHeaderState.context"
+                  class="min-w-0 truncate text-[13px] text-base-content/70"
+                  >{{ pageHeaderState.context }}</span
+                >
+                <span
+                  v-if="pageHeaderState.warning"
+                  class="flex shrink-0 items-center gap-2 text-[13px] font-medium text-error"
+                >
+                  <span
+                    v-if="pageHeaderState.context"
+                    class="font-normal text-base-content/40"
+                    aria-hidden="true"
+                    >·</span
                   >
-                    <component :is="Component" />
-                  </motion.div>
-                </AnimatePresence>
-              </RouterView>
-            </div>
-          </main>
-          <AnimatePresence>
-            <SettingsModal v-if="settingsVM.state.open" />
-          </AnimatePresence>
+                  {{ pageHeaderState.warning }}
+                </span>
+                <button
+                  v-if="pageHeaderState.action"
+                  type="button"
+                  class="btn-ink ml-1"
+                  @click="runHeaderAction"
+                >
+                  {{ pageHeaderState.actionLabel }}
+                  <span v-if="pageHeaderState.actionCount !== null" class="n">{{
+                    pageHeaderState.actionCount
+                  }}</span>
+                </button>
+              </div>
+              <div class="ml-auto flex h-full items-center gap-1 pr-1">
+                <span v-if="!appVM.state.ready" class="loading loading-spinner loading-xs"></span>
+                <button
+                  type="button"
+                  class="grid size-8 place-items-center rounded-md text-base-content/60 hover:bg-base-300/60 hover:text-base-content disabled:opacity-50"
+                  :aria-label="t('search.openAria')"
+                  :title="t('search.openAria')"
+                  :disabled="windowModeVM.state.phase !== 'idle'"
+                  @click="openSearch"
+                >
+                  <Search :size="16" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="grid size-8 place-items-center rounded-md text-base-content/60 hover:bg-base-300/60 hover:text-base-content"
+                  :aria-label="t('app.themeAria', { mode: themeLabel })"
+                  :title="t('app.themeAria', { mode: themeLabel })"
+                  @click="cycleTheme"
+                >
+                  <component :is="themeIcon" :size="16" aria-hidden="true" />
+                </button>
+                <WindowControls />
+              </div>
+            </header>
+            <main class="min-h-0 flex-1 overflow-y-auto">
+              <div
+                class="max-w-[1600px] px-7 pt-0.5 pb-9"
+                :class="{ 'flex min-h-full flex-col': ganttWeek }"
+              >
+                <RouterView v-slot="{ Component }">
+                  <component :is="Component" :class="{ 'flex grow flex-col': ganttWeek }" />
+                </RouterView>
+              </div>
+            </main>
+          </div>
         </div>
+        <AnimatePresence>
+          <SettingsModal v-if="settingsVM.state.open" />
+        </AnimatePresence>
       </div>
       <div
         ref="widgetLayer"

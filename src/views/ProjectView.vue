@@ -12,6 +12,7 @@ import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Milestone, Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
 import { createProjectVM } from "../viewmodels/projectVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { projectsVM } from "../viewmodels/projectsVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
@@ -63,6 +64,10 @@ watch(
 );
 
 const today = todayIso();
+usePageHeader(() => ({
+  title: vm.state.summary?.name ?? t("nav.projects"),
+  context: vm.state.summary ? `${vm.state.summary.done}/${vm.state.summary.total}` : "",
+}));
 const milestoneTitle = ref("");
 const milestoneDate = ref("");
 const editingId = ref<string | null>(null);
@@ -182,39 +187,8 @@ watch(
 
 <template>
   <section v-if="vm.state.summary" class="space-y-2">
-    <div class="flex items-start gap-3">
-      <div class="text-[16px] font-semibold tracking-tight">{{ vm.state.summary.name }}</div>
-      <div class="ml-auto flex items-center gap-2">
-        <div role="tablist" class="tabs tabs-border tabs-xs">
-          <button
-            role="tab"
-            class="tab"
-            :class="{ 'tab-active': vm.state.view === 'group' }"
-            @click="vm.state.view = 'group'"
-          >
-            {{ t("project.group") }}
-          </button>
-          <button
-            role="tab"
-            class="tab"
-            :class="{ 'tab-active': vm.state.view === 'timeline' }"
-            @click="vm.state.view = 'timeline'"
-          >
-            {{ t("project.timeline") }}
-          </button>
-        </div>
-        <button
-          class="text-base-content/35"
-          :aria-label="t('project.settingsAria')"
-          @click="projectsVM.openSettings(props.id)"
-        >
-          <Ellipsis :size="15" aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-
-    <div class="flex items-center gap-3 px-1">
-      <span class="h-1.5 flex-1 overflow-hidden rounded-full bg-base-300">
+    <div class="flex flex-wrap items-center gap-3 px-1">
+      <span class="h-1 min-w-32 flex-1 overflow-hidden rounded-full bg-base-300">
         <motion.span
           class="block h-full rounded-full bg-primary"
           :initial="{ width: 0 }"
@@ -222,9 +196,35 @@ watch(
           :transition="springSoft"
         ></motion.span>
       </span>
-      <span class="text-[11.5px] tabular-nums text-base-content/55">
+      <span class="text-[12px] tabular-nums text-base-content/70">
         {{ vm.state.summary.done }}/{{ vm.state.summary.total }}
       </span>
+      <div role="tablist" class="tabs tabs-border tabs-xs">
+        <button
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': vm.state.view === 'group' }"
+          @click="vm.state.view = 'group'"
+        >
+          {{ t("project.group") }}
+        </button>
+        <button
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': vm.state.view === 'timeline' }"
+          @click="vm.state.view = 'timeline'"
+        >
+          {{ t("project.timeline") }}
+        </button>
+      </div>
+      <button
+        type="button"
+        class="text-base-content/60 hover:text-base-content"
+        :aria-label="t('project.settingsAria')"
+        @click="projectsVM.openSettings(props.id)"
+      >
+        <Ellipsis :size="16" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="rounded-xl bg-base-100 px-3 py-2">
@@ -234,7 +234,7 @@ watch(
         <li
           v-for="milestone in vm.state.milestones"
           :key="milestone.id"
-          class="group flex items-center gap-2 border-t border-base-200 py-1.5 text-[12.5px] first:border-t-0"
+          class="group flex items-center gap-2 border-t border-base-200 py-1.5 text-[13px] first:border-t-0"
         >
           <button
             type="button"
@@ -255,7 +255,7 @@ watch(
             v-if="editingId === milestone.id"
             :ref="setEditInput"
             v-model="editingTitle"
-            class="min-w-0 flex-1 rounded-md border border-base-300 bg-base-100 px-1.5 py-0.5 text-[12.5px] outline-none focus:border-primary/60"
+            class="min-w-0 flex-1 rounded-md border border-base-300 bg-base-100 px-1.5 py-0.5 text-[13px] outline-none focus:border-primary/60"
             :aria-label="t('milestones.renameAria', { title: milestone.title })"
             @blur="commitRename(milestone)"
             @keydown="onRenameKey($event, milestone)"
@@ -264,15 +264,15 @@ watch(
             v-else
             type="button"
             class="min-w-0 flex-1 truncate text-left"
-            :class="{ 'text-base-content/40 line-through': milestone.doneAt }"
+            :class="{ 'text-base-content/60 line-through': milestone.doneAt }"
             @click="startRename(milestone)"
           >
             {{ milestone.title }}
           </button>
 
           <DateField
-            class="w-[92px] shrink-0 text-[11px]"
-            :class="milestoneOverdue(milestone) ? 'text-error' : 'text-base-content/50'"
+            class="w-[92px] shrink-0 text-[12px]"
+            :class="milestoneOverdue(milestone) ? 'text-error' : 'text-base-content/65'"
             :model-value="milestone.dueDate ?? ''"
             :aria-label="t('milestones.dateAria', { title: milestone.title })"
             @update:model-value="changeMilestoneDate(milestone, $event)"
@@ -289,30 +289,30 @@ watch(
         </li>
       </ul>
 
-      <div class="flex items-center gap-2 border-t border-base-200 pt-2 text-[12.5px]">
-        <Plus :size="11" class="shrink-0 text-base-content/40" aria-hidden="true" />
+      <div class="flex items-center gap-2 border-t border-base-200 pt-2 text-[13px]">
+        <Plus :size="11" class="shrink-0 text-base-content/60" aria-hidden="true" />
         <input
           v-model="milestoneTitle"
-          class="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-base-content/40"
+          class="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-base-content/60"
           :placeholder="t('milestones.placeholder')"
           @keydown.enter="onAddMilestoneKey"
         />
         <DateField
           v-model="milestoneDate"
-          class="w-[92px] shrink-0 text-[11px] text-base-content/50"
+          class="w-[92px] shrink-0 text-[12px] text-base-content/65"
           :aria-label="t('milestones.addDateAria')"
           @enter="addMilestone"
         />
         <button
           type="button"
-          class="btn btn-xs shrink-0 rounded-lg border-0 bg-primary text-primary-content"
+          class="btn btn-xs shrink-0 rounded-md border-0 bg-base-content font-medium text-base-100"
           @click="addMilestone"
         >
           {{ t("milestones.add") }}
         </button>
       </div>
 
-      <p v-if="vm.state.milestoneError" class="mt-1.5 text-[11px] text-error">
+      <p v-if="vm.state.milestoneError" class="mt-1.5 text-[12px] text-error">
         {{ errorText(vm.state.milestoneError) }}
       </p>
     </div>
@@ -337,11 +337,17 @@ watch(
           :expanded="!!vm.state.expanded[category.categoryId]"
           @toggle="vm.toggle(category.categoryId)"
         >
-          <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
+          <AnimatePresence
+            as="ul"
+            mode="popLayout"
+            :initial="false"
+            class="divide-y divide-base-200"
+          >
             <TaskRow
               v-for="task in tasksByCategory.get(category.categoryId) ?? []"
               :key="task.id"
               :task="task"
+              :show-project="false"
               @open="openTask"
               @changed="refresh"
             />
@@ -352,14 +358,20 @@ watch(
           v-if="(tasksByCategory.get('') ?? []).length"
           class="rounded-xl bg-base-100 px-3 py-2.5"
         >
-          <div class="text-[10.5px] font-medium tracking-wide text-base-content/40">
+          <div class="text-[12px] font-medium tracking-wide text-base-content/60">
             {{ t("common.uncategorized") }}
           </div>
-          <AnimatePresence as="ul" mode="popLayout" :initial="false" class="mt-1.5 space-y-1">
+          <AnimatePresence
+            as="ul"
+            mode="popLayout"
+            :initial="false"
+            class="divide-y divide-base-200"
+          >
             <TaskRow
               v-for="task in tasksByCategory.get('') ?? []"
               :key="task.id"
               :task="task"
+              :show-project="false"
               @open="openTask"
               @changed="refresh"
             />

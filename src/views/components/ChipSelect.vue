@@ -132,9 +132,9 @@ function onListKey(event: KeyboardEvent): void {
     @click="onTrigger"
   >
     <span class="truncate">
-      <span v-if="dim" class="mr-1.5 text-base-content/40">{{ dim }}</span>{{ selectedLabel }}
+      <span v-if="dim" class="mr-1.5 text-base-content/60">{{ dim }}</span>{{ selectedLabel }}
     </span>
-    <ChevronDown :size="14" class="shrink-0 text-base-content/40" aria-hidden="true" />
+    <ChevronDown :size="14" class="shrink-0 text-base-content/60" aria-hidden="true" />
   </button>
   <Teleport to="body">
     <div
@@ -158,7 +158,7 @@ function onListKey(event: KeyboardEvent): void {
           :key="option.value"
           role="option"
           :aria-selected="option.value === modelValue"
-          class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[11px]"
+          class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px]"
           :class="index === active ? 'bg-base-200' : ''"
           @click="choose(index)"
           @mouseenter="active = index"
@@ -181,7 +181,7 @@ function onListKey(event: KeyboardEvent): void {
         v-if="createPlaceholder"
         ref="createInput"
         v-model="createDraft"
-        class="mt-1 w-full rounded-md border border-base-300 bg-base-100 px-1.5 py-1 text-[11px] outline-none placeholder:text-base-content/40"
+        class="mt-1 w-full rounded-md border border-base-300 bg-base-100 px-1.5 py-1 text-[12px] outline-none placeholder:text-base-content/60"
         :placeholder="createPlaceholder"
         :aria-label="createPlaceholder"
         @keydown="onCreateKey"

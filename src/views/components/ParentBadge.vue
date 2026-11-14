@@ -8,7 +8,7 @@ defineProps<{ title: string }>();
 
 <template>
   <span
-    class="flex min-w-0 shrink items-center gap-1 text-[11px] opacity-60"
+    class="flex min-w-0 shrink items-center gap-1 text-[11.5px] text-base-content/60"
     :title="t('task.parentTask', { title })"
   >
     <CornerDownRight :size="10" aria-hidden="true" class="shrink-0" />

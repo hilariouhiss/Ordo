@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { t, type MessageKey } from "../lib/i18n";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { statsVM, STATS_PRESETS, type StatsPreset } from "../viewmodels/statsVM";
 import DateField from "./components/DateField.vue";
 import StatsBreakdown from "./components/StatsBreakdown.vue";
@@ -88,8 +89,8 @@ function tone(delta: number | null, goodUp: boolean): Tone {
 const TONE_CLASS: Record<Tone, string> = {
   up: "text-success",
   down: "text-error",
-  flat: "text-base-content/40",
-  none: "text-base-content/40",
+  flat: "text-base-content/60",
+  none: "text-base-content/60",
 };
 
 /** A zero delta reads as "0", not "−0"; everything else carries its sign. */
@@ -121,13 +122,12 @@ const delayedSub = computed(() =>
 const rangeLabel = computed(() =>
   t("stats.range", { from: state.from, to: state.to, days: span.value }),
 );
+usePageHeader(() => ({ title: t("stats.title"), context: rangeLabel.value }));
 </script>
 
 <template>
   <section class="space-y-2">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("stats.title") }}</h1>
-      <span class="text-[11px] tabular-nums text-base-content/45">{{ rangeLabel }}</span>
       <div class="ml-auto flex flex-wrap gap-1" role="group" :aria-label="t('stats.rangeAria')">
         <button
           v-for="preset in STATS_PRESETS"
@@ -136,7 +136,7 @@ const rangeLabel = computed(() =>
           class="btn btn-xs rounded-md font-normal"
           :class="
             state.preset === preset
-              ? 'border-0 bg-primary text-primary-content'
+              ? 'border-0 bg-base-content text-base-100'
               : 'border-base-300 bg-base-100'
           "
           :aria-pressed="state.preset === preset"
@@ -148,14 +148,14 @@ const rangeLabel = computed(() =>
     </div>
 
     <div v-if="state.preset === 'custom'" class="flex flex-wrap items-center gap-2">
-      <label class="flex items-center gap-1.5 text-[11px] text-base-content/45">
+      <label class="flex items-center gap-1.5 text-[12px] text-base-content/65">
         {{ t("stats.from") }}
         <DateField
           v-model="state.customFrom"
           class="input input-sm w-36 rounded-lg border-base-300"
         />
       </label>
-      <label class="flex items-center gap-1.5 text-[11px] text-base-content/45">
+      <label class="flex items-center gap-1.5 text-[12px] text-base-content/65">
         {{ t("stats.to") }}
         <DateField
           v-model="state.customTo"
@@ -166,65 +166,65 @@ const rangeLabel = computed(() =>
 
     <template v-if="state.data">
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-base-100 px-3 py-2.5">
-          <span class="text-[11px] text-base-content/45">{{ t("stats.completed") }}</span>
-          <span class="flex items-baseline gap-1 text-[22px] font-semibold leading-tight">
+        <div class="flex min-w-0 flex-col gap-0.5 rounded-lg bg-base-100 px-3 py-2.5">
+          <span class="text-[12px] text-base-content/65">{{ t("stats.completed") }}</span>
+          <span class="flex items-baseline gap-1 text-[30px] font-medium leading-tight">
             {{ data.completed }}
-            <span class="text-[11px] font-normal text-base-content/45">
+            <span class="text-[12px] font-normal text-base-content/65">
               {{ t("stats.completedUnit") }}
             </span>
           </span>
-          <span class="flex items-baseline gap-1 text-[11px]">
+          <span class="flex items-baseline gap-1 text-[12px]">
             <span :class="TONE_CLASS[tone(completedDelta, true)]">{{ completedSub }}</span>
-            <span class="text-base-content/40">{{ t("stats.vsPrevious") }}</span>
+            <span class="text-base-content/60">{{ t("stats.vsPrevious") }}</span>
           </span>
         </div>
 
-        <div class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-base-100 px-3 py-2.5">
-          <span class="text-[11px] text-base-content/45">{{ t("stats.minutes") }}</span>
-          <span class="flex items-baseline gap-1 text-[22px] font-semibold leading-tight">
+        <div class="flex min-w-0 flex-col gap-0.5 rounded-lg bg-base-100 px-3 py-2.5">
+          <span class="text-[12px] text-base-content/65">{{ t("stats.minutes") }}</span>
+          <span class="flex items-baseline gap-1 text-[30px] font-medium leading-tight">
             {{ completedDays }}
-            <span class="text-[11px] font-normal text-base-content/45">
+            <span class="text-[12px] font-normal text-base-content/65">
               {{ t("stats.minutesUnit") }}
             </span>
-            <span class="text-[11px] font-normal text-base-content/40">
+            <span class="text-[12px] font-normal text-base-content/60">
               {{ t("stats.minutesHint", { hours: completedHours }) }}
             </span>
           </span>
-          <span class="flex items-baseline gap-1 text-[11px]">
+          <span class="flex items-baseline gap-1 text-[12px]">
             <span :class="TONE_CLASS[tone(minutesDelta, true)]">{{ minutesSub }}</span>
-            <span class="text-base-content/40">{{ t("stats.vsPrevious") }}</span>
+            <span class="text-base-content/60">{{ t("stats.vsPrevious") }}</span>
           </span>
         </div>
 
-        <div class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-base-100 px-3 py-2.5">
-          <span class="text-[11px] text-base-content/45">{{ t("stats.onTime") }}</span>
-          <span class="flex items-baseline gap-1 text-[22px] font-semibold leading-tight">
+        <div class="flex min-w-0 flex-col gap-0.5 rounded-lg bg-base-100 px-3 py-2.5">
+          <span class="text-[12px] text-base-content/65">{{ t("stats.onTime") }}</span>
+          <span class="flex items-baseline gap-1 text-[30px] font-medium leading-tight">
             <template v-if="rate === null">{{ t("common.none") }}</template>
             <template v-else>
               {{ rate }}
-              <span class="text-[11px] font-normal text-base-content/45">%</span>
+              <span class="text-[12px] font-normal text-base-content/65">%</span>
             </template>
           </span>
-          <span class="flex items-baseline gap-1 text-[11px]">
+          <span class="flex items-baseline gap-1 text-[12px]">
             <span v-if="rateDeltaText" :class="TONE_CLASS[tone(rateDelta, true)]">
               {{ rateDeltaText }}
             </span>
-            <span class="truncate text-base-content/40">{{ rateSub }}</span>
+            <span class="truncate text-base-content/60">{{ rateSub }}</span>
           </span>
         </div>
 
-        <div class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-base-100 px-3 py-2.5">
-          <span class="text-[11px] text-base-content/45">{{ t("stats.delayed") }}</span>
-          <span class="flex items-baseline gap-1 text-[22px] font-semibold leading-tight">
+        <div class="flex min-w-0 flex-col gap-0.5 rounded-lg bg-base-100 px-3 py-2.5">
+          <span class="text-[12px] text-base-content/65">{{ t("stats.delayed") }}</span>
+          <span class="flex items-baseline gap-1 text-[30px] font-medium leading-tight">
             {{ data.delayed }}
-            <span class="text-[11px] font-normal text-base-content/45">
+            <span class="text-[12px] font-normal text-base-content/65">
               {{ t("stats.delayedUnit") }}
             </span>
           </span>
-          <span class="flex items-baseline gap-1 text-[11px]">
+          <span class="flex items-baseline gap-1 text-[12px]">
             <span :class="TONE_CLASS[tone(delayedDelta, false)]">{{ delayedSub }}</span>
-            <span class="text-base-content/40">{{ t("stats.vsPrevious") }}</span>
+            <span class="text-base-content/60">{{ t("stats.vsPrevious") }}</span>
           </span>
         </div>
       </div>
@@ -268,15 +268,15 @@ const rangeLabel = computed(() =>
         v-else
         class="rounded-xl border border-dashed border-base-content/15 px-4 py-8 text-center"
       >
-        <p class="text-[12.5px]">{{ t("stats.empty") }}</p>
-        <p class="mt-1 text-[11.5px] text-base-content/45">{{ t("stats.emptyHint") }}</p>
+        <p class="text-[13px]">{{ t("stats.empty") }}</p>
+        <p class="mt-1 text-[12px] text-base-content/65">{{ t("stats.emptyHint") }}</p>
       </div>
     </template>
 
     <!-- A first read that never landed: say so instead of leaving the page blank. -->
-    <p v-else-if="state.failed" class="px-1 text-[13px] text-base-content/40">
+    <p v-else-if="state.failed" class="px-1 text-[13px] text-base-content/60">
       {{ t("stats.loadFailed") }}
     </p>
-    <p v-else class="px-1 text-[13px] text-base-content/40">{{ t("stats.loading") }}</p>
+    <p v-else class="px-1 text-[13px] text-base-content/60">{{ t("stats.loading") }}</p>
   </section>
 </template>

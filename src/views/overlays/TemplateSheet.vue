@@ -87,7 +87,7 @@ async function save(): Promise<void> {
           {{ t(template ? "template.editTitle" : "template.newTitle") }}
         </h2>
         <button
-          class="ml-auto grid size-6 place-items-center rounded-md text-base-content/40 hover:bg-base-200 hover:text-base-content"
+          class="ml-auto grid size-6 place-items-center rounded-md text-base-content/60 hover:bg-base-200 hover:text-base-content"
           :aria-label="t('common.close')"
           @click="emit('close')"
         >
@@ -98,7 +98,7 @@ async function save(): Promise<void> {
       <div class="min-h-0 overflow-y-auto px-4 pb-4">
         <input
           v-model="form.name"
-          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+          class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[13px]"
           :placeholder="t('template.namePlaceholder')"
           :aria-label="t('template.name')"
           autofocus
@@ -106,7 +106,7 @@ async function save(): Promise<void> {
 
         <TaskAttrFields v-model="attrs" />
 
-        <div class="mt-3 text-[10.5px] font-medium tracking-wide text-base-content/40">
+        <div class="mt-3 text-[12px] font-medium tracking-wide text-base-content/60">
           {{ t("template.steps") }}
         </div>
         <ul class="mt-1 space-y-1">
@@ -115,7 +115,7 @@ async function save(): Promise<void> {
             :key="index"
             class="flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-base-200"
           >
-            <span class="w-3 text-[10px] text-base-content/30">{{ index + 1 }}</span>
+            <span class="w-3 text-[12px] text-base-content/30">{{ index + 1 }}</span>
             <span class="min-w-0 flex-1 truncate text-[12px]">{{ step }}</span>
             <button
               type="button"
@@ -129,13 +129,13 @@ async function save(): Promise<void> {
         </ul>
         <input
           v-model="stepDraft"
-          class="mt-1 w-full bg-transparent px-1 py-1.5 text-[12px] outline-none placeholder:text-base-content/35"
+          class="mt-1 w-full bg-transparent px-1 py-1.5 text-[12px] outline-none placeholder:text-base-content/60"
           :placeholder="t('template.stepPlaceholder')"
           :aria-label="t('template.steps')"
           @keydown.enter="onStepKey"
         />
 
-        <label class="mt-3 block text-[11px] text-base-content/45">
+        <label class="mt-3 block text-[12px] text-base-content/65">
           {{ t("template.note") }}
           <input
             v-model="form.note"
@@ -143,7 +143,7 @@ async function save(): Promise<void> {
           />
         </label>
 
-        <p v-if="error" class="mt-2 text-[11px] text-error">{{ error }}</p>
+        <p v-if="error" class="mt-2 text-[12px] text-error">{{ error }}</p>
 
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -153,7 +153,7 @@ async function save(): Promise<void> {
             {{ t("common.cancel") }}
           </button>
           <button
-            class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+            class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
             :disabled="saving || !form.name.trim()"
             @click="save"
           >

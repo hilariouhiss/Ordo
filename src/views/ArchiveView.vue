@@ -7,11 +7,14 @@ import { t } from "../lib/i18n";
 import { listItemMotion } from "../lib/motion";
 import { appVM } from "../viewmodels/appVM";
 import { archiveVM as vm } from "../viewmodels/archiveVM";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { undoVM } from "../viewmodels/undoVM";
 
 onMounted(() => {
   void vm.load();
 });
+
+usePageHeader(() => ({ title: t("archive.title") }));
 
 const currentList = computed(() =>
   vm.state.tab === "tasks" ? vm.state.data.tasks : vm.state.data.canceled,
@@ -51,11 +54,10 @@ watch(
 <template>
   <section class="space-y-2">
     <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("archive.title") }}</h1>
       <div class="input input-sm ml-auto w-56 rounded-lg border-0 bg-base-100">
         <input
           v-model="vm.state.query"
-          class="w-full bg-transparent text-[12px] outline-none placeholder:text-base-content/35"
+          class="w-full bg-transparent text-[12px] outline-none placeholder:text-base-content/60"
           :placeholder="t('archive.search')"
           @input="onSearch"
         />
@@ -98,7 +100,7 @@ watch(
           class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5"
         >
           <span class="text-[13px] font-medium">{{ project.name }}</span>
-          <span v-if="project.archivedAt" class="text-[10.5px] text-base-content/40">
+          <span v-if="project.archivedAt" class="text-[12px] text-base-content/60">
             {{ t("archive.archivedAt", { date: shortDate(localDate(project.archivedAt)) }) }}
           </span>
           <button
@@ -115,7 +117,7 @@ watch(
           </button>
         </motion.div>
       </AnimatePresence>
-      <p v-if="!vm.state.data.projects.length" class="px-1 text-[12px] text-base-content/40">
+      <p v-if="!vm.state.data.projects.length" class="px-1 text-[12px] text-base-content/60">
         {{ t("archive.emptyProjects") }}
       </p>
     </div>
@@ -146,7 +148,7 @@ watch(
           </button>
         </motion.div>
       </AnimatePresence>
-      <p v-if="!currentList.length" class="px-1 text-[12px] text-base-content/40">
+      <p v-if="!currentList.length" class="px-1 text-[12px] text-base-content/60">
         {{ t("archive.empty") }}
       </p>
     </div>

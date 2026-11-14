@@ -317,14 +317,14 @@ onUnmounted(() => {
     class="window-scrim fixed inset-0 z-40 flex items-center justify-center bg-neutral/40 p-4"
     @click.self="vm.close()"
   >
-    <motion.div v-bind="modalPanelMotion" class="w-full max-w-[640px]">
+    <motion.div v-bind="modalPanelMotion" class="w-full max-w-[680px]">
       <div
         class="flex max-h-[86vh] flex-col overflow-hidden rounded-2xl bg-base-100 shadow-2xl motion-safe:transition-[height] motion-safe:duration-200 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]"
         :style="{ height: panelHeight }"
       >
         <div ref="panelHeader" class="shrink-0 px-5 pt-5">
           <div class="flex items-center">
-            <h2 class="text-[15px] font-semibold">{{ t("app.settingsTitle") }}</h2>
+            <h2 class="text-[17px] font-semibold">{{ t("app.settingsTitle") }}</h2>
             <button
               class="ml-auto text-base-content/30"
               :aria-label="t('common.close')"
@@ -381,7 +381,7 @@ onUnmounted(() => {
                 <motion.div :key="vm.state.tab" v-bind="panelSwapMotion">
                   <div v-if="vm.state.tab === 'ai'" class="mt-4 rounded-xl bg-base-200 p-4">
                     <div class="flex items-center gap-2">
-                      <span class="text-[12.5px] font-medium">DeepSeek</span>
+                      <span class="text-[13px] font-medium">DeepSeek</span>
                       <span
                         class="badge badge-soft badge-xs"
                         :class="settings.aiEnabled ? 'badge-success' : 'badge-ghost'"
@@ -399,10 +399,10 @@ onUnmounted(() => {
                         @change="vm.save({ aiEnabled: !settings.aiEnabled })"
                       />
                     </div>
-                    <div class="mt-3 space-y-2 text-[11.5px]">
+                    <div class="mt-3 space-y-2 text-[12px]">
                       <label class="flex items-center gap-3">
                         <span
-                          class="w-20 shrink-0 text-base-content/50"
+                          class="w-20 shrink-0 text-base-content/65"
                           v-text="t('settings.aiServiceUrl')"
                         ></span>
                         <input
@@ -413,7 +413,7 @@ onUnmounted(() => {
                       </label>
                       <label class="flex items-center gap-3">
                         <span
-                          class="w-20 shrink-0 text-base-content/50"
+                          class="w-20 shrink-0 text-base-content/65"
                           v-text="t('settings.aiModel')"
                         ></span>
                         <input
@@ -424,7 +424,7 @@ onUnmounted(() => {
                       </label>
                       <label class="flex items-center gap-3">
                         <span
-                          class="w-20 shrink-0 text-base-content/50"
+                          class="w-20 shrink-0 text-base-content/65"
                           v-text="t('settings.aiApiKey')"
                         ></span>
                         <input
@@ -457,11 +457,11 @@ onUnmounted(() => {
                           {{ t("settings.aiKeyClear") }}
                         </button>
                       </label>
-                      <p v-if="aiStatus" class="text-[10.5px] text-base-content/45">
+                      <p v-if="aiStatus" class="text-[12px] text-base-content/65">
                         {{ aiStatusText }}
                       </p>
                     </div>
-                    <p class="mt-2 text-[10.5px] text-base-content/35">
+                    <p class="mt-2 text-[12px] text-base-content/60">
                       {{ t("settings.aiNote") }}
                     </p>
                   </div>
@@ -476,7 +476,7 @@ onUnmounted(() => {
                           class="btn btn-xs rounded-md border-base-300 font-normal"
                           :class="
                             settings.mode === option.value
-                              ? 'border-0 bg-primary text-primary-content'
+                              ? 'border-0 bg-base-content text-base-100'
                               : 'bg-base-100'
                           "
                           :aria-pressed="settings.mode === option.value"
@@ -500,7 +500,7 @@ onUnmounted(() => {
                       <span>{{ t("settings.modePersonalAt") }}</span>
                       <TimeField
                         v-model="modePersonalAt"
-                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
+                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[12px]"
                         :aria-label="t('settings.modePersonalAt')"
                         @update:model-value="saveModeTimes"
                       />
@@ -509,7 +509,7 @@ onUnmounted(() => {
                       <span>{{ t("settings.modeWorkAt") }}</span>
                       <TimeField
                         v-model="modeWorkAt"
-                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[11.5px]"
+                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-[12px]"
                         :aria-label="t('settings.modeWorkAt')"
                         @update:model-value="saveModeTimes"
                       />
@@ -523,7 +523,7 @@ onUnmounted(() => {
                           class="btn btn-xs rounded-md border-base-300 px-2 font-normal"
                           :class="
                             settings.modeDays.includes(day.value)
-                              ? 'border-0 bg-primary text-primary-content'
+                              ? 'border-0 bg-base-content text-base-100'
                               : 'bg-base-100'
                           "
                           :aria-pressed="settings.modeDays.includes(day.value)"
@@ -533,10 +533,10 @@ onUnmounted(() => {
                         </button>
                       </span>
                     </div>
-                    <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/35">
+                    <p class="mt-2 text-[12px] leading-relaxed text-base-content/60">
                       {{ t("settings.modeHint") }}
                     </p>
-                    <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
+                    <p class="mt-1.5 text-[12px] leading-relaxed text-base-content/60">
                       {{ t("settings.modeNote") }}
                     </p>
                   </div>
@@ -554,7 +554,7 @@ onUnmounted(() => {
                           class="btn btn-xs rounded-md border-base-300 font-normal"
                           :class="
                             settings.theme === option.value
-                              ? 'border-0 bg-primary text-primary-content'
+                              ? 'border-0 bg-base-content text-base-100'
                               : 'bg-base-100'
                           "
                           @click="vm.save({ theme: option.value })"
@@ -572,7 +572,7 @@ onUnmounted(() => {
                           class="btn btn-xs rounded-md border-base-300 font-normal"
                           :class="
                             settings.language === option.value
-                              ? 'border-0 bg-primary text-primary-content'
+                              ? 'border-0 bg-base-content text-base-100'
                               : 'bg-base-100'
                           "
                           @click="vm.save({ language: option.value })"
@@ -617,7 +617,7 @@ onUnmounted(() => {
                         @change="vm.save({ weekHideDone: !settings.weekHideDone })"
                       />
                     </div>
-                    <p class="mt-1.5 text-[10.5px] text-base-content/35">
+                    <p class="mt-1.5 text-[12px] text-base-content/60">
                       {{ t("settings.weekHideDoneHint") }}
                     </p>
                     <div class="mt-3 flex items-center justify-between text-[12px]">
@@ -629,7 +629,7 @@ onUnmounted(() => {
                           class="btn btn-xs rounded-md border-base-300 font-normal"
                           :class="
                             settings.taskDefaultExclusive === option.value
-                              ? 'border-0 bg-primary text-primary-content'
+                              ? 'border-0 bg-base-content text-base-100'
                               : 'bg-base-100'
                           "
                           :aria-pressed="settings.taskDefaultExclusive === option.value"
@@ -639,7 +639,7 @@ onUnmounted(() => {
                         </button>
                       </span>
                     </div>
-                    <p class="mt-1.5 text-[10.5px] text-base-content/35">
+                    <p class="mt-1.5 text-[12px] text-base-content/60">
                       {{
                         t(settings.taskDefaultExclusive ? "task.exclusiveHint" : "task.sharedHint")
                       }}
@@ -653,7 +653,7 @@ onUnmounted(() => {
                         @change="vm.save({ overduePrompt: !settings.overduePrompt })"
                       />
                     </div>
-                    <p class="mt-1.5 text-[10.5px] leading-relaxed text-base-content/35">
+                    <p class="mt-1.5 text-[12px] leading-relaxed text-base-content/60">
                       {{ t("settings.overdueRolloverHint") }}
                     </p>
                     <div class="mt-4 h-px bg-base-300"></div>
@@ -681,7 +681,7 @@ onUnmounted(() => {
                         <span>{{ row.label }}</span>
                         <span class="flex items-center gap-2">
                           <span
-                            class="rounded-md bg-base-100 px-2 py-1 text-[11px] text-base-content/50"
+                            class="rounded-md bg-base-100 px-2 py-1 text-[12px] text-base-content/65"
                           >
                             {{ displayShortcut(row.target, row.value) }}
                           </span>
@@ -693,7 +693,7 @@ onUnmounted(() => {
                           </button>
                           <button
                             v-if="pendingShortcut?.target === row.target"
-                            class="btn btn-xs rounded-md border-0 bg-primary text-primary-content"
+                            class="btn btn-xs rounded-md border-0 bg-base-content text-base-100"
                             @click="applyShortcut"
                           >
                             {{ t("common.save") }}
@@ -702,7 +702,7 @@ onUnmounted(() => {
                       </div>
                       <p
                         v-if="warningText(row.target, row.warning)"
-                        class="mt-1 text-[10.5px] text-error"
+                        class="mt-1 text-[12px] text-error"
                       >
                         {{
                           t("settings.shortcutWarning", {
@@ -716,7 +716,7 @@ onUnmounted(() => {
                   <div v-else-if="vm.state.tab === 'data'" class="mt-4 rounded-xl bg-base-200 p-4">
                     <div class="flex items-center justify-between text-[12px]">
                       <span>{{ t("settings.backupDaily") }}</span>
-                      <span class="text-[11px] text-base-content/40">
+                      <span class="text-[12px] text-base-content/60">
                         {{ t("settings.backupKeep", { days: settings.backupKeepDays }) }}
                       </span>
                     </div>
@@ -736,17 +736,17 @@ onUnmounted(() => {
                     </div>
                     <p
                       v-if="vm.state.backupPath"
-                      class="mt-2 break-all text-[10.5px] text-base-content/40"
+                      class="mt-2 break-all text-[12px] text-base-content/60"
                     >
                       {{ t("settings.backupPath", { path: vm.state.backupPath }) }}
                     </p>
                     <p
                       v-if="vm.state.exportPath"
-                      class="mt-1 break-all text-[10.5px] text-base-content/40"
+                      class="mt-1 break-all text-[12px] text-base-content/60"
                     >
                       {{ t("settings.exportPath", { path: vm.state.exportPath }) }}
                     </p>
-                    <p v-if="settings.backupError" class="mt-2 break-all text-[10.5px] text-error">
+                    <p v-if="settings.backupError" class="mt-2 break-all text-[12px] text-error">
                       {{ t("settings.backupError", { error: settings.backupError }) }}
                     </p>
                   </div>

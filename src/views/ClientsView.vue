@@ -7,10 +7,12 @@ import { errorText, t } from "../lib/i18n";
 import { isImeEnter } from "../lib/keys";
 import { listItemMotion } from "../lib/motion";
 import type { ProjectGroup } from "../model/types";
+import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { projectsVM } from "../viewmodels/projectsVM";
 
 const name = ref("");
 const error = ref("");
+usePageHeader(() => ({ title: t("clients.title"), context: t("clients.hint") }));
 
 onMounted(() => {
   void projectsVM.load();
@@ -88,16 +90,11 @@ async function remove(group: ProjectGroup): Promise<void> {
 
 <template>
   <section class="space-y-2">
-    <div class="flex items-center gap-3">
-      <h1 class="text-[16px] font-semibold">{{ t("clients.title") }}</h1>
-      <span class="text-[11px] text-base-content/45">{{ t("clients.hint") }}</span>
-    </div>
-
     <p v-if="error" class="px-1 text-[12px] text-error">{{ errorText(error) }}</p>
 
     <p
       v-if="!projectsVM.state.groups.length"
-      class="rounded-xl bg-base-100 px-4 py-3 text-[12px] text-base-content/40"
+      class="rounded-xl bg-base-100 px-4 py-3 text-[12px] text-base-content/60"
     >
       {{ t("clients.empty") }}
     </p>
@@ -107,31 +104,31 @@ async function remove(group: ProjectGroup): Promise<void> {
         v-for="group in projectsVM.state.groups"
         :key="group.id"
         v-bind="listItemMotion"
-        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[12.5px]"
+        class="flex items-center gap-3 rounded-xl bg-base-100 px-4 py-2.5 text-[13px]"
       >
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline gap-2">
             <span>{{ group.name }}</span>
-            <span v-if="contactLine(group)" class="text-[11px] text-base-content/45">
+            <span v-if="contactLine(group)" class="text-[12px] text-base-content/65">
               {{ contactLine(group) }}
             </span>
           </div>
           <div
             v-if="group.note"
-            class="mt-0.5 truncate text-[11px] text-base-content/40"
+            class="mt-0.5 truncate text-[12px] text-base-content/60"
             :title="group.note"
           >
             {{ group.note }}
           </div>
         </div>
-        <span class="shrink-0 text-[10.5px] tabular-nums text-base-content/35">
+        <span class="shrink-0 text-[12px] tabular-nums text-base-content/60">
           {{ t("projects.groupCount", { count: counts.get(group.id) ?? 0 }) }}
         </span>
-        <button class="shrink-0 text-base-content/35 hover:text-base-content" @click="edit(group)">
+        <button class="shrink-0 text-base-content/60 hover:text-base-content" @click="edit(group)">
           {{ t("common.edit") }}
         </button>
         <button
-          class="shrink-0 text-base-content/35 hover:text-error"
+          class="shrink-0 text-base-content/60 hover:text-error"
           :aria-label="t('projects.deleteGroupAria')"
           @click="remove(group)"
         >
@@ -143,11 +140,11 @@ async function remove(group: ProjectGroup): Promise<void> {
     <div class="flex items-center gap-2 rounded-xl bg-base-100 px-4 py-2.5">
       <input
         v-model="name"
-        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/40"
+        class="w-full bg-transparent text-[13px] outline-none placeholder:text-base-content/60"
         :placeholder="t('clients.placeholder')"
         @keydown.enter="onKey"
       />
     </div>
-    <p class="px-1 text-[10.5px] text-base-content/35">{{ t("clients.footer") }}</p>
+    <p class="px-1 text-[12px] text-base-content/60">{{ t("clients.footer") }}</p>
   </section>
 </template>

@@ -83,7 +83,7 @@ const isDone = (lane: WeekLane): boolean => lane.task.status === "done";
 /** Bar skin: finished work recedes, conflict alarms, shared work is dashed. */
 function skin(lane: WeekLane): string {
   if (isDone(lane)) {
-    return "border-base-300 border-l-[3px] border-l-base-content/20 bg-base-300/50 text-base-content/40";
+    return "border-base-300 border-l-[3px] border-l-base-content/20 bg-base-300/50 text-base-content/60";
   }
   if (lane.task.suspended) {
     return "border-dashed border-warning/50 border-l-[3px] border-l-warning bg-warning/[0.10] text-warning";
@@ -218,8 +218,8 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
 
 <template>
   <div class="flex grow flex-col gap-1.5">
-    <div class="flex h-[26px] items-center gap-2 px-0.5 text-[10px] text-base-content/40">
-      <span class="font-medium text-base-content/55">{{ t("week.ganttCaption") }}</span>
+    <div class="flex h-[26px] items-center gap-2 px-0.5 text-[12px] text-base-content/60">
+      <span class="font-medium text-base-content/60">{{ t("week.ganttCaption") }}</span>
       <span class="truncate">{{ t("week.ganttHint") }}</span>
     </div>
 
@@ -241,24 +241,24 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
         >
           <span class="flex min-w-0 items-center gap-1.5">
             <span
-              class="text-[11.5px] font-medium"
+              class="text-[12px] font-medium"
               :class="
                 date === today
                   ? 'text-primary'
                   : date < today
-                    ? 'text-base-content/35'
-                    : 'text-base-content/55'
+                    ? 'text-base-content/60'
+                    : 'text-base-content/60'
               "
               >{{ weekdayLabel(date) }}</span
             >
             <span
-              class="text-[11px]"
+              class="text-[12px]"
               :class="
                 date === today
                   ? 'text-primary/80'
                   : date < today
-                    ? 'text-base-content/35'
-                    : 'text-base-content/40'
+                    ? 'text-base-content/60'
+                    : 'text-base-content/60'
               "
               >{{ shortDate(date) }}</span
             >
@@ -274,7 +274,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
               >{{ t("week.dropDay") }}</span
             >
           </span>
-          <span class="flex items-center gap-1.5 text-[10px] text-base-content/40">
+          <span class="flex items-center gap-1.5 text-[12px] text-base-content/60">
             <span v-if="dayLoad(date)">{{ t("week.dayLoad", { hours: dayLoad(date) }) }}</span>
             <span v-if="overloadDates.includes(date)" class="text-warning">{{
               t("week.tooFull")
@@ -312,7 +312,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
           <div class="relative grid flex-1 grid-cols-5">
             <div v-for="date in dates" :key="date" class="row-start-1"></div>
             <div
-              class="relative z-10 row-start-1 mx-[3px] my-auto flex flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-3 py-1 transition-[border-color,background-color,box-shadow] duration-150 hover:border-current/50 hover:shadow-sm"
+              class="relative z-10 row-start-1 mx-[3px] my-auto flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border px-3 py-1 transition-[border-color,background-color,box-shadow] duration-150 hover:border-current/50 hover:shadow-sm"
               :class="[skin(lane), { 'opacity-40': draggingId === lane.task.id }]"
               :style="columnOf(lane)"
               role="button"
@@ -362,7 +362,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 </span>
                 <span
                   class="truncate text-[13.5px]"
-                  :class="{ 'text-base-content/40 line-through': isDone(lane) }"
+                  :class="{ 'text-base-content/60 line-through': isDone(lane) }"
                 >
                   {{ lane.task.title }}
                 </span>
@@ -402,7 +402,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                   </button>
                 </div>
               </div>
-              <div class="flex min-w-0 items-center gap-1 text-[10.5px]">
+              <div class="flex min-w-0 items-center gap-1 text-[12px]">
                 <span
                   v-if="lane.row.conflict"
                   class="badge badge-soft badge-error badge-xs shrink-0"

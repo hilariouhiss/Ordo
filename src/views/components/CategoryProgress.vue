@@ -18,10 +18,13 @@ const pct = computed(() =>
 </script>
 
 <template>
-  <motion.div layout :transition="springSoft" class="rounded-xl bg-base-100 px-3 py-2.5">
-    <button class="flex w-full items-center gap-2 text-left" @click="emit('toggle')">
-      <span class="w-8 text-[12.5px] font-medium">{{ category.name }}</span>
-      <span class="h-1.5 flex-1 overflow-hidden rounded-full bg-base-300">
+  <motion.div layout :transition="springSoft" class="overflow-hidden rounded-lg bg-base-100">
+    <button
+      class="flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-base-200/50"
+      @click="emit('toggle')"
+    >
+      <span class="w-8 text-[13px] font-medium">{{ category.name }}</span>
+      <span class="h-1 flex-1 overflow-hidden rounded-full bg-base-300">
         <motion.span
           class="block h-full rounded-full bg-primary"
           :initial="{ width: 0 }"
@@ -29,18 +32,20 @@ const pct = computed(() =>
           :transition="springSoft"
         ></motion.span>
       </span>
-      <span class="w-8 text-right text-[11px] tabular-nums text-base-content/50">
+      <span class="w-10 text-right text-[12px] tabular-nums text-base-content/65">
         {{ category.done }}/{{ category.total }}
       </span>
       <ChevronRight
         :size="12"
         aria-hidden="true"
         :class="[
-          'text-base-content/35 transition-transform duration-200',
+          'text-base-content/60 transition-transform duration-200',
           { 'rotate-90': expanded },
         ]"
       />
     </button>
-    <slot v-if="expanded"></slot>
+    <div v-if="expanded" class="border-t border-base-200">
+      <slot></slot>
+    </div>
   </motion.div>
 </template>

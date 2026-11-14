@@ -37,6 +37,10 @@ export function createProjectVM() {
       state.summary = summary;
       state.milestones = summary.milestones;
       state.tasks = tasks;
+      // Open every category the first time: the page's work should be visible, not hidden.
+      if (Object.keys(state.expanded).length === 0) {
+        for (const category of summary.byCategory) state.expanded[category.categoryId] = true;
+      }
     } finally {
       state.loading = false;
     }

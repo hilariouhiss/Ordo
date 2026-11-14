@@ -156,33 +156,33 @@ function onEnter(event: KeyboardEvent): void {
         <h2 class="shrink-0 px-5 pt-5 text-[15px] font-semibold">{{ dialogRequest.title }}</h2>
         <div class="min-h-0 overflow-y-auto px-5 pb-5">
           <template v-if="dialogRequest.kind === 'suspend'">
-            <label class="mt-3 block text-[11px] text-base-content/45">
+            <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("task.suspendReasonLabel") }}
               <input
                 ref="reasonInput"
                 v-model="reasonDraft"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 :placeholder="t('task.suspendReasonPlaceholder')"
                 @keydown.enter="onEnter"
               />
             </label>
-            <label class="mt-2 block text-[11px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("task.suspendUntilLabel") }}
               <DateField
                 v-model="untilDraft"
                 :min="todayIso()"
                 :aria-label="t('task.suspendUntilLabel')"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @enter="confirm"
               />
             </label>
           </template>
           <template v-else-if="dialogRequest.kind === 'waiting'">
-            <label class="mt-3 block text-[11px] text-base-content/45">
+            <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("task.waitingOnLabel") }}
               <select
                 v-model="waitPerson"
-                class="select select-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="select select-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
               >
                 <option value="">{{ t("task.waitingOnNone") }}</option>
                 <option v-for="person in appVM.state.people" :key="person.id" :value="person.id">
@@ -190,41 +190,41 @@ function onEnter(event: KeyboardEvent): void {
                 </option>
               </select>
             </label>
-            <label class="mt-2 block text-[11px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("task.followUpLabel") }}
               <DateField
                 v-model="waitDate"
                 :min="todayIso()"
                 :aria-label="t('task.followUpLabel')"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @enter="confirm"
               />
             </label>
-            <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            <p class="mt-2 text-[12px] leading-relaxed text-base-content/65">
               {{ t("task.waitingHint") }}
             </p>
           </template>
           <template v-else-if="dialogRequest.kind === 'defer'">
-            <label class="mt-3 block text-[11px] text-base-content/45">
+            <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("task.deferFinishLabel") }}
               <DateField
                 v-model="deferDate"
                 :min="dialogRequest.min"
                 :aria-label="t('task.deferFinishLabel')"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @enter="confirm"
               />
             </label>
-            <label class="mt-2 block text-[11px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("task.deferReasonLabel") }}
               <input
                 v-model="deferReason"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 :placeholder="t('task.deferReasonPlaceholder')"
                 @keydown.enter="onEnter"
               />
             </label>
-            <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            <p class="mt-2 text-[12px] leading-relaxed text-base-content/65">
               {{ t("task.deferHint") }}
               <span v-if="deferDate" class="mt-0.5 block">{{
                 t("task.deferRecordHint", {
@@ -243,8 +243,8 @@ function onEnter(event: KeyboardEvent): void {
                 :key="task.id"
                 class="flex items-center gap-2 px-2.5 py-1.5"
               >
-                <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ task.title }}</span>
-                <span class="shrink-0 text-[10.5px] text-error">{{
+                <span class="min-w-0 flex-1 truncate text-[13px]">{{ task.title }}</span>
+                <span class="shrink-0 text-[12px] text-error">{{
                   t("task.overdue", { days: overdueDays(task.expectedFinishDate, todayIso()) })
                 }}</span>
                 <DateField
@@ -256,36 +256,36 @@ function onEnter(event: KeyboardEvent): void {
                 />
               </li>
             </ul>
-            <label class="mt-3 block text-[11px] text-base-content/45">
+            <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("task.deferReasonLabel") }}
               <input
                 v-model="deferReason"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 :placeholder="t('task.deferReasonPlaceholder')"
                 @keydown.enter="onEnter"
               />
             </label>
-            <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            <p class="mt-2 text-[12px] leading-relaxed text-base-content/65">
               {{ t("overdue.batchHint", { date: shortDate(dialogRequest.finish) }) }}
             </p>
           </template>
           <template v-else-if="dialogRequest.kind === 'person'">
-            <label class="mt-3 block text-[11px] text-base-content/45">
+            <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("people.name") }}
               <input
                 ref="personNameInput"
                 v-model="person.name"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @keydown.enter="onEnter"
               />
             </label>
-            <div class="mt-3 text-[11px] text-base-content/45">
+            <div class="mt-3 text-[12px] text-base-content/65">
               {{ t("people.roles") }}
               <div class="mt-1 grid grid-cols-2 gap-1">
                 <label
                   v-for="category in appVM.state.categories"
                   :key="category.id"
-                  class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px]"
+                  class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px]"
                   :class="
                     person.categoryIds.includes(category.id)
                       ? 'bg-primary/5 text-primary'
@@ -302,42 +302,42 @@ function onEnter(event: KeyboardEvent): void {
                 </label>
               </div>
             </div>
-            <p class="mt-2 text-[10.5px] leading-relaxed text-base-content/45">
+            <p class="mt-2 text-[12px] leading-relaxed text-base-content/65">
               {{ t("people.rolesHint") }}
             </p>
           </template>
           <template v-else-if="dialogRequest.kind === 'client'">
-            <label class="mt-3 block text-[11px] text-base-content/45">
+            <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("clients.name") }}
               <input
                 ref="clientNameInput"
                 v-model="client.name"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @keydown.enter="onEnter"
               />
             </label>
-            <label class="mt-2 block text-[11px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("clients.contact") }}
               <input
                 v-model="client.contact"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @keydown.enter="onEnter"
               />
             </label>
-            <label class="mt-2 block text-[11px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("clients.phone") }}
               <input
                 v-model="client.phone"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12.5px]"
+                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @keydown.enter="onEnter"
               />
             </label>
-            <label class="mt-2 block text-[11px] text-base-content/45">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("clients.note") }}
               <textarea
                 v-model="client.note"
                 rows="2"
-                class="textarea mt-1 w-full resize-none rounded-lg border-base-300 text-[12.5px]"
+                class="textarea mt-1 w-full resize-none rounded-lg border-base-300 text-[13px]"
               ></textarea>
             </label>
           </template>
@@ -345,10 +345,10 @@ function onEnter(event: KeyboardEvent): void {
             v-else-if="dialogRequest.kind === 'text'"
             ref="textInput"
             v-model="draft"
-            class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[12.5px]"
+            class="input input-sm mt-3 w-full rounded-lg border-base-300 text-[13px]"
             @keydown.enter="onEnter"
           />
-          <p v-else class="mt-2 text-[12.5px] leading-relaxed text-base-content/60">
+          <p v-else class="mt-2 text-[13px] leading-relaxed text-base-content/60">
             {{ dialogRequest.message }}
           </p>
 
@@ -368,7 +368,7 @@ function onEnter(event: KeyboardEvent): void {
                 {{ t("settings.taskDefaultFutureOnly") }}
               </button>
               <button
-                class="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
+                class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
                 @click="closeDialog('existing')"
               >
                 {{ t("settings.taskDefaultExisting") }}
@@ -390,7 +390,7 @@ function onEnter(event: KeyboardEvent): void {
                 :class="
                   dialogRequest.kind === 'confirm'
                     ? 'bg-error text-error-content'
-                    : 'bg-primary text-primary-content'
+                    : 'bg-base-content text-base-100'
                 "
                 @click="confirm"
               >

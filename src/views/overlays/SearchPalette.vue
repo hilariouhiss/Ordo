@@ -105,11 +105,11 @@ async function choose(hit: SearchHit | null): Promise<void> {
         @keydown.esc.stop="vm.close()"
       >
         <div class="flex items-center gap-2.5 border-b border-base-300 px-4 py-3">
-          <Search :size="16" class="shrink-0 text-base-content/35" aria-hidden="true" />
+          <Search :size="16" class="shrink-0 text-base-content/60" aria-hidden="true" />
           <input
             ref="input"
             :value="vm.state.query"
-            class="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-base-content/35"
+            class="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-base-content/60"
             :placeholder="t('search.placeholder')"
             :aria-label="t('search.placeholder')"
             @input="onInput"
@@ -128,19 +128,19 @@ async function choose(hit: SearchHit | null): Promise<void> {
           </p>
           <p
             v-else-if="!query"
-            class="px-6 py-8 text-center text-[12px] leading-6 text-base-content/40"
+            class="px-6 py-8 text-center text-[12px] leading-6 text-base-content/60"
           >
             {{ t("search.emptyHint") }}
           </p>
           <p
             v-else-if="vm.state.loading && !vm.state.hits.length"
-            class="px-6 py-8 text-center text-base-content/40"
+            class="px-6 py-8 text-center text-base-content/60"
           >
             <span class="loading loading-spinner loading-xs"></span>
           </p>
           <p
             v-else-if="!vm.state.hits.length"
-            class="px-6 py-8 text-center text-[12px] text-base-content/40"
+            class="px-6 py-8 text-center text-[12px] text-base-content/60"
           >
             {{ t("search.noResults", { query }) }}
           </p>
@@ -148,7 +148,7 @@ async function choose(hit: SearchHit | null): Promise<void> {
             <template v-for="(hit, index) in vm.state.hits" :key="`${hit.kind}-${hit.id}`">
               <div
                 v-if="index === 0 || vm.state.hits[index - 1].kind !== hit.kind"
-                class="px-4 pt-2 pb-1 text-[10.5px] tracking-wide text-base-content/40"
+                class="px-4 pt-2 pb-1 text-[12px] tracking-wide text-base-content/60"
               >
                 {{ hit.kind === "task" ? t("search.tasks") : t("search.projects") }}
               </div>
@@ -165,21 +165,18 @@ async function choose(hit: SearchHit | null): Promise<void> {
                 <ListTodo
                   v-if="hit.kind === 'task'"
                   :size="14"
-                  class="shrink-0 text-base-content/35"
+                  class="shrink-0 text-base-content/60"
                   aria-hidden="true"
                 />
                 <Folder
                   v-else
                   :size="14"
-                  class="shrink-0 text-base-content/35"
+                  class="shrink-0 text-base-content/60"
                   aria-hidden="true"
                 />
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-[12.5px]">{{ hit.title }}</span>
-                  <span
-                    v-if="hit.subtitle"
-                    class="block truncate text-[10.5px] text-base-content/40"
-                  >
+                  <span class="block truncate text-[13px]">{{ hit.title }}</span>
+                  <span v-if="hit.subtitle" class="block truncate text-[12px] text-base-content/60">
                     {{ hit.subtitle }}
                   </span>
                 </span>
@@ -192,7 +189,7 @@ async function choose(hit: SearchHit | null): Promise<void> {
         </div>
 
         <div
-          class="flex items-center gap-3 border-t border-base-300 px-4 py-2 text-[10.5px] text-base-content/40"
+          class="flex items-center gap-3 border-t border-base-300 px-4 py-2 text-[12px] text-base-content/60"
         >
           <span>{{ t("search.footer") }}</span>
           <span class="badge badge-ghost badge-xs ml-auto">Ctrl K</span>
