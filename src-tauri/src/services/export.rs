@@ -18,10 +18,14 @@ fn tables(conn: &Connection) -> Result<Vec<String>, String> {
 }
 
 pub fn to_json(conn: &Connection, path: &Path) -> Result<(), String> {
+    // One read transaction, so every table comes from the same snapshot while the UI
+    // keeps writing on its own connection.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let mut out = Map::new();
-    for table in tables(conn)? {
-        out.insert(table.clone(), Value::Array(dump(conn, &table)?));
+    for table in tables(&tx)? {
+        out.insert(table.clone(), Value::Array(dump(&tx, &table)?));
     }
+    tx.commit().map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&Value::Object(out)).map_err(|e| e.to_string())?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
