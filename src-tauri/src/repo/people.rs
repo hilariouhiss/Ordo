@@ -32,17 +32,6 @@ pub fn categories(conn: &Connection, person_id: &str) -> rusqlite::Result<Vec<St
     rows.collect()
 }
 
-/// Replaces the whole 职责 list; what to claim from it is the service's business.
-pub fn set_categories(
-    conn: &Connection,
-    person_id: &str,
-    category_ids: &[String],
-) -> rusqlite::Result<()> {
-    let tx = conn.unchecked_transaction()?;
-    replace_categories(&tx, person_id, category_ids)?;
-    tx.commit()
-}
-
 /// The same write without opening a transaction, for a caller that already holds one.
 pub fn replace_categories(
     conn: &Connection,
