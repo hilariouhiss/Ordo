@@ -666,13 +666,19 @@ fn list_where(
     condition: &str,
     query: Option<&str>,
     include_children: bool,
+    live_project: bool,
 ) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     let top_level = if include_children { "" } else { "parent_id IS NULL AND " };
+    let project_filter = if live_project {
+        format!(" AND {LIVE_PROJECT}")
+    } else {
+        String::new()
+    };
     let pattern = query.map(crate::repo::like_pattern);
     let mode = crate::repo::settings::mode(conn)?;
     let sql = format!(
         "SELECT id, title, archived_at, canceled_at, actual_finish_at FROM tasks
-         WHERE deleted_at IS NULL AND {top_level}{} AND {LIVE_PROJECT} AND {}
+         WHERE deleted_at IS NULL AND {top_level}{}{project_filter} AND {}
            AND (?1 IS NULL OR title LIKE ?1 ESCAPE '!')
          ORDER BY updated_at DESC
          LIMIT {ARCHIVE_LIMIT}",
@@ -698,6 +704,7 @@ pub fn list_archived(conn: &Connection, query: Option<&str>) -> rusqlite::Result
         "archived_at IS NOT NULL AND canceled_at IS NULL",
         query,
         false,
+        true,
     )
 }
 
@@ -712,13 +719,18 @@ pub fn list_canceled(conn: &Connection, query: Option<&str>) -> rusqlite::Result
            (SELECT 1 FROM tasks p WHERE p.id = tasks.parent_id AND p.archived_at IS NOT NULL))",
         query,
         true,
+        true,
     )
 }
+
+/// Finished work stays findable even when its project was filed: the task page can
+/// complete a task inside an archived project, so its done half must show it.
 pub fn list_done(conn: &Connection, query: Option<&str>) -> rusqlite::Result<Vec<ArchiveTaskDto>> {
     list_where(
         conn,
         "status = 'done' AND canceled_at IS NULL AND archived_at IS NULL",
         query,
+        false,
         false,
     )
 }
@@ -861,6 +873,27 @@ mod tests {
         }
 
         assert_eq!(list_archived(&c, None).unwrap().len(), 1000);
+    }
+
+    #[test]
+    fn finished_work_in_an_archived_project_stays_in_the_done_list() {
+        let c = db::open_in_memory().unwrap();
+        let project = crate::services::projects::create(&c, "项目", NOW).unwrap();
+        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
+        c.execute(
+            "UPDATE tasks SET project_id = ?1, status = 'done', in_week = 0,
+                    actual_finish_at = ?2 WHERE id = 't1'",
+            rusqlite::params![&project.id, NOW],
+        )
+        .unwrap();
+        crate::repo::projects::set_archived(&c, &project.id, true, NOW).unwrap();
+
+        assert_eq!(
+            list_done(&c, None).unwrap().len(),
+            1,
+            "the task page can finish it, so the done list must still find it"
+        );
+        assert!(list_archived(&c, None).unwrap().is_empty());
     }
 
     #[test]

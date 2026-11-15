@@ -533,11 +533,9 @@ mod tests {
         crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
         crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
 
-        assert!(
-            crate::repo::tasks::list_done(&c, None)
-                .unwrap()
-                .is_empty()
-        );
+        // The Done tab keeps finished work findable even inside a filed project; the
+        // archive's own lists still wait for the project to come back.
+        assert_eq!(crate::repo::tasks::list_done(&c, None).unwrap().len(), 1);
         assert!(archive::list(&c, None).unwrap().tasks.is_empty());
 
         crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
