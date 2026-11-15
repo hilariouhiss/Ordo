@@ -101,6 +101,17 @@ pub fn split_toasts<T>(fired: Vec<T>) -> (Vec<T>, usize) {
     (shown, folded)
 }
 
+/// Whole days from today to a local `YYYY-MM-DD` reminder key.
+fn days_ahead(due_key: &str, today: &str) -> i64 {
+    let Ok(due) = chrono::NaiveDate::parse_from_str(due_key, "%Y-%m-%d") else {
+        return 0;
+    };
+    let Ok(today) = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d") else {
+        return 0;
+    };
+    (due - today).num_days()
+}
+
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || loop {
         let _ = tick(&app);
@@ -157,12 +168,8 @@ fn tick(app: &AppHandle) -> Result<(), String> {
                     continue;
                 }
             }
-            let headline = crate::i18n::reminder_headline(
-                lang,
-                candidate.kind,
-                candidate.due_key == today,
-                &title,
-            );
+            let ahead = days_ahead(&candidate.due_key, &today);
+            let headline = crate::i18n::reminder_headline(lang, candidate.kind, ahead, &title);
             toasts.push((headline, ReminderTarget::Task(candidate.task_id)));
         }
         // Milestones remind at 09:00 on their own day; the notification row keeps a
@@ -439,5 +446,15 @@ mod tests {
         let (shown, folded) = split_toasts(vec![1u8, 2, 3, 4, 5]);
         assert_eq!(shown, vec![1, 2, 3]);
         assert_eq!(folded, 2);
+    }
+
+    #[test]
+    fn the_headline_knows_how_many_days_are_left() {
+        assert_eq!(days_ahead("2026-10-20", "2026-10-20"), 0);
+        assert_eq!(days_ahead("2026-10-21", "2026-10-20"), 1);
+        assert_eq!(days_ahead("2026-10-23", "2026-10-20"), 3);
+        assert_eq!(days_ahead("2026-10-18", "2026-10-20"), -2);
+        // A key that is not a day reads as today instead of breaking the tick.
+        assert_eq!(days_ahead("周五", "2026-10-20"), 0);
     }
 }

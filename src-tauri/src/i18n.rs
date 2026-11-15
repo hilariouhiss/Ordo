@@ -72,18 +72,24 @@ pub fn tray_hint(lang: Lang) -> (&'static str, &'static str) {
     }
 }
 
-pub fn reminder_headline(lang: Lang, kind: &str, due_today: bool, title: &str) -> String {
-    match (lang, kind, due_today) {
-        (Lang::Zh, "due_tomorrow", true) => format!("今天截止：{title}"),
-        (Lang::Zh, "due_tomorrow", false) => format!("明天截止：{title}"),
-        (Lang::Zh, "overdue", _) => format!("已逾期：{title}"),
-        (Lang::Zh, "follow_up", _) => format!("该催一下：{title}"),
-        (Lang::Zh, _, _) => format!("该开始了：{title}"),
-        (Lang::En, "due_tomorrow", true) => format!("Due today: {title}"),
-        (Lang::En, "due_tomorrow", false) => format!("Due tomorrow: {title}"),
-        (Lang::En, "overdue", _) => format!("Overdue: {title}"),
-        (Lang::En, "follow_up", _) => format!("Follow up: {title}"),
-        (Lang::En, _, _) => format!("Time to start: {title}"),
+pub fn reminder_headline(lang: Lang, kind: &str, due_in_days: i64, title: &str) -> String {
+    match (lang, kind) {
+        (Lang::Zh, "due_tomorrow") => match due_in_days {
+            0 => format!("今天截止：{title}"),
+            1 => format!("明天截止：{title}"),
+            days => format!("{days} 天后截止：{title}"),
+        },
+        (Lang::Zh, "overdue") => format!("已逾期：{title}"),
+        (Lang::Zh, "follow_up") => format!("该催一下：{title}"),
+        (Lang::Zh, _) => format!("该开始了：{title}"),
+        (Lang::En, "due_tomorrow") => match due_in_days {
+            0 => format!("Due today: {title}"),
+            1 => format!("Due tomorrow: {title}"),
+            days => format!("Due in {days} days: {title}"),
+        },
+        (Lang::En, "overdue") => format!("Overdue: {title}"),
+        (Lang::En, "follow_up") => format!("Follow up: {title}"),
+        (Lang::En, _) => format!("Time to start: {title}"),
     }
 }
 
@@ -273,43 +279,51 @@ mod tests {
     #[test]
     fn reminder_titles_switch_language() {
         assert_eq!(
-            reminder_headline(Lang::Zh, "due_tomorrow", true, "交底"),
+            reminder_headline(Lang::Zh, "due_tomorrow", 0, "交底"),
             "今天截止：交底"
         );
         assert_eq!(
-            reminder_headline(Lang::Zh, "due_tomorrow", false, "交底"),
+            reminder_headline(Lang::Zh, "due_tomorrow", 1, "交底"),
             "明天截止：交底"
         );
         assert_eq!(
-            reminder_headline(Lang::Zh, "overdue", false, "交底"),
+            reminder_headline(Lang::Zh, "due_tomorrow", 3, "交底"),
+            "3 天后截止：交底"
+        );
+        assert_eq!(
+            reminder_headline(Lang::Zh, "overdue", -1, "交底"),
             "已逾期：交底"
         );
         assert_eq!(
-            reminder_headline(Lang::Zh, "suspend_start", false, "交底"),
+            reminder_headline(Lang::Zh, "suspend_start", 0, "交底"),
             "该开始了：交底"
         );
         assert_eq!(
-            reminder_headline(Lang::Zh, "follow_up", false, "交底"),
+            reminder_headline(Lang::Zh, "follow_up", 0, "交底"),
             "该催一下：交底"
         );
         assert_eq!(
-            reminder_headline(Lang::En, "due_tomorrow", true, "Kickoff"),
+            reminder_headline(Lang::En, "due_tomorrow", 0, "Kickoff"),
             "Due today: Kickoff"
         );
         assert_eq!(
-            reminder_headline(Lang::En, "due_tomorrow", false, "Kickoff"),
+            reminder_headline(Lang::En, "due_tomorrow", 1, "Kickoff"),
             "Due tomorrow: Kickoff"
         );
         assert_eq!(
-            reminder_headline(Lang::En, "overdue", false, "Kickoff"),
+            reminder_headline(Lang::En, "due_tomorrow", 3, "Kickoff"),
+            "Due in 3 days: Kickoff"
+        );
+        assert_eq!(
+            reminder_headline(Lang::En, "overdue", -1, "Kickoff"),
             "Overdue: Kickoff"
         );
         assert_eq!(
-            reminder_headline(Lang::En, "suspend_start", false, "Kickoff"),
+            reminder_headline(Lang::En, "suspend_start", 0, "Kickoff"),
             "Time to start: Kickoff"
         );
         assert_eq!(
-            reminder_headline(Lang::En, "follow_up", false, "Kickoff"),
+            reminder_headline(Lang::En, "follow_up", 0, "Kickoff"),
             "Follow up: Kickoff"
         );
         assert_eq!(milestone_headline(Lang::Zh, "方案评审"), "里程碑：方案评审");
