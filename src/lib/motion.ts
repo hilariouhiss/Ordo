@@ -50,44 +50,11 @@ export const panelSwapMotion = {
   exit: { opacity: 0, x: -8, transition: { duration: 0.12, ease: easeOut } },
 };
 
-const NAV_RANK: Record<string, number> = {
-  week: 0,
-  tasks: 1,
-  templates: 2,
-  projects: 3,
-  clients: 4,
-  categories: 5,
-  tags: 6,
-  people: 7,
-  stats: 8,
-  archive: 9,
-};
-
-export function pageRank(name: string | null | undefined): number {
-  const key = name === "project" ? "projects" : (name ?? "week");
-  return NAV_RANK[key] ?? 0;
-}
-
-export function pageDirection(
-  from: string | null | undefined,
-  to: string | null | undefined,
-): 1 | -1 {
-  return pageRank(to) >= pageRank(from) ? 1 : -1;
-}
-
 /** The list and the gantt trade places; each slides in and out on its own side. */
 export function weekViewMotion(side: 1 | -1) {
   return {
     initial: { opacity: 0, x: side * 24 },
     animate: { opacity: 1, x: 0, transition: springSnappy },
     exit: { opacity: 0, x: side * 20, transition: { duration: 0.12, ease: easeOut } },
-  };
-}
-
-export function pageMotion(direction: number) {
-  return {
-    initial: { opacity: 0, x: direction * 24 },
-    animate: { opacity: 1, x: 0, transition: springSnappy },
-    exit: { opacity: 0, x: direction * -18, transition: { duration: 0.12, ease: easeOut } },
   };
 }
