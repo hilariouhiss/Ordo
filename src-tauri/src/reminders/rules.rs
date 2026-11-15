@@ -1077,7 +1077,7 @@ mod tests {
     }
 
     fn milestone(c: &Connection, id: &str, due: Option<&str>, done: bool) -> String {
-        let project_id = crate::services::projects::create(c, "里程碑项目", NOW)
+        let project_id = crate::services::projects::create(c, &format!("里程碑项目 {id}"), NOW)
             .unwrap()
             .id;
         crate::repo::milestones::insert(c, id, &project_id, "方案评审", due, NOW).unwrap();

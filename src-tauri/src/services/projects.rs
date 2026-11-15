@@ -12,6 +12,14 @@ pub fn create(conn: &Connection, name: &str, now: &str) -> Result<ProjectDto, St
     let scope = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     // One transaction, so a failed member insert cannot leave a project with nobody in it.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    // A #name capture reuses the live project with that name, so a second live one
+    // would make every future capture pick one of two identical names.
+    if projects::find_active_by_name(&tx, name, &scope)
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("project_exists".into());
+    }
     insert_with_me(&tx, &id, name, &scope, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     projects::dto(conn, &id).map_err(|e| e.to_string())
@@ -351,6 +359,21 @@ mod tests {
     }
 
     #[test]
+    fn a_second_live_project_cannot_take_the_same_name() {
+        let c = db::open_in_memory().unwrap();
+        projects::create(&c, "滨江花园", NOW).unwrap();
+
+        assert_eq!(
+            projects::create(&c, " 滨江花园 ", NOW).unwrap_err(),
+            "project_exists"
+        );
+        // A filed project does not reserve the name.
+        let archived = projects::create(&c, "已归档项目", NOW).unwrap();
+        crate::repo::projects::set_archived(&c, &archived.id, true, NOW).unwrap();
+        projects::create(&c, "已归档项目", NOW).unwrap();
+    }
+
+    #[test]
     fn creating_a_project_rolls_back_when_the_member_insert_fails() {
         let c = db::open_in_memory().unwrap();
         c.execute_batch(
@@ -639,7 +662,7 @@ mod tests {
         let project = projects::create(&c, "项目", NOW).unwrap();
         let hardware = category(&c, "硬件");
         let li = crate::services::people::create(&c, "老李", NOW).unwrap();
-        crate::repo::people::set_categories(&c, &li.id, &[hardware.clone()]).unwrap();
+        crate::repo::people::replace_categories(&c, &li.id, &[hardware.clone()]).unwrap();
         // Only members count, so nothing resolves before the join.
         assert_eq!(
             projects::assigned_owner(&c, Some(&project.id), Some(&hardware)).unwrap(),
@@ -684,7 +707,7 @@ mod tests {
         }
 
         let li = crate::services::people::create(&c, "老李", NOW).unwrap();
-        crate::repo::people::set_categories(&c, &li.id, &[hardware.clone()]).unwrap();
+        crate::repo::people::replace_categories(&c, &li.id, &[hardware.clone()]).unwrap();
         projects::add_member(&c, &project.id, Some(&li.id), None, NOW).unwrap();
 
         let owner_of = |id: &str| -> Option<String> {

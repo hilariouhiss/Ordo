@@ -10,6 +10,9 @@ fn create_category_in(
     now: &str,
 ) -> Result<CategoryDto, String> {
     let name = name.trim();
+    if name.is_empty() {
+        return Err("empty_category_name".into());
+    }
     if crate::repo::categories::name_exists(conn, name, None).map_err(|e| e.to_string())? {
         return Err("category_exists".into());
     }
@@ -31,6 +34,9 @@ fn rename_category_in(
     now: &str,
 ) -> Result<(), String> {
     let name = name.trim();
+    if name.is_empty() {
+        return Err("empty_category_name".into());
+    }
     if crate::repo::categories::name_exists(conn, name, Some(id)).map_err(|e| e.to_string())? {
         return Err("category_exists".into());
     }
@@ -107,5 +113,23 @@ mod tests {
 
         // Renaming a category to its own name is still allowed (the id is excluded).
         super::rename_category_in(&c, &created.id, "客户", NOW).unwrap();
+    }
+
+    #[test]
+    fn a_blank_category_name_is_rejected() {
+        let c = crate::db::open_in_memory().unwrap();
+        assert_eq!(
+            super::create_category_in(&c, "   ", NOW).unwrap_err(),
+            "empty_category_name"
+        );
+        let software = crate::repo::categories::list(&c)
+            .unwrap()
+            .into_iter()
+            .find(|category| category.name == "软件")
+            .unwrap();
+        assert_eq!(
+            super::rename_category_in(&c, &software.id, " ", NOW).unwrap_err(),
+            "empty_category_name"
+        );
     }
 }
