@@ -304,6 +304,49 @@ pub(crate) fn has_live_children(conn: &Connection, id: &str) -> Result<bool, Str
     .map_err(|e| e.to_string())
 }
 
+/// A task's project is its work's project: moving the umbrella moves every child, so the
+/// work is never left in another project (or another world). The caller owns the
+/// transaction, so a refused later step undoes this too.
+pub(crate) fn move_children_to_project(
+    conn: &Connection,
+    parent_id: &str,
+    project_id: Option<&str>,
+    now: &str,
+) -> Result<(), String> {
+    let changed = conn
+        .execute(
+            "UPDATE tasks SET project_id = ?1, updated_at = ?2
+             WHERE parent_id = ?3 AND deleted_at IS NULL",
+            params![project_id, now, parent_id],
+        )
+        .map_err(|e| e.to_string())?;
+    let Some(project_id) = project_id.filter(|_| changed > 0) else {
+        return Ok(());
+    };
+    conn.execute(
+        "UPDATE tasks SET scope = (SELECT scope FROM projects WHERE id = ?1)
+         WHERE parent_id = ?2 AND deleted_at IS NULL",
+        params![project_id, parent_id],
+    )
+    .map_err(|e| e.to_string())?;
+    let owners: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT owner_id FROM tasks
+                 WHERE parent_id = ?1 AND deleted_at IS NULL AND owner_id IS NOT NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        stmt.query_map([parent_id], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?
+    };
+    for owner in owners {
+        crate::services::projects::ensure_member(conn, Some(project_id), Some(&owner), now)?;
+    }
+    Ok(())
+}
+
 /// Rewrites the parent's derived fields from its live children. With no live child left the
 /// parent keeps whatever it has and is an ordinary task again.
 pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(), String> {

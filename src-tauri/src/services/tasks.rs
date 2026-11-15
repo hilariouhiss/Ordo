@@ -83,6 +83,15 @@ pub fn update_patch(
     if let Some(Some(_)) = &patch.project_id {
         crate::repo::tasks::sync_scope_from_project(&tx, id).map_err(|e| e.to_string())?;
     }
+    // The umbrella owns the project for its whole job, not just its own row.
+    if let Some(project_id) = patch.project_id.as_ref() {
+        crate::services::subtasks::move_children_to_project(
+            &tx,
+            id,
+            project_id.as_deref(),
+            now,
+        )?;
+    }
     // A picked finish owns the date; an estimate or start edit derives it otherwise.
     // An explicit clear stays cleared even when the same edit moves the estimate.
     let finish_cleared = matches!(patch.expected_finish_date.as_ref(), Some(None));
@@ -495,6 +504,54 @@ mod tests {
             crate::repo::projects::is_member(&c, &new.id, &li.id).unwrap(),
             "the owner must be a member of the project that now holds the task"
         );
+    }
+
+    #[test]
+    fn moving_an_umbrella_takes_its_subtasks_along() {
+        let c = db::open_in_memory().unwrap();
+        seed_project(&c, "p1");
+        seed_project(&c, "p2");
+        c.execute("UPDATE projects SET scope = 'personal' WHERE id = 'p2'", [])
+            .unwrap();
+        let fields = CaptureFields {
+            project_id: Some("p1".into()),
+            ..Default::default()
+        };
+        week::capture_with_fields(&c, "伞", &fields, NOW, "t1").unwrap();
+        let parent = crate::services::subtasks::add(&c, "t1", "子任务", NOW).unwrap();
+        let child = parent.children[0].id.clone();
+
+        let patch = TaskPatch {
+            project_id: Some(Some("p2".into())),
+            ..Default::default()
+        };
+        tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+
+        let moved = crate::repo::tasks::dto(&c, &child).unwrap();
+        assert_eq!(moved.project_id.as_deref(), Some("p2"));
+        assert_eq!(
+            crate::repo::tasks::dto(&c, "t1").unwrap().project_id.as_deref(),
+            Some("p2")
+        );
+        let scope: String = c
+            .query_row("SELECT scope FROM tasks WHERE id = ?1", [&child], |r| r.get(0))
+            .unwrap();
+        assert_eq!(scope, "personal", "a project owns the work's world");
+        let owner = moved.owner_id.expect("the child keeps its owner");
+        assert!(
+            crate::repo::projects::is_member(&c, "p2", &owner).unwrap(),
+            "the child's owner must belong to the project that now holds it"
+        );
+
+        let patch = TaskPatch {
+            project_id: Some(None),
+            ..Default::default()
+        };
+        tasks::update_patch(&c, "t1", &patch, NOW).unwrap();
+        assert!(crate::repo::tasks::dto(&c, &child)
+            .unwrap()
+            .project_id
+            .is_none());
     }
 
     #[test]
