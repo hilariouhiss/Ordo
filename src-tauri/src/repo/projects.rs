@@ -93,7 +93,27 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool, now: &str) -> r
 
 pub fn delete(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
-    tx.execute("DELETE FROM tasks WHERE project_id = ?1", [id])?;
+    // A rule occurrence leaves a tombstone, or the generator recreates the deleted task.
+    tx.execute(
+        "UPDATE tasks SET deleted_at = ?1, in_week = 0, updated_at = ?1
+         WHERE project_id = ?2 AND rule_id IS NOT NULL AND deleted_at IS NULL",
+        params![now, id],
+    )?;
+    // A task that is about to disappear must not leave a toast that opens nothing.
+    tx.execute(
+        "DELETE FROM notifications
+         WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?1)",
+        [id],
+    )?;
+    tx.execute(
+        "DELETE FROM reminder_snoozes
+         WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?1)",
+        [id],
+    )?;
+    tx.execute(
+        "DELETE FROM tasks WHERE project_id = ?1 AND rule_id IS NULL",
+        [id],
+    )?;
     // A rule for the deleted project must stop creating tasks; the FK would only
     // detach it and leave it enabled.
     tx.execute(
@@ -479,5 +499,47 @@ mod tests {
             .unwrap();
         assert_eq!(tasks, 2, "task deletes must roll back with the project delete");
         assert_eq!(projects, 1);
+    }
+
+    #[test]
+    fn a_deleted_project_keeps_rule_tombstones_so_the_generator_stops() {
+        use chrono::TimeZone;
+
+        let c = db::open_in_memory().unwrap();
+        insert(&c, "p1", "项目", crate::repo::settings::MODE_WORK, NOW).unwrap();
+        c.execute_batch(
+            "INSERT INTO task_rules (id, title, weekdays, at_time, created_at, updated_at)
+             VALUES ('r1', '周报', '2', '09:00', '2026-10-19T00:00:00Z',
+                     '2026-10-19T00:00:00Z');",
+        )
+        .unwrap();
+        // A rule occurrence the user moved into the project: the rule itself is not
+        // attached to it and stays enabled.
+        c.execute(
+            "INSERT INTO tasks (id, title, project_id, rule_id, expected_finish_date,
+                                created_at, updated_at)
+             VALUES ('occ', '周报', 'p1', 'r1', '2026-10-20',
+                     '2026-10-20T00:00:00Z', '2026-10-20T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        delete(&c, "p1", NOW).unwrap();
+
+        let kept: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE id = 'occ' AND deleted_at IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 1, "the occurrence must leave a tombstone");
+        let at = chrono::Local
+            .with_ymd_and_hms(2026, 10, 20, 10, 0, 0)
+            .unwrap();
+        assert!(
+            crate::services::rules::materialize(&c, at).unwrap().is_empty(),
+            "a deleted project must not resurrect its rule occurrence"
+        );
     }
 }
