@@ -119,7 +119,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 
 - 默认分支 `main`；没有 PR 模板。提交保持小而单一。CI 在 `.github/workflows/ci.yml`：`vp check` + `vp test run`（ubuntu）、`cargo test`（windows）。
 - 版本号同时写在 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`，升版本时三处一起改；`Cargo.lock` 里 `name = "ordo"` 的版本随 `cargo test` 一起更新，`CHANGELOG.md` 加一节。
-- 发布：推 `v*` tag 触发 `.github/workflows/release.yml`。它先跑 `scripts/check-release-version.mjs` 校验 tag 与三处版本号一致，再用 tauri-action 在 windows-latest 上只出 NSIS，签名并发布 `Ordo_<版本>_x64-setup.exe`、`.sig` 和 `latest.json`。本地要出带更新签名的包时设 `TAURI_SIGNING_PRIVATE_KEY`（指向 `%USERPROFILE%\.tauri\ordo.key`）和空的 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，见 README。
+- 发布：推 `v*` tag 触发 `.github/workflows/release.yml`。它先跑 `scripts/check-release-version.mjs` 校验 tag 与三处版本号一致，再用 tauri-action 在 windows-latest 上只出 NSIS，签名并发布 `Ordo_<版本>_x64-setup.exe`、`.sig` 和 `latest.json`；随后 `scripts/fix-updater-json.mjs` 把 latest.json 里的下载地址从 `api.github.com/.../releases/assets/<id>` 改成 `releases/download/<tag>/<文件名>`——匿名 API 下载按 IP 共享每小时 60 次配额，用完了应用内更新就报 403。本地要出带更新签名的包时设 `TAURI_SIGNING_PRIVATE_KEY`（指向 `%USERPROFILE%\.tauri\ordo.key`）和空的 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，见 README。
 - 签名私钥是已安装版本唯一认的身份：丢了或换了，所有旧安装都收不到更新，只能手动重装。私钥不进仓库（`.gitignore` 的 `*.key`），GitHub 上是 secret `TAURI_SIGNING_PRIVATE_KEY`。
 - 应用内自动更新：启动 3 秒后检查一次、之后每 6 小时一次，端点在 `tauri.conf.json` 的 `plugins.updater.endpoints`；开发构建（`import.meta.env.DEV`）和浏览器里不检查。安装只在用户点「更新」后发生。
 - 发布后按 README 的“装好后逐条打勾”验收（托盘、提醒、快捷键、IME、重复提醒等），更新链路要等下一个版本才能端到端验证。

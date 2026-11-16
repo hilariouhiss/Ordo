@@ -50,3 +50,18 @@ jobs:
           prerelease: false
           updaterJsonPreferNsis: true
           args: "--bundles nsis"
+      # tauri-action writes latest.json with api.github.com asset URLs, and anonymous
+      # API downloads answer 403 once the 60/h bucket shared by an IP runs dry. Point
+      # the updater at the public release URLs (same CDN, no API) before users see it.
+      - name: point the updater at the public download URLs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" > "$RUNNER_TEMP/release.json"
+          if ! gh release download "${{ github.ref_name }}" -p latest.json -O "$RUNNER_TEMP/latest.json" --clobber; then
+            echo "latest.json missing; skipping the updater URL rewrite"
+            exit 0
+          fi
+          node scripts/fix-updater-json.mjs "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/release.json" "${{ github.ref_name }}"
+          gh release upload "${{ github.ref_name }}" "$RUNNER_TEMP/latest.json" --clobber
