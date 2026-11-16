@@ -1,0 +1,52 @@
+name: release
+
+# 推送 v* tag 即发布：先校验 tag 与三处版本号一致，再在 windows-latest 上出签好名的
+# NSIS 安装包和最新版的 latest.json。
+#
+# 只出 NSIS：latest.json 的 windows 条目只能有一个 URL，MSI 还要提权；装了 MSI 的副本
+# 不在自动更新范围内（README 里写明）。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      # 先于构建：tag 与版本号不一致时，tauri-action 会安静地发布一个谁都更新不到的版本。
+      - name: check tag matches the three version fields
+        run: node scripts/check-release-version.mjs ${{ github.ref_name }}
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # minisign 私钥；丢了就再也签不了名，已安装的版本只认它签的包。
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # 必须显式给空串：变量缺失时 CLI 打印 "Signing without password." 后仍等 stdin，
+          # CI 里就会挂到 6 小时超时。
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Ordo v__VERSION__"
+          generateReleaseNotes: true
+          # 非草稿、非预发布：releases/latest/download/latest.json 只认最新一个正式 release。
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true
+          args: "--bundles nsis"

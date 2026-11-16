@@ -482,6 +482,10 @@ pub fn run() {
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
       show_main(app);
     }))
+    // In-app updates: the frontend checks, downloads and installs through `updater`;
+    // `process` is the relaunch half. Only the main window gets the permissions.
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_global_shortcut::Builder::new().build())
     .plugin(tauri_plugin_autostart::init(

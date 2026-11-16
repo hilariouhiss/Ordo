@@ -41,3 +41,6 @@ skills-lock.json
 
 # Windows scratch that a redirected command leaves behind
 nul
+
+# Release signing key must never be committed
+*.key

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Ordo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.ordo.taskbook",
   "build": {
     "frontendDist": "../dist",
@@ -36,6 +36,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -57,6 +58,12 @@
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzODhGQjQzRjA5Mjc0RjAKUldUd2RKTHdRL3VJNHpmcW5GOGVHWTk2Sy8zdWQ5Yktpb1J5WkZQb2lDVmxJdWtYaTRqWlhnN0sK",
+      "endpoints": ["https://github.com/hilariouhiss/Ordo/releases/latest/download/latest.json"]
     }
   }
 }
