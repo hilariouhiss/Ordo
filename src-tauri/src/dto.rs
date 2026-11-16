@@ -83,6 +83,8 @@ pub struct SettingsDto {
     pub mode_personal_at: String,
     /// ISO weekdays the schedule runs on, Monday = 1 … Sunday = 7.
     pub mode_days: Vec<u32>,
+    /// Whether the notice shown after a manual mode switch was dismissed for good.
+    pub mode_hint_dismissed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -498,6 +500,7 @@ pub struct SettingsPatch {
     pub mode_work_at: Option<String>,
     pub mode_personal_at: Option<String>,
     pub mode_days: Option<Vec<u32>>,
+    pub mode_hint_dismissed: Option<bool>,
 }
 
 /// A task-page filter saved under a name. The filter itself is a plain value

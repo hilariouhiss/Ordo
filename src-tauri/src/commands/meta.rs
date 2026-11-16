@@ -96,6 +96,10 @@ fn save_settings(
                 .mode_days
                 .map(|days| crate::repo::settings::format_mode_days(&days)),
         ),
+        (
+            keys::MODE_HINT_DISMISSED,
+            patch.mode_hint_dismissed.map(|v| v.to_string()),
+        ),
     ];
     for (key, value) in sets {
         if let Some(value) = value {

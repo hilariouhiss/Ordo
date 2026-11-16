@@ -54,11 +54,13 @@ export type DialogRequest =
   | ({ kind: "client"; title: string } & ClientDraft)
   | ({ kind: "person"; title: string } & PersonDraft)
   | { kind: "confirm"; title: string; message: string }
-  | { kind: "notice"; title: string; message: string };
+  | { kind: "notice"; title: string; message: string }
+  | { kind: "noticeOptOut"; title: string; message: string; label: string; checked: boolean };
 
 export const dialogRequest = ref<DialogRequest | null>(null);
 
 type DialogAnswer =
+  | boolean
   | string
   | SuspendDraft
   | WaitingDraft
@@ -136,6 +138,18 @@ export function askConfirm(title: string, message: string): Promise<boolean> {
 /** A one-button message; the answer carries no meaning. */
 export function askNotice(title: string, message: string): Promise<void> {
   return ask({ kind: "notice", title, message }).then(() => undefined);
+}
+
+/** A one-button message with a "don't show again" checkbox; the answer is the checkbox. */
+export function askNoticeOptOut(
+  title: string,
+  message: string,
+  label: string,
+  checked: boolean,
+): Promise<boolean> {
+  return ask({ kind: "noticeOptOut", title, message, label, checked }).then(
+    (answer) => answer === true,
+  );
 }
 
 /** Runs a user action and reports a rejection instead of leaving it unhandled. */

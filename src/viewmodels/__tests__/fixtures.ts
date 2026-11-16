@@ -23,6 +23,7 @@ export const defaultSettings: Settings = {
   weekView: "list",
   taskDefaultExclusive: true,
   overduePrompt: false,
+  modeHintDismissed: false,
   savedTaskViews: [],
   remindersLeadMinutes: 60,
   remindersDigest: true,

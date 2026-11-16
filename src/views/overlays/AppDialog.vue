@@ -17,6 +17,7 @@ const deferDate = ref("");
 const deferReason = ref("");
 const deferDates = reactive<Record<string, string>>({});
 const waitPerson = ref("");
+const optOutChecked = ref(true);
 const waitDate = ref("");
 const client = reactive({ name: "", contact: "", phone: "", note: "" });
 const person = reactive({ name: "", categoryIds: [] as string[] });
@@ -69,6 +70,10 @@ watch(dialogRequest, async (request) => {
   } else if (request.kind === "taskDefault") {
     await nextTick();
     futureButton.value?.focus();
+  } else if (request.kind === "noticeOptOut") {
+    optOutChecked.value = request.checked;
+    await nextTick();
+    confirmButton.value?.focus();
   } else {
     confirmButton.value?.focus();
   }
@@ -83,6 +88,10 @@ function confirm(): void {
   }
   if (request.kind === "notice") {
     closeDialog(null);
+    return;
+  }
+  if (request.kind === "noticeOptOut") {
+    closeDialog(optOutChecked.value);
     return;
   }
   if (request.kind === "suspend") {
@@ -130,6 +139,12 @@ function confirm(): void {
   closeDialog(value);
 }
 
+/** A notice with a checkbox applies it however the dialog is closed. */
+function dismiss(): void {
+  const request = dialogRequest.value;
+  closeDialog(request?.kind === "noticeOptOut" ? optOutChecked.value : null);
+}
+
 function onEnter(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
   confirm();
@@ -142,8 +157,8 @@ function onEnter(event: KeyboardEvent): void {
       v-if="dialogRequest"
       v-bind="backdropMotion"
       class="window-scrim fixed inset-0 z-70 flex items-center justify-center bg-neutral/40 p-4"
-      @click.self="closeDialog(null)"
-      @keydown.esc="closeDialog(null)"
+      @click.self="dismiss"
+      @keydown.esc="dismiss"
     >
       <motion.div
         v-bind="modalPanelMotion"
@@ -351,6 +366,13 @@ function onEnter(event: KeyboardEvent): void {
           <p v-else class="mt-2 text-[13px] leading-relaxed text-base-content/60">
             {{ dialogRequest.message }}
           </p>
+          <label
+            v-if="dialogRequest.kind === 'noticeOptOut'"
+            class="mt-3 flex items-center gap-2 text-[12px] text-base-content/70"
+          >
+            <input v-model="optOutChecked" type="checkbox" class="checkbox checkbox-xs" />
+            {{ dialogRequest.label }}
+          </label>
 
           <div class="mt-5 flex justify-end gap-2">
             <template v-if="dialogRequest.kind === 'taskDefault'">
@@ -376,7 +398,7 @@ function onEnter(event: KeyboardEvent): void {
             </template>
             <template v-else>
               <button
-                v-if="dialogRequest.kind !== 'notice'"
+                v-if="dialogRequest.kind !== 'notice' && dialogRequest.kind !== 'noticeOptOut'"
                 class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
                 @click="closeDialog(null)"
               >
@@ -396,7 +418,7 @@ function onEnter(event: KeyboardEvent): void {
               >
                 {{
                   t(
-                    dialogRequest.kind === "notice"
+                    dialogRequest.kind === "notice" || dialogRequest.kind === "noticeOptOut"
                       ? "dialog.dismiss"
                       : dialogRequest.kind === "client" || dialogRequest.kind === "person"
                         ? "common.save"

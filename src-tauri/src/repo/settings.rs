@@ -25,6 +25,8 @@ pub mod keys {
     pub const MODE_DAYS: &str = "mode.days";
     /// The UTC stamp of the last manual switch; older schedule points lose to it.
     pub const MODE_OVERRIDE_AT: &str = "mode.override_at";
+    /// Set once the manual-switch notice was dismissed with "don't show again".
+    pub const MODE_HINT_DISMISSED: &str = "mode.hint_dismissed";
     pub const AI_ENABLED: &str = "ai.enabled";
     pub const AI_BASE_URL: &str = "ai.base_url";
     pub const AI_MODEL: &str = "ai.model";
@@ -374,6 +376,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
             .get(keys::MODE_PERSONAL_AT)
             .and_then(|value| normalize_mode_time(value))
             .unwrap_or_else(|| DEFAULT_MODE_PERSONAL_AT.into()),
+        mode_hint_dismissed: flag(&map, keys::MODE_HINT_DISMISSED, false),
         mode_days,
     })
 }

@@ -100,6 +100,8 @@ export interface Settings {
   mode: Mode;
   /** Whether the schedule switches the mode on its own. */
   modeAuto: boolean;
+  /** Whether the notice after a manual mode switch was dismissed for good. */
+  modeHintDismissed: boolean;
   /** Local "HH:MM" the schedule switches back to the company. */
   modeWorkAt: string;
   /** Local "HH:MM" the schedule switches to the personal world. */

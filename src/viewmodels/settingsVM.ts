@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { askNotice } from "../lib/dialog";
+import { askNotice, askNoticeOptOut } from "../lib/dialog";
 import { errorText, t } from "../lib/i18n";
 import * as ipc from "../model/ipc";
 import type { Mode, Settings } from "../model/types";
@@ -34,12 +34,17 @@ export function createSettingsVM() {
     try {
       appVM.state.settings = await ipc.setMode(target);
       // A manual switch is worth one line: it is the only point that explains what holds and what stays personal.
-      const mode = t(target === "work" ? "mode.work" : "mode.personal");
-      const scope = t("mode.switchedScope");
-      void askNotice(
-        t("mode.switchedTitle", { mode }),
-        appVM.state.settings.modeAuto ? `${t("mode.switchedSchedule")} ${scope}` : scope,
-      );
+      if (!appVM.state.settings.modeHintDismissed) {
+        const mode = t(target === "work" ? "mode.work" : "mode.personal");
+        const scope = t("mode.switchedScope");
+        const dismiss = await askNoticeOptOut(
+          t("mode.switchedTitle", { mode }),
+          appVM.state.settings.modeAuto ? `${t("mode.switchedSchedule")} ${scope}` : scope,
+          t("mode.switchedDismiss"),
+          true,
+        );
+        if (dismiss) await save({ modeHintDismissed: true });
+      }
       return true;
     } catch (e) {
       state.error = String(e);
