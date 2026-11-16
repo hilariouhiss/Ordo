@@ -11,6 +11,7 @@ import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
+import { updatesVM } from "../../viewmodels/updatesVM";
 import EffortField from "../components/EffortField.vue";
 import TimeField from "../components/TimeField.vue";
 
@@ -167,6 +168,37 @@ const aiStatusText = computed(() => {
   return t("settings.aiFailed", { error: errorText(status.error) || t("settings.aiUnknown") });
 });
 
+const updateBusy = computed(
+  () =>
+    updatesVM.state.phase === "checking" ||
+    updatesVM.state.phase === "downloading" ||
+    updatesVM.state.phase === "installing",
+);
+/** One line for the About row: what the last check found, or why it failed. */
+const updateStatus = computed(() => {
+  const state = updatesVM.state;
+  switch (state.phase) {
+    case "checking":
+      return t("settings.checking");
+    case "failed":
+      return t("settings.lastCheckFailed", { error: errorText(state.error ?? "") });
+    case "available":
+    case "downloading":
+    case "installing":
+    case "ready":
+      return t("settings.updateFound", { version: state.version ?? "" });
+    default:
+      return state.checkedAt
+        ? t("settings.upToDateAt", {
+            time: new Date(state.checkedAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          })
+        : "";
+  }
+});
+
 const shortcutSetters = {
   capture: ipc.setShortcut,
   desk: ipc.setDeskShortcut,
@@ -296,6 +328,8 @@ onMounted(() => {
   if (panelHeader.value) panelObserver.observe(panelHeader.value);
   if (panelContent.value) panelObserver.observe(panelContent.value);
   measurePanel();
+  // The version is only shown here; reading it on open keeps startup lighter.
+  void updatesVM.loadVersion();
   // The credential store is only read when this dialog opens, never on startup.
   void ipc
     .aiKeyStatus()
@@ -710,6 +744,30 @@ onUnmounted(() => {
                           })
                         }}
                       </p>
+                    </div>
+
+                    <div class="mt-4 border-t border-base-300 pt-3">
+                      <div class="flex items-center justify-between text-[12px]">
+                        <span>{{ t("settings.about") }}</span>
+                        <span class="text-base-content/60">
+                          {{ t("settings.version") }}
+                          {{
+                            updatesVM.state.currentVersion
+                              ? `v${updatesVM.state.currentVersion}`
+                              : "—"
+                          }}
+                        </span>
+                      </div>
+                      <div class="mt-2 flex items-center justify-between gap-2 text-[12px]">
+                        <span class="text-base-content/60">{{ updateStatus }}</span>
+                        <button
+                          class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                          :disabled="updateBusy"
+                          @click="updatesVM.checkNow()"
+                        >
+                          {{ updateBusy ? t("settings.checking") : t("settings.checkUpdate") }}
+                        </button>
+                      </div>
                     </div>
                   </div>
 

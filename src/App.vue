@@ -52,9 +52,11 @@ import { taskSheetVM } from "./viewmodels/taskSheetVM";
 import { tasksVM } from "./viewmodels/tasksVM";
 import { templatesVM } from "./viewmodels/templatesVM";
 import { undoVM } from "./viewmodels/undoVM";
+import { updatesVM } from "./viewmodels/updatesVM";
 import { weekVM } from "./viewmodels/weekVM";
 import { closeOverlays, windowModeVM } from "./viewmodels/windowModeVM";
 import UndoToast from "./views/components/UndoToast.vue";
+import UpdateCard from "./views/components/UpdateCard.vue";
 import WindowControls from "./views/components/WindowControls.vue";
 import DeskView from "./views/DeskView.vue";
 import AppDialog from "./views/overlays/AppDialog.vue";
@@ -304,6 +306,8 @@ function revealWindow(): void {
     .catch(() => {});
 }
 
+let stopUpdates: (() => void) | null = null;
+
 onMounted(async () => {
   window.addEventListener("keydown", onQuickCreateKey);
   window.addEventListener("keydown", onSearchKey);
@@ -399,6 +403,7 @@ onMounted(async () => {
   // above exists; one more read catches it without waiting for the next point.
   void appVM.load().catch(() => {});
   overduePromptVM.startup();
+  stopUpdates = updatesVM.start();
 });
 
 onUnmounted(() => {
@@ -407,6 +412,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onUndoKey);
   windowModeVM.attachSurface(null);
   windowModeVM.attachWidgetLayer(null);
+  stopUpdates?.();
 });
 </script>
 
@@ -678,6 +684,7 @@ onUnmounted(() => {
       <QuickCreate />
       <AppDialog />
       <SearchPalette />
+      <UpdateCard />
       <UndoToast />
     </div>
   </MotionConfig>
