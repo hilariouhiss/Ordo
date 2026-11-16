@@ -33,6 +33,13 @@ export function createSettingsVM() {
     state.error = "";
     try {
       appVM.state.settings = await ipc.setMode(target);
+      // A manual switch is worth one line: it is the only point that explains what holds and what stays personal.
+      const mode = t(target === "work" ? "mode.work" : "mode.personal");
+      const scope = t("mode.switchedScope");
+      void askNotice(
+        t("mode.switchedTitle", { mode }),
+        appVM.state.settings.modeAuto ? `${t("mode.switchedSchedule")} ${scope}` : scope,
+      );
       return true;
     } catch (e) {
       state.error = String(e);

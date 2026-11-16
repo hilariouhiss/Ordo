@@ -578,9 +578,6 @@ onUnmounted(() => {
                         </button>
                       </span>
                     </div>
-                    <p class="mt-2 text-[12px] leading-relaxed text-base-content/60">
-                      {{ t("settings.modeHint") }}
-                    </p>
                   </div>
 
                   <div
@@ -678,11 +675,6 @@ onUnmounted(() => {
                         </button>
                       </span>
                     </div>
-                    <p class="mt-1.5 text-[12px] text-base-content/60">
-                      {{
-                        t(settings.taskDefaultExclusive ? "task.exclusiveHint" : "task.sharedHint")
-                      }}
-                    </p>
                     <div class="mt-3 flex items-center justify-between text-[12px]">
                       <span>{{ t("settings.overdueRollover") }}</span>
                       <input
@@ -692,9 +684,6 @@ onUnmounted(() => {
                         @change="vm.save({ overduePrompt: !settings.overduePrompt })"
                       />
                     </div>
-                    <p class="mt-1.5 text-[12px] leading-relaxed text-base-content/60">
-                      {{ t("settings.overdueRolloverHint") }}
-                    </p>
                     <div class="mt-4 h-px bg-base-300"></div>
                     <div class="mt-3 flex items-center justify-between text-[12px]">
                       <span>{{ t("settings.reminderLead") }}</span>
@@ -802,10 +791,15 @@ onUnmounted(() => {
                       </div>
                     </div>
                     <div class="rounded-xl bg-base-200 p-4">
-                      <p class="text-[12px] font-semibold">{{ t("settings.autoUpdate") }}</p>
-                      <p class="mt-2 text-[12px] leading-relaxed text-base-content/60">
-                        {{ t("settings.autoUpdateHint") }}
-                      </p>
+                      <div class="flex items-center justify-between text-[12px]">
+                        <span>{{ t("settings.autoUpdateCheck") }}</span>
+                        <input
+                          type="checkbox"
+                          class="toggle toggle-xs toggle-success"
+                          :checked="settings.updatesAutoCheck"
+                          @change="vm.save({ updatesAutoCheck: !settings.updatesAutoCheck })"
+                        />
+                      </div>
                       <div class="mt-3 flex items-center justify-between gap-2 text-[12px]">
                         <span
                           :class="
