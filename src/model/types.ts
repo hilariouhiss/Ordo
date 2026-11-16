@@ -94,6 +94,8 @@ export interface Settings {
   remindersLeadMinutes: number;
   /** Whether the daily 09:00 digest fires. */
   remindersDigest: boolean;
+  /** Whether the app checks for updates on startup and every six hours. */
+  updatesAutoCheck: boolean;
   /** The world the lists are filtered by. */
   mode: Mode;
   /** Whether the schedule switches the mode on its own. */

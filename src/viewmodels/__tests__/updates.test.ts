@@ -165,10 +165,31 @@ describe("自动检查", () => {
     vi.stubEnv("DEV", true);
     const vm = createUpdatesVM();
 
-    const dispose = vm.start();
+    const dispose = vm.start(true);
     await flush();
 
     expect(checkMock).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("关掉自动检查时不排检查，打开后从 3 秒起算", async () => {
+    vi.useFakeTimers();
+    checkMock.mockResolvedValue(null);
+    const vm = createUpdatesVM();
+
+    const dispose = vm.start(false);
+    await vi.advanceTimersByTimeAsync(3_100);
+    expect(checkMock).not.toHaveBeenCalled();
+
+    vm.applyAutoCheck(true);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(checkMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(checkMock).toHaveBeenCalledTimes(1);
+
+    vm.applyAutoCheck(false);
+    await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000);
+    expect(checkMock).toHaveBeenCalledTimes(1);
     dispose();
   });
 
@@ -177,7 +198,7 @@ describe("自动检查", () => {
     checkMock.mockResolvedValue(null);
     const vm = createUpdatesVM();
 
-    const dispose = vm.start();
+    const dispose = vm.start(true);
     await vi.advanceTimersByTimeAsync(2_999);
     expect(checkMock).not.toHaveBeenCalled();
 

@@ -31,6 +31,7 @@ pub mod keys {
     pub const REMINDER_LEAD_MINUTES: &str = "reminders.lead_minutes";
     pub const REMINDERS_DIGEST: &str = "reminders.digest";
     pub const DIGEST_DATE: &str = "reminders.digest_date";
+    pub const UPDATES_AUTO_CHECK: &str = "updates.auto_check";
     pub const DESK_ENABLED: &str = "desk.enabled";
     pub const DESK_CONTROLS: &str = "desk.controls";
     pub const DESK_PIN: &str = "desk.pin";
@@ -362,6 +363,7 @@ pub fn dto(conn: &Connection) -> rusqlite::Result<SettingsDto> {
         reminders_lead_minutes: num(&map, keys::REMINDER_LEAD_MINUTES, DEFAULT_REMINDER_LEAD_MINUTES)
             .clamp(0, crate::limits::LIMITS.reminder_lead_minutes),
         reminders_digest: flag(&map, keys::REMINDERS_DIGEST, true),
+        updates_auto_check: flag(&map, keys::UPDATES_AUTO_CHECK, true),
         mode: active_mode.to_string(),
         mode_auto: flag(&map, keys::MODE_AUTO, false),
         mode_work_at: map

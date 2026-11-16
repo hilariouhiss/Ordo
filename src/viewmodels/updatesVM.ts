@@ -53,6 +53,33 @@ export function createUpdatesVM() {
   /** A dev build must never be replaced by a release, and a browser tab has no plugins. */
   const enabled = () => isTauri() && !import.meta.env.DEV;
 
+  let first: ReturnType<typeof setTimeout> | null = null;
+  let repeat: ReturnType<typeof setInterval> | null = null;
+
+  function stopTimers(): void {
+    if (first !== null) {
+      clearTimeout(first);
+      first = null;
+    }
+    if (repeat !== null) {
+      clearInterval(repeat);
+      repeat = null;
+    }
+  }
+
+  function schedule(): void {
+    if (first !== null || repeat !== null) return;
+    first = setTimeout(() => {
+      first = null;
+      void checkNow();
+    }, START_DELAY_MS);
+    repeat = setInterval(() => {
+      // A check now would only race the thing the user just pressed.
+      if (state.phase === "downloading" || state.phase === "installing") return;
+      void checkNow();
+    }, CHECK_INTERVAL_MS);
+  }
+
   const visible = computed(
     () =>
       state.version !== null &&
@@ -173,23 +200,22 @@ export function createUpdatesVM() {
     state.dismissedVersion = state.version;
   }
 
-  /** Start-up check after a short delay, then every six hours. Returns the disposer. */
-  function start(): () => void {
+  /** Start-up check after a short delay, then every six hours, when the preference allows it. */
+  function start(autoCheck: boolean): () => void {
     void loadVersion();
-    if (!enabled()) return () => {};
-    const first = setTimeout(() => void checkNow(), START_DELAY_MS);
-    const interval = setInterval(() => {
-      // A check now would only race the thing the user just pressed.
-      if (state.phase === "downloading" || state.phase === "installing") return;
-      void checkNow();
-    }, CHECK_INTERVAL_MS);
-    return () => {
-      clearTimeout(first);
-      clearInterval(interval);
-    };
+    if (!enabled() || !autoCheck) return stopTimers;
+    schedule();
+    return stopTimers;
   }
 
-  return { state, visible, loadVersion, start, checkNow, install, dismiss };
+  /** The settings switch: turning it on starts the schedule, off stops it. */
+  function applyAutoCheck(autoCheck: boolean): void {
+    if (!enabled()) return;
+    if (autoCheck) schedule();
+    else stopTimers();
+  }
+
+  return { state, visible, loadVersion, start, applyAutoCheck, checkNow, install, dismiss };
 }
 
 export const updatesVM = createUpdatesVM();

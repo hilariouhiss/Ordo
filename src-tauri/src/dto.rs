@@ -71,6 +71,8 @@ pub struct SettingsDto {
     pub reminders_lead_minutes: i64,
     /// Whether the daily 09:00 digest fires.
     pub reminders_digest: bool,
+    /// Whether the app checks for updates on startup and every six hours.
+    pub updates_auto_check: bool,
     /// The mode the lists are filtered by; "work" when unset.
     pub mode: String,
     /// Whether the schedule switches the mode on its own.
@@ -491,6 +493,7 @@ pub struct SettingsPatch {
     pub saved_task_views: Option<Vec<SavedTaskViewDto>>,
     pub reminders_lead_minutes: Option<i64>,
     pub reminders_digest: Option<bool>,
+    pub updates_auto_check: Option<bool>,
     pub mode_auto: Option<bool>,
     pub mode_work_at: Option<String>,
     pub mode_personal_at: Option<String>,

@@ -26,6 +26,7 @@ export const defaultSettings: Settings = {
   savedTaskViews: [],
   remindersLeadMinutes: 60,
   remindersDigest: true,
+  updatesAutoCheck: true,
   mode: "work",
   modeAuto: false,
   modeWorkAt: "09:00",

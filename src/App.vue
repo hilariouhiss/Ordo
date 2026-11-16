@@ -333,6 +333,10 @@ onMounted(async () => {
     () => appVM.state.settings?.theme,
     () => void syncTheme(),
   );
+  watch(
+    () => appVM.state.settings?.updatesAutoCheck,
+    (next) => updatesVM.applyAutoCheck(next !== false),
+  );
   watch(mode, (next, before) => {
     // The first load only seeds the value; a real switch repaints and reloads.
     if (!before || before === next) return;
@@ -403,7 +407,7 @@ onMounted(async () => {
   // above exists; one more read catches it without waiting for the next point.
   void appVM.load().catch(() => {});
   overduePromptVM.startup();
-  stopUpdates = updatesVM.start();
+  stopUpdates = updatesVM.start(appVM.state.settings?.updatesAutoCheck !== false);
 });
 
 onUnmounted(() => {

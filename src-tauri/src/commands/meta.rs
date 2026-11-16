@@ -83,6 +83,10 @@ fn save_settings(
             keys::REMINDERS_DIGEST,
             patch.reminders_digest.map(|v| v.to_string()),
         ),
+        (
+            keys::UPDATES_AUTO_CHECK,
+            patch.updates_auto_check.map(|v| v.to_string()),
+        ),
         (keys::MODE_AUTO, patch.mode_auto.map(|v| v.to_string())),
         (keys::MODE_WORK_AT, patch.mode_work_at),
         (keys::MODE_PERSONAL_AT, patch.mode_personal_at),
