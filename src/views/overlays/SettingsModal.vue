@@ -168,6 +168,9 @@ const aiStatusText = computed(() => {
   return t("settings.aiFailed", { error: errorText(status.error) || t("settings.aiUnknown") });
 });
 
+const versionText = computed(() =>
+  updatesVM.state.currentVersion ? `v${updatesVM.state.currentVersion}` : "—",
+);
 const updateBusy = computed(
   () =>
     updatesVM.state.phase === "checking" ||
@@ -400,6 +403,14 @@ onUnmounted(() => {
               @click="vm.state.tab = 'ai'"
             >
               AI
+            </button>
+            <button
+              role="tab"
+              class="tab"
+              :class="{ 'tab-active': vm.state.tab === 'about' }"
+              @click="vm.state.tab = 'about'"
+            >
+              {{ t("app.tabAbout") }}
             </button>
           </div>
         </div>
@@ -745,30 +756,6 @@ onUnmounted(() => {
                         }}
                       </p>
                     </div>
-
-                    <div class="mt-4 border-t border-base-300 pt-3">
-                      <div class="flex items-center justify-between text-[12px]">
-                        <span>{{ t("settings.about") }}</span>
-                        <span class="text-base-content/60">
-                          {{ t("settings.version") }}
-                          {{
-                            updatesVM.state.currentVersion
-                              ? `v${updatesVM.state.currentVersion}`
-                              : "—"
-                          }}
-                        </span>
-                      </div>
-                      <div class="mt-2 flex items-center justify-between gap-2 text-[12px]">
-                        <span class="text-base-content/60">{{ updateStatus }}</span>
-                        <button
-                          class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
-                          :disabled="updateBusy"
-                          @click="updatesVM.checkNow()"
-                        >
-                          {{ updateBusy ? t("settings.checking") : t("settings.checkUpdate") }}
-                        </button>
-                      </div>
-                    </div>
                   </div>
 
                   <div v-else-if="vm.state.tab === 'data'" class="mt-4 rounded-xl bg-base-200 p-4">
@@ -807,6 +794,43 @@ onUnmounted(() => {
                     <p v-if="settings.backupError" class="mt-2 break-all text-[12px] text-error">
                       {{ t("settings.backupError", { error: settings.backupError }) }}
                     </p>
+                  </div>
+
+                  <div v-else-if="vm.state.tab === 'about'" class="mt-4 space-y-3">
+                    <div class="rounded-xl bg-base-200 p-4">
+                      <div class="flex items-center justify-between text-[12px]">
+                        <span>{{ t("settings.version") }}</span>
+                        <span class="text-base-content/60">{{ versionText }}</span>
+                      </div>
+                      <div class="mt-2 flex items-center justify-between text-[12px]">
+                        <span class="text-base-content/60">{{ t("settings.appTagline") }}</span>
+                        <span class="text-base-content/60">{{ t("settings.license") }}</span>
+                      </div>
+                    </div>
+                    <div class="rounded-xl bg-base-200 p-4">
+                      <p class="text-[12px] font-semibold">{{ t("settings.autoUpdate") }}</p>
+                      <p class="mt-2 text-[12px] leading-relaxed text-base-content/60">
+                        {{ t("settings.autoUpdateHint") }}
+                      </p>
+                      <div class="mt-3 flex items-center justify-between gap-2 text-[12px]">
+                        <span
+                          :class="
+                            updatesVM.state.phase === 'failed'
+                              ? 'text-error'
+                              : 'text-base-content/60'
+                          "
+                        >
+                          {{ updateStatus }}
+                        </span>
+                        <button
+                          class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                          :disabled="updateBusy"
+                          @click="updatesVM.checkNow()"
+                        >
+                          {{ updateBusy ? t("settings.checking") : t("settings.checkUpdate") }}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               </AnimatePresence>

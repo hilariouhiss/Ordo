@@ -44,6 +44,7 @@ export const zh = {
   "app.tabGeneral": "通用",
   "app.tabData": "数据",
   "app.tabMode": "模式",
+  "app.tabAbout": "关于",
 
   "week.passNeeded": "这一周的事还没结清",
   "week.pending": "{count} 件待定",
@@ -694,8 +695,12 @@ export const zh = {
   "update.buttonUpdate": "更新",
   "update.later": "稍后",
   "update.close": "关闭更新提示（下次启动再提醒）",
-  "settings.about": "关于",
   "settings.version": "当前版本",
+  "settings.appTagline": "本地任务账本",
+  "settings.license": "MIT 许可",
+  "settings.autoUpdate": "自动更新",
+  "settings.autoUpdateHint":
+    "启动 3 秒后检查一次，之后每 6 小时一次；发现新版本会在主窗口左下角提示，点「更新」才会下载、安装并重启。开发构建不检查。",
   "settings.checkUpdate": "检查更新",
   "settings.checking": "正在检查…",
   "settings.upToDateAt": "已是最新版本 · 上次检查 {time}",
@@ -742,6 +747,7 @@ export const en: Record<MessageKey, string> = {
   "app.tabGeneral": "General",
   "app.tabData": "Data",
   "app.tabMode": "Mode",
+  "app.tabAbout": "About",
 
   "week.passNeeded": "This week still has loose ends",
   "week.pending": "{count} to decide",
@@ -1406,8 +1412,12 @@ export const en: Record<MessageKey, string> = {
   "update.buttonUpdate": "Update",
   "update.later": "Later",
   "update.close": "Dismiss the update notice (remind me next launch)",
-  "settings.about": "About",
   "settings.version": "Version",
+  "settings.appTagline": "Local task book",
+  "settings.license": "MIT license",
+  "settings.autoUpdate": "Automatic updates",
+  "settings.autoUpdateHint":
+    "Checks 3 seconds after launch and every 6 hours after that. A new version shows up in the bottom-left corner of the main window, and only pressing “Update” downloads, installs and restarts. Development builds don’t check.",
   "settings.checkUpdate": "Check for updates",
   "settings.checking": "Checking…",
   "settings.upToDateAt": "Up to date · checked {time}",
