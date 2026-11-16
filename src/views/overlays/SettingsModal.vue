@@ -11,7 +11,7 @@ import type { ThemePref } from "../../lib/theme";
 import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
-import { updatesVM } from "../../viewmodels/updatesVM";
+import { updateAction, updatesVM } from "../../viewmodels/updatesVM";
 import EffortField from "../components/EffortField.vue";
 import TimeField from "../components/TimeField.vue";
 
@@ -178,6 +178,29 @@ const updateBusy = computed(
     updatesVM.state.phase === "installing",
 );
 /** One line for the About row: what the last check found, or why it failed. */
+/** The button offers the install as soon as a version is known; a failed check does not. */
+const updateAvailable = computed(
+  () => updateAction(updatesVM.state.phase, updatesVM.state.version !== null) === "install",
+);
+const updateLabel = computed(() => {
+  switch (updatesVM.state.phase) {
+    case "checking":
+      return t("settings.checking");
+    case "downloading":
+      return t("settings.updateDownloading");
+    case "installing":
+      return t("settings.updateInstalling");
+    default:
+      return updateAvailable.value ? t("settings.updateNow") : t("settings.checkUpdate");
+  }
+});
+
+/** One button: check while nothing is known, install once a version is. */
+function runUpdateAction(): void {
+  if (updateAvailable.value) void updatesVM.install();
+  else void updatesVM.checkNow();
+}
+
 const updateStatus = computed(() => {
   const state = updatesVM.state;
   switch (state.phase) {
@@ -813,9 +836,9 @@ onUnmounted(() => {
                         <button
                           class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
                           :disabled="updateBusy"
-                          @click="updatesVM.checkNow()"
+                          @click="runUpdateAction"
                         >
-                          {{ updateBusy ? t("settings.checking") : t("settings.checkUpdate") }}
+                          {{ updateLabel }}
                         </button>
                       </div>
                     </div>

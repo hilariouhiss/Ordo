@@ -17,7 +17,7 @@ vi.mock("@tauri-apps/api/app", () => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 
-import { createUpdatesVM } from "../updatesVM";
+import { createUpdatesVM, updateAction } from "../updatesVM";
 
 /** A stand-in for the plugin's `Update`: records what was called on it. */
 function fakeUpdate(version = "0.2.1") {
@@ -85,6 +85,18 @@ describe("检查", () => {
     await expect(vm.checkNow()).resolves.toBe("disabled");
     expect(await vm.install()).toBe(false);
     expect(checkMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("关于页的按钮", () => {
+  it("有版本时做安装，检查失败时回到检查", () => {
+    expect(updateAction("available", true)).toBe("install");
+    expect(updateAction("ready", true)).toBe("install");
+    expect(updateAction("downloading", true)).toBe("install");
+    expect(updateAction("installing", true)).toBe("install");
+    expect(updateAction("failed", true)).toBe("check");
+    expect(updateAction("idle", false)).toBe("check");
+    expect(updateAction("checking", false)).toBe("check");
   });
 });
 

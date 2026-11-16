@@ -16,6 +16,12 @@ export type UpdatePhase =
 /** What a check found, as told to whoever asked for it. */
 export type UpdateOutcome = "none" | "available" | "failed" | "disabled";
 
+/** What the About tab's one button does for the state on screen: install the version it
+ * knows, otherwise run a check. A failed check keeps the check it can retry. */
+export function updateAction(phase: UpdatePhase, hasVersion: boolean): "install" | "check" {
+  return hasVersion && phase !== "failed" ? "install" : "check";
+}
+
 export interface UpdatesState {
   phase: UpdatePhase;
   /** Running version, read once from the bundle; empty until it arrives. */
