@@ -37,6 +37,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      # 测试钉的是 Asia/Shanghai 的本地日期/时刻（chrono 在 Windows 上读系统时区，
+      # 不认 TZ 环境变量）；runner 默认 UTC，不切时区会有七条测试红。
+      - name: match the developer time zone
+        run: Set-TimeZone -Id "China Standard Time"
       # cargo test 是 debug 构建，tauri 的 codegen 走 devUrl 分支，不需要 dist/。
       - run: cargo test
         working-directory: src-tauri
