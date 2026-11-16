@@ -1,0 +1,42 @@
+name: ci
+
+# 三条门禁：格式/lint/类型 + TS 测试 + Rust 测试。
+# Rust 在 windows-latest 上跑：rusqlite bundled 要 C 编译器，tauri 在 Linux 上还要 webkit2gtk。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vp check
+      - run: pnpm exec vp test run
+
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # 真正的锁文件在 src-tauri/ 下；不写 workspaces 时缓存键按仓库根算，永远不命中。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # cargo test 是 debug 构建，tauri 的 codegen 走 devUrl 分支，不需要 dist/。
+      - run: cargo test
+        working-directory: src-tauri
