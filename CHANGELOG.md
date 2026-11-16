@@ -4,8 +4,16 @@ Ordo 的显著变更都记在这里，格式参考 [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-16
+
+### 新增
+
+- 捕获条可设「预计开始」，预计完成按开始日 + 预计耗时的**工作日**自动推算（跳过周末）；勾「已完成」后改填开始日期 + 实际耗时，实际完成按开始日 09:00 起的分钟数推算。
+- 本周页左侧 ＋ 与 `Ctrl+N` 打开「新建任务」弹窗：标题、描述、状态（未开始/进行中/已完成）、项目/分类/负责人/优先级、预计与实际时间、独占/共享、标签一次填完；`Ctrl+Shift+N` 仍只新建项目。
+
 ### 变更
 
+- `#待建项目` 直接显示在捕获条的项目框里（主色表示保存时会新建），不再单独占一行提示；项目下拉末尾的输入框移除。
 - 设置里的「关于」从通用页底部搬出来，单独占一个 tab（当前版本、许可、自动更新说明与「检查更新」）。
 - 精简设置里的说明文字：去掉「隐藏已完成」的重复提示，模式的两段说明合成一句，缩短自动更新与逾期顺延的提示。
 - 「关于」里的自动检查更新改成开关（设置项 `updates.auto_check`，默认开）；去掉模式、新任务默认和逾期顺延的说明，手动切换模式后弹一次提示。
@@ -22,5 +30,6 @@ Ordo 的显著变更都记在这里，格式参考 [Keep a Changelog](https://ke
 
 ## 链接
 
-[Unreleased]: https://github.com/hilariouhiss/Ordo/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hilariouhiss/Ordo/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/hilariouhiss/Ordo/releases/tag/v0.2.1
 [0.2.0]: https://github.com/hilariouhiss/Ordo/releases/tag/v0.2.0
