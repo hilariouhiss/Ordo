@@ -60,7 +60,7 @@ Ordo 是单机个人任务账本桌面应用：一句话捕获、每周过一遍
 | 前端生产构建       | `pnpm build`（类型检查与 `vp build` 并行）      |
 | Windows 安装包     | `pnpm tauri build`（会自动先跑 `pnpm build`）   |
 
-提交前必须三项都过：`vp check`、`vp test run`、`cd src-tauri && cargo test`。仓库没有 CI workflow，这三条就是门禁。Rust 首次编译较慢；`vp check` 不检查 Rust。
+提交前必须三项都过：`vp check`、`vp test run`、`cd src-tauri && cargo test`。`.github/workflows/ci.yml` 在 push 到 `main` 和 pull request 上用 ubuntu（前两条）+ windows（cargo test）各跑一遍；本地仍然是提交前的门禁。Rust 首次编译较慢；`vp check` 不检查 Rust。
 
 `.vite-hooks/pre-commit` 执行 `vp staged`，`vite.config.ts` 把暂存文件交给 `vp check --fix`；钩子可能改写文件，失败后重新暂存再提交。
 
@@ -79,7 +79,7 @@ Rust 拥有数据和调度，WebView 只是界面。
 - 前端：`src/model/ipc.ts` 是唯一调用 `invoke` 的地方；状态用 VM 的 `reactive`，不引入 Pinia；`types.ts` 镜像 Rust DTO；`viewmodels/` 是 Vue `reactive` + 动作的工厂，页面级单例在文件底部导出；`views/` 只做绑定；`lib/` 放日期、IME、主题、时间轴等工具。
 - `src/main.ts` 按窗口 label 只分 `capture` 与 main（挂 `App.vue`）；桌面小窗由 App 内嵌 `DeskView`，只有一个 `index.html`，不要新增构建入口。
 - 应用内快捷键：`App.vue` 监听 `Ctrl+N` / `Ctrl+Shift+N` 打开根级 `QuickCreate` 浮层，`Ctrl+K` 打开全局搜索面板，`Ctrl+Z` 撤销最近一次可逆操作（输入框内不接管）；主窗口和小窗都可见，迷你捕获窗口没有；任务浮层、设置、过一遍、确认框、项目设置、搜索面板打开或形态动画中忽略，不注册全局快捷键。搜索面板与撤销条分别是 `SearchPalette.vue`、`UndoToast.vue`；筛选与保存视图只在任务页，存在 `settings` 的 `tasks.saved_views`。
-- `tauri.conf.json` 管窗口、CSP、构建钩子；`capabilities/default.json` 只给 `main`/`capture` 开通知、自启、快捷键、窗口几何等权限。
+- `tauri.conf.json` 管窗口、CSP、构建钩子、更新端点（`plugins.updater`）；`capabilities/default.json` 只给 `main`/`capture` 开通知、自启、快捷键、窗口几何等权限，`capabilities/updater.json` 只给 `main` 开 `updater`/`process`（迷你捕获窗没有更新入口）。
 - 桌面小窗是 `main` 的 widget 形态，没有独立的 `desk` 窗口：窗口从创建起透明、无边框、无系统阴影；`windowModeVM` 管形态切换、最小尺寸/任务栏/置顶、`set_window_rect` 滑行动画（主界面层见 `attachSurface`：进小窗按 WebView 实际视口逐帧缩放，`ResizeObserver` 预绘制同步；回主窗先把窗口一次性改到主窗尺寸、之后只平移，内容用 `scale` 跟随，卡片按 `centerOffset` 钉在屏幕原位，收尾不要再缩放窗口，否则会闪一帧；原生窗口用一次 `SetWindowPos`）、启动落位与隐藏时的直接落位；`DeskView` 画卡片、吸附几何和贴边收放：收起/展开时用 `set_window_rect` 逐帧把窗口和卡片一起缩放，内容先淡出、三点抓手后现，反向从当前矩形继续。开关、层级、位置仍存 `settings` 的 `desk.*` 键，`desk.enabled` 表示当前/启动时是否为小窗形态；默认落点是主显示器工作区右上角，小窗右上角按钮是「回到主窗口」。`desk.controls`（默认开）决定小窗内是否显示开始/挂起/完成按钮；小窗挂起不带日期和原因，主窗口仍保留完整对话框。桌面小窗另有全局快捷键（默认 Ctrl+Alt+W，设置 → 通用可改）：Rust 只在 `desk.enabled` 为真时发 `widget:summon`，前端把置底/隐藏的小窗抬到最前、展开收起的小条，失焦后按原状态收回或隐藏；主窗口快捷键（默认 Ctrl+Alt+M）直接复用 `show_main`。面板 360×500 在窗口中居中，圆角、边框和阴影由 `DeskView` 自绘，收起提示条贴边；原生拖动期间（左键按住）不要移动窗口，吸附等松手后再做。不要改回系统阴影或非透明窗口，否则会出现 1px 白边或无法做小窗。
 
 分层规则：业务规则放 Rust services；前端 View 不碰 `invoke` 或数据库；新增数据流从 `dto.rs` → `ipc.ts` → `types.ts` → ViewModel 一路补齐。少数 overlay（`SettingsModal.vue`、`ProjectSettings.vue`）直接调 `model/ipc`；任务浮层的写库与撤销都在 `taskSheetVM` 里，组件只做绑定。新逻辑不要照抄，放进 VM 或 service。
@@ -117,16 +117,19 @@ Rust 拥有数据和调度，WebView 只是界面。
 
 ## Git 与发布
 
-- 默认分支 `main`；没有 PR 模板或 CI。提交保持小而单一。
-- 版本号同时写在 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`，升版本时三处一起改。
-- 发布用 `pnpm tauri build`，然后按 README 的“装好后逐条打勾”验收（托盘、提醒、快捷键、IME、重复提醒等）。
+- 默认分支 `main`；没有 PR 模板。提交保持小而单一。CI 在 `.github/workflows/ci.yml`：`vp check` + `vp test run`（ubuntu）、`cargo test`（windows）。
+- 版本号同时写在 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`，升版本时三处一起改；`Cargo.lock` 里 `name = "ordo"` 的版本随 `cargo test` 一起更新，`CHANGELOG.md` 加一节。
+- 发布：推 `v*` tag 触发 `.github/workflows/release.yml`。它先跑 `scripts/check-release-version.mjs` 校验 tag 与三处版本号一致，再用 tauri-action 在 windows-latest 上只出 NSIS，签名并发布 `Ordo_<版本>_x64-setup.exe`、`.sig` 和 `latest.json`。本地要出带更新签名的包时设 `TAURI_SIGNING_PRIVATE_KEY`（指向 `%USERPROFILE%\.tauri\ordo.key`）和空的 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，见 README。
+- 签名私钥是已安装版本唯一认的身份：丢了或换了，所有旧安装都收不到更新，只能手动重装。私钥不进仓库（`.gitignore` 的 `*.key`），GitHub 上是 secret `TAURI_SIGNING_PRIVATE_KEY`。
+- 应用内自动更新：启动 3 秒后检查一次、之后每 6 小时一次，端点在 `tauri.conf.json` 的 `plugins.updater.endpoints`；开发构建（`import.meta.env.DEV`）和浏览器里不检查。安装只在用户点「更新」后发生。
+- 发布后按 README 的“装好后逐条打勾”验收（托盘、提醒、快捷键、IME、重复提醒等），更新链路要等下一个版本才能端到端验证。
 - 不要提交生成物/本地状态：`dist/`、`src-tauri/target/`、`src-tauri/gen/schemas`、`.agents/`、`.claude/`、`.superpowers/`、`.codegraph/`、`skills-lock.json`（后几项也已在 `.gitignore`）。
 
 ## 安全与坑
 
 - API key 只进 Windows 凭据管理器（service `ordo`，account `deepseek`），不进设置表、导出 JSON、备份或日志；不要把它写进 `.env` 或测试夹具。
-- 唯一联网行为是 AI 补字段；保持“捕获立即落库，AI 异步补，失败静默”。前端不要 await AI 再保存。
-- CSP 在 `tauri.conf.json` 的 `connect-src` 只放行自身、Tauri IPC 和 `https://api.deepseek.com`；能力清单只开必要插件。新增插件要同时改 `lib.rs`、`capabilities/default.json` 和依赖清单，别开 shell/fs 通配。
+- 联网只有两件事：AI 补字段、应用内更新检查与下载（走 Rust 侧原生请求，不占 CSP 的 `connect-src`）。保持“捕获立即落库，AI 异步补，失败静默”；更新检查失败也只记在设置页，不弹 toast。前端不要 await AI 再保存。
+- CSP 在 `tauri.conf.json` 的 `connect-src` 只放行自身、Tauri IPC 和 `https://api.deepseek.com`（更新检查走原生请求，不受它限制）；能力清单只开必要插件。新增插件要同时改 `lib.rs`、对应的 `capabilities/*.json` 和依赖清单，别开 shell/fs 通配。
 - 数据库损坏时启动流程会保留坏文件（`ordo.db.corrupt-*`）和 `-wal`，从最新可用备份恢复；文件整个缺失但备份还在时同样恢复。不要让代码静默重建或删除。备份与迁移副本都先写临时名再改名，残缺的那份不算数。动这块先跑 `db/mod.rs` 的恢复测试。
 - 真实数据库（`%APPDATA%\com.ordo.taskbook`）不要手工清理、重置或跑破坏性 SQL；要动先确认。测试用 `db::open_in_memory()` 或临时目录。
 - 主窗口关闭只是隐藏到托盘，退出走托盘菜单；首次关闭会提示一次。别把关闭改回直接退出。
