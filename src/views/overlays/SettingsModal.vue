@@ -581,9 +581,6 @@ onUnmounted(() => {
                     <p class="mt-2 text-[12px] leading-relaxed text-base-content/60">
                       {{ t("settings.modeHint") }}
                     </p>
-                    <p class="mt-1.5 text-[12px] leading-relaxed text-base-content/60">
-                      {{ t("settings.modeNote") }}
-                    </p>
                   </div>
 
                   <div
@@ -662,9 +659,6 @@ onUnmounted(() => {
                         @change="vm.save({ weekHideDone: !settings.weekHideDone })"
                       />
                     </div>
-                    <p class="mt-1.5 text-[12px] text-base-content/60">
-                      {{ t("settings.weekHideDoneHint") }}
-                    </p>
                     <div class="mt-3 flex items-center justify-between text-[12px]">
                       <span>{{ t("settings.taskDefault") }}</span>
                       <span class="flex gap-1.5">

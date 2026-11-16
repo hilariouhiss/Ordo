@@ -453,9 +453,7 @@ export const zh = {
   "settings.modeWorkAt": "到点切回公司",
   "settings.modeDays": "哪几天",
   "settings.modeHint":
-    "自动切换每 30 秒检查一次；手动切换后，到下一个时间点才再自动切。应用没开着时，下次启动按最近一个时间点补上。",
-  "settings.modeNote":
-    "个人模式下新建的任务、项目、甲方、周期任务、模板都只属于个人；切回公司时都看不见。",
+    "手动切换后到下一个时间点才再自动切；个人模式下新建的内容只在个人模式里显示。",
   "mode.work": "公司",
   "mode.personal": "个人",
   "desk.switchModeAria": "切换公司或个人模式",
@@ -468,8 +466,6 @@ export const zh = {
   "settings.deskControls": "小窗内变更任务状态",
   "settings.weekShowEmptyDays": "本周页面显示未安排的星期",
   "settings.weekHideDone": "本周隐藏已完成任务",
-  "settings.weekHideDoneHint":
-    "打开后，完成的任务不再出现在本周列表和甘特图，只会留在任务页的「已完成」里。",
   "settings.taskDefault": "新任务默认",
   "settings.taskDefaultAskShared": "新任务将默认「共享」。要不要同时把现有任务也改为共享？",
   "settings.taskDefaultAskExclusive": "新任务将默认「独占」。要不要同时把现有任务也改为独占？",
@@ -477,7 +473,7 @@ export const zh = {
   "settings.taskDefaultExisting": "现有任务也改",
   "settings.overdueRollover": "逾期任务自动延期",
   "settings.overdueRolloverHint":
-    "启动时（已过 09:00）或每天 09:00 自动询问新的预计完成日；不选日期会按默认顺延一个工作日并记一条延期。",
+    "启动时或每天 09:00 问一次新的预计完成日；不改就顺延一个工作日并记一条延期。",
   "settings.weekView": "本周视图",
   "settings.weekViewList": "列表",
   "settings.weekViewGantt": "甘特图",
@@ -700,7 +696,7 @@ export const zh = {
   "settings.license": "MIT 许可",
   "settings.autoUpdate": "自动更新",
   "settings.autoUpdateHint":
-    "启动 3 秒后检查一次，之后每 6 小时一次；发现新版本会在主窗口左下角提示，点「更新」才会下载、安装并重启。开发构建不检查。",
+    "启动时和之后每 6 小时检查一次；发现新版本会在左下角提示，点「更新」才下载安装。",
   "settings.checkUpdate": "检查更新",
   "settings.checking": "正在检查…",
   "settings.upToDateAt": "已是最新版本 · 上次检查 {time}",
@@ -1165,9 +1161,7 @@ export const en: Record<MessageKey, string> = {
   "settings.modeWorkAt": "Back to work at",
   "settings.modeDays": "Days",
   "settings.modeHint":
-    "The schedule is checked every 30 seconds; a manual switch holds until the next point. If Ordo was closed, the next launch catches up to the latest point.",
-  "settings.modeNote":
-    "Tasks, projects, clients, recurring tasks and templates created in personal mode stay there; they are invisible back in company mode.",
+    "A manual switch holds until the next point; content created in personal mode only shows there.",
   "mode.work": "Work",
   "mode.personal": "Personal",
   "desk.switchModeAria": "Switch between company and personal",
@@ -1185,8 +1179,6 @@ export const en: Record<MessageKey, string> = {
   "settings.digest": "Daily digest",
   "settings.weekShowEmptyDays": "Show unplanned weekdays",
   "settings.weekHideDone": "Hide finished tasks from the week",
-  "settings.weekHideDoneHint":
-    "Finished tasks leave the week page's list and gantt; the tasks page keeps them under Done.",
   "settings.taskDefault": "New tasks default to",
   "settings.taskDefaultAskShared":
     "New tasks will default to Shared. Also switch every existing task to Shared?",
@@ -1196,7 +1188,7 @@ export const en: Record<MessageKey, string> = {
   "settings.taskDefaultExisting": "Existing tasks too",
   "settings.overdueRollover": "Prompt to defer overdue tasks",
   "settings.overdueRolloverHint":
-    "On startup after 09:00 or at 09:00 each day, asks for a new expected finish; without a date it moves one workday and records a delay.",
+    "At startup or 09:00 daily it asks for a new expected finish; keeping the default moves one workday and records a delay.",
   "settings.shortcut": "Mini window shortcut",
   "settings.deskShortcut": "Week widget shortcut",
   "settings.mainShortcut": "Main window shortcut",
@@ -1417,7 +1409,7 @@ export const en: Record<MessageKey, string> = {
   "settings.license": "MIT license",
   "settings.autoUpdate": "Automatic updates",
   "settings.autoUpdateHint":
-    "Checks 3 seconds after launch and every 6 hours after that. A new version shows up in the bottom-left corner of the main window, and only pressing “Update” downloads, installs and restarts. Development builds don’t check.",
+    "Checks at launch and every 6 hours after; a new version shows in the bottom-left corner, and only “Update” downloads and installs it.",
   "settings.checkUpdate": "Check for updates",
   "settings.checking": "Checking…",
   "settings.upToDateAt": "Up to date · checked {time}",
