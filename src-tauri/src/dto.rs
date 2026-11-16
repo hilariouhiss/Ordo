@@ -460,6 +460,23 @@ pub struct CaptureFields {
     pub priority: Option<String>,
     #[serde(default)]
     pub effort_minutes: Option<i64>,
+    /// Local day the plan starts; the finish counts workdays from it. None means today.
+    #[serde(default)]
+    pub expected_start_date: Option<String>,
+    /// Local day the actual work began (09:00). Without done it starts the task.
+    #[serde(default)]
+    pub actual_start_date: Option<String>,
+    /// What the work really took; a finished line falls back to the estimate.
+    #[serde(default)]
+    pub actual_effort_minutes: Option<i64>,
+    #[serde(default)]
+    pub category_id: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub exclusive: Option<bool>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Without this, serde maps an explicit `null` to the same `None` as a missing field.

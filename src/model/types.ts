@@ -366,6 +366,16 @@ export interface CaptureFields {
   ownerId: string | null;
   priority: Priority;
   effortMinutes: number;
+  /** Local day the plan starts; the finish counts workdays from it. Null means today. */
+  expectedStartDate: string | null;
+  /** Local day a started or finished line began at 09:00; null keeps it unstarted. */
+  actualStartDate: string | null;
+  /** What the work really took; null keeps the estimate (a finished line uses it). */
+  actualEffortMinutes?: number | null;
+  categoryId?: string | null;
+  note?: string | null;
+  exclusive?: boolean;
+  tags?: string[];
 }
 export interface ArchiveTask {
   id: string;

@@ -33,6 +33,7 @@ import { deskVM } from "./deskVM";
 import { passVM } from "./passVM";
 import { projectsVM } from "./projectsVM";
 import { quickCreateVM } from "./quickCreateVM";
+import { taskCreateVM } from "./taskCreateVM";
 import { settingsVM } from "./settingsVM";
 import { taskSheetVM } from "./taskSheetVM";
 import { searchVM } from "./searchVM";
@@ -106,6 +107,7 @@ export function closeOverlays(): void {
   passVM.close();
   settingsVM.close();
   quickCreateVM.close();
+  taskCreateVM.close();
   projectsVM.closeSettings();
   templatesVM.closeSheets();
   searchVM.close();

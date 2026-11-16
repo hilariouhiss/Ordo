@@ -26,6 +26,8 @@ describe("captureDraftVM", () => {
       ownerId: "u1",
       priority: "high",
       effortMinutes: 960,
+      expectedStartDate: null,
+      actualStartDate: null,
     });
     expect(draft.matched.value).toEqual(["projectId", "ownerId", "priority", "effortMinutes"]);
   });
@@ -37,6 +39,36 @@ describe("captureDraftVM", () => {
 
     draft.setRaw("写方案 ~2天");
     expect(draft.finish.value).toBe("2026-10-22");
+  });
+
+  it("counts the finish from an edited plan start", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("写方案 ~2天");
+
+    draft.edit({ expectedStartDate: "2026-10-26" });
+
+    expect(draft.finish.value).toBe("2026-10-27");
+  });
+
+  it("counts the actual finish from the actual start and effort", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("做完了 ~1天");
+    draft.edit({ actualStartDate: "2026-10-20" });
+    draft.setDone(true);
+
+    expect(draft.actualFinish.value).toBe("2026-10-20");
+
+    draft.edit({ effortMinutes: 960 });
+
+    expect(draft.actualFinish.value).toBe("2026-10-21");
+  });
+
+  it("falls back to today for a missing actual start", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("做完了 ~1天");
+    draft.setDone(true);
+
+    expect(draft.actualFinish.value).toBe("2026-10-21");
   });
 
   it("moves the finish with an edited estimate", () => {
@@ -78,6 +110,18 @@ describe("captureDraftVM", () => {
 
     expect(draft.fields.value).toEqual(CAPTURE_DEFAULTS);
     expect(draft.state.manual).toEqual({});
+  });
+
+  it("drops an actual start picked before the done switch was turned back off", () => {
+    const draft = createCaptureDraftVM(() => ctx);
+    draft.setRaw("写方案 ~1天");
+    draft.setDone(true);
+    draft.edit({ actualStartDate: "2026-10-20" });
+    expect(draft.fields.value.actualStartDate).toBe("2026-10-20");
+
+    draft.setDone(false);
+
+    expect(draft.fields.value.actualStartDate).toBeNull();
   });
 
   it("keeps the done switch while typing and clears it with the line", () => {

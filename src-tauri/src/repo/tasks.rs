@@ -137,12 +137,12 @@ pub fn insert(
     // New tasks follow the saved default; switching one is still an explicit edit.
     let exclusive = crate::repo::settings::task_default_exclusive(conn) as i64;
     conn.execute(
-        "INSERT INTO tasks (id, title, project_id, owner_id, priority, expected_finish_date,
-                            effort_minutes, status, in_week, carry_count, sort_order, created_at,
-                            updated_at, time_exclusive, scope)
+        "INSERT INTO tasks (id, title, project_id, owner_id, priority, expected_start_date,
+                            expected_finish_date, effort_minutes, status, in_week, carry_count,
+                            sort_order, created_at, updated_at, time_exclusive, scope)
          VALUES (?1, ?2, ?3,
                  COALESCE(?4, (SELECT id FROM people WHERE is_me = 1 LIMIT 1)),
-                 COALESCE(?5, 'normal'), ?6, COALESCE(?7, 480),
+                 COALESCE(?5, 'normal'), ?11, ?6, COALESCE(?7, 480),
                  'todo', 1, 0,
                  (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks), ?8, ?8, ?10, ?9)",
         params![
@@ -155,7 +155,8 @@ pub fn insert(
             fields.effort_minutes,
             now,
             scope,
-            exclusive
+            exclusive,
+            fields.expected_start_date.as_deref(),
         ],
     )?;
     Ok(())

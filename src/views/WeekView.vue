@@ -21,6 +21,7 @@ import { appVM } from "../viewmodels/appVM";
 import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { passVM } from "../viewmodels/passVM";
 import { settingsVM } from "../viewmodels/settingsVM";
+import { taskCreateVM } from "../viewmodels/taskCreateVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import { weekVM } from "../viewmodels/weekVM";
@@ -366,7 +367,7 @@ watch(
 
 <template>
   <section class="flex grow flex-col gap-3" :class="{ 'select-none': draggingId }">
-    <CaptureBar v-model="state.draft" @submit="capture" />
+    <CaptureBar v-model="state.draft" add @submit="capture" @add="taskCreateVM.open()" />
 
     <div
       class="grid grid-cols-1 gap-[18px] min-[1320px]:grid-cols-[minmax(0,1fr)_320px] min-[1320px]:items-start"

@@ -29,7 +29,17 @@ const draft = createCaptureDraftVM(() => ({
   projects: appVM.state.projects,
   people: appVM.state.people,
 }));
-const { title, fields, matched, finish, newProjectName, done } = draft;
+const {
+  title,
+  fields,
+  matched,
+  expectedStart,
+  finish,
+  actualStart,
+  actualFinish,
+  newProjectName,
+  done,
+} = draft;
 const error = ref("");
 watch(
   () => vm.state.draft,
@@ -214,7 +224,10 @@ onUnmounted(() => {
         v-if="vm.state.draft.trim()"
         :fields="fields"
         :matched="matched"
+        :expected-start="expectedStart"
         :finish="finish"
+        :actual-start="actualStart"
+        :actual-finish="actualFinish"
         :done="done"
         :new-project-name="newProjectName"
         @edit="onEdit"

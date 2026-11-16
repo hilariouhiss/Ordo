@@ -35,6 +35,8 @@ export const CAPTURE_DEFAULTS: CaptureFields = {
   ownerId: null,
   priority: "normal",
   effortMinutes: 480,
+  expectedStartDate: null,
+  actualStartDate: null,
 };
 
 const FIELD_ORDER: CaptureField[] = [

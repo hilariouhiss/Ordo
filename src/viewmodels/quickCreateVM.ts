@@ -1,15 +1,11 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
 import { reactive } from "vue";
-import type { CaptureSubmission } from "../lib/capture";
-import { saveCapture } from "./captureSave";
 import { projectsVM } from "./projectsVM";
 
-export type QuickCreateMode = "task" | "project";
+export type QuickCreateMode = "project";
 
 /**
- * The two in-app create flows share one overlay. The modal keeps errors in
- * place so a rejected backend call does not lose what the user typed.
+ * The Ctrl+Shift+N project shortcut's small overlay. New tasks go through the
+ * detailed dialog (taskCreateVM); this one keeps the project's name and nothing else.
  */
 export function createQuickCreateVM() {
   const state = reactive({
@@ -17,11 +13,6 @@ export function createQuickCreateVM() {
     busy: false,
     error: "",
   });
-
-  function openTask(): void {
-    state.mode = "task";
-    state.error = "";
-  }
 
   function openProject(): void {
     state.mode = "project";
@@ -31,32 +22,6 @@ export function createQuickCreateVM() {
   function close(): void {
     state.mode = null;
     state.error = "";
-  }
-
-  async function createTask(submission: CaptureSubmission): Promise<boolean> {
-    if (state.busy) return false;
-    const title = submission.title.trim();
-    if (!title) return false;
-    state.busy = true;
-    state.error = "";
-    try {
-      const task = await saveCapture(
-        title,
-        submission.fields,
-        submission.newProjectName,
-        submission.done,
-      );
-      // The main window's own capture skips the capture window's Rust event, so
-      // send the same event the other lists already listen to.
-      if (isTauri()) void emit("capture:created", task);
-      close();
-      return true;
-    } catch (e) {
-      state.error = String(e);
-      return false;
-    } finally {
-      state.busy = false;
-    }
   }
 
   async function createProject(name: string): Promise<boolean> {
@@ -78,7 +43,7 @@ export function createQuickCreateVM() {
     }
   }
 
-  return { state, openTask, openProject, close, createTask, createProject };
+  return { state, openProject, close, createProject };
 }
 
 export const quickCreateVM = createQuickCreateVM();

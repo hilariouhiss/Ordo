@@ -152,7 +152,7 @@ fn touches_derived(patch: &TaskPatch) -> bool {
 /// both directions measure from, so setting either one without it is refused; clearing
 /// still works, so a task finished before it was started can be tidied up. The caller
 /// owns the transaction, so its field writes and these land together.
-fn sync_actual_in(
+pub(crate) fn sync_actual_in(
     conn: &Connection,
     id: &str,
     patch: &TaskPatch,

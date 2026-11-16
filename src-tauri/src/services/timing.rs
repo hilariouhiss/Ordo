@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use chrono::{Datelike, Duration, NaiveDate, TimeZone, Weekday};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -63,6 +63,18 @@ pub fn effort_for_finish(anchor: NaiveDate, finish: NaiveDate) -> Result<i64, St
         return Err("finish_before_start".into());
     }
     Ok(days * MINUTES_PER_DAY)
+}
+
+/// Local 09:00 on that day as an RFC3339 stamp: actual times are minute-precise, so a
+/// finished day and its effort turn into one exact finish instant.
+pub fn morning_stamp(day: &str) -> Result<String, String> {
+    let date = NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| "invalid_actual_time")?;
+    let naive = date.and_hms_opt(9, 0, 0).ok_or("invalid_actual_time")?;
+    let local = chrono::Local
+        .from_local_datetime(&naive)
+        .single()
+        .ok_or("invalid_actual_time")?;
+    Ok(local.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
 /// The day the plan starts: the task's own start, even when it lies in the past, or

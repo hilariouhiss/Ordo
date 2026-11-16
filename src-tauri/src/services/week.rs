@@ -50,11 +50,34 @@ pub fn capture_with_project(
         }
     }
     capture_rows(&tx, raw, &fields, None, now, id)?;
-    if done {
-        // The completion shares the insert's transaction: no list can catch the task open
-        // and then lose it again, and a failed insert leaves nothing behind.
-        tasks::set_status(&tx, id, "done", true, now).map_err(|e| e.to_string())?;
+    // The detailed attributes ride on the same insert: one statement, one transaction.
+    let mut extra = crate::dto::TaskPatch::default();
+    extra.category_id = fields.category_id.clone().map(Some);
+    extra.note = fields.note.clone().map(Some);
+    extra.exclusive = fields.exclusive;
+    if !fields.tags.is_empty() {
+        extra.tags = Some(fields.tags.clone());
     }
+    if done || fields.actual_start_date.is_some() {
+        let today = crate::services::local_today(now)?;
+        let day = fields
+            .actual_start_date
+            .clone()
+            .unwrap_or_else(|| today.format("%Y-%m-%d").to_string());
+        // A finished line is measured from local 09:00 to its effort, so the pair is
+        // minute-precise; a started line only records when the work began.
+        extra.actual_start_at = Some(Some(crate::services::timing::morning_stamp(&day)?));
+        if done {
+            let effort = fields
+                .actual_effort_minutes
+                .or(fields.effort_minutes)
+                .unwrap_or(crate::services::timing::MINUTES_PER_DAY);
+            extra.actual_effort_minutes = Some(Some(effort));
+        }
+    }
+    crate::repo::tasks::apply_patch_in(&tx, id, &extra, now).map_err(|e| e.to_string())?;
+    // A pair sync marks a finished line done and moves a started one into doing.
+    crate::services::tasks::sync_actual_in(&tx, id, &extra, now)?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, id).map_err(|e| e.to_string())
 }
@@ -93,6 +116,15 @@ pub(crate) fn capture_rows(
             return Err("invalid_owner".into());
         }
     }
+    if let Some(category_id) = fields.category_id.as_deref() {
+        if !crate::repo::categories::exists(conn, category_id).map_err(|e| e.to_string())? {
+            return Err("invalid_category".into());
+        }
+    }
+    if let Some(day) = fields.expected_start_date.as_deref() {
+        chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| "invalid_start_date".to_string())?;
+    }
     crate::services::projects::ensure_member(
         conn,
         fields.project_id.as_deref(),
@@ -102,7 +134,7 @@ pub(crate) fn capture_rows(
     // The finish is never taken from the caller: it always follows the estimate, so the
     // two stay consistent even when the estimate changes later.
     let today = crate::services::local_today(now)?;
-    let anchor = crate::services::timing::anchor_for(today, None);
+    let anchor = crate::services::timing::anchor_for(today, fields.expected_start_date.as_deref());
     let finish = crate::services::timing::finish_for(anchor, fields.effort_minutes.unwrap_or(480));
     let finish = finish.format("%Y-%m-%d").to_string();
     // A project owns its world; a loose task stays in the mode it was written in.
@@ -530,11 +562,123 @@ mod tests {
 
         assert_eq!(t.status, "done");
         assert!(!t.in_week);
-        assert_eq!(t.actual_finish_at.as_deref(), Some(NOW));
+        // Without a chosen start the line began this morning; the finish follows the effort.
         assert_eq!(t.actual_effort_minutes, Some(120));
-        assert!(t.actual_start_at.is_none(), "nothing was ever started");
-        assert!(week::list(&c).unwrap().is_empty(), "finished work stays off the week");
+        let start = t.actual_start_at.as_deref().unwrap();
+        let finish = t.actual_finish_at.as_deref().unwrap();
+        assert_eq!(
+            crate::services::local_today(start)
+                .unwrap()
+                .format("%Y-%m-%d")
+                .to_string(),
+            local_date(NOW)
+        );
+        let span = chrono::DateTime::parse_from_rfc3339(finish).unwrap()
+            - chrono::DateTime::parse_from_rfc3339(start).unwrap();
+        assert_eq!(span.num_minutes(), 120);
+        assert!(week::list(&c).unwrap().is_empty());
         assert_eq!(week::list_done(&c, &local_date(NOW)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn capture_stores_the_plan_start_and_counts_workdays_from_it() {
+        let c = db::open_in_memory().unwrap();
+        let fields = CaptureFields {
+            expected_start_date: Some("2026-10-21".into()),
+            effort_minutes: Some(960),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_fields(&c, "写方案", &fields, NOW, "t1").unwrap();
+
+        assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-21"));
+        assert_eq!(t.expected_finish_date.as_deref(), Some("2026-10-22"));
+    }
+
+    #[test]
+    fn a_finished_capture_measures_its_pair_from_the_actual_day() {
+        let c = db::open_in_memory().unwrap();
+        let fields = CaptureFields {
+            actual_start_date: Some("2026-10-20".into()),
+            actual_effort_minutes: Some(150),
+            effort_minutes: Some(480),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_project(&c, "做完了", &fields, None, true, NOW, "t1").unwrap();
+
+        assert_eq!(t.status, "done");
+        assert!(!t.in_week);
+        assert_eq!(t.actual_effort_minutes, Some(150));
+        let start = t.actual_start_at.as_deref().unwrap();
+        let finish = t.actual_finish_at.as_deref().unwrap();
+        assert_eq!(
+            crate::services::local_today(start).unwrap().format("%Y-%m-%d").to_string(),
+            "2026-10-20"
+        );
+        let start = chrono::DateTime::parse_from_rfc3339(start).unwrap();
+        let finish = chrono::DateTime::parse_from_rfc3339(finish).unwrap();
+        assert_eq!((finish - start).num_minutes(), 150);
+    }
+
+    #[test]
+    fn a_started_capture_joins_the_week_as_doing() {
+        let c = db::open_in_memory().unwrap();
+        let fields = CaptureFields {
+            actual_start_date: Some("2026-10-20".into()),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_fields(&c, "在做", &fields, NOW, "t1").unwrap();
+
+        assert_eq!(t.status, "doing");
+        assert!(t.in_week);
+        assert!(t.actual_start_at.is_some());
+        assert!(t.actual_finish_at.is_none());
+    }
+
+    #[test]
+    fn a_capture_can_carry_category_note_tags_and_time_mode() {
+        let c = db::open_in_memory().unwrap();
+        let category = crate::repo::categories::list(&c).unwrap().remove(0);
+        let fields = CaptureFields {
+            category_id: Some(category.id.clone()),
+            note: Some("会后把清单发出去".into()),
+            tags: vec!["会议".into(), "上线".into()],
+            exclusive: Some(false),
+            ..Default::default()
+        };
+
+        let t = week::capture_with_fields(&c, "交接", &fields, NOW, "t1").unwrap();
+
+        assert_eq!(t.category_id.as_deref(), Some(category.id.as_str()));
+        assert_eq!(t.note.as_deref(), Some("会后把清单发出去"));
+        assert!(!t.exclusive);
+        assert_eq!(
+            t.tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>(),
+            vec!["上线", "会议"]
+        );
+    }
+
+    #[test]
+    fn a_bad_plan_or_actual_day_is_rejected() {
+        let c = db::open_in_memory().unwrap();
+        let plan = CaptureFields {
+            expected_start_date: Some("2026-13-01".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            week::capture_with_fields(&c, "写方案", &plan, NOW, "t1").unwrap_err(),
+            "invalid_start_date"
+        );
+        let actual = CaptureFields {
+            actual_start_date: Some("2026-13-01".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            week::capture_with_project(&c, "做完了", &actual, None, true, NOW, "t1").unwrap_err(),
+            "invalid_actual_time"
+        );
     }
 
     #[test]
@@ -610,6 +754,7 @@ mod tests {
             owner_id: Some("u1".into()),
             priority: Some("high".into()),
             effort_minutes: Some(150),
+            ..Default::default()
         };
 
         let t = week::capture_with_fields(&c, "  交底  ", &fields, NOW, "t1").unwrap();

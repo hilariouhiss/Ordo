@@ -48,6 +48,7 @@ pub fn create_task(
         owner_id: template.owner_id.clone(),
         priority: Some(template.priority.clone()),
         effort_minutes: Some(template.effort_minutes),
+        ..Default::default()
     };
     // One transaction: a failed subtask insert must not leave a task with half its flow.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;

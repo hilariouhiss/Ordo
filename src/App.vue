@@ -45,6 +45,7 @@ import { pageHeaderState } from "./viewmodels/pageHeaderVM";
 import { overduePromptVM } from "./viewmodels/overduePromptVM";
 import { projectsVM } from "./viewmodels/projectsVM";
 import { quickCreateVM } from "./viewmodels/quickCreateVM";
+import { taskCreateVM } from "./viewmodels/taskCreateVM";
 import { searchVM } from "./viewmodels/searchVM";
 import { settingsVM } from "./viewmodels/settingsVM";
 import { statsVM } from "./viewmodels/statsVM";
@@ -61,6 +62,7 @@ import WindowControls from "./views/components/WindowControls.vue";
 import DeskView from "./views/DeskView.vue";
 import AppDialog from "./views/overlays/AppDialog.vue";
 import QuickCreate from "./views/overlays/QuickCreate.vue";
+import TaskCreateDialog from "./views/overlays/TaskCreateDialog.vue";
 import SearchPalette from "./views/overlays/SearchPalette.vue";
 import SettingsModal from "./views/overlays/SettingsModal.vue";
 
@@ -203,6 +205,7 @@ function overlayOpen(): boolean {
     !!dialogRequest.value ||
     !!searchVM.state.open ||
     !!quickCreateVM.state.mode ||
+    !!taskCreateVM.state.open ||
     !!taskSheetVM.state.openId ||
     settingsVM.state.open ||
     passVM.state.open ||
@@ -217,7 +220,7 @@ function onQuickCreateKey(event: KeyboardEvent): void {
   if (!target) return;
   event.preventDefault();
   if (!appVM.state.ready || windowModeVM.state.phase !== "idle" || overlayOpen()) return;
-  if (target === "task") quickCreateVM.openTask();
+  if (target === "task") taskCreateVM.open();
   else quickCreateVM.openProject();
 }
 
@@ -686,6 +689,9 @@ onUnmounted(() => {
       </div>
       <div v-if="windowModeVM.state.phase !== 'idle'" class="fixed inset-0 z-50"></div>
       <QuickCreate />
+      <AnimatePresence>
+        <TaskCreateDialog v-if="taskCreateVM.state.open" key="task-create" />
+      </AnimatePresence>
       <AppDialog />
       <SearchPalette />
       <UpdateCard />

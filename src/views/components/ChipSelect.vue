@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { Check, ChevronDown } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
-import { isImeEnter } from "../../lib/keys";
 import { useAnchorPopup } from "../../lib/useAnchorPopup";
 
 defineOptions({ inheritAttrs: false });
@@ -12,14 +11,9 @@ const props = defineProps<{
   label?: string;
   /** The facet this chip filters, drawn before its value so five "All" chips read apart. */
   dim?: string;
-  /** When set, the panel ends with a create input; Enter emits the typed name. */
-  createPlaceholder?: string;
 }>();
 
-const emit = defineEmits<{
-  "update:modelValue": [value: string];
-  create: [name: string];
-}>();
+const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 
 const selectedIndex = computed(() =>
   Math.max(
@@ -31,12 +25,8 @@ const selectedLabel = computed(
   () => props.options.find((option) => option.value === props.modelValue)?.label ?? "",
 );
 const active = ref(0);
-const createDraft = ref("");
 const list = ref<HTMLElement | null>(null);
-const createInput = ref<HTMLInputElement | null>(null);
-const panelHeight = computed(() =>
-  Math.min(props.options.length * 28 + 8 + (props.createPlaceholder ? 34 : 0), 240),
-);
+const panelHeight = computed(() => Math.min(props.options.length * 28 + 8, 240));
 
 const { open, triggerRef, style, panelId, show, close } = useAnchorPopup({
   onClosed: (restoreFocus) => {
@@ -66,7 +56,6 @@ function onTrigger(): void {
     return;
   }
   active.value = selectedIndex.value;
-  createDraft.value = "";
   show({ width: 140, height: panelHeight.value });
   focusList();
   scrollActive();
@@ -77,23 +66,6 @@ function choose(index: number): void {
   if (!option) return;
   emit("update:modelValue", option.value);
   close(true);
-}
-
-/** Keeps the create input's keys off the option list and turns Enter into a create. */
-function onCreateKey(event: KeyboardEvent): void {
-  event.stopPropagation();
-  if (event.key === "Tab") {
-    event.preventDefault();
-    close(true);
-    return;
-  }
-  if (event.key !== "Enter" || isImeEnter(event)) return;
-  event.preventDefault();
-  const name = createDraft.value.trim();
-  if (!name) return;
-  createDraft.value = "";
-  close(true);
-  emit("create", name);
 }
 
 function onListKey(event: KeyboardEvent): void {
@@ -113,9 +85,7 @@ function onListKey(event: KeyboardEvent): void {
     choose(active.value);
   } else if (event.key === "Tab") {
     event.preventDefault();
-    // Forward Tab reaches the create box; anything else still leaves the popup.
-    if (!event.shiftKey && props.createPlaceholder) createInput.value?.focus();
-    else close(true);
+    close(true);
   }
 }
 </script>
@@ -177,15 +147,6 @@ function onListKey(event: KeyboardEvent): void {
           />
         </div>
       </div>
-      <input
-        v-if="createPlaceholder"
-        ref="createInput"
-        v-model="createDraft"
-        class="mt-1 w-full rounded-md border border-base-300 bg-base-100 px-1.5 py-1 text-[12px] outline-none placeholder:text-base-content/60"
-        :placeholder="createPlaceholder"
-        :aria-label="createPlaceholder"
-        @keydown="onCreateKey"
-      />
     </div>
   </Teleport>
 </template>

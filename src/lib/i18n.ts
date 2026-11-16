@@ -299,12 +299,11 @@ export const zh = {
   "capture.ownerDefault": "默认（我）",
   "capture.effort": "预计耗时",
   "capture.done": "已完成",
-  "capture.now": "现在",
-  "capture.newProject": "保存时新建项目「{name}」",
 
   "quickCreate.taskTitle": "新建任务",
   "quickCreate.projectTitle": "新建项目",
   "quickCreate.create": "创建",
+  "taskCreate.submit": "创建任务",
 
   "desk.title": "本周",
   "desk.count": "{count} 件",
@@ -381,6 +380,7 @@ export const zh = {
   "task.expectedStart": "预计开始",
   "task.expectedFinish": "预计完成",
   "task.actualStart": "实际开始",
+  "task.startDate": "开始日期",
   "task.actualFinish": "实际完成",
   "task.actualEffort": "实际耗时",
   "task.effort": "预计耗时",
@@ -1003,12 +1003,11 @@ export const en: Record<MessageKey, string> = {
   "capture.ownerDefault": "Default (me)",
   "capture.effort": "Estimate",
   "capture.done": "Done",
-  "capture.now": "now",
-  "capture.newProject": 'Saves as new project "{name}"',
 
   "quickCreate.taskTitle": "New task",
   "quickCreate.projectTitle": "New project",
   "quickCreate.create": "Create",
+  "taskCreate.submit": "Create task",
 
   "desk.title": "This week",
   "desk.count": "{count} left",
@@ -1085,6 +1084,7 @@ export const en: Record<MessageKey, string> = {
   "task.expectedStart": "Expected start",
   "task.expectedFinish": "Expected finish",
   "task.actualStart": "Actual start",
+  "task.startDate": "Start date",
   "task.actualFinish": "Actual finish",
   "task.actualEffort": "Actual time",
   "task.effort": "Estimated time",

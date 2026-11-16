@@ -10,15 +10,28 @@ import { appVM } from "../../viewmodels/appVM";
 import { createCaptureDraftVM } from "../../viewmodels/captureDraftVM";
 import CaptureChips from "./CaptureChips.vue";
 
-const props = defineProps<{ projectId?: string | null }>();
+const props = defineProps<{
+  projectId?: string | null;
+  /** The + is a button that opens the detailed form. */ add?: boolean;
+}>();
 const model = defineModel<string>({ required: true });
-const emit = defineEmits<{ submit: [submission: CaptureSubmission] }>();
+const emit = defineEmits<{ submit: [submission: CaptureSubmission]; add: [] }>();
 
 const draft = createCaptureDraftVM(
   () => ({ today: todayIso(), projects: appVM.state.projects, people: appVM.state.people }),
   () => (props.projectId ? { projectId: props.projectId } : {}),
 );
-const { title, fields, matched, finish, newProjectName, done } = draft;
+const {
+  title,
+  fields,
+  matched,
+  expectedStart,
+  finish,
+  actualStart,
+  actualFinish,
+  newProjectName,
+  done,
+} = draft;
 
 const input = ref<HTMLInputElement | null>(null);
 let refreshedAt = 0;
@@ -60,7 +73,17 @@ defineExpose({ submit, focus: () => input.value?.focus() });
 <template>
   <div class="rounded-lg bg-base-100 px-3">
     <div class="flex min-h-12 items-center gap-2.5">
-      <Plus :size="15" class="shrink-0 text-base-content/55" aria-hidden="true" />
+      <button
+        v-if="props.add"
+        type="button"
+        class="grid size-[22px] shrink-0 place-items-center rounded-md text-base-content/55 hover:bg-base-300/70 hover:text-base-content"
+        :aria-label="t('quickCreate.taskTitle')"
+        :title="t('quickCreate.taskTitle')"
+        @click="emit('add')"
+      >
+        <Plus :size="15" aria-hidden="true" />
+      </button>
+      <Plus v-else :size="15" class="shrink-0 text-base-content/55" aria-hidden="true" />
       <input
         ref="input"
         v-model="model"
@@ -92,7 +115,10 @@ defineExpose({ submit, focus: () => input.value?.focus() });
       v-if="model.trim()"
       :fields="fields"
       :matched="matched"
+      :expected-start="expectedStart"
       :finish="finish"
+      :actual-start="actualStart"
+      :actual-finish="actualFinish"
       :done="done"
       :new-project-name="newProjectName"
       @edit="onEdit"

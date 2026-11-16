@@ -13,7 +13,7 @@ import type { Priority, Task } from "../model/types";
 import { overdueDays } from "../model/mappers";
 import { appVM } from "../viewmodels/appVM";
 import { usePageHeader } from "../viewmodels/pageHeaderVM";
-import { quickCreateVM } from "../viewmodels/quickCreateVM";
+import { taskCreateVM } from "../viewmodels/taskCreateVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { tasksVM } from "../viewmodels/tasksVM";
 import { undoVM } from "../viewmodels/undoVM";
@@ -214,7 +214,7 @@ usePageHeader(() => ({
   context: `${t("tasks.count", { count: tasksVM.state.tasks.length })} · ${t("tasks.openCount", { count: openCount.value })}`,
   warning: overdueCount.value ? t("week.overdueCount", { count: overdueCount.value }) : "",
   actionLabel: t("quickCreate.taskTitle"),
-  action: () => quickCreateVM.openTask(),
+  action: () => taskCreateVM.open(),
 }));
 
 onMounted(() => void tasksVM.load());
