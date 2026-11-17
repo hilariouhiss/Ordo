@@ -1,6 +1,6 @@
 [package]
 name = "ordo"
-version = "0.2.1"
+version = "0.2.2"
 description = "Ordo — personal task book"
 authors = ["Ordo"]
 license = "MIT"
