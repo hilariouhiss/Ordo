@@ -142,7 +142,8 @@ fn recover(path: &Path, backups: &Path) -> Result<(Connection, Recovery), String
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let kept_at = path.with_extension(format!("db.corrupt-{stamp}"));
     // Read before restoring: the restore recreates the path, so afterwards it always exists.
-    let had_file = path.exists();
+    // An empty file holds nothing worth keeping, so it must not be reported as saved.
+    let had_file = path.exists() && !is_empty_file(path);
     if had_file {
         std::fs::copy(path, &kept_at).map_err(|e| format!("corrupt_copy_failed: {e}"))?;
     }
