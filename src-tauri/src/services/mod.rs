@@ -3,6 +3,9 @@ use rusqlite::Connection;
 
 pub mod archive;
 pub mod deliverables;
+pub mod documents;
+pub mod issues;
+pub mod requirements;
 pub mod mode;
 pub mod export;
 pub mod overdue;

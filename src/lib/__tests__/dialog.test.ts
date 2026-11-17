@@ -5,7 +5,6 @@ import {
   askNotice,
   askOverdueDefer,
   askSuspend,
-  askTaskDefaultScope,
   askText,
   askWaiting,
   closeDialog,
@@ -140,13 +139,6 @@ describe("dialog", () => {
 
     closeDialog(null);
     await expect(second).resolves.toBeUndefined();
-  });
-
-  it("asks the task-default scope with three answers", async () => {
-    const pending = askTaskDefaultScope("新任务默认", "同时改现有任务？");
-    expect(dialogRequest.value?.kind).toBe("taskDefault");
-    closeDialog("existing");
-    await expect(pending).resolves.toBe("existing");
   });
 
   it("asks the overdue summary with every task and its default day", async () => {

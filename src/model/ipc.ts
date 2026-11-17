@@ -11,10 +11,19 @@ import type {
   PassAction,
   Person,
   Priority,
+  Issue,
+  IssuePatch,
   Milestone,
   Project,
+  ProjectDocument,
+  ProjectDocumentDetail,
   ProjectGroup,
+  ProjectNumbering,
   ProjectSummary,
+  Requirement,
+  RequirementChange,
+  RequirementPatch,
+  RequirementStatus,
   RuleInput,
   SearchHit,
   Settings,
@@ -182,8 +191,9 @@ export function updateProject(
   name: string,
   groupId: string | null,
   priority: Priority,
+  numbering: ProjectNumbering,
 ): Promise<Project> {
-  return invoke<Project>("update_project", { id, name, groupId, priority });
+  return invoke<Project>("update_project", { id, name, groupId, priority, numbering });
 }
 
 export function setProjectGroup(id: string, groupId: string): Promise<void> {
@@ -455,4 +465,107 @@ export function deskLeftButtonDown(): Promise<boolean> {
 /** One atomic native window rect change for the widget morph. */
 export function setWindowRect(x: number, y: number, width: number, height: number): Promise<void> {
   return invoke<void>("set_window_rect", { x, y, width, height });
+}
+
+export function listDefaultRequirementStatuses(): Promise<string[]> {
+  return invoke<string[]>("list_default_requirement_statuses");
+}
+
+export function saveDefaultRequirementStatuses(names: string[]): Promise<string[]> {
+  return invoke<string[]>("save_default_requirement_statuses", { names });
+}
+
+export function listRequirementStatuses(projectId: string): Promise<RequirementStatus[]> {
+  return invoke<RequirementStatus[]>("list_requirement_statuses", { projectId });
+}
+
+export function saveRequirementStatuses(
+  projectId: string,
+  statuses: { id: string | null; name: string }[],
+): Promise<RequirementStatus[]> {
+  return invoke<RequirementStatus[]>("save_requirement_statuses", { projectId, statuses });
+}
+
+export function listRequirements(projectId: string): Promise<Requirement[]> {
+  return invoke<Requirement[]>("list_requirements", { projectId });
+}
+
+export function createRequirement(projectId: string, title: string): Promise<Requirement> {
+  return invoke<Requirement>("create_requirement", { projectId, title });
+}
+
+export function updateRequirement(id: string, patch: RequirementPatch): Promise<Requirement> {
+  return invoke<Requirement>("update_requirement", { id, patch });
+}
+
+export function deleteRequirement(id: string): Promise<void> {
+  return invoke<void>("delete_requirement", { id });
+}
+
+export function advanceRequirement(id: string): Promise<Requirement> {
+  return invoke<Requirement>("advance_requirement", { id });
+}
+
+export function linkRequirementSection(requirementId: string, sectionId: string): Promise<void> {
+  return invoke<void>("link_requirement_section", { requirementId, sectionId });
+}
+
+export function unlinkRequirementSection(requirementId: string, sectionId: string): Promise<void> {
+  return invoke<void>("unlink_requirement_section", { requirementId, sectionId });
+}
+
+export function createRequirementFromSection(
+  sectionId: string,
+  title: string,
+  quote: string,
+): Promise<Requirement> {
+  return invoke<Requirement>("create_requirement_from_section", { sectionId, title, quote });
+}
+
+export function createRequirementTask(requirementId: string, title: string): Promise<Task> {
+  return invoke<Task>("create_requirement_task", { requirementId, title });
+}
+
+export function listRequirementChanges(requirementId: string): Promise<RequirementChange[]> {
+  return invoke<RequirementChange[]>("list_requirement_changes", { requirementId });
+}
+
+export function listProjectDocuments(projectId: string): Promise<ProjectDocument[]> {
+  return invoke<ProjectDocument[]>("list_project_documents", { projectId });
+}
+
+export function getDocument(id: string): Promise<ProjectDocumentDetail> {
+  return invoke<ProjectDocumentDetail>("get_document", { id });
+}
+
+export function importDocument(
+  projectId: string,
+  fileName: string,
+  fileBase64: string,
+): Promise<ProjectDocument> {
+  return invoke<ProjectDocument>("import_document", { projectId, fileName, fileBase64 });
+}
+
+export function deleteDocument(id: string): Promise<void> {
+  return invoke<void>("delete_document", { id });
+}
+
+export function listIssues(projectId: string): Promise<Issue[]> {
+  return invoke<Issue[]>("list_issues", { projectId });
+}
+
+export function createIssue(projectId: string, title: string): Promise<Issue> {
+  return invoke<Issue>("create_issue", { projectId, title });
+}
+
+export function updateIssue(id: string, patch: IssuePatch): Promise<Issue> {
+  return invoke<Issue>("update_issue", { id, patch });
+}
+
+export function deleteIssue(id: string): Promise<void> {
+  return invoke<void>("delete_issue", { id });
+}
+
+export function createIssueTask(issueId: string, title: string): Promise<Task> {
+  return invoke<Task>("create_issue_task", { issueId, title });
 }

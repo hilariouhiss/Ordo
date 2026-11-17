@@ -28,14 +28,44 @@ pub fn update(
     name: &str,
     group_id: Option<&str>,
     priority: &str,
+    numbering: &crate::dto::ProjectNumberingDto,
     now: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE projects SET name = ?1, group_id = ?2, priority = ?3, updated_at = ?4
-         WHERE id = ?5",
-        params![name, group_id, priority, now, id],
+        "UPDATE projects SET name = ?1, group_id = ?2, priority = ?3, updated_at = ?4,
+                requirement_prefix = ?5, requirement_width = ?6,
+                issue_prefix = ?7, issue_width = ?8
+         WHERE id = ?9",
+        params![
+            name,
+            group_id,
+            priority,
+            now,
+            &numbering.requirement_prefix,
+            numbering.requirement_width,
+            &numbering.issue_prefix,
+            numbering.issue_width,
+            id
+        ],
     )?;
     Ok(())
+}
+
+/// The number format this project applies to new requirements and issues.
+pub fn numbering(conn: &Connection, id: &str) -> rusqlite::Result<crate::dto::ProjectNumberingDto> {
+    conn.query_row(
+        "SELECT requirement_prefix, requirement_width, issue_prefix, issue_width
+         FROM projects WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(crate::dto::ProjectNumberingDto {
+                requirement_prefix: r.get(0)?,
+                requirement_width: r.get(1)?,
+                issue_prefix: r.get(2)?,
+                issue_width: r.get(3)?,
+            })
+        },
+    )
 }
 
 pub fn set_group(
@@ -141,7 +171,8 @@ pub fn members(conn: &Connection, id: &str) -> rusqlite::Result<Vec<ProjectMembe
 
 pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
     let mut project = conn.query_row(
-        "SELECT id, name, group_id, priority, archived_at
+        "SELECT id, name, group_id, priority, archived_at,
+                requirement_prefix, requirement_width, issue_prefix, issue_width
          FROM projects WHERE id = ?1 AND deleted_at IS NULL",
         [id],
         |r| {
@@ -151,6 +182,10 @@ pub fn dto(conn: &Connection, id: &str) -> rusqlite::Result<ProjectDto> {
                 group_id: r.get(2)?,
                 priority: r.get(3)?,
                 archived_at: r.get(4)?,
+                requirement_prefix: r.get(5)?,
+                requirement_width: r.get(6)?,
+                issue_prefix: r.get(7)?,
+                issue_width: r.get(8)?,
                 members: vec![],
             })
         },
@@ -234,7 +269,9 @@ fn dtos(conn: &Connection, ids: &[String]) -> rusqlite::Result<Vec<ProjectDto>> 
 pub fn list_brief(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
     let mode = crate::repo::settings::mode(conn)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT id, name, group_id, priority FROM projects
+        "SELECT id, name, group_id, priority,
+                requirement_prefix, requirement_width, issue_prefix, issue_width
+         FROM projects
          WHERE archived_at IS NULL AND deleted_at IS NULL AND {}
          ORDER BY created_at",
         crate::repo::scope_eq("projects", &mode)
@@ -246,6 +283,10 @@ pub fn list_brief(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
             group_id: r.get(2)?,
             priority: r.get(3)?,
             archived_at: None,
+            requirement_prefix: r.get(4)?,
+            requirement_width: r.get(5)?,
+            issue_prefix: r.get(6)?,
+            issue_width: r.get(7)?,
             members: vec![],
         })
     })?;

@@ -71,6 +71,8 @@ export function task(over: Partial<Task> = {}): Task {
     effortMinutes: 480,
     priority: "normal",
     exclusive: false,
+    requirementId: null,
+    issueId: null,
     children: [],
     tags: [],
     delays: [],

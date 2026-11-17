@@ -84,9 +84,11 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
         return Err("cannot_delete_me".into());
     }
     // A removed subtask keeps its row, so a hidden owner must not block the delete.
+    // A requirement's owner counts too: deleting them would silently unassign it.
     let used: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE owner_id = ?1 AND deleted_at IS NULL",
+            "SELECT (SELECT COUNT(*) FROM tasks WHERE owner_id = ?1 AND deleted_at IS NULL)
+                  + (SELECT COUNT(*) FROM requirements WHERE owner_id = ?1)",
             [id],
             |r| r.get(0),
         )

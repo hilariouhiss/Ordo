@@ -50,7 +50,6 @@ export type DialogRequest =
       oldFinish: string;
     }
   | { kind: "overdue"; title: string; tasks: OverdueTask[]; finish: string; min: string }
-  | { kind: "taskDefault"; title: string; message: string }
   | ({ kind: "client"; title: string } & ClientDraft)
   | ({ kind: "person"; title: string } & PersonDraft)
   | { kind: "confirm"; title: string; message: string }
@@ -113,14 +112,6 @@ export function askOverdueDefer(
   defaults: { finish: string; min: string },
 ): Promise<OverdueDeferDraft | null> {
   return ask({ kind: "overdue", title, tasks, ...defaults }) as Promise<OverdueDeferDraft | null>;
-}
-
-/** Whether a changed task default also rewrites the tasks that already exist. */
-export function askTaskDefaultScope(
-  title: string,
-  message: string,
-): Promise<"future" | "existing" | null> {
-  return ask({ kind: "taskDefault", title, message }) as Promise<"future" | "existing" | null>;
 }
 
 export function askClient(title: string, defaults: ClientDraft): Promise<ClientDraft | null> {

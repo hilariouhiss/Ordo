@@ -23,11 +23,15 @@ function spans(tasks: PlanTask[]) {
 }
 
 describe("planSchedule", () => {
-  it("starts every shared task on the same day", () => {
-    expect(spans([t("a", 1), t("b", 1)])).toEqual([
+  it("starts every task on its own day, overlapping freely", () => {
+    expect(spans([t("a", 1), t("b", 2)])).toEqual([
       [TODAY, TODAY],
-      [TODAY, TODAY],
+      [TODAY, "2026-10-21"],
     ]);
+  });
+
+  it("gives every task the first hour of the day", () => {
+    expect(planSchedule([t("a", 1), t("b", 1)], TODAY).map((row) => row.startHour)).toEqual([0, 0]);
   });
 
   it("rolls a weekend start to Monday", () => {
@@ -115,132 +119,6 @@ describe("planSchedule", () => {
     );
     expect(plan[0].start).toBe("2026-10-19");
   });
-
-  it("keeps a day from before today ahead of a later pin", () => {
-    const plan = planSchedule(
-      [
-        t("later", 1, { exclusive: true, expectedStartDate: "2026-10-20" }),
-        t("past", 2, { exclusive: true, expectedStartDate: "2026-10-19" }),
-      ],
-      TODAY,
-      "2026-10-19",
-    );
-    expect(plan.map((row) => [row.start, row.end])).toEqual([
-      ["2026-10-21", "2026-10-21"],
-      ["2026-10-19", "2026-10-20"],
-    ]);
-  });
-
-  it("queues exclusive tasks after one another in list order", () => {
-    expect(spans([t("x1", 1, { exclusive: true }), t("x2", 1, { exclusive: true })])).toEqual([
-      [TODAY, TODAY],
-      ["2026-10-21", "2026-10-21"],
-    ]);
-  });
-
-  it("keeps a later exclusive task where it is when nothing overlaps", () => {
-    expect(
-      spans([
-        t("x1", 1, { exclusive: true, expectedStartDate: "2026-10-22" }),
-        t("x2", 1, { exclusive: true }),
-      ]),
-    ).toEqual([
-      ["2026-10-22", "2026-10-22"],
-      [TODAY, TODAY],
-    ]);
-  });
-
-  it("lets an explicit start date take the day the queue would use", () => {
-    expect(
-      spans([
-        t("queued", 1, { exclusive: true }),
-        t("pinned", 1, { exclusive: true, expectedStartDate: TODAY }),
-      ]),
-    ).toEqual([
-      ["2026-10-21", "2026-10-21"],
-      [TODAY, TODAY],
-    ]);
-  });
-
-  it("places the earliest pinned exclusive task first", () => {
-    expect(
-      spans([
-        t("later", 1, { exclusive: true, expectedStartDate: "2026-10-21" }),
-        t("earlier", 2, { exclusive: true, expectedStartDate: TODAY }),
-      ]),
-    ).toEqual([
-      ["2026-10-22", "2026-10-22"],
-      [TODAY, "2026-10-21"],
-    ]);
-  });
-
-  it("pushes shared work past an exclusive span", () => {
-    expect(spans([t("x", 1, { exclusive: true }), t("s", 2)])).toEqual([
-      [TODAY, TODAY],
-      ["2026-10-21", "2026-10-22"],
-    ]);
-  });
-
-  it("pushes shared work past two exclusive spans in a row", () => {
-    expect(
-      spans([t("x1", 1, { exclusive: true }), t("x2", 1, { exclusive: true }), t("s", 2)]),
-    ).toEqual([
-      [TODAY, TODAY],
-      ["2026-10-21", "2026-10-21"],
-      ["2026-10-22", "2026-10-23"],
-    ]);
-  });
-
-  it("lets a half-day exclusive task leave the rest of the day free", () => {
-    expect(spans([t("x", 0.5, { exclusive: true }), t("s", 1)])).toEqual([
-      [TODAY, TODAY],
-      [TODAY, "2026-10-21"],
-    ]);
-  });
-
-  it("packs two half-day exclusive tasks into one day", () => {
-    expect(spans([t("x1", 0.5, { exclusive: true }), t("x2", 0.5, { exclusive: true })])).toEqual([
-      [TODAY, TODAY],
-      [TODAY, TODAY],
-    ]);
-  });
-
-  it("lets a short exclusive task share the last half of a longer one", () => {
-    expect(
-      spans([t("long", 1.5, { exclusive: true }), t("short", 0.5, { exclusive: true })]),
-    ).toEqual([
-      [TODAY, "2026-10-21"],
-      ["2026-10-21", "2026-10-21"],
-    ]);
-  });
-
-  it("packs four two-hour exclusive tasks into one day", () => {
-    expect(
-      spans([
-        minutes("a", 120, { exclusive: true }),
-        minutes("b", 120, { exclusive: true }),
-        minutes("c", 120, { exclusive: true }),
-        minutes("d", 120, { exclusive: true }),
-      ]),
-    ).toEqual([
-      [TODAY, TODAY],
-      [TODAY, TODAY],
-      [TODAY, TODAY],
-      [TODAY, TODAY],
-    ]);
-  });
-
-  it("rounds a sub-hour exclusive task up to one hour", () => {
-    expect(
-      spans([
-        minutes("short", 30, { exclusive: true }),
-        minutes("seven", 420, { exclusive: true }),
-      ]),
-    ).toEqual([
-      [TODAY, TODAY],
-      [TODAY, TODAY],
-    ]);
-  });
 });
 
 describe("plannedDayParts", () => {
@@ -254,12 +132,12 @@ describe("plannedDayParts", () => {
     ]);
   });
 
-  it("uses the free hours left on the first day", () => {
-    const tasks = [t("x", 0.5, { exclusive: true }), t("s", 1)];
+  it("fills the first day and carries the rest into the next", () => {
+    const tasks = [t("a", 1.5)];
     const plan = planSchedule(tasks, TODAY);
 
-    expect(plannedDayParts(tasks[1], plan[1])).toEqual([
-      { day: TODAY, hours: 4 },
+    expect(plannedDayParts(tasks[0], plan[0])).toEqual([
+      { day: TODAY, hours: 8 },
       { day: "2026-10-21", hours: 4 },
     ]);
   });
@@ -291,22 +169,10 @@ describe("planLoads", () => {
     });
   });
 
-  it("splits a task that starts in the free hours of a day", () => {
-    const tasks = [t("x", 0.5, { exclusive: true }), t("s", 1)];
-    const plan = planSchedule(tasks, TODAY);
-    expect(Object.fromEntries(planLoads(tasks, plan))).toEqual({
-      "2026-10-20": 8,
-      "2026-10-21": 4,
-    });
-  });
-
-  it("counts a task from the day it is pushed to", () => {
-    const tasks = [t("x", 1, { exclusive: true }), t("s", 1)];
-    const plan = planSchedule(tasks, TODAY);
-    expect(Object.fromEntries(planLoads(tasks, plan))).toEqual({
-      "2026-10-20": 8,
-      "2026-10-21": 8,
-    });
+  it("counts overlapping work on the same day", () => {
+    const tasks = [t("a", 1), t("b", 1)];
+    const loads = planLoads(tasks, planSchedule(tasks, TODAY));
+    expect(loads.get(TODAY)).toBe(16);
   });
 
   it("warns above two person-days", () => {

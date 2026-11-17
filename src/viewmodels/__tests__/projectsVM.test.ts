@@ -44,6 +44,10 @@ const created: Project = {
   priority: "normal",
   archivedAt: null,
   members: [],
+  requirementPrefix: "REQ-",
+  requirementWidth: 3,
+  issuePrefix: "ISS-",
+  issueWidth: 3,
 };
 
 describe("projectsVM", () => {

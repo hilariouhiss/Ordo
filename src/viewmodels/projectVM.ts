@@ -22,7 +22,7 @@ export function createProjectVM() {
     milestoneError: null as string | null,
     tasks: [] as Task[],
     expanded: {} as Record<string, boolean>,
-    view: "group" as "group" | "timeline",
+    view: "group" as "group" | "timeline" | "requirement" | "issue",
     draft: "",
     loading: false,
     copied: false,

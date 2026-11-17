@@ -213,7 +213,8 @@ const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expect
             parent_id,
             (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL),
             (SELECT title FROM tasks p WHERE p.id = tasks.parent_id),
-            waiting, waiting_on_id, follow_up_date, waiting_since";
+            waiting, waiting_on_id, follow_up_date, waiting_since,
+            requirement_id, issue_id";
 
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
     Ok(TaskDto {
@@ -254,6 +255,8 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         parent_id: row.get(27)?,
         parent_title: row.get(29)?,
         project_name: row.get(28)?,
+        requirement_id: row.get(34)?,
+        issue_id: row.get(35)?,
     })
 }
 
@@ -546,6 +549,8 @@ pub(crate) fn apply_patch_in(
         cols.push("time_exclusive");
         vals.push(Value::Integer(exclusive as i64));
     }
+    push(&mut cols, &mut vals, "requirement_id", &patch.requirement_id);
+    push(&mut cols, &mut vals, "issue_id", &patch.issue_id);
 
     if let Some(tags) = &patch.tags {
         conn.execute("DELETE FROM task_tags WHERE task_id = ?1", [id])?;
@@ -585,6 +590,39 @@ pub(crate) fn apply_patch_in(
     let id_param: &str = id;
     args.push(&id_param);
     conn.prepare_cached(&sql)?.execute(args.as_slice())?;
+    Ok(())
+}
+
+/// The two record links this task carries right now; used to log a link change.
+pub fn links_of(
+    conn: &Connection,
+    id: &str,
+) -> rusqlite::Result<(Option<String>, Option<String>)> {
+    conn.query_row(
+        "SELECT requirement_id, issue_id FROM tasks WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+}
+
+/// Drops links a task (and its live children) can no longer keep after a project move:
+/// a requirement or issue belongs to one project, and the task just left it.
+pub fn clear_stale_links(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET
+           requirement_id = CASE WHEN requirement_id IS NOT NULL
+               AND (project_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM requirements r
+                    WHERE r.id = tasks.requirement_id AND r.project_id = tasks.project_id))
+             THEN NULL ELSE requirement_id END,
+           issue_id = CASE WHEN issue_id IS NOT NULL
+               AND (project_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM issues i
+                    WHERE i.id = tasks.issue_id AND i.project_id = tasks.project_id))
+             THEN NULL ELSE issue_id END
+         WHERE id = ?1 OR parent_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 

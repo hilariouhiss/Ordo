@@ -4,7 +4,6 @@ import { computed, reactive } from "vue";
 import { localDate, stampOfLocal, todayIso } from "../lib/dates";
 import { finishForEffort } from "../lib/timing";
 import type { CaptureFields, Priority, Status } from "../model/types";
-import { appVM } from "./appVM";
 import { saveCapture } from "./captureSave";
 
 /** The detailed task form. It is one capture: the same fields the quick line carries. */
@@ -20,7 +19,6 @@ export interface TaskCreateForm {
   effortMinutes: number;
   actualStartDate: string;
   actualEffortMinutes: number;
-  exclusive: boolean;
   tags: string[];
 }
 
@@ -46,8 +44,6 @@ function emptyForm(): TaskCreateForm {
     effortMinutes: 480,
     actualStartDate: today,
     actualEffortMinutes: 480,
-    // A new task follows the saved default, like the capture line does.
-    exclusive: appVM.state.settings?.taskDefaultExclusive ?? true,
     tags: [],
   };
 }
@@ -107,7 +103,6 @@ export function createTaskCreateVM() {
         actualEffortMinutes: finished ? Math.max(1, form.actualEffortMinutes) : null,
         categoryId: form.categoryId,
         note: form.note.trim() || null,
-        exclusive: form.exclusive,
         tags: form.tags,
       };
       const task = await saveCapture(title, fields, null, finished);

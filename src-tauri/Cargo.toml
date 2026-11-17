@@ -44,6 +44,11 @@ reqwest = { version = "0.13.5", default-features = false, features = [
 ] }
 tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
+lopdf = "0.47.0"
+zip = { version = "9.6.0", default-features = false, features = ["deflate"] }
+quick-xml = "0.42.0"
+base64 = "0.23.1"
+encoding_rs = "0.8.44"
 
 # One SetWindowPos per morph frame: tao's set_position/set_size are two window
 # updates, and the intermediate rect makes the trailing edge jitter.

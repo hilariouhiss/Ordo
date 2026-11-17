@@ -17,6 +17,10 @@ const project: Project = {
   priority: "normal",
   archivedAt: null,
   members: [],
+  requirementPrefix: "REQ-",
+  requirementWidth: 3,
+  issuePrefix: "ISS-",
+  issueWidth: 3,
 };
 
 describe("quickCreateVM", () => {

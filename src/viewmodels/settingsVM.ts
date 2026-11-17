@@ -5,7 +5,7 @@ import * as ipc from "../model/ipc";
 import type { Mode, Settings } from "../model/types";
 import { appVM } from "./appVM";
 
-export type SettingsTab = "about" | "ai" | "general" | "mode" | "data";
+export type SettingsTab = "about" | "ai" | "general" | "mode" | "data" | "requirement";
 
 export function createSettingsVM() {
   const state = reactive({

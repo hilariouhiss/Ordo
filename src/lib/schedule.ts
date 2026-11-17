@@ -6,8 +6,6 @@ export interface PlanTask {
   expectedFinishDate: string | null;
   /** The task's own start date; missing or in the past falls back to the plan start. */
   expectedStartDate?: string | null;
-  /** Exclusive tasks reserve only the hours they need; nothing else may use them. */
-  exclusive?: boolean;
 }
 
 export interface PlannedTask {
@@ -48,37 +46,7 @@ function slotAfter(day: string, hour: number): Start {
   return hour < HOURS_PER_DAY - 1 ? { day, hour: hour + 1 } : { day: nextWorkday(day), hour: 0 };
 }
 
-/** A working day has eight hourly slots; the bits mark the ones already taken. */
-function isFree(taken: Map<string, number>, day: string, hour: number): boolean {
-  return ((taken.get(day) ?? 0) & (1 << hour)) === 0;
-}
-
-function fits(taken: Map<string, number>, start: Start, need: number): boolean {
-  let slot = start;
-  for (let left = need; left > 0; left--) {
-    if (!isFree(taken, slot.day, slot.hour)) return false;
-    if (left > 1) slot = slotAfter(slot.day, slot.hour);
-  }
-  return true;
-}
-
-/** The first working hour at or after the anchor with `need` free slots in a row. */
-function firstFree(anchor: string, need: number, taken: Map<string, number>): Start {
-  let slot: Start = { day: workdayOnOrAfter(anchor), hour: 0 };
-  for (;;) {
-    if (fits(taken, slot, need)) return slot;
-    slot = slotAfter(slot.day, slot.hour);
-  }
-}
-
-function reserve(taken: Map<string, number>, start: Start, need: number): void {
-  let slot = start;
-  for (let left = need; left > 0; left--) {
-    taken.set(slot.day, (taken.get(slot.day) ?? 0) | (1 << slot.hour));
-    if (left > 1) slot = slotAfter(slot.day, slot.hour);
-  }
-}
-
+/** The last day a task of `need` hours reaches when it starts at `start`. */
 function endOf(start: Start, need: number): string {
   let slot = start;
   for (let left = need - 1; left > 0; left--) slot = slotAfter(slot.day, slot.hour);
@@ -86,14 +54,11 @@ function endOf(start: Start, need: number): string {
 }
 
 /**
- * Places exclusive tasks first and shared tasks around them. Exclusive tasks take
- * only the hours their effort needs, so other work can fill the rest of the day;
- * shared tasks never block each other. Exclusive tasks claim days in plan order:
- * the earlier start goes first, and an explicit start date beats the manual queue
- * on the same day. `weekStart` lets a start before today still count.
+ * Starts every task on its own start date, at the first hour of the day. Nothing is
+ * booked, so tasks overlap freely and a day carries whatever work the week puts on it.
  *
  * A due date only counts while the plan can still reach it. Once it is in the past the
- * row is late, not unplannable: the inequality would stay true however the queue moves,
+ * row is late, not unplannable: the inequality would stay true however the plan moved,
  * and the row already says how many days overdue it is.
  */
 export function planSchedule(
@@ -101,42 +66,18 @@ export function planSchedule(
   start: string,
   weekStart: string = start,
 ): PlannedTask[] {
-  const planned = new Map<string, { slot: Start; end: string }>();
-  const taken = new Map<string, number>();
-  const ordered = tasks
-    .map((task, index) => ({ task, index, anchor: anchorOf(task, start, weekStart) }))
-    .filter((entry) => entry.task.exclusive)
-    .sort(
-      (a, b) =>
-        a.anchor.localeCompare(b.anchor) ||
-        (b.task.expectedStartDate ? 1 : 0) - (a.task.expectedStartDate ? 1 : 0) ||
-        a.index - b.index,
-    );
-
-  for (const { task } of ordered) {
-    const need = needOf(task);
-    const slot = firstFree(anchorOf(task, start, weekStart), need, taken);
-    reserve(taken, slot, need);
-    planned.set(task.id, { slot, end: endOf(slot, need) });
-  }
-  for (const task of tasks) {
-    if (task.exclusive) continue;
-    const need = needOf(task);
-    const slot = firstFree(anchorOf(task, start, weekStart), need, taken);
-    planned.set(task.id, { slot, end: endOf(slot, need) });
-  }
-
   return tasks.map((task) => {
-    const row = planned.get(task.id) as { slot: Start; end: string };
+    const day = anchorOf(task, start, weekStart);
+    const end = endOf({ day, hour: 0 }, needOf(task));
     return {
       id: task.id,
-      start: row.slot.day,
-      end: row.end,
-      startHour: row.slot.hour,
+      start: day,
+      end,
+      startHour: 0,
       conflict:
         task.expectedFinishDate !== null &&
         task.expectedFinishDate >= start &&
-        row.end > task.expectedFinishDate,
+        end > task.expectedFinishDate,
     };
   });
 }

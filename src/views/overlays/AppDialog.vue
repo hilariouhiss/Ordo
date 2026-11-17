@@ -26,7 +26,6 @@ const clientNameInput = ref<HTMLInputElement | null>(null);
 const personNameInput = ref<HTMLInputElement | null>(null);
 const reasonInput = ref<HTMLInputElement | null>(null);
 const confirmButton = ref<HTMLButtonElement | null>(null);
-const futureButton = ref<HTMLButtonElement | null>(null);
 
 watch(dialogRequest, async (request) => {
   if (!request) return;
@@ -67,9 +66,6 @@ watch(dialogRequest, async (request) => {
     person.categoryIds = [...request.categoryIds];
     await nextTick();
     personNameInput.value?.select();
-  } else if (request.kind === "taskDefault") {
-    await nextTick();
-    futureButton.value?.focus();
   } else if (request.kind === "noticeOptOut") {
     optOutChecked.value = request.checked;
     await nextTick();
@@ -375,60 +371,37 @@ function onEnter(event: KeyboardEvent): void {
           </label>
 
           <div class="mt-5 flex justify-end gap-2">
-            <template v-if="dialogRequest.kind === 'taskDefault'">
-              <button
-                class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                @click="closeDialog(null)"
-              >
-                {{ t("dialog.cancel") }}
-              </button>
-              <button
-                ref="futureButton"
-                class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                @click="closeDialog('future')"
-              >
-                {{ t("settings.taskDefaultFutureOnly") }}
-              </button>
-              <button
-                class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
-                @click="closeDialog('existing')"
-              >
-                {{ t("settings.taskDefaultExisting") }}
-              </button>
-            </template>
-            <template v-else>
-              <button
-                v-if="dialogRequest.kind !== 'notice' && dialogRequest.kind !== 'noticeOptOut'"
-                class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                @click="closeDialog(null)"
-              >
-                {{
-                  dialogRequest.kind === "overdue" ? t("overdue.defaultAction") : t("dialog.cancel")
-                }}
-              </button>
-              <button
-                ref="confirmButton"
-                class="btn btn-sm rounded-lg border-0"
-                :class="
-                  dialogRequest.kind === 'confirm'
-                    ? 'bg-error text-error-content'
-                    : 'bg-base-content text-base-100'
-                "
-                @click="confirm"
-              >
-                {{
-                  t(
-                    dialogRequest.kind === "notice" || dialogRequest.kind === "noticeOptOut"
-                      ? "dialog.dismiss"
-                      : dialogRequest.kind === "client" || dialogRequest.kind === "person"
-                        ? "common.save"
-                        : dialogRequest.kind === "overdue"
-                          ? "overdue.deferAll"
-                          : "dialog.ok",
-                  )
-                }}
-              </button>
-            </template>
+            <button
+              v-if="dialogRequest.kind !== 'notice' && dialogRequest.kind !== 'noticeOptOut'"
+              class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+              @click="closeDialog(null)"
+            >
+              {{
+                dialogRequest.kind === "overdue" ? t("overdue.defaultAction") : t("dialog.cancel")
+              }}
+            </button>
+            <button
+              ref="confirmButton"
+              class="btn btn-sm rounded-lg border-0"
+              :class="
+                dialogRequest.kind === 'confirm'
+                  ? 'bg-error text-error-content'
+                  : 'bg-base-content text-base-100'
+              "
+              @click="confirm"
+            >
+              {{
+                t(
+                  dialogRequest.kind === "notice" || dialogRequest.kind === "noticeOptOut"
+                    ? "dialog.dismiss"
+                    : dialogRequest.kind === "client" || dialogRequest.kind === "person"
+                      ? "common.save"
+                      : dialogRequest.kind === "overdue"
+                        ? "overdue.deferAll"
+                        : "dialog.ok",
+                )
+              }}
+            </button>
           </div>
         </div>
       </motion.div>

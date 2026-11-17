@@ -80,7 +80,7 @@ function columnOf(lane: WeekLane): Record<string, string> {
 }
 const isDone = (lane: WeekLane): boolean => lane.task.status === "done";
 
-/** Bar skin: finished work recedes, conflict alarms, shared work is dashed. */
+/** Bar skin: finished work recedes, parked work warns, conflict alarms. */
 function skin(lane: WeekLane): string {
   if (isDone(lane)) {
     return "border-base-300 border-l-[3px] border-l-base-content/20 bg-base-300/50 text-base-content/60";
@@ -90,9 +90,6 @@ function skin(lane: WeekLane): string {
   }
   if (lane.row.conflict) {
     return "border-error/40 border-l-[3px] border-l-error bg-error/[0.10] text-error";
-  }
-  if (!lane.task.exclusive) {
-    return "border-dashed border-secondary/50 border-l-[3px] border-l-secondary/60 bg-secondary/10 text-secondary";
   }
   return "border-primary/30 border-l-[3px] border-l-primary bg-primary/[0.12] text-primary";
 }
@@ -236,7 +233,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
           class="flex min-w-0 flex-col justify-center gap-0.5 border-l border-base-300/70 px-3 py-1 first:border-l-0"
           :class="{
             'bg-base-200/60': date < today,
-            'bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]': date === today,
+            'bg-primary/[0.14]': date === today,
           }"
         >
           <span class="flex min-w-0 items-center gap-1.5">
@@ -262,7 +259,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
               "
               >{{ shortDate(date) }}</span
             >
-            <span v-if="date === today" class="badge badge-soft badge-primary badge-xs">{{
+            <span v-if="date === today" class="badge badge-primary badge-xs">{{
               t("week.today")
             }}</span>
             <span v-else-if="date < today" class="badge badge-ghost badge-xs">{{
@@ -292,7 +289,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
             class="border-l border-base-300/60 first:border-l-0"
             :class="{
               'bg-base-200/50': date < today,
-              'bg-primary/[0.06] shadow-[inset_2px_0_0_var(--color-primary)]': date === today,
+              'bg-primary/[0.09]': date === today,
               'border-x border-dashed border-primary/40 bg-primary/[0.06]':
                 targetMoved && targetColumn === index,
             }"
@@ -429,13 +426,6 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                   class="badge badge-soft badge-info badge-xs shrink-0"
                 >
                   {{ waitingLabel(lane) }}
-                </span>
-                <span
-                  v-if="!lane.task.exclusive"
-                  class="badge badge-ghost badge-xs shrink-0"
-                  :title="t('task.sharedHint')"
-                >
-                  {{ t("task.shared") }}
                 </span>
                 <span class="min-w-0 truncate" :title="metaOf(lane)">{{ metaOf(lane) }}</span>
               </div>

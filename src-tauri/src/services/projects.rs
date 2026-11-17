@@ -1,4 +1,4 @@
-use crate::dto::{PersonDto, ProjectDto, ProjectGroupDto};
+use crate::dto::{PersonDto, ProjectDto, ProjectGroupDto, ProjectNumberingDto};
 use crate::repo::{people, project_groups, projects};
 use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
@@ -57,7 +57,33 @@ fn insert_with_me(
         .find(|p| p.is_me)
         .ok_or("no_me")?;
     projects::insert(conn, id, name, scope, now).map_err(|e| e.to_string())?;
-    projects::add_member(conn, id, &me.id, now).map_err(|e| e.to_string())
+    projects::add_member(conn, id, &me.id, now).map_err(|e| e.to_string())?;
+    // New projects start with a copy of the global default requirement pipeline.
+    crate::services::requirements::seed_statuses_in(conn, id, now)?;
+    Ok(())
+}
+
+/// A number format a project edit must be able to save: a short prefix and a 1..6 digit
+/// width. The prefix carries whatever separator the user wants (REQ-, BUG_, 需求-).
+pub fn validate_numbering(numbering: &ProjectNumberingDto) -> Result<ProjectNumberingDto, String> {
+    let requirement_prefix = numbering.requirement_prefix.trim();
+    let issue_prefix = numbering.issue_prefix.trim();
+    for prefix in [requirement_prefix, issue_prefix] {
+        if prefix.is_empty() || prefix.chars().count() > 12 || prefix.chars().any(char::is_whitespace)
+        {
+            return Err("invalid_number_prefix".into());
+        }
+    }
+    for width in [numbering.requirement_width, numbering.issue_width] {
+        if !(1..=6).contains(&width) {
+            return Err("invalid_number_width".into());
+        }
+    }
+    Ok(ProjectNumberingDto {
+        requirement_prefix: requirement_prefix.to_string(),
+        issue_prefix: issue_prefix.to_string(),
+        ..numbering.clone()
+    })
 }
 
 pub fn update(
@@ -66,6 +92,7 @@ pub fn update(
     name: &str,
     group_id: Option<&str>,
     priority: &str,
+    numbering: &ProjectNumberingDto,
     now: &str,
 ) -> Result<ProjectDto, String> {
     let name = name.trim();
@@ -81,7 +108,11 @@ pub fn update(
         }
         same_scope(conn, id, group_id)?;
     }
-    projects::update(conn, id, name, group_id, priority, now).map_err(|e| e.to_string())?;
+    let numbering = validate_numbering(numbering)?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    projects::update(&tx, id, name, group_id, priority, &numbering, now)
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     projects::dto(conn, id).map_err(|e| e.to_string())
 }
 
@@ -336,6 +367,15 @@ mod tests {
     use rusqlite::Connection;
 
     const NOW: &str = "2026-10-20T08:00:00Z";
+
+    fn numbering() -> crate::dto::ProjectNumberingDto {
+        crate::dto::ProjectNumberingDto {
+            requirement_prefix: "REQ-".into(),
+            requirement_width: 3,
+            issue_prefix: "ISS-".into(),
+            issue_width: 3,
+        }
+    }
 
     fn category(c: &Connection, name: &str) -> String {
         crate::repo::categories::list(c)
@@ -745,6 +785,7 @@ mod tests {
             "华东客户交付",
             Some(&group.id),
             "normal",
+            &numbering(),
             NOW,
         )
         .unwrap();
@@ -759,13 +800,22 @@ mod tests {
             "empty_group_name"
         );
         assert_eq!(
-            projects::update(&c, &project.id, "项目", Some("missing"), "normal", NOW)
+            projects::update(&c, &project.id, "项目", Some("missing"), "normal", &numbering(), NOW)
                 .unwrap_err(),
             "invalid_group"
         );
 
         let active = projects::create(&c, "另一个项目", NOW).unwrap();
-        projects::update(&c, &active.id, "另一个项目", Some(&group.id), "normal", NOW).unwrap();
+        projects::update(
+            &c,
+            &active.id,
+            "另一个项目",
+            Some(&group.id),
+            "normal",
+            &numbering(),
+            NOW,
+        )
+        .unwrap();
 
         let other = projects::create_group(&c, "甲方 B", NOW).unwrap();
         projects::rename_group(&c, &group.id, "甲方 C", NOW).unwrap();
@@ -854,10 +904,12 @@ mod tests {
         let project = projects::create(&c, "项目", NOW).unwrap();
         assert_eq!(project.priority, "normal");
 
-        let updated = projects::update(&c, &project.id, "项目", None, "high", NOW).unwrap();
+        let updated = projects::update(&c, &project.id, "项目", None, "high", &numbering(), NOW)
+            .unwrap();
         assert_eq!(updated.priority, "high");
         assert_eq!(
-            projects::update(&c, &project.id, "项目", None, "urgent", NOW).unwrap_err(),
+            projects::update(&c, &project.id, "项目", None, "urgent", &numbering(), NOW)
+                .unwrap_err(),
             "invalid_priority"
         );
     }
@@ -867,7 +919,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         let project = projects::create(&c, "项目", NOW).unwrap();
         let group = projects::create_group(&c, "甲方 A", NOW).unwrap();
-        projects::update(&c, &project.id, "项目", None, "high", NOW).unwrap();
+        projects::update(&c, &project.id, "项目", None, "high", &numbering(), NOW).unwrap();
 
         projects::set_group(&c, &project.id, &group.id, NOW).unwrap();
         let moved = crate::repo::projects::dto(&c, &project.id).unwrap();

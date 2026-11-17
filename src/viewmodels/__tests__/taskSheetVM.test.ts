@@ -11,6 +11,7 @@ vi.mock("../../model/ipc", () => ({
   deleteSubtask: vi.fn(),
   reorderSubtasks: vi.fn(),
   ownerCandidates: vi.fn().mockResolvedValue([]),
+  listRequirements: vi.fn().mockResolvedValue([]),
   setDelayReason: vi.fn(),
   deferTask: vi.fn(),
   unarchiveTask: vi.fn(),
@@ -573,6 +574,15 @@ describe("new subtask plan", () => {
       expectedFinishDate: "2026-10-22",
       effortMinutes: 120,
     });
+  });
+});
+
+describe("task requirement link", () => {
+  it("sends a changed requirement link in the patch", () => {
+    const before = task({ id: "t1", projectId: "p1" });
+    const form = { ...formOf(before), requirementId: "r1" };
+
+    expect(diffTask(before, form)).toEqual({ requirementId: "r1" });
   });
 });
 

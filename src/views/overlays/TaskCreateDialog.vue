@@ -261,27 +261,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-1.5">
-          <span class="text-[12px] text-base-content/65">{{ t("task.timeMode") }}</span>
-          <button
-            v-for="option in [true, false]"
-            :key="String(option)"
-            type="button"
-            class="flex h-7 items-center rounded-md border px-2.5 text-[12px]"
-            :class="
-              form.exclusive === option
-                ? 'border-base-content/25 bg-base-300 font-medium text-base-content'
-                : 'border-base-300 bg-base-100 text-base-content/65 hover:text-base-content'
-            "
-            @click="form.exclusive = option"
-          >
-            {{ t(option ? "task.exclusive" : "task.shared") }}
-          </button>
-          <span class="text-[11.5px] text-base-content/65">{{
-            t(form.exclusive ? "task.exclusiveHint" : "task.sharedHint")
-          }}</span>
-        </div>
-
-        <div class="mt-3 flex flex-wrap items-center gap-1.5">
           <span class="text-[12px] text-base-content/65">{{ t("task.tags") }}</span>
           <span
             v-for="tag in form.tags"

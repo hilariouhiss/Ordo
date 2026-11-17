@@ -48,6 +48,8 @@ pub mod keys {
     pub const TASKS_DEFAULT_EXCLUSIVE: &str = "tasks.default_exclusive";
     /// Whether an overdue task opens the defer prompt on startup / at 09:00.
     pub const TASKS_OVERDUE_PROMPT: &str = "tasks.overdue_prompt";
+    /// JSON array of names new projects copy into their requirement pipeline.
+    pub const REQUIREMENT_DEFAULT_STATUSES: &str = "requirements.default_statuses";
 }
 
 pub fn get_all(conn: &Connection) -> rusqlite::Result<HashMap<String, String>> {

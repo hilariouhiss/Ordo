@@ -12,6 +12,7 @@ import {
   deferTask,
   deleteSubtask,
   getTask,
+  listRequirements,
   reorderSubtasks,
   ownerCandidates,
   setDelayReason,
@@ -19,7 +20,15 @@ import {
   unarchiveTask,
   updateTaskPatch,
 } from "../model/ipc";
-import type { Person, Priority, Status, SubtaskPlan, Task, TaskPatch } from "../model/types";
+import type {
+  Person,
+  Priority,
+  Requirement,
+  Status,
+  SubtaskPlan,
+  Task,
+  TaskPatch,
+} from "../model/types";
 import { taskRowVM } from "./taskRowVM";
 import { undoVM } from "./undoVM";
 
@@ -29,6 +38,8 @@ export interface TaskForm {
   projectId: string | null;
   categoryId: string | null;
   ownerId: string | null;
+  /** The requirement this task serves; null keeps it unlinked. */
+  requirementId: string | null;
   expectedStartDate: string;
   /** The date on screen; only sent when the user picked it (see `expectedFinishPicked`). */
   expectedFinishDate: string;
@@ -37,7 +48,6 @@ export interface TaskForm {
   tags: string[];
   effortMinutes: number;
   priority: Priority;
-  exclusive: boolean;
   status: Status;
   actualStartDate: string;
   /** The stored time of day, kept so a date-only edit never rewrites the hour. */
@@ -90,10 +100,10 @@ export function formOf(task: Task): TaskForm {
     projectId: task.projectId,
     categoryId: task.categoryId,
     ownerId: task.ownerId,
+    requirementId: task.requirementId,
     note: task.note ?? "",
     tags: task.tags.map((tag) => tag.name),
     priority: task.priority,
-    exclusive: task.exclusive,
   };
   return { ...editable, ...derivedFields(task) };
 }
@@ -110,12 +120,12 @@ export function diffTask(task: Task, form: TaskForm): TaskPatch {
   if (form.projectId !== task.projectId) patch.projectId = form.projectId;
   if (form.categoryId !== task.categoryId) patch.categoryId = form.categoryId;
   if (form.ownerId !== task.ownerId) patch.ownerId = form.ownerId;
+  if (form.requirementId !== task.requirementId) patch.requirementId = form.requirementId;
   if ((form.note || null) !== task.note) patch.note = form.note || null;
   if (form.tags.join("\u0000") !== task.tags.map((tag) => tag.name).join("\u0000")) {
     patch.tags = form.tags;
   }
   if (form.priority !== task.priority) patch.priority = form.priority;
-  if (form.exclusive !== task.exclusive) patch.exclusive = form.exclusive;
   if (derived) return patch;
 
   if ((form.expectedStartDate || null) !== task.expectedStartDate) {
@@ -249,6 +259,8 @@ export function createTaskSheetVM() {
     note: "",
     /** Who may own the task in the draft's project, so the picker and the save agree. */
     members: [] as Person[],
+    /** The open task's project requirements, for the sheet's picker. */
+    requirements: [] as Requirement[],
     loading: false,
     error: null as string | null,
   });
@@ -266,6 +278,7 @@ export function createTaskSheetVM() {
         state.note = "";
         state.childOrder = task.children.map((child) => child.id);
         await refreshMembers(task.projectId);
+        await refreshRequirements(task.projectId);
       }
     } catch (e) {
       if (state.openId === id) {
@@ -318,6 +331,7 @@ export function createTaskSheetVM() {
       state.childOrder = mergeOrder(parked.childOrder, fresh.children);
       // The parent may live in another project, with another list of possible owners.
       await refreshMembers(fresh.projectId);
+      await refreshRequirements(fresh.projectId);
     } catch (e) {
       state.error = String(e);
     } finally {
@@ -331,6 +345,19 @@ export function createTaskSheetVM() {
       state.members = await ownerCandidates(projectId);
     } catch {
       // The picker keeps what it had; the backend still refuses an owner it cannot accept.
+    }
+  }
+
+  /** The requirements this task's project offers; a loose task has none. */
+  async function refreshRequirements(projectId: string | null): Promise<void> {
+    if (!projectId) {
+      state.requirements = [];
+      return;
+    }
+    try {
+      state.requirements = await listRequirements(projectId);
+    } catch {
+      // The picker keeps what it had; saving still validates the link server-side.
     }
   }
 
@@ -596,6 +623,7 @@ export function createTaskSheetVM() {
     back,
     applyTask,
     refreshMembers,
+    refreshRequirements,
     saveSheet,
     save,
     archive,

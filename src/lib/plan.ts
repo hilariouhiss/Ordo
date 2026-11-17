@@ -33,7 +33,6 @@ export function toPlanTask(task: Task): PlanTask {
     effortMinutes: task.effortMinutes,
     expectedFinishDate: task.expectedFinishDate,
     expectedStartDate: task.expectedStartDate,
-    exclusive: task.exclusive,
   };
 }
 
@@ -256,9 +255,9 @@ export function addDoneRows(
 }
 
 /**
- * Puts parked tasks back on the day their plan would have started: the card marks the
- * spot the queue left behind, so it reads before the work that moved up into that day.
- * Parked rows book no hours; the week's own plan and its numbers stay as they are.
+ * Puts parked tasks back on the day their plan would have started, in their hand order
+ * among that day's work. Parked rows book no hours; the week's own plan and its numbers
+ * stay as they are.
  */
 export function addParkedRows(
   days: PlannedDay[],

@@ -2,7 +2,6 @@
 import { Briefcase, House, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { askTaskDefaultScope } from "../../lib/dialog";
 import { errorText, t, type Language, type MessageKey } from "../../lib/i18n";
 import { REMINDER_LEAD_MAX_MINUTES } from "../../lib/limits";
 import { recordShortcut } from "../../lib/keys";
@@ -12,7 +11,9 @@ import * as ipc from "../../model/ipc";
 import { appVM } from "../../viewmodels/appVM";
 import { settingsVM as vm } from "../../viewmodels/settingsVM";
 import { updateAction, updatesVM } from "../../viewmodels/updatesVM";
+import type { PipelineEntry } from "../../viewmodels/requirementsVM";
 import EffortField from "../components/EffortField.vue";
+import StatusFlowEditor from "../components/StatusFlowEditor.vue";
 import TimeField from "../components/TimeField.vue";
 
 const themeOptions: { value: ThemePref; key: MessageKey }[] = [
@@ -25,11 +26,6 @@ const themeOptions: { value: ThemePref; key: MessageKey }[] = [
 const languageOptions: { value: Language; label: string }[] = [
   { value: "zh", label: "中文" },
   { value: "en", label: "English" },
-];
-
-const exclusiveOptions: { value: boolean; key: MessageKey }[] = [
-  { value: false, key: "task.shared" },
-  { value: true, key: "task.exclusive" },
 ];
 
 type AiStatus =
@@ -77,17 +73,6 @@ function saveLead(minutes: number): void {
   }
 }
 
-/** The default switch owns the decision about existing tasks, so it asks before writing. */
-async function chooseTaskDefault(value: boolean): Promise<void> {
-  const current = settings.value;
-  if (!current || current.taskDefaultExclusive === value) return;
-  const scope = await askTaskDefaultScope(
-    t("settings.taskDefault"),
-    t(value ? "settings.taskDefaultAskExclusive" : "settings.taskDefaultAskShared"),
-  );
-  if (!scope) return;
-  await vm.setTaskDefaultExclusive(value, scope === "existing");
-}
 /** The two schedule times are edited together, so one save keeps them a pair. */
 const modeWorkAt = ref("09:00");
 const modePersonalAt = ref("18:00");
@@ -110,6 +95,50 @@ const modeOptions = computed(() => [
   { value: "work" as const, label: t("mode.work"), icon: Briefcase },
   { value: "personal" as const, label: t("mode.personal"), icon: House },
 ]);
+
+// The global template new projects copy; editing it never touches an existing project.
+const requirementFlow = ref<PipelineEntry[]>([]);
+const requirementFlowError = ref("");
+const requirementFlowSaving = ref(false);
+const requirementFlowLoaded = ref(false);
+
+async function loadRequirementFlow(): Promise<void> {
+  requirementFlowError.value = "";
+  try {
+    const names = await ipc.listDefaultRequirementStatuses();
+    requirementFlow.value = names.map((name) => ({ id: null, name }));
+    requirementFlowLoaded.value = true;
+  } catch (e) {
+    requirementFlowError.value = String(e);
+  }
+}
+
+async function saveRequirementFlow(): Promise<void> {
+  if (requirementFlow.value.some((row) => !row.name.trim())) {
+    requirementFlowError.value = "empty_status_name";
+    return;
+  }
+  requirementFlowSaving.value = true;
+  requirementFlowError.value = "";
+  try {
+    const names = await ipc.saveDefaultRequirementStatuses(
+      requirementFlow.value.map((row) => row.name.trim()),
+    );
+    requirementFlow.value = names.map((name) => ({ id: null, name }));
+  } catch (e) {
+    requirementFlowError.value = String(e);
+  } finally {
+    requirementFlowSaving.value = false;
+  }
+}
+
+watch(
+  () => vm.state.tab,
+  (tab) => {
+    if (tab === "requirement" && !requirementFlowLoaded.value) void loadRequirementFlow();
+  },
+  { immediate: true },
+);
 
 const MODE_DAY_KEYS: MessageKey[] = [
   "date.mon",
@@ -414,6 +443,14 @@ onUnmounted(() => {
             <button
               role="tab"
               class="tab"
+              :class="{ 'tab-active': vm.state.tab === 'requirement' }"
+              @click="vm.state.tab = 'requirement'"
+            >
+              {{ t("settings.tabRequirement") }}
+            </button>
+            <button
+              role="tab"
+              class="tab"
               :class="{ 'tab-active': vm.state.tab === 'data' }"
               @click="vm.state.tab = 'data'"
             >
@@ -604,6 +641,42 @@ onUnmounted(() => {
                   </div>
 
                   <div
+                    v-else-if="vm.state.tab === 'requirement'"
+                    class="mt-4 rounded-xl bg-base-200 p-4"
+                  >
+                    <div class="flex items-center justify-between text-[12px]">
+                      <span class="font-medium">{{ t("settings.requirementFlow") }}</span>
+                      <span class="text-base-content/50">{{
+                        t("settings.requirementFlowDefault")
+                      }}</span>
+                    </div>
+                    <div class="mt-2 rounded-lg bg-base-100 p-3">
+                      <StatusFlowEditor v-model="requirementFlow" />
+                    </div>
+                    <p class="mt-2 text-[11px] leading-5 text-base-content/50">
+                      {{ t("settings.requirementFlowHint") }}
+                    </p>
+                    <p v-if="requirementFlowError" class="mt-1.5 text-[12px] text-error">
+                      {{ errorText(requirementFlowError) }}
+                    </p>
+                    <div class="mt-3 flex justify-end gap-2">
+                      <button
+                        class="btn btn-xs rounded-md border-base-300 bg-base-100 font-normal"
+                        @click="loadRequirementFlow"
+                      >
+                        {{ t("common.cancel") }}
+                      </button>
+                      <button
+                        class="btn btn-xs rounded-md border-0 bg-base-content text-base-100"
+                        :disabled="requirementFlowSaving"
+                        @click="saveRequirementFlow"
+                      >
+                        {{ t("common.save") }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
                     v-else-if="vm.state.tab === 'general'"
                     class="mt-4 rounded-xl bg-base-200 p-4"
                   >
@@ -678,25 +751,6 @@ onUnmounted(() => {
                         :checked="settings.weekHideDone"
                         @change="vm.save({ weekHideDone: !settings.weekHideDone })"
                       />
-                    </div>
-                    <div class="mt-3 flex items-center justify-between text-[12px]">
-                      <span>{{ t("settings.taskDefault") }}</span>
-                      <span class="flex gap-1.5">
-                        <button
-                          v-for="option in exclusiveOptions"
-                          :key="option.key"
-                          class="btn btn-xs rounded-md border-base-300 font-normal"
-                          :class="
-                            settings.taskDefaultExclusive === option.value
-                              ? 'border-0 bg-base-content text-base-100'
-                              : 'bg-base-100'
-                          "
-                          :aria-pressed="settings.taskDefaultExclusive === option.value"
-                          @click="chooseTaskDefault(option.value)"
-                        >
-                          {{ t(option.key) }}
-                        </button>
-                      </span>
                     </div>
                     <div class="mt-3 flex items-center justify-between text-[12px]">
                       <span>{{ t("settings.overdueRollover") }}</span>

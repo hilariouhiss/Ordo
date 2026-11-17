@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 28;
+pub const LATEST: i64 = 29;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -686,6 +686,146 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             )?;
         }
         tx.pragma_update(None, "user_version", 28)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 29 {
+        // Project requirements: a per-project status pipeline, a per-project number format,
+        // uploaded documents split into sections, the requirement <-> section and task links,
+        // a change log, and project issues. Each column add is guarded so a crash between
+        // statements retries instead of dying on a duplicate column.
+        let tx = conn.unchecked_transaction()?;
+        // A partial test ledger may lack projects entirely; then the whole feature is
+        // skipped and only the version bump happens.
+        if has_table(&tx, "projects")? {
+            for (column, sql) in [
+            (
+                "requirement_prefix",
+                "ALTER TABLE projects ADD COLUMN requirement_prefix TEXT NOT NULL DEFAULT 'REQ-'",
+            ),
+            (
+                "requirement_width",
+                "ALTER TABLE projects ADD COLUMN requirement_width INTEGER NOT NULL DEFAULT 3",
+            ),
+            (
+                "issue_prefix",
+                "ALTER TABLE projects ADD COLUMN issue_prefix TEXT NOT NULL DEFAULT 'ISS-'",
+            ),
+            (
+                "issue_width",
+                "ALTER TABLE projects ADD COLUMN issue_width INTEGER NOT NULL DEFAULT 3",
+            ),
+        ] {
+            if !has_project_column(&tx, column)? {
+                tx.execute_batch(sql)?;
+            }
+        }
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS requirement_statuses (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+               name TEXT NOT NULL,
+               sort_order INTEGER NOT NULL,
+               created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_requirement_statuses_project
+               ON requirement_statuses(project_id, sort_order);
+
+             CREATE TABLE IF NOT EXISTS requirements (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+               number TEXT NOT NULL,
+               seq INTEGER NOT NULL,
+               status_id TEXT REFERENCES requirement_statuses(id) ON DELETE SET NULL,
+               category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+               owner_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+               title TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_requirements_number
+               ON requirements(project_id, number);
+             CREATE INDEX IF NOT EXISTS idx_requirements_project
+               ON requirements(project_id, created_at);
+
+             CREATE TABLE IF NOT EXISTS project_documents (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+               title TEXT NOT NULL,
+               source_name TEXT NOT NULL,
+               created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_project_documents_project
+               ON project_documents(project_id);
+
+             CREATE TABLE IF NOT EXISTS document_sections (
+               id TEXT PRIMARY KEY,
+               document_id TEXT NOT NULL REFERENCES project_documents(id) ON DELETE CASCADE,
+               title TEXT NOT NULL,
+               level INTEGER NOT NULL,
+               body TEXT NOT NULL,
+               sort_order INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_document_sections_doc
+               ON document_sections(document_id, sort_order);
+
+             CREATE TABLE IF NOT EXISTS requirement_sections (
+               requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+               section_id TEXT NOT NULL REFERENCES document_sections(id) ON DELETE CASCADE,
+               quote TEXT,
+               created_at TEXT NOT NULL,
+               PRIMARY KEY (requirement_id, section_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_requirement_sections_section
+               ON requirement_sections(section_id);
+
+             CREATE TABLE IF NOT EXISTS requirement_changes (
+               id TEXT PRIMARY KEY,
+               requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+               kind TEXT NOT NULL,
+               from_value TEXT,
+               to_value TEXT,
+               created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_requirement_changes_req
+               ON requirement_changes(requirement_id, created_at);
+
+             CREATE TABLE IF NOT EXISTS issues (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+               number TEXT NOT NULL,
+               seq INTEGER NOT NULL,
+               requirement_id TEXT REFERENCES requirements(id) ON DELETE SET NULL,
+               title TEXT NOT NULL,
+               note TEXT,
+               status TEXT NOT NULL DEFAULT 'open'
+                 CHECK (status IN ('open','doing','resolved')),
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               resolved_at TEXT
+             );
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_number ON issues(project_id, number);
+             CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id, created_at);
+             CREATE INDEX IF NOT EXISTS idx_issues_requirement ON issues(requirement_id);",
+        )?;
+        if !has_task_column(&tx, "requirement_id")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN requirement_id TEXT REFERENCES requirements(id)
+                 ON DELETE SET NULL",
+            )?;
+        }
+        if !has_task_column(&tx, "issue_id")? {
+            tx.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL",
+            )?;
+        }
+        tx.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_requirement ON tasks(requirement_id);
+             CREATE INDEX IF NOT EXISTS idx_tasks_issue ON tasks(issue_id);",
+        )?;
+        }
+        tx.pragma_update(None, "user_version", 29)?;
         tx.commit()?;
     }
     Ok(())

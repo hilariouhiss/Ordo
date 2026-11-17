@@ -64,26 +64,4 @@ const attrs = defineModel<TaskAttrs>({ required: true });
       </div>
     </label>
   </div>
-
-  <div class="mt-3 flex items-center gap-1.5">
-    <button
-      type="button"
-      class="btn btn-xs rounded-md border-base-300 font-normal"
-      :class="attrs.exclusive ? 'bg-base-100' : 'border-0 bg-base-content text-base-100'"
-      @click="attrs.exclusive = false"
-    >
-      {{ t("task.shared") }}
-    </button>
-    <button
-      type="button"
-      class="btn btn-xs rounded-md border-base-300 font-normal"
-      :class="attrs.exclusive ? 'border-0 bg-base-content text-base-100' : 'bg-base-100'"
-      @click="attrs.exclusive = true"
-    >
-      {{ t("task.exclusive") }}
-    </button>
-    <span class="ml-1 text-[10.5px] text-base-content/40">{{
-      t(attrs.exclusive ? "task.exclusiveHint" : "task.sharedHint")
-    }}</span>
-  </div>
 </template>

@@ -34,7 +34,6 @@ describe("taskCreateVM", () => {
     vm.state.form.categoryId = "c1";
     vm.state.form.tags = ["上线"];
     vm.state.form.note = "已经和测试过完";
-    vm.state.form.exclusive = false;
 
     await expect(vm.save()).resolves.toBe(true);
 
@@ -47,7 +46,6 @@ describe("taskCreateVM", () => {
         categoryId: "c1",
         tags: ["上线"],
         note: "已经和测试过完",
-        exclusive: false,
       }),
       null,
       true,

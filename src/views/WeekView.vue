@@ -441,9 +441,17 @@ watch(
                 class="mb-3.5 last:mb-0"
               >
                 <div class="flex h-[30px] items-center gap-2 px-0.5">
-                  <span class="text-[13px] font-semibold">{{ day.weekday }}</span>
-                  <span class="text-[12px] text-base-content/65">{{ shortDate(day.date) }}</span>
-                  <span v-if="day.isToday" class="text-[12px] font-medium text-primary">{{
+                  <span
+                    class="text-[13px] font-semibold"
+                    :class="{ 'text-primary': day.isToday }"
+                    >{{ day.weekday }}</span
+                  >
+                  <span
+                    class="text-[12px]"
+                    :class="day.isToday ? 'text-primary/80' : 'text-base-content/65'"
+                    >{{ shortDate(day.date) }}</span
+                  >
+                  <span v-if="day.isToday" class="badge badge-primary badge-xs">{{
                     t("week.today")
                   }}</span>
                   <span v-else-if="day.isPast" class="text-[12px] text-base-content/60">{{
@@ -471,8 +479,8 @@ watch(
                   </span>
                 </div>
                 <div
-                  class="overflow-hidden rounded-lg bg-base-100"
-                  :class="day.isToday ? 'shadow-[inset_2px_0_0_0_var(--color-primary)]' : ''"
+                  class="overflow-hidden rounded-lg"
+                  :class="day.isToday ? 'bg-primary/[0.06]' : 'bg-base-100'"
                 >
                   <AnimatePresence
                     as="ul"

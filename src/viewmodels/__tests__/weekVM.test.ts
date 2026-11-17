@@ -281,41 +281,31 @@ describe("weekVM plan", () => {
     expect(vm.planEnd.value).toBe("2026-10-22");
   });
 
-  it("pushes shared work behind an exclusive task", async () => {
-    const vm = await loadedWith([task({ id: "x", exclusive: true }), task({ id: "s" })]);
+  it("starts overlapping work on the same day", async () => {
+    const vm = await loadedWith([task({ id: "x" }), task({ id: "s" })]);
 
-    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
-    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["x"]);
-    expect(vm.days.value[1].rows.map((row) => row.task.id)).toEqual(["s"]);
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20"]);
+    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["x", "s"]);
   });
 
-  it("keeps a parked task on the day it would have started, without booking its hours", async () => {
+  it("keeps a parked task on its day without booking its hours", async () => {
     vi.mocked(listWeek).mockResolvedValue([
-      task({ id: "a", sortOrder: 0, exclusive: true }),
-      task({ id: "b", sortOrder: 2, exclusive: true }),
+      task({ id: "a", sortOrder: 0 }),
+      task({ id: "b", sortOrder: 2 }),
     ]);
     vi.mocked(listSuspended).mockResolvedValue([
-      task({ id: "p", sortOrder: 1, exclusive: true, inWeek: false, suspended: true }),
+      task({ id: "p", sortOrder: 1, inWeek: false, suspended: true }),
     ]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
 
     const vm = createWeekVM();
     await vm.load();
 
-    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
-    expect(vm.days.value[1].rows.map((row) => row.task.id)).toEqual(["p", "b"]);
-    expect(vm.days.value[1].rows[0].parked).toBe(true);
-    expect(vm.loads.value.get("2026-10-21")).toBe(8);
-    expect(vm.planEnd.value).toBe("2026-10-21");
-  });
-
-  it("queues two exclusive tasks on separate days", async () => {
-    const vm = await loadedWith([
-      task({ id: "x1", exclusive: true }),
-      task({ id: "x2", exclusive: true }),
-    ]);
-
-    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20", "2026-10-21"]);
+    expect(vm.days.value.map((day) => day.date)).toEqual(["2026-10-20"]);
+    expect(vm.days.value[0].rows.map((row) => row.task.id)).toEqual(["a", "p", "b"]);
+    expect(vm.days.value[0].rows[1].parked).toBe(true);
+    expect(vm.loads.value.get("2026-10-20")).toBe(16);
+    expect(vm.planEnd.value).toBe("2026-10-20");
   });
 
   it("takes the latest finish as the plan end", async () => {

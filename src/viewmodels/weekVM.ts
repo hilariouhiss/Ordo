@@ -223,7 +223,7 @@ export function createWeekVM() {
     await load();
   }
 
-  /** Moves one slot in the list; the order decides the exclusive queue unless a place pins the task. */
+  /** Moves one slot in the list; the hand order decides where rows sit inside a day. */
   async function moveBy(taskId: string, delta: -1 | 1): Promise<void> {
     // The rows on screen are weekTasks; a task planned after this week is not a neighbour.
     const ids = weekTasks.value.map((task) => task.id);

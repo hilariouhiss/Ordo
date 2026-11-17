@@ -11,14 +11,18 @@ import { isImeEnter } from "../lib/keys";
 import { panelSwapMotion, springSoft } from "../lib/motion";
 import type { Milestone, Task } from "../model/types";
 import { appVM } from "../viewmodels/appVM";
+import { issuesVM } from "../viewmodels/issuesVM";
 import { createProjectVM } from "../viewmodels/projectVM";
 import { usePageHeader } from "../viewmodels/pageHeaderVM";
 import { projectsVM } from "../viewmodels/projectsVM";
+import { requirementsVM } from "../viewmodels/requirementsVM";
 import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import CaptureBar from "./components/CaptureBar.vue";
 import CategoryProgress from "./components/CategoryProgress.vue";
 import DateField from "./components/DateField.vue";
+import IssuesPanel from "./components/IssuesPanel.vue";
+import RequirementsPanel from "./components/RequirementsPanel.vue";
 import SummaryLine from "./components/SummaryLine.vue";
 import TaskRow from "./components/TaskRow.vue";
 import TimelineView from "./components/TimelineView.vue";
@@ -35,17 +39,17 @@ let unlistenCapture: (() => void) | undefined;
 let unlistenTasks: (() => void) | undefined;
 
 onMounted(async () => {
-  void vm.load(props.id);
+  reloadPage();
   if (!isTauri()) return;
   unlistenAi = await listen("ai:enriched", () => {
-    void vm.load(props.id);
+    reloadPage();
     void appVM.load();
   });
   unlistenCapture = await listen("capture:created", () => {
-    void vm.load(props.id);
+    reloadPage();
   });
   unlistenTasks = await listen("tasks:changed", () => {
-    void vm.load(props.id);
+    reloadPage();
   });
 });
 
@@ -59,9 +63,26 @@ onUnmounted(() => {
 watch(
   () => taskSheetVM.state.openId,
   (open) => {
-    if (!open) void vm.load(props.id);
+    if (!open) reloadPage();
   },
 );
+
+/** The project page, the requirement tab and the issue tab read the same ledger. */
+function reloadPage(): void {
+  void vm.load(props.id);
+  void requirementsVM.load(props.id);
+  void issuesVM.load(props.id);
+}
+
+function focusIssue(id: string): void {
+  vm.state.view = "issue";
+  issuesVM.focus(id);
+}
+
+function focusRequirement(id: string): void {
+  vm.state.view = "requirement";
+  requirementsVM.focus(id);
+}
 
 const today = todayIso();
 usePageHeader(() => ({
@@ -157,7 +178,7 @@ function openTask(task: Task): void {
 }
 
 function refresh(): void {
-  void vm.load(props.id);
+  reloadPage();
 }
 
 function closeSettings(gone = false): void {
@@ -175,12 +196,14 @@ watch(
     cancelRename();
     vm.state.milestoneError = null;
     void vm.load(id);
+    void requirementsVM.load(id);
+    void issuesVM.load(id);
   },
 );
 watch(
   () => undoVM.state.revision,
   () => {
-    void vm.load(props.id);
+    reloadPage();
   },
 );
 </script>
@@ -216,6 +239,22 @@ watch(
         >
           {{ t("project.timeline") }}
         </button>
+        <button
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': vm.state.view === 'requirement' }"
+          @click="vm.state.view = 'requirement'"
+        >
+          {{ t("project.requirements") }}
+        </button>
+        <button
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': vm.state.view === 'issue' }"
+          @click="vm.state.view = 'issue'"
+        >
+          {{ t("project.issues") }}
+        </button>
       </div>
       <button
         type="button"
@@ -227,7 +266,10 @@ watch(
       </button>
     </div>
 
-    <div class="rounded-xl bg-base-100 px-3 py-2">
+    <div
+      v-if="vm.state.view !== 'requirement' && vm.state.view !== 'issue'"
+      class="rounded-xl bg-base-100 px-3 py-2"
+    >
       <div class="text-[12px] font-semibold">{{ t("milestones.title") }}</div>
 
       <ul v-if="vm.state.milestones.length" class="mt-0.5">
@@ -318,6 +360,7 @@ watch(
     </div>
 
     <CaptureBar
+      v-if="vm.state.view !== 'requirement' && vm.state.view !== 'issue'"
       v-model="vm.state.draft"
       :project-id="props.id"
       @submit="vm.captureInto(props.id, $event)"
@@ -379,8 +422,31 @@ watch(
         </div>
       </motion.div>
 
-      <motion.div v-else key="timeline" v-bind="panelSwapMotion">
+      <motion.div v-else-if="vm.state.view === 'timeline'" key="timeline" v-bind="panelSwapMotion">
         <TimelineView :tasks="vm.state.tasks" :milestones="vm.state.milestones" />
+      </motion.div>
+
+      <motion.div
+        v-else-if="vm.state.view === 'requirement'"
+        key="requirement"
+        v-bind="panelSwapMotion"
+      >
+        <RequirementsPanel
+          :project-id="props.id"
+          :tasks="vm.state.tasks"
+          @changed="refresh"
+          @focus-issue="focusIssue"
+        />
+      </motion.div>
+
+      <motion.div v-else key="issue" v-bind="panelSwapMotion">
+        <IssuesPanel
+          :project-id="props.id"
+          :tasks="vm.state.tasks"
+          :requirements="requirementsVM.state.requirements"
+          @changed="refresh"
+          @focus-requirement="focusRequirement"
+        />
       </motion.div>
     </AnimatePresence>
 

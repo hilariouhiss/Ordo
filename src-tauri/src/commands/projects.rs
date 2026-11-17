@@ -1,4 +1,6 @@
-use crate::dto::{MilestoneDto, PersonDto, ProjectDto, ProjectGroupDto, ProjectSummaryDto};
+use crate::dto::{
+    MilestoneDto, PersonDto, ProjectDto, ProjectGroupDto, ProjectNumberingDto, ProjectSummaryDto,
+};
 use crate::now_iso;
 use crate::state::{with_db, AppState};
 use tauri::State;
@@ -46,6 +48,7 @@ pub async fn update_project(
     name: String,
     group_id: Option<String>,
     priority: String,
+    numbering: ProjectNumberingDto,
 ) -> Result<ProjectDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
@@ -55,6 +58,7 @@ pub async fn update_project(
             &name,
             group_id.as_deref(),
             &priority,
+            &numbering,
             &now,
         )
     })

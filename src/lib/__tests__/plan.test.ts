@@ -403,32 +403,30 @@ describe("addParkedRows", () => {
   const WEEK = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
   const planFor = (tasks: Task[]) => planSchedule(tasks.map(toPlanTask), TODAY, WEEK[0]);
 
-  it("puts a parked task on the day it would have started", () => {
-    const open = task("a", 480, { sortOrder: 0, exclusive: true });
-    const parked = task("p", 480, { sortOrder: 1, exclusive: true });
+  it("puts a parked task on its own start day", () => {
+    const open = task("a", 480, { sortOrder: 0 });
+    const parked = task("p", 480, { sortOrder: 1 });
     const plan = planFor([open, parked]);
     const days = groupPlannedDays([open], plan, TODAY, WEEK[4]);
 
     const merged = addParkedRows(days, [parked], plan, WEEK, TODAY);
 
-    expect(merged.map((entry) => entry.date)).toEqual([TODAY, "2026-10-21"]);
-    expect(merged[1].rows.map((row) => row.task.id)).toEqual(["p"]);
-    expect(merged[1].rows[0].parked).toBe(true);
+    expect(merged.map((entry) => entry.date)).toEqual([TODAY]);
+    expect(merged[0].rows.map((row) => row.task.id)).toEqual(["a", "p"]);
+    expect(merged[0].rows[1].parked).toBe(true);
   });
 
-  it("reads the parked card before the work that filled its slot", () => {
-    const first = task("a", 480, { sortOrder: 0, exclusive: true });
-    const parked = task("p", 480, { sortOrder: 1, exclusive: true });
-    const next = task("b", 480, { sortOrder: 2, exclusive: true });
-    const would = planFor([first, parked, next]);
-    const real = planFor([first, next]);
-    const days = groupPlannedDays([first, next], real, TODAY, WEEK[4]);
+  it("keeps the day's hand order around the parked card", () => {
+    const first = task("a", 480, { sortOrder: 0 });
+    const parked = task("p", 480, { sortOrder: 1 });
+    const next = task("b", 480, { sortOrder: 2 });
+    const plan = planFor([first, parked, next]);
+    const days = groupPlannedDays([first, next], plan, TODAY, WEEK[4]);
 
-    const merged = addParkedRows(days, [parked], would, WEEK, TODAY);
+    const merged = addParkedRows(days, [parked], plan, WEEK, TODAY);
 
-    expect(merged.map((entry) => entry.date)).toEqual([TODAY, "2026-10-21"]);
-    expect(merged[1].rows.map((row) => row.task.id)).toEqual(["p", "b"]);
-    expect(merged[1].rows.map((row) => row.parked === true)).toEqual([true, false]);
+    expect(merged[0].rows.map((row) => row.task.id)).toEqual(["a", "p", "b"]);
+    expect(merged[0].rows.map((row) => row.parked === true)).toEqual([false, true, false]);
   });
 
   it("clamps a parked task whose plan starts after the week", () => {

@@ -4,3 +4,5 @@ import limits from "./limits.json";
 export const EFFORT_MAX_MINUTES = limits.effortMinutes;
 export const STATS_RANGE_DAYS = limits.statsRangeDays;
 export const REMINDER_LEAD_MAX_MINUTES = limits.reminderLeadMinutes;
+export const DOCUMENT_MAX_BYTES = limits.documentBytes;
+export const DOCUMENT_TEXT_MAX_BYTES = limits.documentTextBytes;

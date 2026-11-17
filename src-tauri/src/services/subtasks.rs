@@ -450,6 +450,10 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
         ],
     )
     .map_err(|e| e.to_string())?;
+    // An umbrella that just became done can be the last task of its requirement.
+    if status == "done" && stored != "done" {
+        crate::services::requirements::advance_for_task_in(conn, parent_id, now)?;
+    }
     Ok(())
 }
 

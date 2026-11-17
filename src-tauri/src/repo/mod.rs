@@ -15,6 +15,10 @@ pub(crate) fn like_pattern(query: &str) -> String {
 
 pub mod categories;
 pub mod delays;
+pub mod documents;
+pub mod issues;
+pub mod numbering;
+pub mod requirements;
 pub mod milestones;
 pub mod notifications;
 pub mod people;

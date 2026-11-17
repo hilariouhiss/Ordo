@@ -8,6 +8,10 @@ pub struct Limits {
     pub effort_minutes: i64,
     pub stats_range_days: i64,
     pub reminder_lead_minutes: i64,
+    /// The largest upload accepted for a project document, before text extraction.
+    pub document_bytes: usize,
+    /// The largest extracted text a document may store.
+    pub document_text_bytes: usize,
 }
 
 pub static LIMITS: LazyLock<Limits> = LazyLock::new(|| {
@@ -24,5 +28,7 @@ mod tests {
         assert!(LIMITS.effort_minutes >= 1);
         assert!(LIMITS.stats_range_days >= 1);
         assert!(LIMITS.reminder_lead_minutes >= 0);
+        assert!(LIMITS.document_bytes >= 1);
+        assert!(LIMITS.document_text_bytes >= 1);
     }
 }

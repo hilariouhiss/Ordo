@@ -21,6 +21,10 @@ const form = reactive({
   groupId: "",
   priority: "normal" as Priority,
   members: [] as ProjectMember[],
+  requirementPrefix: "REQ-",
+  requirementWidth: 3,
+  issuePrefix: "ISS-",
+  issueWidth: 3,
 });
 const groups = ref<ProjectGroup[]>([]);
 const memberName = ref("");
@@ -46,6 +50,10 @@ async function reload(): Promise<void> {
   form.groupId = project.groupId ?? "";
   form.priority = project.priority;
   form.members = project.members;
+  form.requirementPrefix = project.requirementPrefix;
+  form.requirementWidth = project.requirementWidth;
+  form.issuePrefix = project.issuePrefix;
+  form.issueWidth = project.issueWidth;
   groups.value = list;
 }
 
@@ -71,10 +79,36 @@ async function refreshProjects(): Promise<void> {
   }
 }
 
+function validPrefix(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length >= 1 && trimmed.length <= 12 && !/\s/.test(trimmed);
+}
+
+function preview(prefix: string, width: number): string {
+  const safe = Math.max(1, Math.min(6, Math.round(width) || 1));
+  return prefix.trim() + String(1).padStart(safe, "0");
+}
+
 async function save(): Promise<void> {
   error.value = "";
+  if (!validPrefix(form.requirementPrefix) || !validPrefix(form.issuePrefix)) {
+    error.value = "invalid_number_prefix";
+    return;
+  }
+  if (
+    !(form.requirementWidth >= 1 && form.requirementWidth <= 6) ||
+    !(form.issueWidth >= 1 && form.issueWidth <= 6)
+  ) {
+    error.value = "invalid_number_width";
+    return;
+  }
   try {
-    await ipc.updateProject(props.id, form.name.trim(), form.groupId || null, form.priority);
+    await ipc.updateProject(props.id, form.name.trim(), form.groupId || null, form.priority, {
+      requirementPrefix: form.requirementPrefix.trim(),
+      requirementWidth: Math.round(form.requirementWidth),
+      issuePrefix: form.issuePrefix.trim(),
+      issueWidth: Math.round(form.issueWidth),
+    });
   } catch (e) {
     error.value = String(e);
     return;
@@ -260,6 +294,70 @@ async function archive(): Promise<void> {
               <option value="low">{{ t("task.priorityLow") }}</option>
             </select>
           </label>
+        </div>
+
+        <div class="mt-4">
+          <div class="flex items-baseline gap-2">
+            <span class="text-[12px] font-medium">{{ t("projectSettings.numbering") }}</span>
+            <span class="text-[12px] text-base-content/60">{{
+              t("projectSettings.numberingHint")
+            }}</span>
+          </div>
+          <div class="mt-2 space-y-1.5 text-[12px]">
+            <div class="flex items-center gap-2">
+              <span class="w-16 shrink-0 text-base-content/65">{{
+                t("projectSettings.numberingRequirement")
+              }}</span>
+              <span class="text-base-content/50">{{ t("projectSettings.numberingPrefix") }}</span>
+              <input
+                v-model="form.requirementPrefix"
+                maxlength="12"
+                class="input input-xs w-20 rounded-md border-base-300 font-mono"
+                :aria-label="t('projectSettings.numberingPrefix')"
+              />
+              <span class="text-base-content/50">{{ t("projectSettings.numberingWidth") }}</span>
+              <input
+                v-model.number="form.requirementWidth"
+                type="number"
+                min="1"
+                max="6"
+                class="input input-xs w-14 rounded-md border-base-300 text-center font-mono"
+                :aria-label="t('projectSettings.numberingWidth')"
+              />
+              <span
+                class="ml-auto rounded-md bg-base-200 px-2 py-0.5 font-mono text-[11px] text-base-content/60"
+                >{{ preview(form.requirementPrefix, form.requirementWidth) }}</span
+              >
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="w-16 shrink-0 text-base-content/65">{{
+                t("projectSettings.numberingIssue")
+              }}</span>
+              <span class="text-base-content/50">{{ t("projectSettings.numberingPrefix") }}</span>
+              <input
+                v-model="form.issuePrefix"
+                maxlength="12"
+                class="input input-xs w-20 rounded-md border-base-300 font-mono"
+                :aria-label="t('projectSettings.numberingPrefix')"
+              />
+              <span class="text-base-content/50">{{ t("projectSettings.numberingWidth") }}</span>
+              <input
+                v-model.number="form.issueWidth"
+                type="number"
+                min="1"
+                max="6"
+                class="input input-xs w-14 rounded-md border-base-300 text-center font-mono"
+                :aria-label="t('projectSettings.numberingWidth')"
+              />
+              <span
+                class="ml-auto rounded-md bg-base-200 px-2 py-0.5 font-mono text-[11px] text-base-content/60"
+                >{{ preview(form.issuePrefix, form.issueWidth) }}</span
+              >
+            </div>
+            <p class="text-[11px] leading-5 text-base-content/50">
+              {{ t("projectSettings.numberingNote") }}
+            </p>
+          </div>
         </div>
 
         <div class="mt-4">

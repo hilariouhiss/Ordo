@@ -38,11 +38,6 @@ const statusOptions: { value: Status; key: MessageKey }[] = [
   { value: "done", key: "task.statusDone" },
 ];
 
-const timeOptions: { value: boolean; key: MessageKey }[] = [
-  { value: false, key: "task.shared" },
-  { value: true, key: "task.exclusive" },
-];
-
 /** The draft lives in the view model, so drilling into a subtask can park it intact. */
 const form = computed<TaskForm>(() => taskSheetVM.state.form!);
 const task = computed(() => taskSheetVM.state.task);
@@ -216,12 +211,21 @@ watch(
 
 async function onProjectChange(): Promise<void> {
   await taskSheetVM.refreshMembers(form.value.projectId);
-  // Switching project is an explicit choice: drop an owner the new project does not know.
+  await taskSheetVM.refreshRequirements(form.value.projectId);
+  // Switching project is an explicit choice: drop links the new project does not know.
   if (
     form.value.ownerId &&
     !taskSheetVM.state.members.some((person) => person.id === form.value.ownerId)
   ) {
     form.value.ownerId = null;
+  }
+  if (
+    form.value.requirementId &&
+    !taskSheetVM.state.requirements.some(
+      (requirement) => requirement.id === form.value.requirementId,
+    )
+  ) {
+    form.value.requirementId = null;
   }
 }
 
@@ -302,6 +306,13 @@ const priorityOptions = computed(() => [
   { value: "normal", label: t("task.priorityNormal") },
   { value: "low", label: t("task.priorityLow") },
 ]);
+const requirementOptions = computed(() => [
+  { value: NONE, label: t("task.noRequirement") },
+  ...taskSheetVM.state.requirements.map((requirement) => ({
+    value: requirement.id,
+    label: `${requirement.number} ${requirement.title}`,
+  })),
+]);
 
 function setProject(id: string): void {
   form.value.projectId = id || null;
@@ -318,6 +329,10 @@ function setOwner(id: string): void {
 
 function setPriority(value: string): void {
   form.value.priority = value as Priority;
+}
+
+function setRequirement(id: string): void {
+  form.value.requirementId = id || null;
 }
 
 function addTag(): void {
@@ -756,6 +771,20 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             />
           </div>
 
+          <div
+            v-if="taskSheetVM.state.requirements.length || form.requirementId"
+            class="mt-2 flex items-center gap-2 text-[12px] text-base-content/65"
+          >
+            <span class="shrink-0">{{ t("task.requirement") }}</span>
+            <ChipSelect
+              :model-value="form.requirementId ?? NONE"
+              :options="requirementOptions"
+              :label="t('task.requirement')"
+              class="select-sm min-w-0 flex-1 rounded-md border-base-300"
+              @update:model-value="setRequirement"
+            />
+          </div>
+
           <!-- Expected and actual share one grid, so both rows keep the same columns. -->
           <div class="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-x-2 gap-y-2">
             <label class="block text-[12px] text-base-content/65">
@@ -827,27 +856,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             <p v-if="derived" class="col-span-3 mt-1 text-[11.5px] text-base-content/65">
               {{ t("task.subtasksRolledUp") }}
             </p>
-          </div>
-
-          <div class="mt-3 flex flex-wrap items-center gap-1.5">
-            <span class="text-[12px] text-base-content/65">{{ t("task.timeMode") }}</span>
-            <button
-              v-for="option in timeOptions"
-              :key="String(option.value)"
-              type="button"
-              class="flex h-7 items-center rounded-md border px-2.5 text-[12px]"
-              :class="
-                form.exclusive === option.value
-                  ? 'border-base-content/25 bg-base-300 font-medium text-base-content'
-                  : 'border-base-300 bg-base-100 text-base-content/65 hover:text-base-content'
-              "
-              @click="form.exclusive = option.value"
-            >
-              {{ t(option.key) }}
-            </button>
-            <span class="text-[11.5px] text-base-content/65">{{
-              t(form.exclusive ? "task.exclusiveHint" : "task.sharedHint")
-            }}</span>
           </div>
 
           <div class="mt-3 flex flex-wrap items-center gap-1.5">

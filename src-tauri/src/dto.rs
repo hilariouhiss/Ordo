@@ -154,6 +154,10 @@ pub struct TaskDto {
     pub effort_minutes: i64,
     pub priority: String,
     pub exclusive: bool,
+    /// The requirement this task serves; a task serves at most one.
+    pub requirement_id: Option<String>,
+    /// The issue this task fixes; a task serves at most one.
+    pub issue_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -194,6 +198,12 @@ pub struct ProjectDto {
     pub priority: String,
     pub archived_at: Option<String>,
     pub members: Vec<ProjectMemberDto>,
+    /// How this project numbers new requirements, e.g. REQ-001.
+    pub requirement_prefix: String,
+    pub requirement_width: i64,
+    /// How this project numbers new issues, e.g. ISS-001.
+    pub issue_prefix: String,
+    pub issue_width: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -346,6 +356,10 @@ pub struct TaskPatch {
     pub priority: Option<String>,
     #[serde(default)]
     pub exclusive: Option<bool>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub requirement_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub issue_id: Option<Option<String>>,
 }
 
 /// The plan the sheet is showing for a new subtask. Sending it with the add keeps an
@@ -561,4 +575,165 @@ pub struct SearchHitDto {
     pub subtitle: Option<String>,
     /// "active", "done", "archived" or "canceled".
     pub state: String,
+}
+
+/// The number format a project applies to its requirements and issues.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectNumberingDto {
+    pub requirement_prefix: String,
+    pub requirement_width: i64,
+    pub issue_prefix: String,
+    pub issue_width: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementStatusDto {
+    pub id: String,
+    pub name: String,
+}
+
+/// One row of the editable pipeline; a null id marks a status being created.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementStatusInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementSectionRefDto {
+    pub section_id: String,
+    pub section_title: String,
+    pub document_id: String,
+    pub document_title: String,
+    /// The selected text a reader-made requirement was created from.
+    pub quote: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedTaskDto {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedIssueDto {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementDto {
+    pub id: String,
+    pub project_id: String,
+    pub number: String,
+    pub title: String,
+    pub status_id: Option<String>,
+    pub category_id: Option<String>,
+    pub owner_id: Option<String>,
+    pub sections: Vec<RequirementSectionRefDto>,
+    pub tasks: Vec<LinkedTaskDto>,
+    pub issues: Vec<LinkedIssueDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementPatch {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub category_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub owner_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementChangeDto {
+    pub id: String,
+    pub kind: String,
+    pub from_value: Option<String>,
+    pub to_value: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSectionSummaryDto {
+    pub id: String,
+    pub title: String,
+    pub level: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentOutlineDto {
+    pub id: String,
+    pub title: String,
+    pub source_name: String,
+    pub sections: Vec<DocumentSectionSummaryDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementRefDto {
+    pub id: String,
+    pub number: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSectionDto {
+    pub id: String,
+    pub title: String,
+    pub level: i64,
+    pub body: String,
+    pub requirements: Vec<RequirementRefDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentDto {
+    pub id: String,
+    pub title: String,
+    pub source_name: String,
+    pub sections: Vec<DocumentSectionDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueDto {
+    pub id: String,
+    pub project_id: String,
+    pub number: String,
+    pub requirement_id: Option<String>,
+    pub title: String,
+    pub note: Option<String>,
+    pub status: String,
+    pub created_at: String,
+    pub resolved_at: Option<String>,
+    pub tasks: Vec<LinkedTaskDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssuePatch {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub note: Option<Option<String>>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default, deserialize_with = "clearable")]
+    pub requirement_id: Option<Option<String>>,
 }

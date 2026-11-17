@@ -20,6 +20,7 @@ pub fn update_patch(
         return Err("task_not_found".into());
     }
     crate::services::validate_task_links(conn, patch)?;
+    validate_record_links(conn, id, patch)?;
 
     let mut patch = patch.clone();
     if let Some(priority) = patch.priority.as_deref() {
@@ -71,6 +72,10 @@ pub fn update_patch(
         return Err("parent_derived".into());
     }
 
+    // The link this task carries before the patch, for the requirement history.
+    let old_requirement = crate::repo::tasks::links_of(conn, id)
+        .map_err(|e| e.to_string())?
+        .0;
     // One transaction: a refused actual time or a failed write must not leave the other
     // fields committed, so a save is all or nothing.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -89,6 +94,16 @@ pub fn update_patch(
             &tx,
             id,
             project_id.as_deref(),
+            now,
+        )?;
+        // A requirement belongs to one project; leaving the project drops the link.
+        crate::repo::tasks::clear_stale_links(&tx, id).map_err(|e| e.to_string())?;
+    }
+    if patch.requirement_id.is_some() || patch.project_id.is_some() {
+        crate::services::requirements::task_link_changed_in(
+            &tx,
+            id,
+            old_requirement.as_deref(),
             now,
         )?;
     }
@@ -116,6 +131,49 @@ pub fn update_patch(
     }
     tx.commit().map_err(|e| e.to_string())?;
     crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
+}
+
+/// A task may point at a requirement or issue only inside its own project. Moving the
+/// task first and validating the final project keeps a two-field save honest.
+fn validate_record_links(
+    conn: &Connection,
+    id: &str,
+    patch: &TaskPatch,
+) -> Result<(), String> {
+    let wants_requirement = matches!(patch.requirement_id, Some(Some(_)));
+    let wants_issue = matches!(patch.issue_id, Some(Some(_)));
+    if !wants_requirement && !wants_issue {
+        return Ok(());
+    }
+    let project: Option<String> = match &patch.project_id {
+        Some(value) => value.clone(),
+        None => conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| e.to_string())?,
+    };
+    let Some(project) = project else {
+        return Err(if wants_requirement {
+            "invalid_requirement"
+        } else {
+            "invalid_issue"
+        }
+        .into());
+    };
+    if let Some(Some(requirement_id)) = &patch.requirement_id {
+        let target = crate::repo::requirements::project_of(conn, requirement_id)
+            .map_err(|e| e.to_string())?;
+        if target.as_deref() != Some(project.as_str()) {
+            return Err("invalid_requirement".into());
+        }
+    }
+    if let Some(Some(issue_id)) = &patch.issue_id {
+        let target =
+            crate::repo::issues::project_of(conn, issue_id).map_err(|e| e.to_string())?;
+        if target.as_deref() != Some(project.as_str()) {
+            return Err("invalid_issue".into());
+        }
+    }
+    Ok(())
 }
 
 fn expected_start_of(conn: &Connection, id: &str) -> Result<Option<String>, String> {
@@ -244,6 +302,7 @@ pub(crate) fn sync_actual_in(
     if finish.is_some() && status != "done" {
         crate::repo::tasks::set_status_only(conn, id, "done", true, now)
             .map_err(|e| e.to_string())?;
+        crate::services::requirements::advance_for_task_in(conn, id, now)?;
     } else if reopen && status == "done" {
         crate::repo::tasks::set_status_only(conn, id, "doing", false, now)
             .map_err(|e| e.to_string())?;
@@ -346,9 +405,96 @@ pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Resul
         return Err("parent_derived".into());
     }
     let done = status == "done";
-    crate::repo::tasks::set_status(conn, id, status, done, now).map_err(|e| e.to_string())?;
-    crate::services::subtasks::sync_parent(conn, id, now)?;
-    crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
+    // A savepoint nests inside a caller's transaction (start/suspend/archive all own
+    // one) and commits on its own otherwise, so the status write, the rollup and the
+    // requirement advance land together either way.
+    conn.execute_batch("SAVEPOINT set_task_status")
+        .map_err(|e| e.to_string())?;
+    let write = (|| -> Result<TaskDto, String> {
+        let before: String = conn
+            .query_row("SELECT status FROM tasks WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        crate::repo::tasks::set_status(conn, id, status, done, now)
+            .map_err(|e| e.to_string())?;
+        crate::services::subtasks::sync_parent(conn, id, now)?;
+        if before != "done" && status == "done" {
+            crate::services::requirements::advance_for_task_in(conn, id, now)?;
+        }
+        crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
+    })();
+    match write {
+        Ok(task) => {
+            conn.execute_batch("RELEASE SAVEPOINT set_task_status")
+                .map_err(|e| e.to_string())?;
+            Ok(task)
+        }
+        Err(error) => {
+            let _ = conn.execute_batch(
+                "ROLLBACK TO SAVEPOINT set_task_status;
+                 RELEASE SAVEPOINT set_task_status",
+            );
+            Err(error)
+        }
+    }
+}
+
+/// What a task created from a record points at.
+pub enum TaskLink<'a> {
+    Requirement(&'a str),
+    Issue(&'a str),
+}
+
+/// A task born inside a project and already attached to the requirement or issue that
+/// asked for it. Capture defaults apply: the project, me as owner, 480 minutes, this
+/// week, last in order, and a finish derived from the estimate.
+pub fn create_linked_task(
+    conn: &Connection,
+    project_id: &str,
+    title: &str,
+    link: TaskLink<'_>,
+    now: &str,
+) -> Result<TaskDto, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("empty_title".into());
+    }
+    if !crate::repo::projects::exists(conn, project_id).map_err(|e| e.to_string())? {
+        return Err("invalid_project".into());
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let fields = crate::dto::CaptureFields {
+        project_id: Some(project_id.to_string()),
+        ..Default::default()
+    };
+    crate::services::week::capture_rows(&tx, title, &fields, None, now, &id)?;
+    match link {
+        TaskLink::Requirement(requirement_id) => {
+            tx.execute(
+                "UPDATE tasks SET requirement_id = ?1, updated_at = ?2 WHERE id = ?3",
+                rusqlite::params![requirement_id, now, id],
+            )
+            .map_err(|e| e.to_string())?;
+            crate::repo::requirements::insert_change(
+                &tx,
+                requirement_id,
+                "task_created",
+                None,
+                Some(title),
+                now,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        TaskLink::Issue(issue_id) => {
+            tx.execute(
+                "UPDATE tasks SET issue_id = ?1, updated_at = ?2 WHERE id = ?3",
+                rusqlite::params![issue_id, now, id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    crate::repo::tasks::dto(conn, &id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

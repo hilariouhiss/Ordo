@@ -1,8 +1,11 @@
 pub mod ai;
 pub mod archive;
 pub mod categories;
+pub mod documents;
+pub mod issues;
 pub mod meta;
 pub mod projects;
+pub mod requirements;
 pub mod rules;
 pub mod search;
 pub mod shortcuts;

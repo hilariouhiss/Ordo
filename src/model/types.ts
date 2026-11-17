@@ -129,6 +129,128 @@ export interface Project {
   priority: Priority;
   archivedAt: string | null;
   members: ProjectMember[];
+  /** How new requirements are numbered, e.g. REQ-001. */
+  requirementPrefix: string;
+  requirementWidth: number;
+  /** How new issues are numbered, e.g. ISS-001. */
+  issuePrefix: string;
+  issueWidth: number;
+}
+
+export type IssueStatus = "open" | "doing" | "resolved";
+
+export interface RequirementStatus {
+  id: string;
+  name: string;
+}
+
+export interface RequirementSectionRef {
+  sectionId: string;
+  sectionTitle: string;
+  documentId: string;
+  documentTitle: string;
+  /** The selected text a reader-made requirement came from, if any. */
+  quote: string | null;
+}
+
+export interface LinkedTask {
+  id: string;
+  title: string;
+  status: Status;
+}
+
+export interface LinkedIssue {
+  id: string;
+  title: string;
+  status: IssueStatus;
+}
+
+export interface Requirement {
+  id: string;
+  projectId: string;
+  number: string;
+  title: string;
+  statusId: string | null;
+  categoryId: string | null;
+  ownerId: string | null;
+  sections: RequirementSectionRef[];
+  tasks: LinkedTask[];
+  issues: LinkedIssue[];
+}
+
+export interface RequirementPatch {
+  title?: string;
+  categoryId?: string | null;
+  ownerId?: string | null;
+}
+
+export interface RequirementChange {
+  id: string;
+  kind: string;
+  fromValue: string | null;
+  toValue: string | null;
+  createdAt: string;
+}
+
+export interface Issue {
+  id: string;
+  projectId: string;
+  number: string;
+  requirementId: string | null;
+  title: string;
+  note: string | null;
+  status: IssueStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+  tasks: LinkedTask[];
+}
+
+export interface IssuePatch {
+  title?: string;
+  note?: string | null;
+  status?: IssueStatus;
+  requirementId?: string | null;
+}
+
+export interface DocumentSectionSummary {
+  id: string;
+  title: string;
+  level: number;
+}
+
+export interface ProjectDocument {
+  id: string;
+  title: string;
+  sourceName: string;
+  sections: DocumentSectionSummary[];
+}
+
+export interface RequirementRef {
+  id: string;
+  number: string;
+  title: string;
+}
+
+export interface DocumentSection {
+  id: string;
+  title: string;
+  level: number;
+  body: string;
+  requirements: RequirementRef[];
+}
+
+export interface ProjectDocumentDetail {
+  id: string;
+  title: string;
+  sourceName: string;
+  sections: DocumentSection[];
+}
+
+export interface ProjectNumbering {
+  requirementPrefix: string;
+  requirementWidth: number;
+  issuePrefix: string;
+  issueWidth: number;
 }
 
 export interface ProjectGroup {
@@ -200,6 +322,10 @@ export interface Task {
   effortMinutes: number;
   priority: Priority;
   exclusive: boolean;
+  /** The requirement this task serves; a task serves at most one. */
+  requirementId: string | null;
+  /** The issue this task fixes; a task serves at most one. */
+  issueId: string | null;
 }
 
 /** The plan a new subtask takes from the sheet's draft; the backend validates it. */
@@ -357,6 +483,8 @@ export interface TaskPatch {
   effortMinutes?: number;
   priority?: Priority;
   exclusive?: boolean;
+  requirementId?: string | null;
+  issueId?: string | null;
 }
 
 /** The attributes a capture can carry, already resolved to ids. The expected finish
