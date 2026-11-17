@@ -105,37 +105,84 @@ export function groupPlannedDays(
   return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** One task as the gantt draws it: a bar across the columns it covers. */
+/** One task as the gantt draws it: a bar across the columns it covers, on one row. */
 export interface WeekLane {
   task: Task;
   row: PlannedRow;
   /** 0-based column of the first and last week workday the bar covers. */
   from: number;
   to: number;
+  /** 0-based row it reads on; two bars may share one when their days do not overlap. */
+  rowIndex: number;
+}
+
+interface LaneBar {
+  task: Task;
+  row: PlannedRow;
+  from: number;
+  to: number;
 }
 
 /**
  * Folds the planned days back into one lane per task: the columns it covers and the row
- * it reads with. Manual order decides the lane order, finished ones included, so a done
- * task stays where it was instead of moving to a separate group.
+ * it reads on. A bar that spans days keeps one row for its whole span and claims it
+ * first; a bar that lives on a single day drops into the lowest row its own day leaves
+ * free, so work from another day never holds a row above it. Finished and parked work
+ * keeps its place instead of moving to a separate group.
  */
 export function groupLanes(days: PlannedDay[], dates: string[]): WeekLane[] {
-  const lanes = new Map<string, WeekLane>();
+  const bars: LaneBar[] = [];
+  const byTask = new Map<string, LaneBar>();
   for (const day of days) {
     const column = dates.indexOf(day.date);
     if (column < 0) continue;
     for (const row of day.rows) {
-      const lane = lanes.get(row.task.id);
-      if (!lane) {
-        lanes.set(row.task.id, { task: row.task, row, from: column, to: column });
+      const bar = byTask.get(row.task.id);
+      if (!bar) {
+        const fresh: LaneBar = { task: row.task, row, from: column, to: column };
+        byTask.set(row.task.id, fresh);
+        bars.push(fresh);
         continue;
       }
-      lane.from = Math.min(lane.from, column);
-      lane.to = Math.max(lane.to, column);
+      bar.from = Math.min(bar.from, column);
+      bar.to = Math.max(bar.to, column);
     }
   }
-  return [...lanes.values()].sort(
-    (a, b) => a.task.sortOrder - b.task.sortOrder || a.task.id.localeCompare(b.task.id),
+
+  // Rows are booked per column: a bar may share a row with one that lives on other days.
+  const booked = new Map<number, number>();
+  const firstFreeRow = (from: number, to: number): number => {
+    for (let row = 0; ; row++) {
+      let free = true;
+      for (let column = from; column <= to; column++) {
+        if (((booked.get(row) ?? 0) & (1 << column)) !== 0) {
+          free = false;
+          break;
+        }
+      }
+      if (free) return row;
+    }
+  };
+  const book = (row: number, from: number, to: number): void => {
+    let columns = booked.get(row) ?? 0;
+    for (let column = from; column <= to; column++) columns |= 1 << column;
+    booked.set(row, columns);
+  };
+
+  const order = (a: LaneBar, b: LaneBar): number =>
+    a.from - b.from || a.task.sortOrder - b.task.sortOrder || a.task.id.localeCompare(b.task.id);
+  const spanning = bars.filter((bar) => bar.to > bar.from).sort(order);
+  const single = bars.filter((bar) => bar.to === bar.from).sort(order);
+
+  const lanes: WeekLane[] = [];
+  for (const bar of [...spanning, ...single]) {
+    const rowIndex = firstFreeRow(bar.from, bar.to);
+    book(rowIndex, bar.from, bar.to);
+    lanes.push({ ...bar, rowIndex });
+  }
+  // Reading order, so tabbing walks the grid row by row.
+  return lanes.sort(
+    (a, b) => a.rowIndex - b.rowIndex || a.from - b.from || a.task.sortOrder - b.task.sortOrder,
   );
 }
 

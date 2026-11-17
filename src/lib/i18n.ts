@@ -417,9 +417,6 @@ export const zh = {
   "task.carry": "第 {count} 次",
   "task.overdue": "逾期 {days} 天",
   "task.notFit": "排不进",
-  "task.spanEnd": "跨 {days} 天 · {date} 完",
-  "task.laterStart": "跨周 · {date} 起",
-  "task.doneAt": "完成 {date}",
   "task.conflictTitle": "计划 {date} 才做完，晚于预计完成 {due}",
 
   "pass.title": "过一遍",
@@ -1252,9 +1249,6 @@ export const en: Record<MessageKey, string> = {
   "task.carry": "Carried {count}×",
   "task.overdue": "Overdue {days}d",
   "task.notFit": "Won't fit",
-  "task.spanEnd": "Spans {days} days · ends {date}",
-  "task.laterStart": "Across weeks · from {date}",
-  "task.doneAt": "Done {date}",
   "task.conflictTitle": "Planned to finish {date}, after expected finish {due}",
 
   "pass.title": "Weekly pass",

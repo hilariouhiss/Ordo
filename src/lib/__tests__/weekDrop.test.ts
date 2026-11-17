@@ -138,18 +138,31 @@ describe("coveredDays", () => {
 });
 
 describe("ganttDropAt", () => {
-  const lane = (id: string, top: number) =>
-    element({ top, bottom: top + 46 }, { dataset: { lane: id } });
-  const gridEl = grid([lane("a", 0), lane("b", 46), lane("c", 92)], { left: 100, width: 500 });
+  // Column k of a 500px grid at left 100 covers [100 + 100k, 200 + 100k).
+  const bar = (id: string, top: number, column: number) =>
+    element(
+      { top, bottom: top + 46, left: 100 + column * 100, width: 100 },
+      {
+        dataset: { lane: id },
+      },
+    );
+  const gridEl = grid([bar("a", 0, 0), bar("b", 46, 0), bar("c", 0, 1)], { left: 100, width: 500 });
 
-  it("turns the pointer into a column and the lane under it", () => {
+  it("turns the pointer into a column and the bar of that column under it", () => {
     expect(ganttDropAt(gridEl, 150, 10, 5)).toEqual({ column: 0, before: "a" });
-    expect(ganttDropAt(gridEl, 260, 60, 5)).toEqual({ column: 1, before: "b" });
+    expect(ganttDropAt(gridEl, 150, 60, 5)).toEqual({ column: 0, before: "b" });
+    expect(ganttDropAt(gridEl, 250, 10, 5)).toEqual({ column: 1, before: "c" });
   });
 
-  it("clamps a pointer outside the columns and reads no lane below the last one", () => {
-    expect(ganttDropAt(gridEl, 0, 200, 5)).toEqual({ column: 0, before: null });
-    expect(ganttDropAt(gridEl, 660, 200, 5)).toEqual({ column: 4, before: null });
+  it("ignores a bar whose days do not include the pointer", () => {
+    // Column 2 holds nothing; column 1 holds only the top bar.
+    expect(ganttDropAt(gridEl, 350, 10, 5)).toEqual({ column: 2, before: null });
+    expect(ganttDropAt(gridEl, 250, 60, 5)).toEqual({ column: 1, before: null });
+  });
+
+  it("clamps a pointer outside the columns", () => {
+    expect(ganttDropAt(gridEl, 0, 10, 5)).toEqual({ column: 0, before: null });
+    expect(ganttDropAt(gridEl, 660, 10, 5)).toEqual({ column: 4, before: null });
   });
 
   it("returns null without a grid", () => {

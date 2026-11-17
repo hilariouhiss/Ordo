@@ -297,33 +297,32 @@ describe("addDoneRows", () => {
 
 describe("groupLanes", () => {
   const WEEK = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"];
+  const lanesFor = (tasks: Task[]) =>
+    groupLanes(
+      groupPlannedDays(tasks, planSchedule(tasks.map(toPlanTask), TODAY, WEEK[0]), TODAY, WEEK[4]),
+      WEEK,
+    );
 
-  it("gives each task one lane in manual order with the columns it covers", () => {
+  it("gives each task one bar with the columns it covers", () => {
     const tasks = [
       task("b", 480, { sortOrder: 0, expectedStartDate: "2026-10-21" }),
       task("a", 960, { sortOrder: 1 }),
     ];
-    const days = groupPlannedDays(
-      tasks,
-      planSchedule(tasks.map(toPlanTask), TODAY),
-      TODAY,
-      "2026-10-23",
-    );
-    const lanes = groupLanes(days, WEEK);
+    const lanes = lanesFor(tasks);
 
-    expect(lanes.map((lane) => lane.task.id)).toEqual(["b", "a"]);
-    expect(lanes[0]).toMatchObject({ from: 2, to: 2 });
-    expect(lanes[1]).toMatchObject({ from: 1, to: 2 });
-    expect(lanes[1].row).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
+    expect(lanes.map((lane) => lane.task.id)).toEqual(["a", "b"]);
+    expect(lanes[0]).toMatchObject({ from: 1, to: 2, rowIndex: 0 });
+    expect(lanes[1]).toMatchObject({ from: 2, to: 2, rowIndex: 1 });
+    expect(lanes[0].row).toMatchObject({ spans: true, days: 2, end: "2026-10-21" });
   });
 
-  it("keeps a finished task in its sort position", () => {
+  it("keeps a finished task in its place", () => {
     const open = task("open", 480, { sortOrder: 0 });
     const days = groupPlannedDays(
       [open],
-      planSchedule([toPlanTask(open)], TODAY),
+      planSchedule([toPlanTask(open)], TODAY, WEEK[0]),
       TODAY,
-      "2026-10-23",
+      WEEK[4],
     );
     const finished = task("done", 480, {
       sortOrder: 1,
@@ -331,10 +330,10 @@ describe("groupLanes", () => {
       expectedStartDate: "2026-10-21",
       actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
     });
-    const merged = groupLanes(addDoneRows(days, [finished], WEEK, TODAY), WEEK);
+    const lanes = groupLanes(addDoneRows(days, [finished], WEEK, TODAY), WEEK);
 
-    expect(merged.map((lane) => lane.task.id)).toEqual(["open", "done"]);
-    expect(merged[1]).toMatchObject({ from: 2, to: 2, row: { history: true } });
+    expect(lanes.map((lane) => lane.task.id)).toEqual(["open", "done"]);
+    expect(lanes[1]).toMatchObject({ from: 2, to: 2, row: { history: true } });
   });
 
   it("draws a finished bar over its actual workdays", () => {
@@ -348,21 +347,50 @@ describe("groupLanes", () => {
     expect(lanes[0]).toMatchObject({
       from: 0,
       to: 2,
+      rowIndex: 0,
       row: { history: true, spans: true, days: 3 },
     });
   });
 
   it("clips a task the week end clamps onto Friday", () => {
-    const tasks = [task("late", 1440, { sortOrder: 0, expectedStartDate: "2026-11-10" })];
-    const days = groupPlannedDays(
-      tasks,
-      planSchedule(tasks.map(toPlanTask), TODAY),
-      TODAY,
-      "2026-10-23",
-    );
-    const lanes = groupLanes(days, WEEK);
+    const lanes = lanesFor([task("late", 1440, { sortOrder: 0, expectedStartDate: "2026-11-10" })]);
 
     expect(lanes[0]).toMatchObject({ from: 4, to: 4, row: { clamped: true } });
+  });
+
+  it("drops a one-day bar into the row its own day leaves free", () => {
+    // The span owns the top row on both days, so the tasks that live on one day sit under
+    // it on their own day instead of after a row another day already used.
+    const tasks = [
+      task("span", 960, { sortOrder: 0, expectedStartDate: "2026-10-19" }),
+      task("mon", 480, { sortOrder: 1, expectedStartDate: "2026-10-19" }),
+      task("tue", 480, { sortOrder: 2, expectedStartDate: "2026-10-20" }),
+    ];
+    const byId = new Map(lanesFor(tasks).map((lane) => [lane.task.id, lane]));
+
+    expect(byId.get("span")).toMatchObject({ from: 0, to: 1, rowIndex: 0 });
+    expect(byId.get("mon")).toMatchObject({ from: 0, to: 0, rowIndex: 1 });
+    expect(byId.get("tue")).toMatchObject({ from: 1, to: 1, rowIndex: 1 });
+  });
+
+  it("lets two one-day bars share a row on different days", () => {
+    const tasks = [
+      task("mon", 480, { sortOrder: 0, expectedStartDate: "2026-10-19" }),
+      task("wed", 480, { sortOrder: 1, expectedStartDate: "2026-10-21" }),
+    ];
+
+    expect(lanesFor(tasks).map((lane) => lane.rowIndex)).toEqual([0, 0]);
+  });
+
+  it("keeps a spanning bar on the top row even when a one-day task is ordered first", () => {
+    const tasks = [
+      task("mon", 480, { sortOrder: 0, expectedStartDate: "2026-10-19" }),
+      task("span", 960, { sortOrder: 1, expectedStartDate: "2026-10-19" }),
+    ];
+    const byId = new Map(lanesFor(tasks).map((lane) => [lane.task.id, lane]));
+
+    expect(byId.get("span")).toMatchObject({ from: 0, to: 1, rowIndex: 0 });
+    expect(byId.get("mon")).toMatchObject({ rowIndex: 1 });
   });
 });
 

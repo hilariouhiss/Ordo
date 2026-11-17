@@ -38,9 +38,9 @@ export function listDropAt(listEl: HTMLElement | null | undefined, y: number): L
 }
 
 /**
- * The gantt column under a viewport x, clamped to the shown dates, and the first lane
- * whose midpoint the pointer has not passed. The bottom stack drops through the same
- * math as the bars, so a card lands exactly where the bars do.
+ * The gantt column under a viewport x, clamped to the shown dates, and the first bar of
+ * that column whose midpoint the pointer has not passed. The bottom stack drops through
+ * the same math as the bars, so a card lands exactly where the bars do.
  */
 export function ganttDropAt(
   gridEl: HTMLElement | null | undefined,
@@ -53,10 +53,12 @@ export function ganttDropAt(
   const width = box.width / columns;
   const column = Math.floor((x - box.left) / width);
   let before: string | null = null;
-  for (const row of gridEl.querySelectorAll<HTMLElement>("[data-lane]")) {
-    const rect = row.getBoundingClientRect();
+  for (const bar of gridEl.querySelectorAll<HTMLElement>("[data-lane]")) {
+    const rect = bar.getBoundingClientRect();
+    // Only a bar that covers the pointer's day can anchor the drop.
+    if (x < rect.left || x > rect.right) continue;
     if (y < rect.top + rect.height / 2) {
-      before = row.dataset.lane ?? null;
+      before = bar.dataset.lane ?? null;
       break;
     }
   }

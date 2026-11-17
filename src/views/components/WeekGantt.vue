@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { Hourglass, Pause, Play } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
-import { shortDate, shortDateTime, todayIso, weekdayLabel } from "../../lib/dates";
+import { shortDate, todayIso, weekdayLabel } from "../../lib/dates";
 import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
-import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import type { PlannedDay, WeekLane } from "../../lib/plan";
 import { groupLanes } from "../../lib/plan";
@@ -38,6 +37,7 @@ const emit = defineEmits<{ changed: [] }>();
 
 const gridEl = ref<HTMLElement | null>(null);
 const lanes = computed(() => groupLanes(props.days, props.dates));
+const rowCount = computed(() => Math.max(0, ...lanes.value.map((lane) => lane.rowIndex + 1)));
 const loads = weekVM.loads;
 const overloadDates = weekVM.overloadDates;
 
@@ -75,8 +75,9 @@ const dropBefore = computed(() => drag.target.value?.before ?? props.outsideBefo
 function dayLoad(date: string): number {
   return loads.value.get(date) ?? 0;
 }
-function columnOf(lane: WeekLane): Record<string, string> {
-  return { gridColumn: `${lane.from + 1} / span ${lane.to - lane.from + 1}` };
+/** The bar's grid box: its row, and the columns its days cover. */
+function boxOf(lane: WeekLane): string {
+  return `grid-row: ${lane.rowIndex + 1}; grid-column: ${lane.from + 1} / span ${lane.to - lane.from + 1}`;
 }
 const isDone = (lane: WeekLane): boolean => lane.task.status === "done";
 
@@ -94,25 +95,19 @@ function skin(lane: WeekLane): string {
   return "border-primary/30 border-l-[3px] border-l-primary bg-primary/[0.12] text-primary";
 }
 
-/** Every fact the list packs into a card, folded into the bar's second line. */
-function metaOf(lane: WeekLane): string {
-  const parts = [formatEffort(lane.task.effortMinutes)];
-  if (lane.row.clamped) parts.push(t("task.laterStart", { date: shortDate(lane.row.start) }));
-  else if (lane.row.spans) {
-    parts.push(t("task.spanEnd", { days: lane.row.days, date: shortDate(lane.row.end) }));
-  }
-  if (lane.task.actualFinishAt) {
-    parts.push(t("task.doneAt", { date: shortDateTime(lane.task.actualFinishAt) }));
-  } else if (lane.task.waiting) {
-    parts.push(
-      lane.task.followUpDate
-        ? t("task.followUpOn", { date: shortDate(lane.task.followUpDate) })
-        : t("task.noFollowUp"),
-    );
-  } else if (lane.row.conflict && lane.task.expectedFinishDate) {
-    parts.push(t("task.expectedFinish") + " " + shortDate(lane.task.expectedFinishDate));
-  }
-  return parts.join(" · ");
+/**
+ * Whether the bar carries a second line at all: only the state badges make one. The
+ * span, the estimate and the dates read off the bar itself and the task sheet, so the
+ * gantt does not repeat them.
+ */
+function hasBadges(lane: WeekLane): boolean {
+  return (
+    lane.row.conflict ||
+    lane.task.suspended ||
+    !!lane.task.projectName ||
+    lane.task.waiting ||
+    lane.task.priority !== "normal"
+  );
 }
 
 const canComplete = (lane: WeekLane): boolean => !lane.row.history && !lane.task.children.length;
@@ -209,7 +204,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
   if (lanes.value.find((lane) => lane.task.id === id)?.row.history) return;
   await weekVM.moveBy(id, delta);
   await nextTick();
-  gridEl.value?.querySelector<HTMLElement>(`[data-lane="${id}"] [role="button"]`)?.focus();
+  gridEl.value?.querySelector<HTMLElement>(`[data-lane="${id}"]`)?.focus();
 }
 </script>
 
@@ -297,138 +292,143 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
         </div>
 
         <div
-          v-for="lane in lanes"
-          :key="lane.task.id"
-          :data-lane="lane.task.id"
-          class="group flex min-h-14 shrink-0 border-t border-base-300/60 first:border-t-0"
-          :class="{
-            'shadow-[inset_0_2px_0_var(--color-primary)]':
-              targetMoved && dropBefore === lane.task.id && draggingId !== lane.task.id,
+          class="grid grow"
+          :style="{
+            gridAutoRows: 'minmax(56px, auto)',
+            gridTemplateColumns: `repeat(${dates.length}, minmax(0, 1fr))`,
           }"
         >
-          <div class="relative grid flex-1 grid-cols-5">
-            <div v-for="date in dates" :key="date" class="row-start-1"></div>
-            <div
-              class="relative z-10 row-start-1 mx-[3px] my-auto flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border px-3 py-1 transition-[border-color,background-color,box-shadow] duration-150 hover:border-current/50 hover:shadow-sm"
-              :class="[skin(lane), { 'opacity-40': draggingId === lane.task.id }]"
-              :style="columnOf(lane)"
-              role="button"
-              tabindex="0"
-              :aria-label="t('week.ganttBarAria', { title: lane.task.title })"
-              @pointerdown="startDrag($event, lane)"
-              @pointermove="drag.move($event)"
-              @pointerup="drag.end()"
-              @pointercancel="drag.cancel()"
-              @click="openTask(lane)"
-              @keydown.enter.prevent="openTask(lane)"
-              @keydown.space.prevent="openTask(lane)"
-              @keydown.up.prevent="moveBy(lane.task.id, -1)"
-              @keydown.down.prevent="moveBy(lane.task.id, 1)"
-            >
+          <div
+            v-for="row in rowCount"
+            :key="`line-${row}`"
+            class="pointer-events-none border-base-300/60"
+            :class="{ 'border-t': row > 1 }"
+            :style="{ gridRow: row, gridColumn: '1 / -1' }"
+            aria-hidden="true"
+          ></div>
+          <div
+            v-for="lane in lanes"
+            :key="lane.task.id"
+            :data-lane="lane.task.id"
+            class="group relative z-10 mx-[3px] my-1.5 flex min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-lg border px-3 py-1 transition-[border-color,background-color,box-shadow] duration-150 hover:border-current/50 hover:shadow-sm"
+            :class="[
+              skin(lane),
+              {
+                'opacity-40': draggingId === lane.task.id,
+                'shadow-[inset_0_2px_0_var(--color-primary)]':
+                  targetMoved && dropBefore === lane.task.id && draggingId !== lane.task.id,
+              },
+            ]"
+            :style="boxOf(lane)"
+            role="button"
+            tabindex="0"
+            :aria-label="t('week.ganttBarAria', { title: lane.task.title })"
+            @pointerdown="startDrag($event, lane)"
+            @pointermove="drag.move($event)"
+            @pointerup="drag.end()"
+            @pointercancel="drag.cancel()"
+            @click="openTask(lane)"
+            @keydown.enter.prevent="openTask(lane)"
+            @keydown.space.prevent="openTask(lane)"
+            @keydown.up.prevent="moveBy(lane.task.id, -1)"
+            @keydown.down.prevent="moveBy(lane.task.id, 1)"
+          >
+            <span
+              v-for="tick in lane.to - lane.from"
+              :key="tick"
+              class="pointer-events-none absolute inset-y-0 border-l border-current opacity-20"
+              :style="{ left: `${(tick * 100) / (lane.to - lane.from + 1)}%` }"
+              aria-hidden="true"
+            ></span>
+            <div v-if="lane.task.parentTitle" class="flex min-w-0">
+              <ParentBadge :title="lane.task.parentTitle" />
+            </div>
+            <div class="relative flex min-w-0 items-center gap-1.5">
+              <button
+                v-if="canComplete(lane)"
+                class="flex shrink-0 rounded-full disabled:opacity-60"
+                :aria-label="doneLabel(lane)"
+                :title="doneLabel(lane)"
+                :disabled="busy"
+                @click.stop="complete(lane)"
+              >
+                <StatusDot
+                  :status="lane.task.status"
+                  :suspended="lane.task.suspended"
+                  :waiting="lane.task.waiting"
+                />
+              </button>
+              <span v-else class="shrink-0">
+                <StatusDot
+                  :status="lane.task.status"
+                  :suspended="lane.task.suspended"
+                  :waiting="lane.task.waiting"
+                />
+              </span>
               <span
-                v-for="tick in lane.to - lane.from"
-                :key="tick"
-                class="pointer-events-none absolute inset-y-0 border-l border-current opacity-20"
-                :style="{ left: `${(tick * 100) / (lane.to - lane.from + 1)}%` }"
-                aria-hidden="true"
-              ></span>
-              <div v-if="lane.task.parentTitle" class="flex min-w-0">
-                <ParentBadge :title="lane.task.parentTitle" />
-              </div>
-              <div class="relative flex min-w-0 items-center gap-1.5">
+                class="truncate text-[13.5px]"
+                :class="{ 'text-base-content/60 line-through': isDone(lane) }"
+              >
+                {{ lane.task.title }}
+              </span>
+              <div
+                v-if="!lane.row.history"
+                class="absolute inset-y-0 -right-2 flex -translate-y-px items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
+              >
                 <button
-                  v-if="canComplete(lane)"
-                  class="flex shrink-0 rounded-full disabled:opacity-60"
-                  :aria-label="doneLabel(lane)"
-                  :title="doneLabel(lane)"
+                  v-if="canStart(lane)"
+                  class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
+                  :aria-label="t('task.startAria', { title: lane.task.title })"
+                  :title="t('task.startAria', { title: lane.task.title })"
                   :disabled="busy"
-                  @click.stop="complete(lane)"
+                  @click.stop="start(lane)"
                 >
-                  <StatusDot
-                    :status="lane.task.status"
-                    :suspended="lane.task.suspended"
-                    :waiting="lane.task.waiting"
-                  />
+                  <Play :size="16" aria-hidden="true" />
                 </button>
-                <span v-else class="shrink-0">
-                  <StatusDot
-                    :status="lane.task.status"
-                    :suspended="lane.task.suspended"
-                    :waiting="lane.task.waiting"
-                  />
-                </span>
-                <span
-                  class="truncate text-[13.5px]"
-                  :class="{ 'text-base-content/60 line-through': isDone(lane) }"
+                <button
+                  v-if="canSuspend(lane)"
+                  class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
+                  :aria-label="t('task.suspendAria', { title: lane.task.title })"
+                  :title="t('task.suspendAria', { title: lane.task.title })"
+                  :disabled="busy"
+                  @click.stop="suspend(lane)"
                 >
-                  {{ lane.task.title }}
-                </span>
-                <div
-                  v-if="!lane.row.history"
-                  class="absolute inset-y-0 -right-2 flex -translate-y-px items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
+                  <Pause :size="16" aria-hidden="true" />
+                </button>
+                <button
+                  v-if="canWait(lane)"
+                  class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
+                  :aria-label="waitLabel(lane)"
+                  :title="waitLabel(lane)"
+                  :disabled="busy"
+                  @click.stop="wait(lane)"
                 >
-                  <button
-                    v-if="canStart(lane)"
-                    class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
-                    :aria-label="t('task.startAria', { title: lane.task.title })"
-                    :title="t('task.startAria', { title: lane.task.title })"
-                    :disabled="busy"
-                    @click.stop="start(lane)"
-                  >
-                    <Play :size="16" aria-hidden="true" />
-                  </button>
-                  <button
-                    v-if="canSuspend(lane)"
-                    class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
-                    :aria-label="t('task.suspendAria', { title: lane.task.title })"
-                    :title="t('task.suspendAria', { title: lane.task.title })"
-                    :disabled="busy"
-                    @click.stop="suspend(lane)"
-                  >
-                    <Pause :size="16" aria-hidden="true" />
-                  </button>
-                  <button
-                    v-if="canWait(lane)"
-                    class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
-                    :aria-label="waitLabel(lane)"
-                    :title="waitLabel(lane)"
-                    :disabled="busy"
-                    @click.stop="wait(lane)"
-                  >
-                    <Hourglass :size="16" aria-hidden="true" />
-                  </button>
-                </div>
+                  <Hourglass :size="16" aria-hidden="true" />
+                </button>
               </div>
-              <div class="flex min-w-0 items-center gap-1 text-[12px]">
-                <span
-                  v-if="lane.row.conflict"
-                  class="badge badge-soft badge-error badge-xs shrink-0"
-                >
-                  {{ t("task.notFit") }}
-                </span>
-                <span v-if="lane.task.suspended" class="badge badge-ghost badge-xs shrink-0">
-                  {{
-                    lane.task.suspendedUntil
-                      ? t("task.suspended", { date: shortDate(lane.task.suspendedUntil) })
-                      : t("task.suspendedNoDate")
-                  }}
-                </span>
-                <span
-                  v-if="lane.task.projectName"
-                  class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
-                  :title="lane.task.projectName"
-                >
-                  <span class="min-w-0 truncate">{{ lane.task.projectName }}</span>
-                </span>
-                <PriorityBadge :priority="lane.task.priority" />
-                <span
-                  v-if="lane.task.waiting"
-                  class="badge badge-soft badge-info badge-xs shrink-0"
-                >
-                  {{ waitingLabel(lane) }}
-                </span>
-                <span class="min-w-0 truncate" :title="metaOf(lane)">{{ metaOf(lane) }}</span>
-              </div>
+            </div>
+            <div v-if="hasBadges(lane)" class="flex min-w-0 items-center gap-1 text-[12px]">
+              <span v-if="lane.row.conflict" class="badge badge-soft badge-error badge-xs shrink-0">
+                {{ t("task.notFit") }}
+              </span>
+              <span v-if="lane.task.suspended" class="badge badge-ghost badge-xs shrink-0">
+                {{
+                  lane.task.suspendedUntil
+                    ? t("task.suspended", { date: shortDate(lane.task.suspendedUntil) })
+                    : t("task.suspendedNoDate")
+                }}
+              </span>
+              <span
+                v-if="lane.task.projectName"
+                class="badge badge-soft badge-primary badge-xs max-w-16 shrink-0"
+                :title="lane.task.projectName"
+              >
+                <span class="min-w-0 truncate">{{ lane.task.projectName }}</span>
+              </span>
+              <PriorityBadge :priority="lane.task.priority" />
+              <span v-if="lane.task.waiting" class="badge badge-soft badge-info badge-xs shrink-0">
+                {{ waitingLabel(lane) }}
+              </span>
             </div>
           </div>
         </div>
