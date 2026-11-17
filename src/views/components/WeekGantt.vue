@@ -37,7 +37,6 @@ const emit = defineEmits<{ changed: [] }>();
 
 const gridEl = ref<HTMLElement | null>(null);
 const lanes = computed(() => groupLanes(props.days, props.dates));
-const rowCount = computed(() => Math.max(0, ...lanes.value.map((lane) => lane.rowIndex + 1)));
 const loads = weekVM.loads;
 const overloadDates = weekVM.overloadDates;
 
@@ -81,32 +80,18 @@ function boxOf(lane: WeekLane): string {
 }
 const isDone = (lane: WeekLane): boolean => lane.task.status === "done";
 
-/** Bar skin: finished work recedes, parked work warns, conflict alarms. */
+/** Bar skin: finished work recedes, parked work sits back in a quiet grey, conflict alarms. */
 function skin(lane: WeekLane): string {
   if (isDone(lane)) {
     return "border-base-300 border-l-[3px] border-l-base-content/20 bg-base-300/50 text-base-content/60";
   }
   if (lane.task.parked) {
-    return "border-dashed border-warning/50 border-l-[3px] border-l-warning bg-warning/[0.10] text-warning";
+    return "border-secondary/40 border-l-[3px] border-l-secondary bg-secondary/[0.08] text-base-content/70";
   }
   if (lane.row.conflict) {
     return "border-error/40 border-l-[3px] border-l-error bg-error/[0.10] text-error";
   }
   return "border-primary/30 border-l-[3px] border-l-primary bg-primary/[0.12] text-primary";
-}
-
-/**
- * Whether the bar carries a second line at all: only the state badges make one. The
- * span, the estimate and the dates read off the bar itself and the task sheet, so the
- * gantt does not repeat them.
- */
-function hasBadges(lane: WeekLane): boolean {
-  return (
-    lane.row.conflict ||
-    lane.task.parked ||
-    !!lane.task.projectName ||
-    lane.task.priority !== "normal"
-  );
 }
 
 const canComplete = (lane: WeekLane): boolean => !lane.row.history && !lane.task.children.length;
@@ -206,11 +191,11 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
       class="flex grow flex-col overflow-hidden rounded-2xl border border-base-300 bg-base-100"
       :class="{ 'select-none': draggingId }"
     >
-      <div class="grid shrink-0 grid-cols-5 border-b border-base-300/70">
+      <div class="grid shrink-0 grid-cols-5">
         <div
           v-for="(date, index) in dates"
           :key="date"
-          class="flex min-w-0 flex-col justify-center gap-0.5 border-l border-base-300/70 px-3 py-1 first:border-l-0"
+          class="flex min-w-0 flex-col justify-center gap-0.5 px-3 py-1"
           :class="{
             'bg-base-200/60': date < today,
             'bg-primary/[0.14]': date === today,
@@ -261,12 +246,11 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
       </div>
 
       <div class="relative isolate flex grow flex-col">
-        <!-- The day columns run to the card's bottom, so the grid reads as a table. -->
+        <!-- The day bands run to the card's bottom: the shading, not a rule, marks the days. -->
         <div class="pointer-events-none absolute inset-0 -z-10 grid grid-cols-5" aria-hidden="true">
           <div
             v-for="(date, index) in dates"
             :key="date"
-            class="border-l border-base-300/60 first:border-l-0"
             :class="{
               'bg-base-200/50': date < today,
               'bg-primary/[0.09]': date === today,
@@ -283,14 +267,6 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
             gridTemplateColumns: `repeat(${dates.length}, minmax(0, 1fr))`,
           }"
         >
-          <div
-            v-for="row in rowCount"
-            :key="`line-${row}`"
-            class="pointer-events-none border-base-300/60"
-            :class="{ 'border-t': row > 1 }"
-            :style="{ gridRow: row, gridColumn: '1 / -1' }"
-            aria-hidden="true"
-          ></div>
           <div
             v-for="lane in lanes"
             :key="lane.task.id"
@@ -318,17 +294,10 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
             @keydown.up.prevent="moveBy(lane.task.id, -1)"
             @keydown.down.prevent="moveBy(lane.task.id, 1)"
           >
-            <span
-              v-for="tick in lane.to - lane.from"
-              :key="tick"
-              class="pointer-events-none absolute inset-y-0 border-l border-current opacity-20"
-              :style="{ left: `${(tick * 100) / (lane.to - lane.from + 1)}%` }"
-              aria-hidden="true"
-            ></span>
-            <div v-if="lane.task.parentTitle" class="flex min-w-0">
-              <ParentBadge :title="lane.task.parentTitle" />
+            <div class="flex h-4 min-w-0 items-center">
+              <ParentBadge v-if="lane.task.parentTitle" :title="lane.task.parentTitle" />
             </div>
-            <div class="relative flex min-w-0 items-center gap-1.5">
+            <div class="relative flex h-5 min-w-0 items-center gap-1.5">
               <button
                 v-if="canComplete(lane)"
                 class="flex shrink-0 rounded-full disabled:opacity-60"
@@ -374,7 +343,7 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 </button>
               </div>
             </div>
-            <div v-if="hasBadges(lane)" class="flex min-w-0 items-center gap-1 text-[12px]">
+            <div class="flex h-4 min-w-0 items-center gap-1 text-[12px]">
               <span v-if="lane.row.conflict" class="badge badge-soft badge-error badge-xs shrink-0">
                 {{ t("task.notFit") }}
               </span>
