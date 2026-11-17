@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 30;
+pub const LATEST: i64 = 31;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -883,6 +883,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             )?;
         }
         tx.pragma_update(None, "user_version", 30)?;
+        tx.commit()?;
+    }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 31 {
+        // A project-level prefix is prepended to every new requirement and issue number.
+        // Empty by default, so an existing ledger keeps the numbers it already has.
+        let tx = conn.unchecked_transaction()?;
+        if has_table(&tx, "projects")? && !has_project_column(&tx, "project_prefix")? {
+            tx.execute_batch(
+                "ALTER TABLE projects ADD COLUMN project_prefix TEXT NOT NULL DEFAULT ''",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 31)?;
         tx.commit()?;
     }
     Ok(())
@@ -2769,6 +2783,30 @@ mod tests {
 
         // A crash before the version bump replays without refusing on a missing column.
         c.pragma_update(None, "user_version", 29).unwrap();
+        migrate(&c).unwrap();
+    }
+
+    #[test]
+    fn a_project_prefix_defaults_to_empty_over_a_v30_ledger() {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "INSERT INTO projects (id, name, created_at, updated_at)
+             VALUES ('p1', '华东客户交付', '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z');
+             ALTER TABLE projects DROP COLUMN project_prefix;",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 30).unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        let prefix: String = c
+            .query_row("SELECT project_prefix FROM projects WHERE id = 'p1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(prefix, "", "an existing project keeps its old numbers");
+        // A crash before the bump replays without dying on a duplicate column.
+        c.pragma_update(None, "user_version", 30).unwrap();
         migrate(&c).unwrap();
     }
 }

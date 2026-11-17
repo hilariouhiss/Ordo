@@ -66,6 +66,10 @@ fn insert_with_me(
 /// A number format a project edit must be able to save: a short prefix and a 1..6 digit
 /// width. The prefix carries whatever separator the user wants (REQ-, BUG_, 需求-).
 pub fn validate_numbering(numbering: &ProjectNumberingDto) -> Result<ProjectNumberingDto, String> {
+    let project_prefix = numbering.project_prefix.trim();
+    if project_prefix.chars().count() > 12 || project_prefix.chars().any(char::is_whitespace) {
+        return Err("invalid_number_prefix".into());
+    }
     let requirement_prefix = numbering.requirement_prefix.trim();
     let issue_prefix = numbering.issue_prefix.trim();
     for prefix in [requirement_prefix, issue_prefix] {
@@ -80,6 +84,7 @@ pub fn validate_numbering(numbering: &ProjectNumberingDto) -> Result<ProjectNumb
         }
     }
     Ok(ProjectNumberingDto {
+        project_prefix: project_prefix.to_string(),
         requirement_prefix: requirement_prefix.to_string(),
         issue_prefix: issue_prefix.to_string(),
         ..numbering.clone()
@@ -370,11 +375,32 @@ mod tests {
 
     fn numbering() -> crate::dto::ProjectNumberingDto {
         crate::dto::ProjectNumberingDto {
+            project_prefix: "".into(),
             requirement_prefix: "REQ-".into(),
             requirement_width: 3,
             issue_prefix: "ISS-".into(),
             issue_width: 3,
         }
+    }
+
+    #[test]
+    fn a_project_prefix_is_optional_but_short_and_tight() {
+        let mut format = numbering();
+        let validated = projects::validate_numbering(&format).unwrap();
+        assert_eq!(validated.project_prefix, "");
+        format.project_prefix = " ORDO- ".into();
+        let validated = projects::validate_numbering(&format).unwrap();
+        assert_eq!(validated.project_prefix, "ORDO-");
+        format.project_prefix = "两个 词".into();
+        assert_eq!(
+            projects::validate_numbering(&format).unwrap_err(),
+            "invalid_number_prefix"
+        );
+        format.project_prefix = "X".repeat(13);
+        assert_eq!(
+            projects::validate_numbering(&format).unwrap_err(),
+            "invalid_number_prefix"
+        );
     }
 
     fn category(c: &Connection, name: &str) -> String {

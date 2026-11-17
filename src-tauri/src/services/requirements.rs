@@ -211,11 +211,12 @@ fn insert_row_in(
     now: &str,
 ) -> Result<(String, String), String> {
     let format = projects::numbering(conn, project_id).map_err(|e| e.to_string())?;
+    let prefix = format!("{}{}", format.project_prefix, format.requirement_prefix);
     let (seq, number) = numbering::next_number(
         conn,
         project_id,
         "requirements",
-        &format.requirement_prefix,
+        &prefix,
         format.requirement_width,
     )
     .map_err(|e| e.to_string())?;
@@ -781,6 +782,26 @@ mod tests {
                 .unwrap()
                 .number,
             "ISS-001"
+        );
+    }
+
+    #[test]
+    fn a_project_prefix_goes_before_the_type_prefix() {
+        let c = setup();
+        let p = project(&c);
+        let mut format = crate::repo::projects::numbering(&c, &p).unwrap();
+        format.project_prefix = "ORDO-".into();
+        projects::update(&c, &p, "华东客户交付", None, "normal", &format, LATER).unwrap();
+
+        assert_eq!(
+            create(&c, &p, "需求一", NOW).unwrap().number,
+            "ORDO-REQ-001"
+        );
+        assert_eq!(
+            crate::services::issues::create(&c, &p, "问题一", NOW)
+                .unwrap()
+                .number,
+            "ORDO-ISS-001"
         );
     }
 

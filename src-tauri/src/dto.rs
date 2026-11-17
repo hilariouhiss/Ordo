@@ -196,6 +196,8 @@ pub struct ProjectDto {
     pub priority: String,
     pub archived_at: Option<String>,
     pub members: Vec<ProjectMemberDto>,
+    /// Prepended to every new requirement and issue number, e.g. ORDO-.
+    pub project_prefix: String,
     /// How this project numbers new requirements, e.g. REQ-001.
     pub requirement_prefix: String,
     pub requirement_width: i64,
@@ -579,6 +581,7 @@ pub struct SearchHitDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectNumberingDto {
+    pub project_prefix: String,
     pub requirement_prefix: String,
     pub requirement_width: i64,
     pub issue_prefix: String,

@@ -21,6 +21,7 @@ const form = reactive({
   groupId: "",
   priority: "normal" as Priority,
   members: [] as ProjectMember[],
+  projectPrefix: "",
   requirementPrefix: "REQ-",
   requirementWidth: 3,
   issuePrefix: "ISS-",
@@ -50,6 +51,7 @@ async function reload(): Promise<void> {
   form.groupId = project.groupId ?? "";
   form.priority = project.priority;
   form.members = project.members;
+  form.projectPrefix = project.projectPrefix;
   form.requirementPrefix = project.requirementPrefix;
   form.requirementWidth = project.requirementWidth;
   form.issuePrefix = project.issuePrefix;
@@ -84,13 +86,23 @@ function validPrefix(value: string): boolean {
   return trimmed.length >= 1 && trimmed.length <= 12 && !/\s/.test(trimmed);
 }
 
+/** A project prefix may be empty: leaving it out keeps the old numbers. */
+function validProjectPrefix(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "" || validPrefix(trimmed);
+}
+
 function preview(prefix: string, width: number): string {
   const safe = Math.max(1, Math.min(6, Math.round(width) || 1));
-  return prefix.trim() + String(1).padStart(safe, "0");
+  return form.projectPrefix.trim() + prefix.trim() + String(1).padStart(safe, "0");
 }
 
 async function save(): Promise<void> {
   error.value = "";
+  if (!validProjectPrefix(form.projectPrefix)) {
+    error.value = "invalid_number_prefix";
+    return;
+  }
   if (!validPrefix(form.requirementPrefix) || !validPrefix(form.issuePrefix)) {
     error.value = "invalid_number_prefix";
     return;
@@ -104,6 +116,7 @@ async function save(): Promise<void> {
   }
   try {
     await ipc.updateProject(props.id, form.name.trim(), form.groupId || null, form.priority, {
+      projectPrefix: form.projectPrefix.trim(),
       requirementPrefix: form.requirementPrefix.trim(),
       requirementWidth: Math.round(form.requirementWidth),
       issuePrefix: form.issuePrefix.trim(),
@@ -304,6 +317,20 @@ async function archive(): Promise<void> {
             }}</span>
           </div>
           <div class="mt-2 space-y-1.5 text-[12px]">
+            <div class="flex items-center gap-2">
+              <span class="w-16 shrink-0 text-base-content/65">{{
+                t("projectSettings.numberingProjectPrefix")
+              }}</span>
+              <input
+                v-model="form.projectPrefix"
+                maxlength="12"
+                class="input input-xs w-20 rounded-md border-base-300 font-mono"
+                :aria-label="t('projectSettings.numberingProjectPrefix')"
+              />
+              <span class="text-base-content/50">{{
+                t("projectSettings.numberingProjectPrefixHint")
+              }}</span>
+            </div>
             <div class="flex items-center gap-2">
               <span class="w-16 shrink-0 text-base-content/65">{{
                 t("projectSettings.numberingRequirement")

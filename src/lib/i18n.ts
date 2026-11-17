@@ -776,12 +776,14 @@ export const zh = {
 
   "projectSettings.numbering": "编号规则",
   "projectSettings.numberingHint": "只影响之后新建的条目",
+  "projectSettings.numberingProjectPrefix": "项目前缀",
+  "projectSettings.numberingProjectPrefixHint": "加在两种编号前面（可空）",
   "projectSettings.numberingRequirement": "需求",
   "projectSettings.numberingIssue": "Issue",
   "projectSettings.numberingPrefix": "前缀",
   "projectSettings.numberingWidth": "位数",
   "projectSettings.numberingNote":
-    "已有编号不变；序号继续往上走。前缀 1–12 字（不含空白），位数 1–6。",
+    "已有编号不变，序号继续往上走；项目前缀可空，填了限 1–12 字（不含空白），需求 / Issue 前缀 1–12 字（不含空白），位数 1–6。",
 
   "settings.tabRequirement": "需求",
   "settings.requirementFlow": "需求状态流程",
@@ -1593,12 +1595,14 @@ export const en: Record<MessageKey, string> = {
 
   "projectSettings.numbering": "Number format",
   "projectSettings.numberingHint": "Only new entries",
+  "projectSettings.numberingProjectPrefix": "Project",
+  "projectSettings.numberingProjectPrefixHint": "Prefix for both numbers (optional)",
   "projectSettings.numberingRequirement": "Requirement",
   "projectSettings.numberingIssue": "Issue",
   "projectSettings.numberingPrefix": "Prefix",
   "projectSettings.numberingWidth": "Width",
   "projectSettings.numberingNote":
-    "Existing numbers stay; the sequence keeps counting. Prefix 1–12 chars (no spaces), width 1–6.",
+    "Existing numbers stay; the sequence keeps counting. The project prefix may be empty; when set, all prefixes are 1–12 chars without spaces, width 1–6.",
 
   "settings.tabRequirement": "Requirements",
   "settings.requirementFlow": "Requirement status pipeline",

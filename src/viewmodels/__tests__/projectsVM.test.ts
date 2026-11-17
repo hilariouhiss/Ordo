@@ -44,6 +44,7 @@ const created: Project = {
   priority: "normal",
   archivedAt: null,
   members: [],
+  projectPrefix: "",
   requirementPrefix: "REQ-",
   requirementWidth: 3,
   issuePrefix: "ISS-",

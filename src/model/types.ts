@@ -129,6 +129,8 @@ export interface Project {
   priority: Priority;
   archivedAt: string | null;
   members: ProjectMember[];
+  /** Prepended to every new requirement and issue number, e.g. ORDO-. */
+  projectPrefix: string;
   /** How new requirements are numbered, e.g. REQ-001. */
   requirementPrefix: string;
   requirementWidth: number;
@@ -247,6 +249,7 @@ export interface ProjectDocumentDetail {
 }
 
 export interface ProjectNumbering {
+  projectPrefix: string;
   requirementPrefix: string;
   requirementWidth: number;
   issuePrefix: string;

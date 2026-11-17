@@ -21,11 +21,12 @@ pub fn create(
         return Err("invalid_project".into());
     }
     let format = projects::numbering(conn, project_id).map_err(|e| e.to_string())?;
+    let prefix = format!("{}{}", format.project_prefix, format.issue_prefix);
     let (seq, number) = numbering::next_number(
         conn,
         project_id,
         "issues",
-        &format.issue_prefix,
+        &prefix,
         format.issue_width,
     )
     .map_err(|e| e.to_string())?;
