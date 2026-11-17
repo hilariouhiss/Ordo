@@ -494,6 +494,83 @@ pub fn advance_for_task_in(conn: &Connection, task_id: &str, now: &str) -> Resul
     Ok(())
 }
 
+/// After a task was reopened: takes back the advance its own completion caused, so one
+/// piece of work cannot move the pipeline twice when it is finished again. Only an
+/// automatic step is undone, and only while this was the requirement's last open task.
+pub fn reopen_for_task_in(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
+    let requirement_id: Option<String> = conn
+        .query_row(
+            "SELECT requirement_id FROM tasks WHERE id = ?1",
+            [task_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .flatten();
+    let Some(requirement_id) = requirement_id else {
+        return Ok(());
+    };
+    let others_open: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tasks
+             WHERE requirement_id = ?1 AND id <> ?2 AND deleted_at IS NULL
+               AND canceled_at IS NULL AND status <> 'done'",
+            params![&requirement_id, task_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if others_open > 0 {
+        return Ok(());
+    }
+    // A stage a person picked stays: only an automatic advance is undone.
+    let automatic = conn
+        .query_row(
+            "SELECT kind FROM requirement_changes
+             WHERE requirement_id = ?1 AND kind IN ('status','status_auto')
+             ORDER BY created_at DESC LIMIT 1",
+            [&requirement_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .as_deref()
+        == Some("status_auto");
+    if !automatic {
+        return Ok(());
+    }
+    let Some(project_id) =
+        requirements::project_of(conn, &requirement_id).map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let pipeline =
+        requirements::list_statuses(conn, &project_id).map_err(|e| e.to_string())?;
+    let Some(current) = requirements::status_of(conn, &requirement_id)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    else {
+        return Ok(());
+    };
+    let Some(index) = pipeline.iter().position(|status| status.id == current) else {
+        return Ok(());
+    };
+    let Some(previous) = index.checked_sub(1).and_then(|at| pipeline.get(at)) else {
+        return Ok(());
+    };
+    requirements::set_status(conn, &requirement_id, &previous.id, now)
+        .map_err(|e| e.to_string())?;
+    requirements::insert_change(
+        conn,
+        &requirement_id,
+        "status_reopen",
+        Some(&pipeline[index].name),
+        Some(&previous.name),
+        now,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// A task's requirement link moved: log the unlink on the old requirement and the link on
 /// the new one. The caller owns the transaction and has already validated the project.
 pub fn task_link_changed_in(
@@ -1008,6 +1085,74 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    fn status_id(c: &Connection, requirement_id: &str) -> Option<String> {
+        requirement_repo::dto(c, requirement_id)
+            .unwrap()
+            .status_id
+    }
+
+    #[test]
+    fn reopening_the_task_takes_back_the_automatic_step() {
+        let c = setup();
+        let p = project(&c);
+        let pipeline = statuses(&c, &p, NOW).unwrap();
+        let req = create(&c, &p, "导出报表", NOW).unwrap();
+        let task = create_task(&c, &req.id, "任务一", NOW).unwrap();
+
+        tasks::set_status(&c, &task.id, "done", NOW).unwrap();
+        assert_eq!(status_id(&c, &req.id).as_deref(), Some(pipeline[1].id.as_str()));
+
+        // Clearing the finish reopens the task, so the step its completion caused goes back.
+        tasks::update_patch(
+            &c,
+            &task.id,
+            &TaskPatch {
+                actual_finish_at: Some(None),
+                ..Default::default()
+            },
+            LATER,
+        )
+        .unwrap();
+        assert_eq!(status_id(&c, &req.id).as_deref(), Some(pipeline[0].id.as_str()));
+
+        // Finishing it again advances once, never twice.
+        tasks::set_status(&c, &task.id, "done", "2026-11-17T04:00:00Z").unwrap();
+        assert_eq!(status_id(&c, &req.id).as_deref(), Some(pipeline[1].id.as_str()));
+        assert_eq!(
+            changes(&c, &req.id)
+                .unwrap()
+                .iter()
+                .filter(|change| change.kind == "status_auto")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_stage_a_person_picked_survives_a_reopen() {
+        let c = setup();
+        let p = project(&c);
+        let pipeline = statuses(&c, &p, NOW).unwrap();
+        let req = create(&c, &p, "导出报表", NOW).unwrap();
+        let task = create_task(&c, &req.id, "任务一", NOW).unwrap();
+        tasks::set_status(&c, &task.id, "done", NOW).unwrap();
+        // A hand move is the newest one, so the automatic step is no longer the last word.
+        advance(&c, &req.id, LATER).unwrap();
+
+        tasks::update_patch(
+            &c,
+            &task.id,
+            &TaskPatch {
+                actual_finish_at: Some(None),
+                ..Default::default()
+            },
+            "2026-11-17T05:00:00Z",
+        )
+        .unwrap();
+
+        assert_eq!(status_id(&c, &req.id).as_deref(), Some(pipeline[2].id.as_str()));
     }
 }
 

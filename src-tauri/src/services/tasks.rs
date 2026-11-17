@@ -306,6 +306,8 @@ pub(crate) fn sync_actual_in(
     } else if reopen && status == "done" {
         crate::repo::tasks::set_status_only(conn, id, "doing", false, now)
             .map_err(|e| e.to_string())?;
+        // Reopening takes back the pipeline step that finishing this task caused.
+        crate::services::requirements::reopen_for_task_in(conn, id, now)?;
     } else if start_changed && start.is_some() && status == "todo" && finish.is_none() {
         crate::repo::tasks::set_status_only(conn, id, "doing", false, now)
             .map_err(|e| e.to_string())?;
@@ -419,6 +421,8 @@ pub fn set_status(conn: &Connection, id: &str, status: &str, now: &str) -> Resul
         crate::services::subtasks::sync_parent(conn, id, now)?;
         if before != "done" && status == "done" {
             crate::services::requirements::advance_for_task_in(conn, id, now)?;
+        } else if before == "done" && status != "done" {
+            crate::services::requirements::reopen_for_task_in(conn, id, now)?;
         }
         crate::repo::tasks::dto(conn, id).map_err(|e| e.to_string())
     })();
