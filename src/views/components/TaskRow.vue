@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ChevronRight, Hourglass, Pause, Play } from "@lucide/vue";
+import { Check, ChevronRight, Hourglass, MessageSquareReply, Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, localTime, todayIso } from "../../lib/dates";
@@ -99,6 +99,8 @@ const subtasksLabel = computed(() =>
   t(expanded.value ? "task.collapseSubtasks" : "task.expandSubtasks"),
 );
 const canWait = computed(() => canWaitTask(props.task));
+/** A waiting task came back: the reply puts it back in the week without changing its status. */
+const canReply = computed(() => props.task.waiting && !props.readonly);
 const waitLabel = computed(() =>
   t(props.task.waiting ? "task.followUpAria" : "task.waitAria", { title: props.task.title }),
 );
@@ -171,6 +173,10 @@ function onRowClick(): void {
 
 function start(): void {
   void run(() => taskRowVM.start(props.task));
+}
+
+function reply(): void {
+  void run(() => taskRowVM.resume(props.task));
 }
 
 /** Parks the task on someone else's reply, or moves the day to chase them. */
@@ -370,6 +376,17 @@ async function suspend(): Promise<void> {
         @click.stop="wait"
       >
         <Hourglass :size="13" aria-hidden="true" />
+      </button>
+      <button
+        v-if="canReply"
+        type="button"
+        class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-primary disabled:opacity-50"
+        :aria-label="t('task.replied')"
+        :title="t('task.replied')"
+        :disabled="busy"
+        @click.stop="reply"
+      >
+        <MessageSquareReply :size="13" aria-hidden="true" />
       </button>
     </span>
 

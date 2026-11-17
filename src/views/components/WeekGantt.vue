@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Hourglass, Pause, Play } from "@lucide/vue";
+import { Hourglass, MessageSquareReply, Pause, Play } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import { shortDate, todayIso, weekdayLabel } from "../../lib/dates";
 import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
@@ -89,6 +89,10 @@ function skin(lane: WeekLane): string {
   if (lane.task.suspended) {
     return "border-dashed border-warning/50 border-l-[3px] border-l-warning bg-warning/[0.10] text-warning";
   }
+  // Waiting is parked on someone else's reply, so it reads dashed like a park, in the info tone.
+  if (lane.task.waiting) {
+    return "border-dashed border-info/50 border-l-[3px] border-l-info bg-info/[0.10] text-info";
+  }
   if (lane.row.conflict) {
     return "border-error/40 border-l-[3px] border-l-error bg-error/[0.10] text-error";
   }
@@ -117,6 +121,8 @@ const canStart = (lane: WeekLane): boolean =>
   (lane.task.status === "todo" || lane.task.suspended);
 const canSuspend = (lane: WeekLane): boolean => canSuspendTask(lane.task);
 const canWait = (lane: WeekLane): boolean => canWaitTask(lane.task);
+/** A waiting task came back: the reply puts it back in the week without changing its status. */
+const canReply = (lane: WeekLane): boolean => lane.task.waiting && !lane.row.history;
 /** The waiting line: who it waits on, or the wording for a person already removed. */
 const waitingLabel = (lane: WeekLane): string => {
   const name = waitingOnName(lane.task, appVM.state.people);
@@ -148,6 +154,10 @@ function complete(lane: WeekLane): void {
 
 function start(lane: WeekLane): void {
   void run(() => taskRowVM.start(lane.task));
+}
+
+function reply(lane: WeekLane): void {
+  void run(() => taskRowVM.resume(lane.task));
 }
 
 async function wait(lane: WeekLane): Promise<void> {
@@ -404,6 +414,16 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                   @click.stop="wait(lane)"
                 >
                   <Hourglass :size="16" aria-hidden="true" />
+                </button>
+                <button
+                  v-if="canReply(lane)"
+                  class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
+                  :aria-label="t('task.replied')"
+                  :title="t('task.replied')"
+                  :disabled="busy"
+                  @click.stop="reply(lane)"
+                >
+                  <MessageSquareReply :size="16" aria-hidden="true" />
                 </button>
               </div>
             </div>

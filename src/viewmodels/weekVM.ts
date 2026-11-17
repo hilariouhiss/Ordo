@@ -19,13 +19,11 @@ import {
   markNotificationsSeen,
   moveTask,
   placeTask,
-  resumeTask,
   weekStats,
 } from "../model/ipc";
 import type { Mode, Task, WeekStats } from "../model/types";
 import { appVM } from "./appVM";
 import { saveCapture } from "./captureSave";
-import { taskRowVM } from "./taskRowVM";
 
 export function createWeekVM() {
   const state = reactive({
@@ -63,12 +61,12 @@ export function createWeekVM() {
   );
   const planTasks = computed(() => weekTasks.value.map(toPlanTask));
   /**
-   * Where a parked task would start if it were still in the queue: its own card sits on
-   * that day, but these hours are not booked — the week's plan and numbers ignore them.
+   * Where a parked or waiting task would start if it were still in the queue: its own card
+   * sits on that day, but these hours are not booked — the week's plan and numbers ignore them.
    */
   const parkedPlan = computed(() =>
     planSchedule(
-      [...weekTasks.value, ...state.suspended]
+      [...weekTasks.value, ...state.suspended, ...state.waiting]
         .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
         .map(toPlanTask),
       today.value,
@@ -108,9 +106,10 @@ export function createWeekVM() {
     const withDone = appVM.state.settings?.weekHideDone
       ? planned
       : addDoneRows(planned, state.done, dates, today.value);
+    // Parked and waiting cards sit on the day their plan would have started, side by side.
     const withParked = addParkedRows(
       withDone,
-      state.suspended,
+      [...state.suspended, ...state.waiting],
       parkedPlan.value,
       dates,
       today.value,
@@ -189,21 +188,6 @@ export function createWeekVM() {
     }
   }
 
-  /**
-   * Back from a park. The action and its undo live in `taskRowVM`, shared with the row
-   * buttons, so the two entry points cannot drift apart.
-   */
-  async function resume(id: string): Promise<void> {
-    const parked = [...state.suspended, ...state.waiting].find((task) => task.id === id);
-    try {
-      if (parked) await taskRowVM.resume(parked);
-      else await resumeTask(id);
-      await load();
-    } catch (e) {
-      void askNotice(t("common.actionFailed"), errorText(e));
-    }
-  }
-
   async function move(taskId: string, beforeId: string | null): Promise<void> {
     if (taskId === beforeId) return;
     try {
@@ -249,9 +233,6 @@ export function createWeekVM() {
     load,
     markSeen,
     capture,
-    resume,
-    /** The waiting strip's reply button is the same action. */
-    resumeWaiting: resume,
     reload,
     move,
     place,

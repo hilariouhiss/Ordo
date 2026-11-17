@@ -11,7 +11,6 @@ import { fillPlannedDays } from "../lib/plan";
 import { usePointerDrag } from "../lib/pointerDrag";
 import { isRuleTask } from "../lib/rules";
 import { LOAD_WARN_HOURS } from "../lib/schedule";
-import { waitingOnName } from "../lib/waiting";
 import { prefersReducedMotion } from "../lib/windowMotion";
 import ViewSwitch from "./components/ViewSwitch.vue";
 import { anchorFor, coveredDays, ganttDropAt, listDropAt } from "../lib/weekDrop";
@@ -26,7 +25,6 @@ import { taskSheetVM } from "../viewmodels/taskSheetVM";
 import { undoVM } from "../viewmodels/undoVM";
 import { weekVM } from "../viewmodels/weekVM";
 import CaptureBar from "./components/CaptureBar.vue";
-import StatusDot from "./components/StatusDot.vue";
 import TaskRow from "./components/TaskRow.vue";
 import WeekGantt from "./components/WeekGantt.vue";
 import TaskSheet from "./overlays/TaskSheet.vue";
@@ -48,13 +46,11 @@ const {
   reload,
   markSeen,
   capture,
-  resumeWaiting,
   move,
   place,
   moveBy,
 } = weekVM;
 const overloadText = computed(() => overloadDates.value.map((date) => shortDate(date)).join(" · "));
-const waitingOpen = computed(() => state.waiting.length > 0);
 const weekView = computed(() => appVM.state.settings?.weekView ?? "list");
 const ganttView = computed(() => weekView.value === "gantt");
 const weekViewOptions = computed<{ value: WeekView; label: string }[]>(() => [
@@ -192,14 +188,6 @@ usePageHeader(() => ({
   action: passNeeded.value ? () => void passVM.start() : null,
 }));
 
-/** The rail's waiting line: who it waits on and when to chase them. */
-function waitingLine(task: Task): string {
-  const who = waitingOnName(task, appVM.state.people);
-  const follow = task.followUpDate
-    ? t("task.followUpOn", { date: shortDate(task.followUpDate) })
-    : t("task.noFollowUp");
-  return `${who ? t("task.waitingOn", { name: who }) : t("task.waitingNoName")} · ${follow}`;
-}
 const draggingId = computed(() => drag.id.value ?? poolDrag.id.value);
 const dropTarget = computed(() => drag.target.value ?? poolDrag.target.value);
 const dragMoved = computed(() => drag.moved.value || poolDrag.moved.value);
@@ -573,35 +561,6 @@ watch(
             <div class="mt-0.5 text-[20px] font-medium tabular-nums">{{ state.stats.delayed }}</div>
           </div>
         </div>
-
-        <section v-if="waitingOpen" class="min-w-0">
-          <h2 class="mb-2 text-[14px] font-semibold">
-            {{ t("week.waiting", { count: state.waiting.length }) }}
-          </h2>
-          <div class="overflow-hidden rounded-lg bg-base-100">
-            <div
-              v-for="task in state.waiting"
-              :key="task.id"
-              class="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 hover:bg-base-200/60"
-              @click="openTask(task)"
-            >
-              <StatusDot :status="task.status" :waiting="task.waiting" class="mt-0.5" />
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-[13px]">{{ task.title }}</div>
-                <div class="mt-0.5 truncate text-[11.5px] text-base-content/65">
-                  {{ waitingLine(task) }}
-                </div>
-              </div>
-              <button
-                type="button"
-                class="shrink-0 rounded px-1 py-0.5 text-[12px] text-primary hover:bg-base-300/60"
-                @click.stop="resumeWaiting(task.id)"
-              >
-                {{ t("task.replied") }}
-              </button>
-            </div>
-          </div>
-        </section>
 
         <section v-if="laterTasks.length" class="min-w-0">
           <div class="mb-2 flex items-baseline gap-2">
