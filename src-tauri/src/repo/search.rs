@@ -98,7 +98,7 @@ mod tests {
         week::capture(&c, "交底前确认", NOW, "t3").unwrap();
         week::capture(&c, "交底复盘", NOW, "t4").unwrap();
         crate::repo::tasks::archive(&c, "t2", NOW).unwrap();
-        week::resolve(&c, "t3", week::PassAction::Cancel, None, None, NOW).unwrap();
+        week::resolve(&c, "t3", week::PassAction::Cancel, None, None, None, NOW).unwrap();
         task_service::set_status(&c, "t4", "done", NOW).unwrap();
 
         let hits = search(&c, "交底").unwrap();

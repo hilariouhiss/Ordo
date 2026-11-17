@@ -4,9 +4,8 @@ import {
   askDefer,
   askNotice,
   askOverdueDefer,
-  askSuspend,
+  askPark,
   askText,
-  askWaiting,
   closeDialog,
   dialogRequest,
   runWithNotice,
@@ -21,38 +20,31 @@ describe("dialog", () => {
     expect(dialogRequest.value).toBeNull();
   });
 
-  it("asks for an optional suspend reason and date", async () => {
-    const pending = askSuspend("挂起「交底」");
-    expect(dialogRequest.value).toEqual({ kind: "suspend", title: "挂起「交底」" });
-    closeDialog({ reason: "等甲方", until: "2026-11-02" });
-    await expect(pending).resolves.toEqual({ reason: "等甲方", until: "2026-11-02" });
-  });
-
-  it("accepts an empty suspend form", async () => {
-    const pending = askSuspend("挂起「交底」");
-    closeDialog({ reason: "", until: "" });
-    await expect(pending).resolves.toEqual({ reason: "", until: "" });
-  });
-
-  it("treats closing a suspend dialog as a cancel", async () => {
-    const pending = askSuspend("挂起「交底」");
-    closeDialog(null);
-    await expect(pending).resolves.toBeNull();
-  });
-
-  it("asks who a task waits on and when to chase them", async () => {
-    const pending = askWaiting("等别人「交底」", {
+  it("asks for the optional reason, review day and person", async () => {
+    const pending = askPark("挂起「交底」", {
+      reason: "",
+      until: "2026-11-20",
       personId: "u2",
-      followUpDate: "2026-11-15",
     });
     expect(dialogRequest.value).toEqual({
-      kind: "waiting",
-      title: "等别人「交底」",
+      kind: "park",
+      title: "挂起「交底」",
+      reason: "",
+      until: "2026-11-20",
       personId: "u2",
-      followUpDate: "2026-11-15",
     });
-    closeDialog({ personId: null, followUpDate: "" });
-    await expect(pending).resolves.toEqual({ personId: null, followUpDate: "" });
+    closeDialog({ reason: "等甲方", until: "2026-11-20", personId: null });
+    await expect(pending).resolves.toEqual({
+      reason: "等甲方",
+      until: "2026-11-20",
+      personId: null,
+    });
+  });
+
+  it("accepts an empty park form", async () => {
+    const pending = askPark("挂起「交底」", { reason: "", until: "", personId: null });
+    closeDialog({ reason: "", until: "", personId: null });
+    await expect(pending).resolves.toEqual({ reason: "", until: "", personId: null });
   });
 
   it("asks for the new finish and why it moved", async () => {
@@ -82,8 +74,8 @@ describe("dialog", () => {
     await expect(pending).resolves.toBeNull();
   });
 
-  it("treats closing a waiting dialog as a cancel", async () => {
-    const pending = askWaiting("等别人「交底」", { personId: null, followUpDate: "" });
+  it("treats closing a park dialog as a cancel", async () => {
+    const pending = askPark("挂起「交底」", { reason: "", until: "", personId: null });
     closeDialog(null);
     await expect(pending).resolves.toBeNull();
   });

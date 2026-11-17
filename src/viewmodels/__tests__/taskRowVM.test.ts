@@ -3,44 +3,37 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 vi.mock("../../model/ipc", () => ({
   setTaskStatus: vi.fn(),
   startTask: vi.fn(),
-  suspendTask: vi.fn(),
+  parkTask: vi.fn(),
   resumeTask: vi.fn(),
   updateTaskPatch: vi.fn(),
-  waitTask: vi.fn(),
 }));
 vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 
-import {
-  resumeTask,
-  setTaskStatus,
-  startTask,
-  suspendTask,
-  updateTaskPatch,
-  waitTask,
-} from "../../model/ipc";
+import { parkTask, resumeTask, setTaskStatus, startTask, updateTaskPatch } from "../../model/ipc";
 import { undoVM } from "../undoVM";
 import { createTaskRowVM } from "../taskRowVM";
 import { task } from "./fixtures";
+
+const draft = { reason: "等甲方", until: "2026-11-02", personId: "u2" };
 
 describe("taskRowVM", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(setTaskStatus).mockResolvedValue(task());
     vi.mocked(startTask).mockResolvedValue(task());
-    vi.mocked(suspendTask).mockResolvedValue(task());
+    vi.mocked(parkTask).mockResolvedValue(task({ parked: true }));
     vi.mocked(resumeTask).mockResolvedValue(task());
     vi.mocked(updateTaskPatch).mockResolvedValue(task());
-    vi.mocked(waitTask).mockResolvedValue(task({ waiting: true }));
   });
 
-  it("starts and suspends the task through the commands", async () => {
+  it("starts and parks the task through the commands", async () => {
     const vm = createTaskRowVM();
 
     await vm.start(task({ id: "t1" }));
-    await vm.suspend(task({ id: "t1" }), "2026-11-02", "等甲方");
+    await vm.park(task({ id: "t1" }), draft);
 
     expect(startTask).toHaveBeenCalledWith("t1");
-    expect(suspendTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方");
+    expect(parkTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方", "u2");
   });
 
   it("toggles between done and todo", async () => {
@@ -66,15 +59,16 @@ describe("taskRowVM", () => {
     expect(setTaskStatus).toHaveBeenLastCalledWith("t1", "doing");
   });
 
-  it("undo of a completion puts a suspended task back on its park", async () => {
+  it("undo of a completion puts a parked task back on its park", async () => {
     const vm = createTaskRowVM();
     const parked = task({
       id: "t1",
       title: "交底",
       status: "doing",
-      suspended: true,
-      suspendedUntil: "2999-12-01",
-      suspendReason: "等甲方",
+      parked: true,
+      parkUntil: "2999-12-01",
+      parkReason: "等甲方",
+      parkedOnId: "u2",
     });
 
     await vm.toggleDone(parked);
@@ -82,77 +76,54 @@ describe("taskRowVM", () => {
     await run();
 
     expect(setTaskStatus).toHaveBeenLastCalledWith("t1", "doing");
-    expect(suspendTask).toHaveBeenLastCalledWith("t1", "2999-12-01", "等甲方");
+    expect(parkTask).toHaveBeenLastCalledWith("t1", "2999-12-01", "等甲方", "u2");
   });
 
-  it("undo of a completion puts a waiting task back on its follow-up", async () => {
-    const vm = createTaskRowVM();
-    const parked = task({
-      id: "t1",
-      title: "交底",
-      status: "doing",
-      waiting: true,
-      waitingOnId: "u2",
-      followUpDate: "2999-12-06",
-    });
-
-    await vm.toggleDone(parked);
-    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
-    await run();
-
-    expect(setTaskStatus).toHaveBeenLastCalledWith("t1", "doing");
-    expect(waitTask).toHaveBeenLastCalledWith("t1", "u2", "2999-12-06");
-  });
-
-  it("undoes a suspension by bringing the task back", async () => {
-    const vm = createTaskRowVM();
-    vi.mocked(suspendTask).mockResolvedValue(task({ suspended: true }));
-
-    await vm.suspend(task({ id: "t1", title: "交底" }), null, null);
-
-    const [, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
-    await run();
-    expect(resumeTask).toHaveBeenCalledWith("t1");
-  });
-
-  it("waits through the command and offers undo back into the week", async () => {
+  it("undoes a park by bringing the task back", async () => {
     const vm = createTaskRowVM();
 
-    await vm.wait(task({ id: "t1", title: "交底" }), "u2", "2026-11-15");
+    await vm.park(task({ id: "t1", title: "交底" }), draft);
 
-    expect(waitTask).toHaveBeenCalledWith("t1", "u2", "2026-11-15");
     const [message, run] = vi.mocked(undoVM.pushUndo).mock.calls[0];
     expect(String(message)).toContain("交底");
     await run();
     expect(resumeTask).toHaveBeenCalledWith("t1");
   });
 
-  it("undo of a moved wait restores the old person and day", async () => {
+  it("undo of a resume puts the task back on its park", async () => {
     const vm = createTaskRowVM();
 
-    await vm.wait(
-      task({ id: "t1", waiting: true, waitingOnId: "u2", followUpDate: "2026-12-01" }),
-      "u3",
-      "2026-12-05",
+    await vm.resume(
+      task({
+        id: "t1",
+        parked: true,
+        parkUntil: "2999-12-06",
+        parkReason: "等甲方",
+        parkedOnId: "u2",
+      }),
     );
     const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
     await run();
 
-    expect(waitTask).toHaveBeenLastCalledWith("t1", "u2", "2026-12-01");
+    expect(parkTask).toHaveBeenLastCalledWith("t1", "2999-12-06", "等甲方", "u2");
   });
 
-  it("undo of a moved wait drops a day that has already passed", async () => {
+  it("undo of a resume drops a park day that has already passed", async () => {
     const vm = createTaskRowVM();
 
-    await vm.wait(
-      task({ id: "t1", waiting: true, waitingOnId: "u2", followUpDate: "2020-01-01" }),
-      "u3",
-      "2026-12-05",
+    await vm.resume(
+      task({
+        id: "t1",
+        parked: true,
+        parkUntil: "2020-01-01",
+        parkReason: "等甲方",
+        parkedOnId: "u2",
+      }),
     );
     const [, run] = vi.mocked(undoVM.pushUndo).mock.calls.at(-1)!;
     await run();
 
-    expect(waitTask).toHaveBeenLastCalledWith("t1", "u2", null);
+    expect(parkTask).toHaveBeenLastCalledWith("t1", null, "等甲方", "u2");
   });
 
   it("puts the recorded times back when the undo of a reopen re-completes", async () => {

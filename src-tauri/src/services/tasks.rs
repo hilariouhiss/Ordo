@@ -1307,6 +1307,7 @@ mod tests {
             crate::services::week::PassAction::Cancel,
             None,
             None,
+            None,
             NOW,
         )
         .unwrap();
@@ -1334,16 +1335,17 @@ mod tests {
     }
 
     #[test]
-    fn a_status_change_keeps_a_suspended_task_out_of_the_week() {
+    fn a_status_change_keeps_a_parked_task_out_of_the_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
-            crate::services::week::PassAction::Suspend,
+            crate::services::week::PassAction::Park,
             Some("2026-11-02"),
             Some("等甲方"),
+            None,
             NOW,
         )
         .unwrap();
@@ -1351,43 +1353,44 @@ mod tests {
         let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
 
         assert!(!t.in_week);
-        assert!(t.suspended);
-        assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
-        assert_eq!(t.suspend_reason.as_deref(), Some("等甲方"));
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert!(t.parked);
+        assert_eq!(t.park_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.park_reason.as_deref(), Some("等甲方"));
+        assert_eq!(week::list_parked(&c).unwrap().len(), 1);
     }
 
     #[test]
-    fn completing_a_suspended_task_drops_the_suspension() {
+    fn completing_a_parked_task_drops_the_park() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
-            crate::services::week::PassAction::Suspend,
+            crate::services::week::PassAction::Park,
             Some("2026-11-02"),
             Some("等甲方"),
+            None,
             NOW,
         )
         .unwrap();
 
         let t = tasks::set_status(&c, "t1", "done", NOW).unwrap();
 
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert!(t.suspended_at.is_none());
-        assert!(t.suspend_reason.is_none());
-        assert!(week::list_suspended(&c).unwrap().is_empty());
+        assert!(!t.parked);
+        assert!(t.park_until.is_none());
+        assert!(t.parked_at.is_none());
+        assert!(t.park_reason.is_none());
+        assert!(week::list_parked(&c).unwrap().is_empty());
     }
 
     #[test]
-    fn a_legacy_suspended_row_stays_out_of_the_week() {
+    fn a_legacy_parked_row_stays_out_of_the_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         // The old build could save in_week = 1 together with a suspension date.
         c.execute(
-            "UPDATE tasks SET in_week = 1, suspended = 1, suspended_until = '2026-11-02'
+            "UPDATE tasks SET in_week = 1, parked = 1, park_until = '2026-11-02'
              WHERE id = 't1'",
             [],
         )
@@ -1395,7 +1398,7 @@ mod tests {
 
         assert!(week::list(&c).unwrap().is_empty());
         assert!(week::pass_queue(&c).unwrap().is_empty());
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert_eq!(week::list_parked(&c).unwrap().len(), 1);
 
         let t = tasks::set_status(&c, "t1", "doing", NOW).unwrap();
         assert!(!t.in_week);

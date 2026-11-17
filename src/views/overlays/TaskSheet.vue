@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ArrowLeft, CalendarClock, GripVertical, Hourglass, Pause, Pencil, X } from "@lucide/vue";
+import { ArrowLeft, CalendarClock, GripVertical, Pause, Pencil, X } from "@lucide/vue";
 import { AnimatePresence, motion } from "motion-v";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { localDate, shortDate, todayIso, weekdayLabel } from "../../lib/dates";
-import { askConfirm, askDefer, askSuspend, askWaiting } from "../../lib/dialog";
+import { askConfirm, askDefer, askPark } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t, type MessageKey } from "../../lib/i18n";
 import { isImeEnter } from "../../lib/keys";
@@ -15,9 +15,9 @@ import {
   subtaskDropSlot,
   subtaskMoveTarget,
 } from "../../lib/subtasks";
-import { canSuspendTask } from "../../lib/status";
+import { statusDisplay } from "../../lib/status";
 import { effortForFinish, nextDeferDay, timingAnchor, workdayOnOrBefore } from "../../lib/timing";
-import { waitDefaults, waitingOnName } from "../../lib/waiting";
+import { parkDefaults } from "../../lib/park";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Delay, Priority, Status, Task } from "../../model/types";
 import { appVM } from "../../viewmodels/appVM";
@@ -32,10 +32,14 @@ import DateField from "../components/DateField.vue";
 import EffortField from "../components/EffortField.vue";
 import StatusDot from "../components/StatusDot.vue";
 
-const statusOptions: { value: Status; key: MessageKey }[] = [
+type StateValue = Status | "parked";
+
+/** The one state row: a park is exclusive with the three statuses, so only one glows. */
+const stateOptions: { value: StateValue; key: MessageKey }[] = [
   { value: "todo", key: "task.statusTodo" },
   { value: "doing", key: "task.statusDoing" },
   { value: "done", key: "task.statusDone" },
+  { value: "parked", key: "task.suspend" },
 ];
 
 /** The draft lives in the view model, so drilling into a subtask can park it intact. */
@@ -96,7 +100,10 @@ watch(
 );
 
 const late = computed(() => overdueDays(task.value?.expectedFinishDate ?? null, todayIso()));
-const canSuspend = computed(() => (task.value ? canSuspendTask(task.value) : false));
+/** What the row shows and what the draft will land on Save. */
+const currentState = computed<StateValue>(() =>
+  statusDisplay(form.value.status, form.value.parked),
+);
 /** A rule owns its day and an umbrella derives its dates, so neither can be deferred. */
 const canDefer = computed(
   () =>
@@ -106,50 +113,65 @@ const canDefer = computed(
     task.value.status !== "done" &&
     !!task.value.expectedFinishDate,
 );
-const suspendBadge = computed(() => {
-  const current = task.value;
-  if (!current) return "";
-  return current.suspendedAt
-    ? t("task.suspendedFor", { days: daysSince(current.suspendedAt, todayIso()) })
-    : t("task.suspendedNoDate");
+/** The park strip: a draft park reads as parked, with its days only once it landed. */
+const parkStrip = computed(() => {
+  if (!form.value.parked) return "";
+  const parts: string[] = [];
+  const since = task.value?.parked ? task.value.parkedAt : null;
+  const days = since ? daysSince(since, todayIso()) : 0;
+  parts.push(days > 0 ? t("task.parkedFor", { days }) : t("task.parkedNoDate"));
+  if (form.value.parkReason) parts.push(form.value.parkReason);
+  const name = appVM.state.people.find((person) => person.id === form.value.parkedOnId)?.name;
+  if (name) parts.push(t("task.waitingOn", { name }));
+  if (form.value.parkUntil) {
+    parts.push(t("task.parkUntil", { date: shortDate(form.value.parkUntil) }));
+  }
+  return parts.join(" · ");
 });
 /** The first day a delay may move the finish to: after the stored one, never before today. */
 const deferMin = computed(() => nextDeferDay(task.value?.expectedFinishDate ?? null, todayIso()));
-const waitingName = computed(() =>
-  task.value ? waitingOnName(task.value, appVM.state.people) : null,
-);
-const waitingDays = computed(() =>
-  task.value?.waitingSince ? daysSince(task.value.waitingSince, todayIso()) : 0,
-);
 
-/** The waiting strip writes at once, like archiving: it is a state, not a draft field. */
-async function openWaiting(): Promise<void> {
+/** Tells a status chip from the park chip for the template's icon choice. */
+function isStatus(value: StateValue): value is Status {
+  return value !== "parked";
+}
+
+function stateDisabled(value: StateValue): boolean {
+  // A finished task cannot be set aside; every other state is a draft choice.
+  return value === "parked" && form.value.status === "done";
+}
+
+function chipClass(value: StateValue): string {
+  if (currentState.value === value) {
+    return "border-base-content/25 bg-base-300 font-medium text-base-content";
+  }
+  return stateDisabled(value)
+    ? "border-base-300 text-base-content/65 opacity-40"
+    : "border-base-300 text-base-content/65 hover:text-base-content";
+}
+
+/** Switches the draft state; the park dialog fills the park fields when it opens. */
+function chooseState(value: StateValue): void {
+  if (stateDisabled(value)) return;
+  if (value === "parked") {
+    void openPark();
+    return;
+  }
+  taskSheetVM.selectStatus(value);
+}
+
+/** The one park dialog: why, the day to look again, and who it waits on, all optional. */
+async function openPark(): Promise<void> {
   const current = task.value;
   if (!current) return;
-  const draft = await askWaiting(
-    t("task.waitDialogTitle", { title: current.title }),
-    waitDefaults(current, appVM.state.people, todayIso()),
-  );
+  const base = parkDefaults(current, appVM.state.people, todayIso());
+  const draft = await askPark(t("task.suspendAria", { title: current.title }), {
+    reason: form.value.parked ? form.value.parkReason : "",
+    until: form.value.parked ? form.value.parkUntil : base.until,
+    personId: form.value.parked ? form.value.parkedOnId : base.personId,
+  });
   if (!draft) return;
-  await taskSheetVM.waitFor(draft.personId, draft.followUpDate || null);
-}
-
-/** A reply arrived: the task rejoins the week, and undo parks it on the same wait. */
-function markReplied(): void {
-  void taskSheetVM.markReplied();
-}
-
-/** Parks the open task; the strip that replaces the row's buttons shows why and since when. */
-async function suspendTask(): Promise<void> {
-  const current = task.value;
-  if (!current) return;
-  const draft = await askSuspend(t("task.suspendAria", { title: current.title }));
-  if (!draft) return;
-  await taskSheetVM.suspend(draft.until || null, draft.reason || null);
-}
-
-function resumeTask(): void {
-  void taskSheetVM.resume();
+  taskSheetVM.setPark(draft);
 }
 
 /** Pushes the finish later and records why; the estimate grows to cover the new span. */
@@ -181,7 +203,7 @@ function cancelDelay(): void {
   editingDelayId.value = null;
 }
 
-/** A delay record is written already, so its reason lands at once, like the waiting strip. */
+/** A delay record is written already, so its reason lands at once, like the park strip. */
 async function commitDelay(): Promise<void> {
   const id = editingDelayId.value;
   if (!id) return;
@@ -236,10 +258,6 @@ async function save(): Promise<void> {
   // A focused field still owes the draft its value; leaving it commits first.
   (document.activeElement as HTMLElement | null)?.blur();
   await taskSheetVM.save();
-}
-
-function setStatus(status: Status): void {
-  form.value.status = status;
 }
 
 /** Actual times are a draft too: the pair previews here and is written on save. */
@@ -531,46 +549,19 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </label>
 
           <div v-if="!hasSubtasks" class="mt-3 flex flex-wrap items-center gap-1.5">
-            <span class="mr-0.5 text-[12px] text-base-content/65">{{ t("task.status") }}</span>
             <button
-              v-for="option in statusOptions"
+              v-for="option in stateOptions"
               :key="option.value"
               type="button"
-              class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[13px]"
-              :class="
-                form.status === option.value
-                  ? 'border-base-content/25 bg-base-300 font-medium text-base-content'
-                  : 'border-base-300 text-base-content/65 hover:text-base-content'
-              "
-              :aria-pressed="form.status === option.value"
-              @click="setStatus(option.value)"
+              class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[13px] disabled:cursor-not-allowed"
+              :class="chipClass(option.value)"
+              :aria-pressed="currentState === option.value"
+              :disabled="stateDisabled(option.value)"
+              @click="chooseState(option.value)"
             >
-              <StatusDot :status="option.value" />
+              <StatusDot v-if="isStatus(option.value)" :status="option.value" />
+              <Pause v-else :size="13" aria-hidden="true" />
               {{ t(option.key) }}
-            </button>
-            <button
-              v-if="task.waiting || task.status !== 'done'"
-              type="button"
-              class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[13px]"
-              :class="
-                task.waiting
-                  ? 'border-base-content/25 bg-base-300 font-medium text-base-content'
-                  : 'border-base-300 text-base-content/65 hover:text-base-content'
-              "
-              :aria-pressed="task.waiting"
-              @click="openWaiting"
-            >
-              <Hourglass :size="12" aria-hidden="true" />
-              {{ t("task.waitingNoName") }}
-            </button>
-            <button
-              v-if="canSuspend"
-              type="button"
-              class="flex h-8 items-center gap-1.5 rounded-md px-2 text-[13px] text-base-content/65 hover:bg-base-300/60 hover:text-base-content"
-              @click="suspendTask"
-            >
-              <Pause :size="13" aria-hidden="true" />
-              {{ t("task.suspend") }}
             </button>
             <span class="grow"></span>
             <button
@@ -586,59 +577,19 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           </div>
 
           <div
-            v-if="task.suspended"
+            v-if="parkStrip"
             class="mt-2 flex items-center gap-1.5 rounded-md bg-warning/10 px-2.5 py-1.5 text-[12px] text-warning"
           >
-            <StatusDot :status="task.status" suspended class="shrink-0" />
-            <span class="min-w-0 truncate">
-              {{ suspendBadge }} · {{ task.suspendReason || t("task.noReason") }}
-              <template v-if="task.suspendedUntil">
-                · {{ t("task.suspended", { date: shortDate(task.suspendedUntil) }) }}
-              </template>
-            </span>
-            <button
-              class="ml-auto shrink-0 rounded-md px-1.5 py-0.5 hover:bg-warning/10"
-              @click="resumeTask"
-            >
-              {{ t("task.resume") }}
-            </button>
-          </div>
-
-          <div
-            v-if="task.waiting"
-            class="mt-2 flex items-center gap-1.5 rounded-md bg-info/10 px-2.5 py-1.5 text-[12px] text-info"
-          >
-            <Hourglass :size="12" aria-hidden="true" />
-            <span class="min-w-0 truncate">
-              {{
-                waitingName ? t("task.waitingOn", { name: waitingName }) : t("task.waitingNoName")
-              }}
-              <template v-if="waitingDays > 0">
-                · {{ t("task.waitingFor", { days: waitingDays }) }}
-              </template>
-              ·
-              {{
-                task.followUpDate
-                  ? t("task.followUpOn", { date: shortDate(task.followUpDate) })
-                  : t("task.noFollowUp")
-              }}
-            </span>
-            <span class="ml-auto flex shrink-0 items-center gap-0.5">
-              <button class="rounded-md px-1.5 py-0.5 hover:bg-info/10" @click="markReplied">
-                {{ t("task.replied") }}
-              </button>
-              <button class="rounded-md px-1.5 py-0.5 hover:bg-info/10" @click="openWaiting">
-                {{ t("task.changeFollowUp") }}
-              </button>
-            </span>
+            <StatusDot :status="form.status" parked class="shrink-0" />
+            <span class="min-w-0 truncate">{{ parkStrip }}</span>
           </div>
           <button
-            v-else-if="hasSubtasks && task.status !== 'done'"
-            class="mt-1.5 inline-flex items-center gap-1 text-[11.5px] text-base-content/65 hover:text-info"
-            @click="openWaiting"
+            v-else-if="hasSubtasks && form.status !== 'done'"
+            class="mt-1.5 inline-flex items-center gap-1 text-[11.5px] text-base-content/65 hover:text-warning"
+            @click="openPark"
           >
-            <Hourglass :size="12" aria-hidden="true" />
-            {{ t("task.waitingNoName") }}
+            <Pause :size="12" aria-hidden="true" />
+            {{ t("task.suspend") }}
           </button>
 
           <div

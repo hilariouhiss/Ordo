@@ -62,8 +62,8 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
 
     let sql = format!(
         "SELECT id, title, expected_finish_date, expected_finish_time, created_at FROM tasks
-         WHERE expected_finish_date IS NOT NULL AND status <> 'done' AND suspended = 0
-           AND waiting = 0 AND {}",
+         WHERE expected_finish_date IS NOT NULL AND status <> 'done' AND parked = 0
+           AND {}",
         visible_task_filter("tasks")
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -149,9 +149,11 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         }
     }
 
+    // A parked task reviews on the day the user picked: one reminder covers both a plain
+    // park and "waiting on someone" (that is a park with a person on it).
     let sql = format!(
-        "SELECT id, title, suspended_until FROM tasks
-         WHERE suspended_until IS NOT NULL AND status <> 'done'
+        "SELECT id, title, park_until FROM tasks
+         WHERE parked = 1 AND park_until IS NOT NULL AND status <> 'done'
            AND {}",
         visible_task_filter("tasks")
     );
@@ -170,7 +172,13 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         let Ok(date) = NaiveDate::parse_from_str(&until, "%Y-%m-%d") else {
             continue;
         };
-        let scheduled = local_at(date, 9, 0)?;
+        let Ok(scheduled) = local_at(date, 9, 0) else {
+            continue;
+        };
+        // A pending snooze owns the task's next reminder; the park must not double it.
+        if snoozed.iter().any(|(id, _)| id == &task_id) {
+            continue;
+        }
         if scheduled <= now && recent(scheduled, now) && !fired_off(&task_id, "suspend_start", &until)
         {
             out.push(Candidate {
@@ -184,61 +192,16 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         }
     }
 
-    // Waiting on someone has its own moment: the day the user picked to chase them,
-    // at the same 09:00 a park reviews at. An undated wait has no reminder at all.
-    let sql = format!(
-        "SELECT id, title, follow_up_date FROM tasks
-         WHERE waiting = 1 AND status <> 'done' AND follow_up_date IS NOT NULL
-           AND {}",
-        visible_task_filter("tasks")
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?;
-    for row in rows {
-        let (task_id, title, follow_up) = row.map_err(|e| e.to_string())?;
-        let Ok(date) = NaiveDate::parse_from_str(&follow_up, "%Y-%m-%d") else {
-            continue;
-        };
-        let Ok(scheduled) = local_at(date, 9, 0) else {
-            continue;
-        };
-        // A pending snooze owns the task's next reminder; the follow-up must not double it.
-        if snoozed.iter().any(|(id, _)| id == &task_id) {
-            continue;
-        }
-        if scheduled <= now
-            && recent(scheduled, now)
-            && !fired_off(&task_id, "follow_up", &follow_up)
-        {
-            out.push(Candidate {
-                task_id,
-                title,
-                kind: "follow_up",
-                due_key: follow_up,
-                scheduled_for: scheduled,
-                record: true,
-            });
-        }
-    }
-
     // Snoozes the user asked for; a row is dropped as soon as it is handed over, so a
     // reminder that was postponed once cannot come back next tick.
     for (task_id, fire_at) in snoozed {
         let parked: Option<(i64, Option<String>, Option<String>)> = conn
             .query_row(
                 &format!(
-                    "SELECT waiting, follow_up_date, expected_finish_date FROM tasks
-                     WHERE id = ?1 AND status <> 'done' AND suspended = 0
+                    "SELECT parked, park_until, expected_finish_date FROM tasks
+                     WHERE id = ?1 AND status <> 'done'
                        AND (expected_finish_date IS NOT NULL
-                            OR (waiting = 1 AND follow_up_date IS NOT NULL))
+                            OR (parked = 1 AND park_until IS NOT NULL))
                        AND {}",
                     visible_task_filter("tasks")
                 ),
@@ -246,19 +209,19 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .ok();
-        let Some((waiting, follow_up, finish)) = parked else {
+        let Some((parked, until, finish)) = parked else {
             // Finished, deleted, archived, or it lost its moment while postponed.
             let _ = crate::repo::snoozes::remove(conn, &task_id);
             continue;
         };
-        // A waiting task comes back as the chase it was; anything else keeps the
-        // deadline wording its finish day implies.
-        let (kind, due_key) = if waiting == 1 {
-            let Some(follow_up) = follow_up else {
+        // A parked task comes back as its review; anything else keeps the deadline wording
+        // its finish day implies.
+        let (kind, due_key) = if parked == 1 {
+            let Some(until) = until else {
                 let _ = crate::repo::snoozes::remove(conn, &task_id);
                 continue;
             };
-            ("follow_up", follow_up)
+            ("suspend_start", until)
         } else {
             let Some(finish) = finish else {
                 let _ = crate::repo::snoozes::remove(conn, &task_id);
@@ -377,7 +340,7 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
         conn.query_row(
             &format!(
                 "SELECT COUNT(*) FROM tasks
-                 WHERE status <> 'done' AND suspended = 0 AND waiting = 0
+                 WHERE status <> 'done' AND parked = 0
                    AND {extra} AND {}",
                 visible_task_filter("tasks")
             ),
@@ -395,7 +358,7 @@ pub fn digest(conn: &Connection, now: DateTime<Local>) -> Result<Option<Digest>,
         .prepare(&format!(
             "SELECT title FROM tasks
              WHERE expected_finish_date IS NOT NULL AND expected_finish_date <= ?1
-               AND status <> 'done' AND suspended = 0 AND waiting = 0 AND {}
+               AND status <> 'done' AND parked = 0 AND {}
              ORDER BY expected_finish_date DESC, sort_order
              LIMIT {DIGEST_TITLES}",
             visible_task_filter("tasks")
@@ -558,11 +521,11 @@ mod tests {
     }
 
     #[test]
-    fn suspend_start_fires_at_0900() {
+    fn a_park_review_fires_at_0900() {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='2026-10-20'
+            "UPDATE tasks SET in_week=0, parked=1, park_until='2026-10-20'
              WHERE id='t1'",
             [],
         )
@@ -573,11 +536,11 @@ mod tests {
     }
 
     #[test]
-    fn an_undated_suspension_has_no_reminder() {
+    fn an_undated_park_has_no_reminder() {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
         crate::services::week::start(&c, "t1", NOW).unwrap();
-        crate::services::week::suspend(&c, "t1", None, Some("等甲方"), NOW).unwrap();
+        crate::services::week::park(&c, "t1", None, Some("等甲方"), None, NOW).unwrap();
 
         let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
         assert!(cands.iter().all(|c| c.kind != "suspend_start"));
@@ -670,13 +633,13 @@ mod tests {
         crate::services::week::capture(&c, "挂起坏的", NOW, "bad-suspend").unwrap();
         crate::services::week::capture(&c, "挂起好的", NOW, "good-suspend").unwrap();
         c.execute(
-            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='不是日期'
+            "UPDATE tasks SET in_week=0, parked=1, park_until='不是日期'
              WHERE id='bad-suspend'",
             [],
         )
         .unwrap();
         c.execute(
-            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='2026-10-20'
+            "UPDATE tasks SET in_week=0, parked=1, park_until='2026-10-20'
              WHERE id='good-suspend'",
             [],
         )
@@ -1016,7 +979,7 @@ mod tests {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-21");
         crate::services::week::start(&c, "t1", NOW).unwrap();
-        crate::services::week::suspend(&c, "t1", Some("2026-11-02"), None, NOW).unwrap();
+        crate::services::week::park(&c, "t1", Some("2026-11-02"), None, None, NOW).unwrap();
 
         let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
 
@@ -1031,7 +994,7 @@ mod tests {
         let c = crate::db::open_in_memory().unwrap();
         task_with_due(&c, "t1", "2026-10-20");
         crate::services::week::start(&c, "t1", NOW).unwrap();
-        crate::services::week::suspend(&c, "t1", None, Some("等甲方"), NOW).unwrap();
+        crate::services::week::park(&c, "t1", None, Some("等甲方"), None, NOW).unwrap();
 
         assert!(
             crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 30))
@@ -1042,77 +1005,56 @@ mod tests {
     }
 
     #[test]
-    fn a_waiting_task_does_not_nag_about_its_deadline() {
-        let c = crate::db::open_in_memory().unwrap();
-        task_with_due(&c, "t1", "2026-10-21");
-        crate::services::week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
-
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 17, 31)).unwrap();
-
-        assert!(cands.iter().all(|candidate| candidate.task_id != "t1"));
-    }
-
-    #[test]
-    fn a_follow_up_fires_at_nine_on_its_day() {
+    fn a_park_review_fires_at_nine_on_its_day() {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
-        crate::services::week::wait(&c, "t1", None, Some("2026-10-21"), NOW).unwrap();
+        crate::services::week::park(&c, "t1", Some("2026-10-21"), None, None, NOW).unwrap();
 
         let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 9, 1)).unwrap();
-        let follow = cands
+        let review = cands
             .iter()
-            .find(|candidate| candidate.kind == "follow_up")
-            .expect("the day to chase is a reminder");
+            .find(|candidate| candidate.kind == "suspend_start")
+            .expect("the day to look again is a reminder");
 
-        assert_eq!(follow.due_key, "2026-10-21");
-        assert!(follow.record);
+        assert_eq!(review.due_key, "2026-10-21");
+        assert!(review.record);
         assert_eq!(
-            follow.scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
+            review.scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
             "2026-10-21 09:00"
         );
     }
 
     #[test]
-    fn an_undated_wait_has_no_reminder() {
-        let c = crate::db::open_in_memory().unwrap();
-        crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
-        crate::services::week::wait(&c, "t1", None, None, NOW).unwrap();
-
-        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
-        assert!(cands.iter().all(|candidate| candidate.kind != "follow_up"));
-    }
-
-    #[test]
-    fn a_follow_up_catches_up_but_gives_up_after_fourteen_days() {
+    fn a_park_review_catches_up_but_gives_up_after_fourteen_days() {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET in_week = 0, waiting = 1, waiting_since = '2026-10-01',
-                    follow_up_date = '2026-10-05'
+            "UPDATE tasks SET in_week = 0, parked = 1, parked_at = '2026-10-01',
+                    park_until = '2026-10-05'
              WHERE id = 't1'",
             [],
         )
         .unwrap();
 
         let caught = crate::reminders::rules::candidates(&c, at(2026, 10, 10, 9, 1)).unwrap();
-        let follow = caught
+        let review = caught
             .iter()
-            .find(|candidate| candidate.kind == "follow_up")
+            .find(|candidate| candidate.kind == "suspend_start")
             .unwrap();
         assert_eq!(
-            follow.scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
+            review.scheduled_for.format("%Y-%m-%d %H:%M").to_string(),
             "2026-10-05 09:00"
         );
 
         let stale = crate::reminders::rules::candidates(&c, at(2026, 10, 20, 9, 1)).unwrap();
-        assert!(stale.iter().all(|candidate| candidate.kind != "follow_up"));
+        assert!(stale.iter().all(|candidate| candidate.kind != "suspend_start"));
     }
 
     #[test]
-    fn a_snoozed_waiting_task_refires_as_a_follow_up() {
+    fn a_snoozed_park_refires_as_its_review() {
         let c = crate::db::open_in_memory().unwrap();
         crate::services::week::capture(&c, "交底", NOW, "t1").unwrap();
-        crate::services::week::wait(&c, "t1", None, Some("2026-10-20"), NOW).unwrap();
+        crate::services::week::park(&c, "t1", Some("2026-10-20"), None, None, NOW).unwrap();
         crate::repo::snoozes::set(
             &c,
             "t1",
@@ -1126,20 +1068,9 @@ mod tests {
         let mine: Vec<_> = cands.iter().filter(|one| one.task_id == "t1").collect();
 
         assert_eq!(mine.len(), 1, "the snooze owns the next reminder");
-        assert_eq!(mine[0].kind, "follow_up");
+        assert_eq!(mine[0].kind, "suspend_start");
         assert!(!mine[0].record);
         assert!(crate::repo::snoozes::all(&c).unwrap().is_empty());
-    }
-
-    #[test]
-    fn a_waiting_task_is_left_out_of_the_digest() {
-        let c = crate::db::open_in_memory().unwrap();
-        task_with_due(&c, "t1", "2026-10-20");
-        crate::services::week::wait(&c, "t1", None, Some("2026-10-21"), NOW).unwrap();
-
-        assert!(crate::reminders::rules::digest(&c, at(2026, 10, 20, 9, 30))
-            .unwrap()
-            .is_none());
     }
 
     #[test]

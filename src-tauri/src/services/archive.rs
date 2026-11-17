@@ -87,7 +87,7 @@ pub fn restore_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto, S
     // The work comes back with the umbrella; a child canceled on purpose stays canceled.
     tx.execute(
         "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
-                in_week = CASE WHEN status = 'done' OR suspended OR waiting THEN 0 ELSE 1 END
+                in_week = CASE WHEN status = 'done' OR parked THEN 0 ELSE 1 END
          WHERE parent_id = ?2 AND deleted_at IS NULL",
         params![now, id],
     )
@@ -113,7 +113,7 @@ pub fn unarchive_task(conn: &Connection, id: &str, now: &str) -> Result<TaskDto,
         return Err("project_archived".into());
     }
     let sql = "UPDATE tasks SET archived_at = NULL, updated_at = ?1,
-                    in_week = CASE WHEN status = 'done' OR suspended OR waiting THEN 0 ELSE 1 END
+                    in_week = CASE WHEN status = 'done' OR parked THEN 0 ELSE 1 END
                WHERE ";
     let changed = tx
         .execute(&format!("{sql}id = ?2"), params![now, id])
@@ -300,6 +300,7 @@ mod tests {
             crate::services::week::PassAction::Cancel,
             None,
             None,
+            None,
             NOW,
         )
         .unwrap();
@@ -358,8 +359,9 @@ mod tests {
         week::resolve(
             &c,
             "t3",
-            crate::services::week::PassAction::Suspend,
+            crate::services::week::PassAction::Park,
             Some("2026-11-02"),
+            None,
             None,
             NOW,
         )
@@ -368,6 +370,7 @@ mod tests {
             &c,
             "t4",
             crate::services::week::PassAction::Cancel,
+            None,
             None,
             None,
             NOW,
@@ -434,15 +437,16 @@ mod tests {
     }
 
     #[test]
-    fn restoring_a_suspended_task_clears_the_suspension() {
+    fn restoring_a_parked_task_clears_the_park() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
-            crate::services::week::PassAction::Suspend,
+            crate::services::week::PassAction::Park,
             Some("2026-11-02"),
+            None,
             None,
             NOW,
         )
@@ -452,41 +456,26 @@ mod tests {
         let t = archive::restore_task(&c, "t1", NOW).unwrap();
 
         assert!(t.in_week);
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert!(t.suspended_at.is_none());
-        assert!(t.suspend_reason.is_none());
-        assert!(week::list_suspended(&c).unwrap().is_empty());
+        assert!(!t.parked);
+        assert!(t.park_until.is_none());
+        assert!(t.parked_at.is_none());
+        assert!(t.park_reason.is_none());
+        assert!(week::list_parked(&c).unwrap().is_empty());
     }
 
     #[test]
-    fn restoring_a_waiting_task_clears_the_wait() {
+    fn undoing_an_archive_keeps_a_parked_task_parked() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
-        crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
-
-        let t = archive::restore_task(&c, "t1", NOW).unwrap();
-
-        assert!(t.in_week);
-        assert!(!t.waiting);
-        assert!(t.follow_up_date.is_none());
-        assert!(week::list_waiting(&c).unwrap().is_empty());
-    }
-
-    #[test]
-    fn undoing_an_archive_keeps_a_waiting_task_waiting() {
-        let c = db::open_in_memory().unwrap();
-        week::capture(&c, "交底", NOW, "t1").unwrap();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), None, None, NOW).unwrap();
         crate::repo::tasks::archive(&c, "t1", NOW).unwrap();
 
         let t = archive::unarchive_task(&c, "t1", NOW).unwrap();
 
-        assert!(t.waiting);
+        assert!(t.parked);
         assert!(!t.in_week);
         assert!(week::list(&c).unwrap().is_empty());
-        assert_eq!(week::list_waiting(&c).unwrap().len(), 1);
+        assert_eq!(week::list_parked(&c).unwrap().len(), 1);
     }
 
     #[test]
@@ -558,17 +547,18 @@ mod tests {
         week::resolve(
             &c,
             "t1",
-            crate::services::week::PassAction::Suspend,
+            crate::services::week::PassAction::Park,
             Some("2026-11-02"),
+            None,
             None,
             NOW,
         )
         .unwrap();
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert_eq!(week::list_parked(&c).unwrap().len(), 1);
 
         crate::repo::projects::set_archived(&c, &p.id, true, NOW).unwrap();
 
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 0);
+        assert_eq!(week::list_parked(&c).unwrap().len(), 0);
         assert!(week::list(&c).unwrap().is_empty());
         assert!(week::pass_queue(&c).unwrap().is_empty());
 
@@ -576,7 +566,7 @@ mod tests {
         assert!(week::list(&c).unwrap().is_empty());
 
         crate::repo::projects::set_archived(&c, &p.id, false, NOW).unwrap();
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert_eq!(week::list_parked(&c).unwrap().len(), 1);
         assert!(!week::list(&c).unwrap().iter().any(|t| t.id == "t1"));
         week::resume(&c, "t1", NOW).unwrap();
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
@@ -592,7 +582,7 @@ mod tests {
         let first = parent.children[0].id.clone();
         let parent = crate::services::subtasks::add(&c, "t1", "汇编", NOW).unwrap();
         let canceled = parent.children[1].id.clone();
-        week::resolve(&c, &canceled, week::PassAction::Cancel, None, None, NOW).unwrap();
+        week::resolve(&c, &canceled, week::PassAction::Cancel, None, None, None, NOW).unwrap();
 
         archive::archive_task(&c, "t1", NOW).unwrap();
         archive::restore_task(&c, "t1", NOW).unwrap();
@@ -617,7 +607,7 @@ mod tests {
         week::capture(&c, "交付", NOW, "p").unwrap();
         let parent = crate::services::subtasks::add(&c, "p", "收集", NOW).unwrap();
         let child = parent.children[0].id.clone();
-        week::resolve(&c, &child, week::PassAction::Cancel, None, None, NOW).unwrap();
+        week::resolve(&c, &child, week::PassAction::Cancel, None, None, None, NOW).unwrap();
         archive::archive_task(&c, "p", NOW).unwrap();
 
         // Archived with the umbrella: restoring the child alone would leave live work
@@ -765,8 +755,9 @@ mod tests {
         week::resolve(
             &c,
             "t1",
-            week::PassAction::Suspend,
+            week::PassAction::Park,
             Some("2026-11-02"),
+            None,
             None,
             NOW,
         )
@@ -775,7 +766,7 @@ mod tests {
 
         let back = archive::unarchive_task(&c, "t1", NOW).unwrap();
 
-        assert!(back.suspended);
+        assert!(back.parked);
         assert!(!back.in_week);
         assert!(back.archived_at.is_none());
     }

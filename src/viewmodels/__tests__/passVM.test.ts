@@ -23,33 +23,20 @@ describe("passVM", () => {
     expect(vm.current.value?.id).toBe("t1");
 
     await vm.resolve("keep");
-    expect(passResolve).toHaveBeenCalledWith("t1", "keep", null, null);
+    expect(passResolve).toHaveBeenCalledWith("t1", "keep", null, null, null);
     expect(vm.state.index).toBe(1);
     expect(vm.current.value?.id).toBe("t2");
   });
 
-  it("passes a suspend reason with an optional date", async () => {
+  it("passes a park reason, day and person", async () => {
     vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" })]);
     vi.mocked(passResolve).mockResolvedValue(task({ id: "t1" }));
 
     const vm = createPassVM();
     await vm.start();
-    await vm.resolve("suspend", null, "等甲方");
+    await vm.resolve("park", "2026-11-20", "等甲方", "u2");
 
-    expect(passResolve).toHaveBeenCalledWith("t1", "suspend", null, "等甲方");
-  });
-
-  it("counts a wait and advances without asking the backend again", async () => {
-    vi.mocked(passQueue).mockResolvedValue([task({ id: "t1" }), task({ id: "t2" })]);
-
-    const vm = createPassVM();
-    await vm.start();
-
-    vm.markWaiting();
-
-    expect(vm.state.counts.wait).toBe(1);
-    expect(vm.state.index).toBe(1);
-    expect(vm.current.value?.id).toBe("t2");
+    expect(passResolve).toHaveBeenCalledWith("t1", "park", "2026-11-20", "等甲方", "u2");
   });
 
   it("does not open the pass when there is nothing to go through", async () => {

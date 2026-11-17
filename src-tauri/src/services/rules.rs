@@ -459,6 +459,7 @@ mod tests {
             crate::services::week::PassAction::Cancel,
             None,
             None,
+            None,
             NOW,
         )
         .unwrap();
@@ -500,6 +501,7 @@ mod tests {
             &c,
             &task_id,
             crate::services::week::PassAction::Cancel,
+            None,
             None,
             None,
             NOW,

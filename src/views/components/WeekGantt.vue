@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { Hourglass, MessageSquareReply, Pause, Play } from "@lucide/vue";
+import { Pause, Play } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import { shortDate, todayIso, weekdayLabel } from "../../lib/dates";
-import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
+import { askNotice, askPark } from "../../lib/dialog";
 import { errorText, t } from "../../lib/i18n";
 import type { PlannedDay, WeekLane } from "../../lib/plan";
 import { groupLanes } from "../../lib/plan";
 import { isRuleTask } from "../../lib/rules";
 import { usePointerDrag, type PointerDrag } from "../../lib/pointerDrag";
-import { canSuspendTask, canWaitTask } from "../../lib/status";
-import { waitDefaults, waitingOnName } from "../../lib/waiting";
+import { canParkTask } from "../../lib/status";
+import { parkedOnName, parkDefaults } from "../../lib/park";
 import { ganttDropAt, type GanttDrop } from "../../lib/weekDrop";
 import { appVM } from "../../viewmodels/appVM";
 import { taskRowVM } from "../../viewmodels/taskRowVM";
@@ -56,7 +56,7 @@ const drag: PointerDrag<GanttDrop> = usePointerDrag<GanttDrop>({
     const beforeId =
       target.before === id ? (lanes.value[index + 1]?.task.id ?? null) : target.before;
     // A parked task has no worked days of its own: any drop places it and brings it back.
-    if (!lane?.task.suspended && lane && props.dates.slice(lane.from, lane.to + 1).includes(day))
+    if (!lane?.task.parked && lane && props.dates.slice(lane.from, lane.to + 1).includes(day))
       void weekVM.move(id, beforeId);
     else void weekVM.place(id, day, beforeId);
   },
@@ -86,12 +86,8 @@ function skin(lane: WeekLane): string {
   if (isDone(lane)) {
     return "border-base-300 border-l-[3px] border-l-base-content/20 bg-base-300/50 text-base-content/60";
   }
-  if (lane.task.suspended) {
+  if (lane.task.parked) {
     return "border-dashed border-warning/50 border-l-[3px] border-l-warning bg-warning/[0.10] text-warning";
-  }
-  // Waiting is parked on someone else's reply, so it reads dashed like a park, in the info tone.
-  if (lane.task.waiting) {
-    return "border-dashed border-info/50 border-l-[3px] border-l-info bg-info/[0.10] text-info";
   }
   if (lane.row.conflict) {
     return "border-error/40 border-l-[3px] border-l-error bg-error/[0.10] text-error";
@@ -107,31 +103,29 @@ function skin(lane: WeekLane): string {
 function hasBadges(lane: WeekLane): boolean {
   return (
     lane.row.conflict ||
-    lane.task.suspended ||
+    lane.task.parked ||
     !!lane.task.projectName ||
-    lane.task.waiting ||
     lane.task.priority !== "normal"
   );
 }
 
 const canComplete = (lane: WeekLane): boolean => !lane.row.history && !lane.task.children.length;
 const canStart = (lane: WeekLane): boolean =>
-  !lane.task.children.length &&
-  !isDone(lane) &&
-  (lane.task.status === "todo" || lane.task.suspended);
-const canSuspend = (lane: WeekLane): boolean => canSuspendTask(lane.task);
-const canWait = (lane: WeekLane): boolean => canWaitTask(lane.task);
-/** A waiting task came back: the reply puts it back in the week without changing its status. */
-const canReply = (lane: WeekLane): boolean => lane.task.waiting && !lane.row.history;
-/** The waiting line: who it waits on, or the wording for a person already removed. */
-const waitingLabel = (lane: WeekLane): string => {
-  const name = waitingOnName(lane.task, appVM.state.people);
-  return name ? t("task.waitingOn", { name }) : t("task.waitingNoName");
-};
+  !lane.task.children.length && !isDone(lane) && (lane.task.status === "todo" || lane.task.parked);
+/** A parked bar gets its way back from the start button. */
+const canPark = (lane: WeekLane): boolean =>
+  !lane.row.history && !lane.task.parked && canParkTask(lane.task);
 const doneLabel = (lane: WeekLane): string =>
   t(isDone(lane) ? "task.reopenAria" : "task.doneAria", { title: lane.task.title });
-const waitLabel = (lane: WeekLane): string =>
-  t(lane.task.waiting ? "task.followUpAria" : "task.waitAria", { title: lane.task.title });
+/** The parked line: who it waits on, the day to look again, or just the state. */
+const parkedLabel = (lane: WeekLane): string => {
+  const name = parkedOnName(lane.task, appVM.state.people);
+  if (name) return t("task.waitingOn", { name });
+  if (lane.task.parkUntil) {
+    return t("task.parkUntil", { date: shortDate(lane.task.parkUntil) });
+  }
+  return t("task.parkedNoDate");
+};
 
 const busy = ref(false);
 async function run(action: () => Promise<unknown>): Promise<void> {
@@ -156,35 +150,16 @@ function start(lane: WeekLane): void {
   void run(() => taskRowVM.start(lane.task));
 }
 
-function reply(lane: WeekLane): void {
-  void run(() => taskRowVM.resume(lane.task));
-}
-
-async function wait(lane: WeekLane): Promise<void> {
+async function park(lane: WeekLane): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   try {
-    const draft = await askWaiting(
-      t("task.waitDialogTitle", { title: lane.task.title }),
-      waitDefaults(lane.task, appVM.state.people, todayIso()),
-    );
+    const draft = await askPark(t("task.suspendAria", { title: lane.task.title }), {
+      reason: "",
+      ...parkDefaults(lane.task, appVM.state.people, todayIso()),
+    });
     if (!draft) return;
-    await taskRowVM.wait(lane.task, draft.personId, draft.followUpDate || null);
-    emit("changed");
-  } catch (e) {
-    void askNotice(t("common.actionFailed"), errorText(e));
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function suspend(lane: WeekLane): Promise<void> {
-  if (busy.value) return;
-  busy.value = true;
-  try {
-    const draft = await askSuspend(t("task.suspendAria", { title: lane.task.title }));
-    if (!draft) return;
-    await taskRowVM.suspend(lane.task, draft.until || null, draft.reason || null);
+    await taskRowVM.park(lane.task, draft);
     emit("changed");
   } catch (e) {
     void askNotice(t("common.actionFailed"), errorText(e));
@@ -362,18 +337,10 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 :disabled="busy"
                 @click.stop="complete(lane)"
               >
-                <StatusDot
-                  :status="lane.task.status"
-                  :suspended="lane.task.suspended"
-                  :waiting="lane.task.waiting"
-                />
+                <StatusDot :status="lane.task.status" :parked="lane.task.parked" />
               </button>
               <span v-else class="shrink-0">
-                <StatusDot
-                  :status="lane.task.status"
-                  :suspended="lane.task.suspended"
-                  :waiting="lane.task.waiting"
-                />
+                <StatusDot :status="lane.task.status" :parked="lane.task.parked" />
               </span>
               <span
                 class="truncate text-[13.5px]"
@@ -396,34 +363,14 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                   <Play :size="16" aria-hidden="true" />
                 </button>
                 <button
-                  v-if="canSuspend(lane)"
+                  v-if="canPark(lane)"
                   class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
                   :aria-label="t('task.suspendAria', { title: lane.task.title })"
                   :title="t('task.suspendAria', { title: lane.task.title })"
                   :disabled="busy"
-                  @click.stop="suspend(lane)"
+                  @click.stop="park(lane)"
                 >
                   <Pause :size="16" aria-hidden="true" />
-                </button>
-                <button
-                  v-if="canWait(lane)"
-                  class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
-                  :aria-label="waitLabel(lane)"
-                  :title="waitLabel(lane)"
-                  :disabled="busy"
-                  @click.stop="wait(lane)"
-                >
-                  <Hourglass :size="16" aria-hidden="true" />
-                </button>
-                <button
-                  v-if="canReply(lane)"
-                  class="grid size-5 place-items-center rounded-md hover:opacity-70 disabled:opacity-50"
-                  :aria-label="t('task.replied')"
-                  :title="t('task.replied')"
-                  :disabled="busy"
-                  @click.stop="reply(lane)"
-                >
-                  <MessageSquareReply :size="16" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -431,12 +378,8 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
               <span v-if="lane.row.conflict" class="badge badge-soft badge-error badge-xs shrink-0">
                 {{ t("task.notFit") }}
               </span>
-              <span v-if="lane.task.suspended" class="badge badge-ghost badge-xs shrink-0">
-                {{
-                  lane.task.suspendedUntil
-                    ? t("task.suspended", { date: shortDate(lane.task.suspendedUntil) })
-                    : t("task.suspendedNoDate")
-                }}
+              <span v-if="lane.task.parked" class="badge badge-ghost badge-xs shrink-0">
+                {{ parkedLabel(lane) }}
               </span>
               <span
                 v-if="lane.task.projectName"
@@ -446,9 +389,6 @@ async function moveBy(id: string, delta: -1 | 1): Promise<void> {
                 <span class="min-w-0 truncate">{{ lane.task.projectName }}</span>
               </span>
               <PriorityBadge :priority="lane.task.priority" />
-              <span v-if="lane.task.waiting" class="badge badge-soft badge-info badge-xs shrink-0">
-                {{ waitingLabel(lane) }}
-              </span>
             </div>
           </div>
         </div>

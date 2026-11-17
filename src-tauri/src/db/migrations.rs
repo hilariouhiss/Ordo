@@ -117,7 +117,7 @@ CREATE INDEX idx_notifications_sched ON notifications(scheduled_for, fired_at);
 "#;
 
 /// The schema version this build writes. Bump it with every new step below.
-pub const LATEST: i64 = 29;
+pub const LATEST: i64 = 30;
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -221,7 +221,10 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         if !has_task_column(&tx, "suspend_reason")? {
             tx.execute_batch("ALTER TABLE tasks ADD COLUMN suspend_reason TEXT")?;
         }
-        tx.execute_batch("UPDATE tasks SET suspended = 1 WHERE suspended_until IS NOT NULL")?;
+        // A ledger that never had the old date column (a rewound build) has nothing to move.
+        if has_task_column(&tx, "suspended_until")? {
+            tx.execute_batch("UPDATE tasks SET suspended = 1 WHERE suspended_until IS NOT NULL")?;
+        }
         tx.pragma_update(None, "user_version", 7)?;
         tx.commit()?;
     }
@@ -828,6 +831,60 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.pragma_update(None, "user_version", 29)?;
         tx.commit()?;
     }
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version < 30 {
+        // One parked state: "waiting on someone" is a park with a person. The columns are
+        // renamed rather than rebuilt, so values, indexes and the FK ride along; each step is
+        // guarded so a crash between statements (or a hand-built ledger) retries cleanly.
+        let tx = conn.unchecked_transaction()?;
+        let has = |name: &str| has_task_column(&tx, name);
+        let mut mergeable = true;
+        for column in [
+            "suspended",
+            "suspended_at",
+            "suspended_until",
+            "waiting",
+            "waiting_since",
+            "follow_up_date",
+        ] {
+            mergeable = mergeable && has(column)?;
+        }
+        if mergeable {
+            tx.execute_batch(
+                "UPDATE tasks SET suspended = 1,
+                         suspended_at = COALESCE(suspended_at, waiting_since),
+                         suspended_until = COALESCE(suspended_until, follow_up_date)
+                 WHERE waiting = 1;",
+            )?;
+        }
+        for (from, to) in [
+            ("suspended", "parked"),
+            ("suspended_at", "parked_at"),
+            ("suspended_until", "park_until"),
+            ("suspend_reason", "park_reason"),
+            ("waiting_on_id", "parked_on_id"),
+        ] {
+            if has(from)? && !has(to)? {
+                tx.execute_batch(&format!("ALTER TABLE tasks RENAME COLUMN {from} TO {to}"))?;
+            }
+        }
+        for column in ["waiting", "follow_up_date", "waiting_since"] {
+            if has(column)? {
+                tx.execute_batch(&format!("ALTER TABLE tasks DROP COLUMN {column}"))?;
+            }
+        }
+        if has_table(&tx, "notifications")? {
+            // The old chase reminder becomes the park reminder; a key already claimed by a
+            // park row keeps its own row (a follow-up leftover simply never fires again).
+            tx.execute_batch(
+                "UPDATE OR IGNORE notifications SET kind = 'suspend_start'
+                 WHERE kind = 'follow_up';",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 30)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -881,6 +938,7 @@ fn migrate_steps_to_subtasks(tx: &Connection) -> rusqlite::Result<()> {
     let priority = table_column(tx, "priority", "'normal'")?;
     let exclusive = table_column(tx, "time_exclusive", "0")?;
     let suspended = table_column(tx, "suspended", "0")?;
+    let suspended_until = table_column(tx, "suspended_until", "NULL")?;
     let suspended_at = table_column(tx, "suspended_at", "NULL")?;
     let suspend_reason = table_column(tx, "suspend_reason", "NULL")?;
     let rows: Vec<StepRow> = {
@@ -889,7 +947,7 @@ fn migrate_steps_to_subtasks(tx: &Connection) -> rusqlite::Result<()> {
                     t.effort_minutes, t.status = 'done', t.expected_start_date,
                     t.expected_finish_date, {actual_finish}, t.project_id, t.category_id,
                     t.owner_id, {priority}, {exclusive}, t.in_week, {suspended},
-                    t.suspended_until, {suspended_at}, {suspend_reason}, t.archived_at,
+                    {suspended_until}, {suspended_at}, {suspend_reason}, t.archived_at,
                     t.canceled_at, t.deleted_at, s.created_at
              FROM steps s JOIN tasks t ON t.id = s.task_id
              WHERE s.deleted_at IS NULL
@@ -1484,17 +1542,17 @@ mod tests {
 
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
-        let (suspended, reason): (i64, Option<String>) = c
+        let (parked, reason): (i64, Option<String>) = c
             .query_row(
-                "SELECT suspended, suspend_reason FROM tasks WHERE id = 'a'",
+                "SELECT parked, park_reason FROM tasks WHERE id = 'a'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!(suspended, 1);
+        assert_eq!(parked, 1);
         assert!(reason.is_none());
         let other: i64 = c
-            .query_row("SELECT suspended FROM tasks WHERE id = 'b'", [], |r| r.get(0))
+            .query_row("SELECT parked FROM tasks WHERE id = 'b'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(other, 0);
     }
@@ -1552,20 +1610,18 @@ mod tests {
 
         migrate(&c).unwrap();
 
-        let (suspended, at): (i64, Option<String>) = c
+        let (parked, at): (i64, Option<String>) = c
             .query_row(
-                "SELECT suspended, suspended_at FROM tasks WHERE id = 'a'",
+                "SELECT parked, parked_at FROM tasks WHERE id = 'a'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!(suspended, 1);
+        assert_eq!(parked, 1);
         // 2026-10-20 00:30 local (+08); the UTC date is still 2026-10-19.
         assert_eq!(at.as_deref(), Some("2026-10-20"));
         let other: Option<String> = c
-            .query_row("SELECT suspended_at FROM tasks WHERE id = 'b'", [], |r| {
-                r.get(0)
-            })
+            .query_row("SELECT parked_at FROM tasks WHERE id = 'b'", [], |r| r.get(0))
             .unwrap();
         assert!(other.is_none());
     }
@@ -1601,9 +1657,7 @@ mod tests {
         migrate(&c).unwrap();
 
         let at: Option<String> = c
-            .query_row("SELECT suspended_at FROM tasks WHERE id = 'b'", [], |r| {
-                r.get(0)
-            })
+            .query_row("SELECT parked_at FROM tasks WHERE id = 'b'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(at.as_deref(), Some("2026-10-20"));
     }
@@ -2084,6 +2138,7 @@ mod tests {
     #[test]
     fn an_old_step_table_still_migrates_to_subtasks() {
         let c = db::open_in_memory().unwrap();
+        rewind_park_columns(&c);
         // v21 dropped the table; put the pre-v17 shape back and stamp the old version.
         c.execute_batch(
             "CREATE TABLE steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL,
@@ -2114,8 +2169,25 @@ mod tests {
                ('s2', 'p', '脚本', 1, 0, NULL, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z'),
                ('s3', 'p', '演练', 2, 0, NULL, '2026-10-20T08:00:00Z', '2026-10-20T08:00:00Z');";
 
+    /// Put the park columns back to their pre-v30 names, so a replayed old step sees the
+    /// ledger shape it was written against. A real old ledger never went backwards.
+    fn rewind_park_columns(c: &Connection) {
+        c.execute_batch(
+            "ALTER TABLE tasks RENAME COLUMN parked TO suspended;
+             ALTER TABLE tasks RENAME COLUMN parked_at TO suspended_at;
+             ALTER TABLE tasks RENAME COLUMN park_until TO suspended_until;
+             ALTER TABLE tasks RENAME COLUMN park_reason TO suspend_reason;
+             ALTER TABLE tasks RENAME COLUMN parked_on_id TO waiting_on_id;
+             ALTER TABLE tasks ADD COLUMN waiting INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE tasks ADD COLUMN follow_up_date TEXT;
+             ALTER TABLE tasks ADD COLUMN waiting_since TEXT;",
+        )
+        .unwrap();
+    }
+
     fn v19_ledger(statements: &str) -> Connection {
         let c = db::open_in_memory().unwrap();
+        rewind_park_columns(&c);
         // A real v19 ledger still had steps; v21 drops the table, so put it back here.
         c.execute_batch(
             "CREATE TABLE steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL,
@@ -2248,25 +2320,25 @@ mod tests {
     }
 
     #[test]
-    fn adds_waiting_columns_and_the_follow_up_notification_kind() {
+    fn one_park_replaces_the_two_old_states() {
         let c = crate::db::open_in_memory().unwrap();
-        for column in ["waiting", "waiting_on_id", "follow_up_date", "waiting_since"] {
+        for column in ["parked", "parked_at", "park_until", "park_reason", "parked_on_id"] {
             assert!(has_task_column(&c, column).unwrap(), "{column} is missing");
+        }
+        for column in [
+            "suspended",
+            "suspended_at",
+            "suspended_until",
+            "suspend_reason",
+            "waiting",
+            "follow_up_date",
+            "waiting_since",
+            "waiting_on_id",
+        ] {
+            assert!(!has_task_column(&c, column).unwrap(), "{column} still exists");
         }
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, LATEST);
-        c.execute(
-            "INSERT INTO tasks (id, title, created_at, updated_at)
-             VALUES ('t', '甲', '2026-11-07T08:00:00Z', '2026-11-07T08:00:00Z')",
-            [],
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for)
-             VALUES ('n', 't', 'follow_up', '2026-11-10', '2026-11-10T01:00:00Z')",
-            [],
-        )
-        .unwrap();
     }
 
     #[test]
@@ -2606,5 +2678,97 @@ mod tests {
         assert_eq!(split_shares(480, &[Some(90), None, None]), vec![90, 195, 195]);
         // Hand shares that fill the total leave nothing, and a child still needs a minute.
         assert_eq!(split_shares(480, &[Some(480), None]), vec![480, 1]);
+    }
+
+    /// A populated v29 ledger, rewound to the two parked states this step merges.
+    fn v29_ledger() -> Connection {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "INSERT INTO people (id, name, is_me, created_at, updated_at)
+             VALUES ('u1', '张三', 0, '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z');
+             INSERT INTO tasks (id, title, effort_minutes, status, in_week,
+                                created_at, updated_at)
+             VALUES ('s1', '挂起过', 480, 'doing', 0, '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z'),
+                    ('w1', '等过', 480, 'todo', 0, '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z');
+             INSERT INTO notifications (id, task_id, kind, due_key, scheduled_for, fired_at)
+             VALUES ('n1', 'w1', 'follow_up', '2026-11-05', '2026-11-05T01:00:00Z',
+                     '2026-11-05T01:00:00Z');",
+        )
+        .unwrap();
+        c.execute_batch(
+            "ALTER TABLE tasks RENAME COLUMN parked TO suspended;
+             ALTER TABLE tasks RENAME COLUMN parked_at TO suspended_at;
+             ALTER TABLE tasks RENAME COLUMN park_until TO suspended_until;
+             ALTER TABLE tasks RENAME COLUMN park_reason TO suspend_reason;
+             ALTER TABLE tasks RENAME COLUMN parked_on_id TO waiting_on_id;
+             ALTER TABLE tasks ADD COLUMN waiting INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE tasks ADD COLUMN follow_up_date TEXT;
+             ALTER TABLE tasks ADD COLUMN waiting_since TEXT;
+             UPDATE tasks SET suspended = 1, suspended_at = '2026-10-19',
+                              suspended_until = '2026-11-02', suspend_reason = '等甲方'
+               WHERE id = 's1';
+             UPDATE tasks SET waiting = 1, waiting_since = '2026-10-18',
+                              follow_up_date = '2026-11-05', waiting_on_id = 'u1'
+               WHERE id = 'w1';",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 29).unwrap();
+        c
+    }
+
+    #[test]
+    fn merges_both_parked_states_into_one() {
+        let c = v29_ledger();
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        for column in ["parked", "parked_at", "park_until", "park_reason", "parked_on_id"] {
+            assert!(has_task_column(&c, column).unwrap(), "{column} is missing");
+        }
+        for column in [
+            "suspended",
+            "suspended_at",
+            "suspended_until",
+            "suspend_reason",
+            "waiting_on_id",
+            "waiting",
+            "follow_up_date",
+            "waiting_since",
+        ] {
+            assert!(!has_task_column(&c, column).unwrap(), "{column} still exists");
+        }
+        let (parked, at, until, reason): (i64, Option<String>, Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT parked, parked_at, park_until, park_reason FROM tasks WHERE id = 's1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (parked, at.as_deref(), until.as_deref(), reason.as_deref()),
+            (1, Some("2026-10-19"), Some("2026-11-02"), Some("等甲方"))
+        );
+        // A wait becomes the same park, with its chase day as the review day.
+        let (parked, at, until, on): (i64, Option<String>, Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT parked, parked_at, park_until, parked_on_id FROM tasks WHERE id = 'w1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (parked, at.as_deref(), until.as_deref(), on.as_deref()),
+            (1, Some("2026-10-18"), Some("2026-11-05"), Some("u1"))
+        );
+        let kind: String = c
+            .query_row("SELECT kind FROM notifications WHERE id = 'n1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kind, "suspend_start");
+
+        // A crash before the version bump replays without refusing on a missing column.
+        c.pragma_update(None, "user_version", 29).unwrap();
+        migrate(&c).unwrap();
     }
 }

@@ -1,30 +1,22 @@
 <script setup lang="ts">
 import { AnimatePresence, motion } from "motion-v";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
 import { shortDate, todayIso } from "../../lib/dates";
-import { askWaiting, dialogRequest, runWithNotice } from "../../lib/dialog";
-import { errorText, t } from "../../lib/i18n";
-import { isImeEnter } from "../../lib/keys";
+import { askPark, dialogRequest, runWithNotice } from "../../lib/dialog";
+import { t } from "../../lib/i18n";
 import { backdropMotion, passCardMotion, screenColumnMotion } from "../../lib/motion";
-import { canSuspendTask } from "../../lib/status";
-import { waitDefaults } from "../../lib/waiting";
-import { taskRowVM } from "../../viewmodels/taskRowVM";
+import { parkDefaults } from "../../lib/park";
+import { canParkTask } from "../../lib/status";
 import { appVM } from "../../viewmodels/appVM";
 import { passVM } from "../../viewmodels/passVM";
 import { taskSheetVM } from "../../viewmodels/taskSheetVM";
 import { weekVM } from "../../viewmodels/weekVM";
-import DateField from "../components/DateField.vue";
-
-const suspendOpen = ref(false);
-const suspendDate = ref("");
-const suspendReason = ref("");
-const suspendError = ref("");
 
 const finished = computed(() => passVM.state.queue.length > 0 && !passVM.current.value);
-/** A pass card that has not started cannot be parked; start it from the week first. */
-const canSuspendCurrent = computed(() => {
+/** A parked card has already left this pass; a done one cannot be parked. */
+const canParkCurrent = computed(() => {
   const task = passVM.current.value;
-  return task ? canSuspendTask(task) : false;
+  return task ? canParkTask(task) && !task.parked : false;
 });
 const categoryName = computed(() => {
   const id = passVM.current.value?.categoryId;
@@ -40,50 +32,21 @@ const ownerName = computed(() => {
 });
 
 async function act(action: "keep" | "done" | "cancel"): Promise<void> {
-  const resolved = await runWithNotice(() => passVM.resolve(action));
-  if (resolved && suspendOpen.value) cancelSuspend();
+  await runWithNotice(() => passVM.resolve(action));
 }
 
-async function actSuspend(): Promise<void> {
+/** The same park dialog the rows use; a confirmed park advances the card. */
+async function actPark(): Promise<void> {
   const task = passVM.current.value;
-  if (!task || !canSuspendTask(task)) return;
-  suspendError.value = "";
-  try {
-    await passVM.resolve("suspend", suspendDate.value || null, suspendReason.value.trim() || null);
-    cancelSuspend();
-  } catch (e) {
-    suspendError.value = String(e);
-  }
-}
-
-function cancelSuspend(): void {
-  suspendOpen.value = false;
-  suspendDate.value = "";
-  suspendReason.value = "";
-  suspendError.value = "";
-}
-
-function onSuspendEnter(event: KeyboardEvent): void {
-  if (isImeEnter(event)) return;
-  void actSuspend();
-}
-
-/**
- * The waiting form is the same dialog the rows use, so the pass needs no panel of its
- * own: a confirmed wait advances the card through passVM without a second backend round.
- */
-async function actWait(): Promise<void> {
-  const task = passVM.current.value;
-  if (!task || passVM.state.busy) return;
-  const draft = await askWaiting(
-    t("task.waitDialogTitle", { title: task.title }),
-    waitDefaults(task, appVM.state.people, todayIso()),
-  );
+  if (!task || !canParkCurrent.value || passVM.state.busy) return;
+  const draft = await askPark(t("task.suspendAria", { title: task.title }), {
+    reason: "",
+    ...parkDefaults(task, appVM.state.people, todayIso()),
+  });
   if (!draft) return;
-  const saved = await runWithNotice(() =>
-    taskRowVM.wait(task, draft.personId, draft.followUpDate || null),
+  await runWithNotice(() =>
+    passVM.resolve("park", draft.until || null, draft.reason || null, draft.personId),
   );
-  if (saved) passVM.markWaiting();
 }
 
 async function finish(): Promise<void> {
@@ -103,12 +66,6 @@ function onKey(event: KeyboardEvent): void {
   // While the task sheet is open it owns the keyboard; its own Escape closes just it.
   if (taskSheetVM.state.openId) return;
 
-  // The suspend panel owns the keyboard while it is open; only Esc leaves it.
-  if (suspendOpen.value) {
-    if (event.key === "Escape") cancelSuspend();
-    return;
-  }
-
   if (event.key === "Escape") {
     // On the summary card Escape does what its only button does.
     if (finished.value) void finish();
@@ -127,8 +84,7 @@ function onKey(event: KeyboardEvent): void {
   if (event.key === "Enter") return void act("keep");
   if (event.key.toLowerCase() === "d") return void act("done");
   if (event.key.toLowerCase() === "x") return void act("cancel");
-  if (event.key.toLowerCase() === "s" && canSuspendCurrent.value) suspendOpen.value = true;
-  if (event.key.toLowerCase() === "w") void actWait();
+  if (event.key.toLowerCase() === "s" && canParkCurrent.value) void actPark();
   if (event.key.toLowerCase() === "e") split();
 }
 
@@ -206,17 +162,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               {{ t("pass.split") }} <kbd class="kbd kbd-xs ml-1">E</kbd>
             </button>
             <button
-              v-if="canSuspendCurrent"
+              v-if="canParkCurrent"
               class="btn rounded-lg border-base-300 bg-base-100 font-normal"
-              @click="suspendOpen = true"
+              @click="actPark"
             >
               {{ t("pass.suspend") }} <kbd class="kbd kbd-xs ml-1">S</kbd>
-            </button>
-            <button
-              class="btn rounded-lg border-info/40 bg-info/5 font-normal text-info"
-              @click="actWait"
-            >
-              {{ t("pass.wait") }} <kbd class="kbd kbd-xs ml-1">W</kbd>
             </button>
             <button
               class="btn rounded-lg border-base-300 bg-base-100 font-normal"
@@ -224,49 +174,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             >
               {{ t("pass.cancel") }} <kbd class="kbd kbd-xs ml-1">X</kbd>
             </button>
-          </div>
-
-          <div v-if="suspendOpen" class="mt-4 rounded-lg bg-base-200 p-3">
-            <div class="text-[12px] font-medium">{{ t("pass.suspendPrompt") }}</div>
-            <label class="mt-2 block text-[12px] text-base-content/65">
-              {{ t("task.suspendReasonLabel") }}
-              <input
-                v-model="suspendReason"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12px]"
-                :placeholder="t('task.suspendReasonPlaceholder')"
-                @keydown.enter="onSuspendEnter"
-              />
-            </label>
-            <label class="mt-2 block text-[12px] text-base-content/65">
-              {{ t("task.suspendUntilLabel") }}
-              <DateField
-                v-model="suspendDate"
-                :min="todayIso()"
-                :aria-label="t('task.suspendUntilLabel')"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[12px]"
-                @enter="actSuspend"
-              />
-            </label>
-            <div class="mt-3 flex items-center gap-2">
-              <button
-                class="btn btn-sm rounded-lg border-0 bg-base-content text-base-100"
-                @click="actSuspend"
-              >
-                {{ t("pass.suspend") }}
-              </button>
-              <button
-                class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
-                @click="cancelSuspend"
-              >
-                {{ t("pass.back") }}
-              </button>
-            </div>
-            <p v-if="suspendError" class="mt-2 text-[12px] text-error">
-              {{ errorText(suspendError) }}
-            </p>
-            <p class="mt-2 text-[12px] text-base-content/65">
-              {{ t("pass.suspendHint") }}
-            </p>
           </div>
         </motion.div>
 
@@ -282,8 +189,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               t("pass.counts", {
                 keep: passVM.state.counts.keep,
                 done: passVM.state.counts.done,
-                suspend: passVM.state.counts.suspend,
-                wait: passVM.state.counts.wait,
+                park: passVM.state.counts.park,
                 cancel: passVM.state.counts.cancel,
               })
             }}

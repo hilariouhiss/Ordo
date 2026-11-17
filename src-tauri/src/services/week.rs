@@ -10,7 +10,7 @@ use serde::Deserialize;
 pub enum PassAction {
     Keep,
     Done,
-    Suspend,
+    Park,
     Cancel,
 }
 
@@ -171,7 +171,7 @@ pub fn pass_queue(conn: &Connection) -> Result<Vec<TaskDto>, String> {
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND status <> 'done' AND suspended = 0 AND waiting = 0
+             WHERE in_week = 1 AND status <> 'done' AND parked = 0
                AND {} AND {}
              ORDER BY sort_order, id",
             tasks::visible_task_filter("tasks"),
@@ -186,8 +186,9 @@ pub fn resolve(
     conn: &Connection,
     task_id: &str,
     action: PassAction,
-    suspend_until: Option<&str>,
-    suspend_reason: Option<&str>,
+    park_until: Option<&str>,
+    park_reason: Option<&str>,
+    parked_on_id: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
     match action {
@@ -202,8 +203,8 @@ pub fn resolve(
             // A subtask finishing rolls its parent up; a plain task just closes.
             crate::services::tasks::set_status(conn, task_id, "done", now)?;
         }
-        PassAction::Suspend => {
-            return suspend(conn, task_id, suspend_until, suspend_reason, now);
+        PassAction::Park => {
+            return park(conn, task_id, park_until, park_reason, parked_on_id, now);
         }
         PassAction::Cancel => {
             conn.execute(
@@ -218,82 +219,48 @@ pub fn resolve(
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
 }
 
-pub fn suspend(
+/// Sets a task aside: it leaves the week, keeps why and when to look again, and keeps
+/// the person whose reply it waits on. Open children are set aside with it, because it is
+/// the whole thing that is with someone else.
+pub fn park(
     conn: &Connection,
     task_id: &str,
-    suspend_until: Option<&str>,
-    suspend_reason: Option<&str>,
+    park_until: Option<&str>,
+    park_reason: Option<&str>,
+    parked_on_id: Option<&str>,
     now: &str,
 ) -> Result<TaskDto, String> {
     // An empty field from the UI means "not set", same as leaving it out.
-    let until = suspend_until.map(str::trim).filter(|value| !value.is_empty());
-    let reason = suspend_reason.map(str::trim).filter(|value| !value.is_empty());
+    let until = park_until.map(str::trim).filter(|value| !value.is_empty());
+    let reason = park_reason.map(str::trim).filter(|value| !value.is_empty());
+    let on = parked_on_id.map(str::trim).filter(|value| !value.is_empty());
     let today = local_today(now)?;
     if let Some(until) = until {
         let until_date = NaiveDate::parse_from_str(until, "%Y-%m-%d")
-            .map_err(|_| "invalid_suspend_date".to_string())?;
+            .map_err(|_| "invalid_park_date".to_string())?;
         if until_date < today {
-            return Err("suspend_until_past".into());
+            return Err("park_until_past".into());
         }
     }
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    // A task that has not started has nothing to park. An already-suspended todo task is
-    // left alone so old data can still rewrite its park; the UI no longer offers that.
-    if let Some((status, suspended)) = tx
-        .query_row(
-            "SELECT status, suspended FROM tasks WHERE id = ?1",
-            [task_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-        )
+    let status: String = conn
+        .query_row("SELECT status FROM tasks WHERE id = ?1", [task_id], |r| r.get(0))
         .optional()
         .map_err(|e| e.to_string())?
-    {
-        if status == "todo" && suspended == 0 {
-            return Err("task_not_started".into());
-        }
+        .ok_or("task_not_found")?;
+    // A finished task cannot be set aside: completion is the terminal state.
+    if status == "done" {
+        return Err("task_done".into());
     }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let parked_on = today.format("%Y-%m-%d").to_string();
-    let park = tasks::Park::Suspended {
+    let park = tasks::Park::Parked {
         until,
         reason,
+        on,
         at: Some(&parked_on),
     };
     tasks::write_park_in(&tx, task_id, park, now, false).map_err(|e| e.to_string())?;
     // Parking an umbrella parks its work: otherwise the children stay on the week.
-    tasks::write_park_in(&tx, task_id, park, now, true).map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    tasks::dto(conn, task_id).map_err(|e| e.to_string())
-}
-
-/// Parks a task on someone else's reply: it leaves the week, keeps who it waits on
-/// and the day to chase them, and stops being suspended. Open children wait with it,
-/// because it is the whole thing that is with someone else.
-pub fn wait(
-    conn: &Connection,
-    task_id: &str,
-    waiting_on_id: Option<&str>,
-    follow_up_date: Option<&str>,
-    now: &str,
-) -> Result<TaskDto, String> {
-    // An empty field from the UI means "not set", same as leaving it out.
-    let person = waiting_on_id.map(str::trim).filter(|value| !value.is_empty());
-    let follow_up = follow_up_date.map(str::trim).filter(|value| !value.is_empty());
-    let today = local_today(now)?;
-    if let Some(day) = follow_up {
-        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
-            .map_err(|_| "invalid_follow_up_date".to_string())?;
-        if date < today {
-            return Err("follow_up_past".into());
-        }
-    }
-    let since = today.format("%Y-%m-%d").to_string();
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let park = tasks::Park::Waiting {
-        on: person,
-        follow_up,
-        since: Some(&since),
-    };
-    tasks::write_park_in(&tx, task_id, park, now, false).map_err(|e| e.to_string())?;
     tasks::write_park_in(&tx, task_id, park, now, true).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     tasks::dto(conn, task_id).map_err(|e| e.to_string())
@@ -366,32 +333,16 @@ pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String>
     .map_err(|e| e.to_string())
 }
 
-pub fn list_waiting(conn: &Connection) -> Result<Vec<TaskDto>, String> {
+/// Every task set aside: the week page puts each on the day its plan would have started.
+pub fn list_parked(conn: &Connection) -> Result<Vec<TaskDto>, String> {
     let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
     tasks::list_for(
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE waiting = 1 AND status <> 'done'
+             WHERE parked = 1 AND status <> 'done'
                AND {} AND {}
-             ORDER BY follow_up_date IS NULL, follow_up_date, updated_at",
-            tasks::visible_task_filter("tasks"),
-            crate::repo::scope_eq("tasks", &mode)
-        ),
-        &[],
-    )
-    .map_err(|e| e.to_string())
-}
-
-pub fn list_suspended(conn: &Connection) -> Result<Vec<TaskDto>, String> {
-    let mode = crate::repo::settings::mode(conn).map_err(|e| e.to_string())?;
-    tasks::list_for(
-        conn,
-        &format!(
-            "SELECT id FROM tasks
-             WHERE suspended = 1 AND status <> 'done'
-               AND {} AND {}
-             ORDER BY suspended_until IS NULL, suspended_until, updated_at",
+             ORDER BY park_until IS NULL, park_until, updated_at",
             tasks::visible_task_filter("tasks"),
             crate::repo::scope_eq("tasks", &mode)
         ),
@@ -429,7 +380,7 @@ fn unpark(conn: &Connection, task_id: &str, now: &str) -> Result<(), String> {
 }
 
 /// Drops a task onto one day: it joins the week with that expected start, its finish
-/// follows the estimate from there, and when it was parked it stops being suspended.
+/// follows the estimate from there, and when it was parked the drop brings it back.
 /// Order is a separate write, so a bad anchor cannot leave the date half-applied.
 pub fn place(
     conn: &Connection,
@@ -478,11 +429,7 @@ pub fn place(
 pub fn start(conn: &Connection, task_id: &str, now: &str) -> Result<TaskDto, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let parked: i64 = tx
-        .query_row(
-            "SELECT suspended OR waiting FROM tasks WHERE id = ?1",
-            [task_id],
-            |r| r.get(0),
-        )
+        .query_row("SELECT parked FROM tasks WHERE id = ?1", [task_id], |r| r.get(0))
         .map_err(|e| e.to_string())?;
     if parked == 1 {
         resume(&tx, task_id, now)?;
@@ -997,117 +944,132 @@ mod tests {
     fn keep_increments_carry_and_stays() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交付资料目录", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Keep, None, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Keep, None, None, None, NOW).unwrap();
         assert_eq!(t.carry_count, 1);
         assert!(t.in_week);
     }
 
     #[test]
-    fn suspend_without_a_date_or_reason_parks_the_task() {
+    fn park_without_a_date_or_reason_sets_the_task_aside() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
 
-        let t = week::resolve(&c, "t1", PassAction::Suspend, None, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Park, None, None, None, NOW).unwrap();
 
         assert!(!t.in_week);
-        assert!(t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert_eq!(t.suspended_at.as_deref(), Some(local_date(NOW).as_str()));
-        assert!(t.suspend_reason.is_none());
-        assert_eq!(week::list_suspended(&c).unwrap().len(), 1);
+        assert!(t.parked);
+        assert!(t.park_until.is_none());
+        assert_eq!(t.parked_at.as_deref(), Some(local_date(NOW).as_str()));
+        assert!(t.park_reason.is_none());
+        assert_eq!(week::list_parked(&c).unwrap().len(), 1);
         assert!(!week::list(&c).unwrap().iter().any(|row| row.id == "t1"));
         assert!(!week::pass_queue(&c).unwrap().iter().any(|row| row.id == "t1"));
     }
 
     #[test]
-    fn suspend_keeps_the_reason_and_optional_date() {
+    fn park_keeps_the_reason_the_day_and_the_person() {
         let c = db::open_in_memory().unwrap();
-        week::capture(&c, "交底", NOW, "t1").unwrap();
+        seed_known(&c);
+        week::capture_with_fields(&c, "交底", &CaptureFields::default(), NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
 
         let t = week::resolve(
             &c,
             "t1",
-            PassAction::Suspend,
+            PassAction::Park,
             Some("2026-11-02"),
             Some("  等甲方回数据  "),
+            Some("u1"),
             NOW,
         )
         .unwrap();
 
-        assert!(t.suspended);
-        assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
-        assert_eq!(t.suspended_at.as_deref(), Some(local_date(NOW).as_str()));
-        assert_eq!(t.suspend_reason.as_deref(), Some("等甲方回数据"));
+        assert!(t.parked);
+        assert_eq!(t.park_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.parked_at.as_deref(), Some(local_date(NOW).as_str()));
+        assert_eq!(t.park_reason.as_deref(), Some("等甲方回数据"));
+        assert_eq!(t.parked_on_id.as_deref(), Some("u1"));
     }
 
     #[test]
-    fn suspend_treats_a_blank_reason_as_absent() {
+    fn park_treats_a_blank_reason_as_absent() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
 
-        let t = week::suspend(&c, "t1", None, Some("   "), NOW).unwrap();
+        let t = week::park(&c, "t1", None, Some("   "), None, NOW).unwrap();
 
-        assert!(t.suspended);
-        assert!(t.suspend_reason.is_none());
+        assert!(t.parked);
+        assert!(t.park_reason.is_none());
     }
 
     #[test]
-    fn suspend_rejects_a_past_date() {
+    fn park_rejects_a_past_date() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         assert_eq!(
-            week::resolve(&c, "t1", PassAction::Suspend, Some("2026-10-19"), None, NOW).unwrap_err(),
-            "suspend_until_past"
+            week::resolve(&c, "t1", PassAction::Park, Some("2026-10-19"), None, None, NOW)
+                .unwrap_err(),
+            "park_until_past"
         );
         assert!(week::list(&c).unwrap().iter().any(|t| t.id == "t1"));
     }
 
     #[test]
-    fn suspend_rejects_an_invalid_date() {
+    fn park_rejects_an_invalid_date() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         assert_eq!(
-            week::resolve(&c, "t1", PassAction::Suspend, Some("周五"), None, NOW).unwrap_err(),
-            "invalid_suspend_date"
+            week::resolve(&c, "t1", PassAction::Park, Some("周五"), None, None, NOW).unwrap_err(),
+            "invalid_park_date"
         );
     }
 
     #[test]
-    fn suspend_refuses_a_task_that_has_not_started() {
+    fn park_accepts_a_task_that_has_not_started() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
-        assert_eq!(
-            week::suspend(&c, "t1", None, None, NOW).unwrap_err(),
-            "task_not_started"
-        );
+        let t = week::park(&c, "t1", None, None, None, NOW).unwrap();
 
-        let t = crate::repo::tasks::dto(&c, "t1").unwrap();
-        assert!(!t.suspended);
-        assert!(t.in_week);
-        assert!(week::list(&c).unwrap().iter().any(|row| row.id == "t1"));
+        assert!(t.parked);
+        assert!(!t.in_week);
+        assert_eq!(t.status, "todo");
+        assert!(week::list(&c).unwrap().is_empty());
     }
 
     #[test]
-    fn suspend_moves_out_of_week() {
+    fn park_refuses_a_finished_task() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), None, NOW).unwrap();
+        crate::services::tasks::set_status(&c, "t1", "done", NOW).unwrap();
+
+        assert_eq!(
+            week::park(&c, "t1", None, None, None, NOW).unwrap_err(),
+            "task_done"
+        );
+    }
+
+    #[test]
+    fn park_moves_out_of_week() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
+        week::start(&c, "t1", NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Park, Some("2026-11-02"), None, None, NOW)
+            .unwrap();
         assert!(!t.in_week);
-        assert!(t.suspended);
-        assert_eq!(t.suspended_until.as_deref(), Some("2026-11-02"));
-        assert!(t.suspend_reason.is_none());
+        assert!(t.parked);
+        assert_eq!(t.park_until.as_deref(), Some("2026-11-02"));
+        assert!(t.park_reason.is_none());
     }
 
     #[test]
     fn cancel_sets_canceled_at_and_leaves_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "不再需要", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Cancel, None, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Cancel, None, None, None, NOW).unwrap();
         assert!(t.canceled_at.is_some());
         assert!(!t.in_week);
     }
@@ -1116,7 +1078,7 @@ mod tests {
     fn done_leaves_week() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "做完了", NOW, "t1").unwrap();
-        let t = week::resolve(&c, "t1", PassAction::Done, None, None, NOW).unwrap();
+        let t = week::resolve(&c, "t1", PassAction::Done, None, None, None, NOW).unwrap();
         assert_eq!(t.status, "done");
         assert!(!t.in_week);
     }
@@ -1128,7 +1090,7 @@ mod tests {
         let parent = crate::services::subtasks::add(&c, "t1", "收集清单", NOW).unwrap();
         let child = parent.children[0].id.clone();
 
-        let done = week::resolve(&c, &child, PassAction::Done, None, None, NOW).unwrap();
+        let done = week::resolve(&c, &child, PassAction::Done, None, None, None, NOW).unwrap();
         assert_eq!(done.status, "done");
 
         // The umbrella follows its children and stays off the queue.
@@ -1148,7 +1110,7 @@ mod tests {
         let second = parent.children[1].id.clone();
         crate::services::tasks::set_status(&c, &first, "done", NOW).unwrap();
 
-        week::resolve(&c, &second, PassAction::Cancel, None, None, NOW).unwrap();
+        week::resolve(&c, &second, PassAction::Cancel, None, None, None, NOW).unwrap();
 
         let umbrella = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert_eq!(umbrella.status, "done");
@@ -1163,7 +1125,7 @@ mod tests {
         let parent = crate::services::subtasks::add(&c, "t1", "收集", NOW).unwrap();
         let child = parent.children[0].id.clone();
 
-        week::resolve(&c, &child, PassAction::Cancel, None, None, NOW).unwrap();
+        week::resolve(&c, &child, PassAction::Cancel, None, None, None, NOW).unwrap();
 
         let week_ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(week_ids, vec!["t1".to_string()]);
@@ -1177,10 +1139,10 @@ mod tests {
         let child = parent.children[0].id.clone();
         week::start(&c, &child, NOW).unwrap();
 
-        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), Some("等甲方"), None, NOW).unwrap();
         assert!(week::list(&c).unwrap().is_empty());
         // The work is parked with its umbrella, and only the work is listed.
-        let parked: Vec<String> = week::list_suspended(&c)
+        let parked: Vec<String> = week::list_parked(&c)
             .unwrap()
             .into_iter()
             .map(|task| task.id)
@@ -1207,7 +1169,7 @@ mod tests {
         crate::services::tasks::set_status(&c, &done_child, "done", NOW).unwrap();
         week::start(&c, &open_child, NOW).unwrap();
 
-        week::suspend(&c, "t1", None, None, NOW).unwrap();
+        week::park(&c, "t1", None, None, None, NOW).unwrap();
         week::resume(&c, "t1", NOW).unwrap();
 
         let week_ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
@@ -1219,7 +1181,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
-        week::resolve(&c, "t2", PassAction::Done, None, None, NOW).unwrap();
+        week::resolve(&c, "t2", PassAction::Done, None, None, None, NOW).unwrap();
         let q = week::pass_queue(&c).unwrap();
         assert_eq!(q.len(), 1);
         assert_eq!(q[0].id, "t1");
@@ -1230,7 +1192,7 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
-        week::resolve(&c, "t1", PassAction::Done, None, None, NOW).unwrap();
+        week::resolve(&c, "t1", PassAction::Done, None, None, None, NOW).unwrap();
         c.execute(
             "INSERT INTO delays (id, task_id, kind, old_due, new_due, created_at)
              VALUES ('d1','t2','reschedule','2026-10-01','2026-10-20','2026-10-20T09:00:00Z')",
@@ -1244,44 +1206,45 @@ mod tests {
     }
 
     #[test]
-    fn suspended_list_hides_completed_tasks() {
+    fn parked_list_hides_completed_tasks() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         c.execute(
-            "UPDATE tasks SET status = 'done', in_week = 0, suspended = 1,
-                    suspended_until = '2026-11-02'
+            "UPDATE tasks SET status = 'done', in_week = 0, parked = 1,
+                    park_until = '2026-11-02'
              WHERE id = 't1'",
             [],
         )
         .unwrap();
 
-        assert!(week::list_suspended(&c).unwrap().is_empty());
+        assert!(week::list_parked(&c).unwrap().is_empty());
     }
 
     #[test]
-    fn suspended_list_and_resume() {
+    fn parked_list_and_resume() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
         week::start(&c, "t1", NOW).unwrap();
         week::resolve(
             &c,
             "t1",
-            PassAction::Suspend,
+            PassAction::Park,
             Some("2026-11-02"),
             Some("等甲方"),
+            None,
             NOW,
         )
         .unwrap();
-        let suspended = week::list_suspended(&c).unwrap();
-        assert_eq!(suspended.len(), 1);
-        assert_eq!(suspended[0].suspend_reason.as_deref(), Some("等甲方"));
+        let parked = week::list_parked(&c).unwrap();
+        assert_eq!(parked.len(), 1);
+        assert_eq!(parked[0].park_reason.as_deref(), Some("等甲方"));
         let t = week::resume(&c, "t1", NOW).unwrap();
         assert!(t.in_week);
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert!(t.suspended_at.is_none());
-        assert!(t.suspend_reason.is_none());
-        assert!(week::list_suspended(&c).unwrap().is_empty());
+        assert!(!t.parked);
+        assert!(t.park_until.is_none());
+        assert!(t.parked_at.is_none());
+        assert!(t.park_reason.is_none());
+        assert!(week::list_parked(&c).unwrap().is_empty());
     }
 
     #[test]
@@ -1291,7 +1254,8 @@ mod tests {
         week::capture(&c, "二", NOW, "t2").unwrap();
         week::capture(&c, "三", NOW, "t3").unwrap();
         week::start(&c, "t1", NOW).unwrap();
-        week::resolve(&c, "t1", PassAction::Suspend, Some("2026-11-02"), None, NOW).unwrap();
+        week::resolve(&c, "t1", PassAction::Park, Some("2026-11-02"), None, None, NOW)
+            .unwrap();
 
         week::resume(&c, "t1", NOW).unwrap();
 
@@ -1308,8 +1272,8 @@ mod tests {
 
         assert_eq!(t.status, "doing");
         assert!(t.in_week);
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
+        assert!(!t.parked);
+        assert!(t.park_until.is_none());
     }
 
     #[test]
@@ -1324,16 +1288,16 @@ mod tests {
     }
 
     #[test]
-    fn suspend_uses_the_local_calendar_day_across_utc_midnight() {
+    fn park_uses_the_local_calendar_day_across_utc_midnight() {
         // 2026-10-20 00:30 local (+08); the UTC date is still 2026-10-19.
         let now = "2026-10-19T16:30:00Z";
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", now, "t1").unwrap();
         week::start(&c, "t1", now).unwrap();
 
-        let t = week::suspend(&c, "t1", None, None, now).unwrap();
+        let t = week::park(&c, "t1", None, None, None, now).unwrap();
 
-        assert_eq!(t.suspended_at.as_deref(), Some("2026-10-20"));
+        assert_eq!(t.parked_at.as_deref(), Some("2026-10-20"));
     }
 
     #[test]
@@ -1364,42 +1328,42 @@ mod tests {
     }
 
     #[test]
-    fn start_brings_a_suspended_task_back() {
+    fn start_brings_a_parked_task_back() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
         week::start(&c, "t1", NOW).unwrap();
-        week::suspend(&c, "t1", Some("2026-11-02"), None, NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), None, None, NOW).unwrap();
 
         let t = week::start(&c, "t1", NOW).unwrap();
 
         assert_eq!(t.status, "doing");
         assert!(t.in_week);
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert!(t.suspended_at.is_none());
-        assert!(t.suspend_reason.is_none());
+        assert!(!t.parked);
+        assert!(t.park_until.is_none());
+        assert!(t.parked_at.is_none());
+        assert!(t.park_reason.is_none());
         assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t2", "t1"]);
     }
 
     #[test]
-    fn place_brings_a_suspended_task_back_on_the_dropped_day() {
+    fn place_brings_a_parked_task_back_on_the_dropped_day() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
         week::start(&c, "t1", NOW).unwrap();
-        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), Some("等甲方"), None, NOW).unwrap();
 
         week::place(&c, "t1", "2026-10-22", Some("t2"), NOW).unwrap();
 
         let t = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert!(t.in_week);
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert!(t.suspended_at.is_none());
-        assert!(t.suspend_reason.is_none());
+        assert!(!t.parked);
+        assert!(t.park_until.is_none());
+        assert!(t.parked_at.is_none());
+        assert!(t.park_reason.is_none());
         assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
         let ids: Vec<String> = week::list(&c).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(ids, vec!["t1", "t2"]);
@@ -1585,99 +1549,89 @@ mod tests {
     }
 
     #[test]
-    fn wait_parks_with_the_person_the_day_and_the_start() {
+    fn park_keeps_the_person_the_day_and_the_start() {
         let c = db::open_in_memory().unwrap();
         seed_known(&c);
-        week::capture_with_fields(&c, "交底", &crate::dto::CaptureFields::default(), NOW, "t1")
-            .unwrap();
+        week::capture(&c, "交底", NOW, "t1").unwrap();
 
-        let t = week::wait(&c, "t1", Some("u1"), Some("2026-11-02"), NOW).unwrap();
+        let t = week::park(&c, "t1", Some("2026-11-02"), None, Some("u1"), NOW).unwrap();
 
-        assert!(t.waiting);
+        assert!(t.parked);
         assert!(!t.in_week);
-        assert!(!t.suspended);
-        assert_eq!(t.waiting_on_id.as_deref(), Some("u1"));
-        assert_eq!(t.follow_up_date.as_deref(), Some("2026-11-02"));
-        assert_eq!(t.waiting_since.as_deref(), Some(local_date(NOW).as_str()));
-        let waiting: Vec<String> = week::list_waiting(&c)
+        assert_eq!(t.parked_on_id.as_deref(), Some("u1"));
+        assert_eq!(t.park_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(t.parked_at.as_deref(), Some(local_date(NOW).as_str()));
+        let parked: Vec<String> = week::list_parked(&c)
             .unwrap()
             .into_iter()
             .map(|t| t.id)
             .collect();
-        assert_eq!(waiting, vec!["t1"]);
-        assert!(week::list(&c).unwrap().is_empty(), "waiting leaves the week");
+        assert_eq!(parked, vec!["t1"]);
+        assert!(week::list(&c).unwrap().is_empty(), "a park leaves the week");
     }
 
     #[test]
-    fn wait_allows_an_empty_person_and_day() {
+    fn park_allows_an_empty_person_and_day() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
-        let t = week::wait(&c, "t1", None, None, NOW).unwrap();
+        let t = week::park(&c, "t1", None, None, None, NOW).unwrap();
 
-        assert!(t.waiting);
-        assert!(t.waiting_on_id.is_none());
-        assert!(t.follow_up_date.is_none());
+        assert!(t.parked);
+        assert!(t.parked_on_id.is_none());
+        assert!(t.park_until.is_none());
     }
 
     #[test]
-    fn wait_keeps_the_day_the_wait_started() {
+    fn park_keeps_the_day_the_park_started() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), None, None, NOW).unwrap();
 
-        let t = week::wait(&c, "t1", None, Some("2026-11-05"), "2026-10-21T09:00:00Z").unwrap();
+        let t = week::park(&c, "t1", Some("2026-11-05"), None, None, "2026-10-21T09:00:00Z")
+            .unwrap();
 
-        assert_eq!(t.follow_up_date.as_deref(), Some("2026-11-05"));
+        assert_eq!(t.park_until.as_deref(), Some("2026-11-05"));
         assert_eq!(
-            t.waiting_since.as_deref(),
+            t.parked_at.as_deref(),
             Some("2026-10-20"),
-            "moving the day to chase does not restart the wait"
+            "moving the day to look again does not restart the park"
         );
     }
 
     #[test]
-    fn wait_rejects_a_past_or_invalid_day() {
+    fn park_rejects_a_past_or_invalid_day() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "交底", NOW, "t1").unwrap();
 
         assert_eq!(
-            week::wait(&c, "t1", None, Some("2026-10-19"), NOW).unwrap_err(),
-            "follow_up_past"
+            week::park(&c, "t1", Some("2026-10-19"), None, None, NOW).unwrap_err(),
+            "park_until_past"
         );
         assert_eq!(
-            week::wait(&c, "t1", None, Some("周四"), NOW).unwrap_err(),
-            "invalid_follow_up_date"
+            week::park(&c, "t1", Some("周四"), None, None, NOW).unwrap_err(),
+            "invalid_park_date"
         );
-        assert!(!crate::repo::tasks::dto(&c, "t1").unwrap().waiting);
+        assert!(!crate::repo::tasks::dto(&c, "t1").unwrap().parked);
     }
 
     #[test]
-    fn wait_and_suspend_are_exclusive() {
+    fn parking_again_replaces_the_details() {
         let c = db::open_in_memory().unwrap();
+        seed_known(&c);
         week::capture(&c, "交底", NOW, "t1").unwrap();
-        week::start(&c, "t1", NOW).unwrap();
-        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), Some("等甲方"), Some("u1"), NOW).unwrap();
 
-        let t = week::wait(&c, "t1", None, Some("2026-11-03"), NOW).unwrap();
+        let t = week::park(&c, "t1", Some("2026-11-04"), None, None, NOW).unwrap();
 
-        assert!(t.waiting);
-        assert!(!t.suspended);
-        assert!(t.suspended_until.is_none());
-        assert!(t.suspended_at.is_none());
-        assert!(t.suspend_reason.is_none());
-        assert!(week::list_suspended(&c).unwrap().is_empty());
-
-        let back = week::suspend(&c, "t1", Some("2026-11-04"), None, NOW).unwrap();
-        assert!(!back.waiting);
-        assert!(back.waiting_on_id.is_none());
-        assert!(back.follow_up_date.is_none());
-        assert!(back.waiting_since.is_none());
-        assert!(week::list_waiting(&c).unwrap().is_empty());
+        assert!(t.parked);
+        assert_eq!(t.park_until.as_deref(), Some("2026-11-04"));
+        assert!(t.park_reason.is_none());
+        assert!(t.parked_on_id.is_none());
     }
 
     #[test]
-    fn wait_cascades_to_live_children() {
+    fn park_cascades_to_live_children() {
         let c = db::open_in_memory().unwrap();
         seed_known(&c);
         week::capture(&c, "交底", NOW, "t1").unwrap();
@@ -1690,33 +1644,31 @@ mod tests {
         )
         .unwrap();
 
-        week::wait(&c, "t1", Some("u1"), Some("2026-11-05"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-05"), None, Some("u1"), NOW).unwrap();
 
         let child = crate::repo::tasks::dto(&c, &child_id).unwrap();
-        assert!(child.waiting);
+        assert!(child.parked);
         assert!(!child.in_week);
-        assert_eq!(child.follow_up_date.as_deref(), Some("2026-11-05"));
+        assert_eq!(child.park_until.as_deref(), Some("2026-11-05"));
         let done: (i64, i64) = c
-            .query_row(
-                "SELECT waiting, in_week FROM tasks WHERE title = '归档'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT parked, in_week FROM tasks WHERE title = '归档'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(done, (0, 0), "a finished child is left alone");
     }
 
     #[test]
-    fn waiting_list_orders_by_the_follow_up_day() {
+    fn parked_list_orders_by_the_review_day() {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "无日期", NOW, "t1").unwrap();
         week::capture(&c, "后天", NOW, "t2").unwrap();
         week::capture(&c, "明天", NOW, "t3").unwrap();
-        week::wait(&c, "t1", None, None, NOW).unwrap();
-        week::wait(&c, "t2", None, Some("2026-10-22"), NOW).unwrap();
-        week::wait(&c, "t3", None, Some("2026-10-21"), NOW).unwrap();
+        week::park(&c, "t1", None, None, None, NOW).unwrap();
+        week::park(&c, "t2", Some("2026-10-22"), None, None, NOW).unwrap();
+        week::park(&c, "t3", Some("2026-10-21"), None, None, NOW).unwrap();
 
-        let ids: Vec<String> = week::list_waiting(&c)
+        let ids: Vec<String> = week::list_parked(&c)
             .unwrap()
             .into_iter()
             .map(|t| t.id)
@@ -1725,40 +1677,26 @@ mod tests {
     }
 
     #[test]
-    fn resume_and_place_bring_a_waiting_task_back() {
+    fn resume_and_place_bring_a_parked_task_back() {
         let c = db::open_in_memory().unwrap();
         seed_known(&c);
         week::capture(&c, "一", NOW, "t1").unwrap();
         week::capture(&c, "二", NOW, "t2").unwrap();
-        week::wait(&c, "t1", Some("u1"), Some("2026-11-02"), NOW).unwrap();
-        week::wait(&c, "t2", None, Some("2026-11-03"), NOW).unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), None, Some("u1"), NOW).unwrap();
+        week::park(&c, "t2", Some("2026-11-03"), None, None, NOW).unwrap();
 
         let t = week::resume(&c, "t1", NOW).unwrap();
-        assert!(!t.waiting);
+        assert!(!t.parked);
         assert!(t.in_week);
-        assert!(t.waiting_on_id.is_none());
-        assert!(t.follow_up_date.is_none());
-        assert!(t.waiting_since.is_none());
+        assert!(t.parked_on_id.is_none());
+        assert!(t.park_until.is_none());
+        assert!(t.parked_at.is_none());
 
         week::place(&c, "t2", "2026-10-22", None, NOW).unwrap();
         let t = crate::repo::tasks::dto(&c, "t2").unwrap();
-        assert!(!t.waiting);
+        assert!(!t.parked);
         assert!(t.in_week);
         assert_eq!(t.expected_start_date.as_deref(), Some("2026-10-22"));
-    }
-
-    #[test]
-    fn start_brings_a_waiting_task_back() {
-        let c = db::open_in_memory().unwrap();
-        week::capture(&c, "交底", NOW, "t1").unwrap();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
-
-        let t = week::start(&c, "t1", NOW).unwrap();
-
-        assert_eq!(t.status, "doing");
-        assert!(!t.waiting);
-        assert!(t.in_week);
-        assert_eq!(t.actual_start_at.as_deref(), Some(NOW));
     }
 
     #[test]

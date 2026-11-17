@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { Check, ChevronRight, Hourglass, MessageSquareReply, Pause, Play } from "@lucide/vue";
+import { Check, ChevronRight, Pause, Play } from "@lucide/vue";
 import { motion } from "motion-v";
 import { computed, ref } from "vue";
 import { shortDate, localTime, todayIso } from "../../lib/dates";
-import { askNotice, askSuspend, askWaiting } from "../../lib/dialog";
+import { askNotice, askPark } from "../../lib/dialog";
 import { formatEffort } from "../../lib/effort";
 import { errorText, t } from "../../lib/i18n";
 import { easeOut, springSnappy } from "../../lib/motion";
-import { canSuspendTask, canWaitTask } from "../../lib/status";
-import { waitDefaults, waitingOnName } from "../../lib/waiting";
+import { canParkTask } from "../../lib/status";
+import { parkedOnName, parkDefaults } from "../../lib/park";
 import { currentSubtask, subtaskLabel, subtasksDone } from "../../lib/subtasks";
 import { daysSince, overdueDays } from "../../model/mappers";
 import type { Task } from "../../model/types";
@@ -58,8 +58,7 @@ const stepLine = computed(() => subtaskLabel(props.task.children));
 const subtasksId = computed(() => `subtasks-${props.task.id}`);
 const late = computed(() => overdueDays(props.task.expectedFinishDate, todayIso()));
 const overdue = computed(
-  () =>
-    late.value > 0 && props.task.status !== "done" && !props.task.suspended && !props.task.waiting,
+  () => late.value > 0 && props.task.status !== "done" && !props.task.parked,
 );
 const conflictTitle = computed(() =>
   t("task.conflictTitle", {
@@ -86,48 +85,34 @@ const expanded = ref(false);
 const hasSubtasks = computed(() => props.task.children.length > 0);
 const isDone = computed(() => props.task.status === "done");
 const canStart = computed(
-  () =>
-    !hasSubtasks.value && !isDone.value && (props.task.status === "todo" || props.task.suspended),
+  () => !hasSubtasks.value && !isDone.value && (props.task.status === "todo" || props.task.parked),
 );
-const canSuspend = computed(() => canSuspendTask(props.task));
+/** A parked row gets its way back from the start button. */
+const canPark = computed(() => !props.readonly && !props.task.parked && canParkTask(props.task));
 const doneLabel = computed(() =>
   t(isDone.value ? "task.reopenAria" : "task.doneAria", { title: props.task.title }),
 );
 const startLabel = computed(() => t("task.startAria", { title: props.task.title }));
-const suspendLabel = computed(() => t("task.suspendAria", { title: props.task.title }));
+const parkLabel = computed(() => t("task.suspendAria", { title: props.task.title }));
 const subtasksLabel = computed(() =>
   t(expanded.value ? "task.collapseSubtasks" : "task.expandSubtasks"),
 );
-const canWait = computed(() => canWaitTask(props.task));
-/** A waiting task came back: the reply puts it back in the week without changing its status. */
-const canReply = computed(() => props.task.waiting && !props.readonly);
-const waitLabel = computed(() =>
-  t(props.task.waiting ? "task.followUpAria" : "task.waitAria", { title: props.task.title }),
-);
-const waitingName = computed(() => waitingOnName(props.task, appVM.state.people));
+const parkedName = computed(() => parkedOnName(props.task, appVM.state.people));
 const high = computed(() => props.task.priority === "high");
 const doneAt = computed(() => localTime(props.task.actualFinishAt));
 
-/** One quiet second line: who it waits on, the way it is parked, or the next subtask. */
+/** One quiet second line: the way it is parked, or the next subtask. */
 const subline = computed(() => {
-  if (props.task.waiting) {
-    const who = waitingName.value
-      ? t("task.waitingOn", { name: waitingName.value })
-      : t("task.waitingNoName");
-    const follow = props.task.followUpDate
-      ? t("task.followUpOn", { date: shortDate(props.task.followUpDate) })
-      : t("task.noFollowUp");
-    return `${who} · ${follow}`;
+  if (!props.task.parked) return stepLine.value;
+  const parts: string[] = [];
+  const days = props.task.parkedAt ? daysSince(props.task.parkedAt, todayIso()) : 0;
+  parts.push(days > 0 ? t("task.parkedFor", { days }) : t("task.parkedNoDate"));
+  if (props.task.parkReason) parts.push(props.task.parkReason);
+  if (parkedName.value) parts.push(t("task.waitingOn", { name: parkedName.value }));
+  if (props.task.parkUntil) {
+    parts.push(t("task.parkUntil", { date: shortDate(props.task.parkUntil) }));
   }
-  if (props.task.suspended) {
-    if (props.task.suspendedUntil) {
-      return t("task.suspended", { date: shortDate(props.task.suspendedUntil) });
-    }
-    return props.task.suspendedAt
-      ? t("task.suspendedFor", { days: daysSince(props.task.suspendedAt, todayIso()) })
-      : t("task.suspendedNoDate");
-  }
-  return stepLine.value;
+  return parts.join(" · ");
 });
 
 async function run(action: () => Promise<unknown>): Promise<void> {
@@ -175,36 +160,17 @@ function start(): void {
   void run(() => taskRowVM.start(props.task));
 }
 
-function reply(): void {
-  void run(() => taskRowVM.resume(props.task));
-}
-
-/** Parks the task on someone else's reply, or moves the day to chase them. */
-async function wait(): Promise<void> {
+/** Sets the task aside: a reason, a day to look again and a person are optional. */
+async function park(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   try {
-    const draft = await askWaiting(
-      t("task.waitDialogTitle", { title: props.task.title }),
-      waitDefaults(props.task, appVM.state.people, todayIso()),
-    );
+    const draft = await askPark(t("task.suspendAria", { title: props.task.title }), {
+      reason: "",
+      ...parkDefaults(props.task, appVM.state.people, todayIso()),
+    });
     if (!draft) return;
-    await taskRowVM.wait(props.task, draft.personId, draft.followUpDate || null);
-    emit("changed");
-  } catch (e) {
-    void askNotice(t("common.actionFailed"), errorText(e));
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function suspend(): Promise<void> {
-  if (busy.value) return;
-  busy.value = true;
-  try {
-    const draft = await askSuspend(t("task.suspendAria", { title: props.task.title }));
-    if (!draft) return;
-    await taskRowVM.suspend(props.task, draft.until || null, draft.reason || null);
+    await taskRowVM.park(props.task, draft);
     emit("changed");
   } catch (e) {
     void askNotice(t("common.actionFailed"), errorText(e));
@@ -239,7 +205,7 @@ async function suspend(): Promise<void> {
       :disabled="busy"
       @click.stop="toggleDone"
     >
-      <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
+      <StatusDot :status="task.status" :parked="task.parked" />
     </button>
     <span
       v-else
@@ -247,7 +213,7 @@ async function suspend(): Promise<void> {
       :title="hasSubtasks ? t('task.subtasksHint') : undefined"
       @click.stop
     >
-      <StatusDot :status="task.status" :suspended="task.suspended" :waiting="task.waiting" />
+      <StatusDot :status="task.status" :parked="task.parked" />
     </span>
 
     <div class="flex min-w-0 flex-col justify-center gap-0.5">
@@ -304,7 +270,7 @@ async function suspend(): Promise<void> {
       <p
         v-if="subline"
         class="truncate text-[11.5px] leading-4"
-        :class="task.waiting || task.suspended ? 'text-warning' : 'text-base-content/60'"
+        :class="task.parked ? 'text-warning' : 'text-base-content/60'"
       >
         {{ subline }}
       </p>
@@ -356,37 +322,15 @@ async function suspend(): Promise<void> {
         <Play :size="13" aria-hidden="true" />
       </button>
       <button
-        v-if="canSuspend"
+        v-if="canPark"
         type="button"
         class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-warning disabled:opacity-50"
-        :aria-label="suspendLabel"
-        :title="suspendLabel"
+        :aria-label="parkLabel"
+        :title="parkLabel"
         :disabled="busy"
-        @click.stop="suspend"
+        @click.stop="park"
       >
         <Pause :size="13" aria-hidden="true" />
-      </button>
-      <button
-        v-if="canWait"
-        type="button"
-        class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-primary disabled:opacity-50"
-        :aria-label="waitLabel"
-        :title="waitLabel"
-        :disabled="busy"
-        @click.stop="wait"
-      >
-        <Hourglass :size="13" aria-hidden="true" />
-      </button>
-      <button
-        v-if="canReply"
-        type="button"
-        class="grid size-6 place-items-center rounded text-base-content/55 hover:bg-base-300/70 hover:text-primary disabled:opacity-50"
-        :aria-label="t('task.replied')"
-        :title="t('task.replied')"
-        :disabled="busy"
-        @click.stop="reply"
-      >
-        <MessageSquareReply :size="13" aria-hidden="true" />
       </button>
     </span>
 

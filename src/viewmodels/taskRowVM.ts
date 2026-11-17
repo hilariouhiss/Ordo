@@ -1,66 +1,37 @@
-import {
-  resumeTask,
-  setTaskStatus,
-  startTask,
-  suspendTask,
-  updateTaskPatch,
-  waitTask,
-} from "../model/ipc";
+import { parkTask, resumeTask, setTaskStatus, startTask, updateTaskPatch } from "../model/ipc";
 import { todayIso } from "../lib/dates";
+import type { ParkDraft } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import type { Task } from "../model/types";
 import { undoVM } from "./undoVM";
+
+/** Puts the task back on the same park; a day already gone is dropped instead of refused. */
+function repark(task: Task): Promise<Task> {
+  const until = task.parkUntil && task.parkUntil >= todayIso() ? task.parkUntil : null;
+  return parkTask(task.id, until, task.parkReason, task.parkedOnId);
+}
 
 export function createTaskRowVM() {
   function start(task: Task): Promise<Task> {
     return startTask(task.id);
   }
 
-  function suspend(task: Task, until: string | null, reason: string | null): Promise<Task> {
-    return suspendTask(task.id, until, reason).then((updated) => {
-      undoVM.pushUndo(t("undo.suspended", { title: task.title }), async () => {
-        await resumeTask(task.id);
-      });
-      return updated;
-    });
-  }
-
-  /**
-   * Parks the task on a reply. The undo puts back what the wait replaced: a task that
-   * was not waiting comes back to the week, one that was keeps its old person and day.
-   * A day already gone is dropped instead of refused.
-   */
-  function wait(task: Task, personId: string | null, followUpDate: string | null): Promise<Task> {
-    return waitTask(task.id, personId, followUpDate).then((updated) => {
-      undoVM.pushUndo(t("undo.waiting", { title: task.title }), async () => {
-        if (!task.waiting) {
+  function park(task: Task, draft: ParkDraft): Promise<Task> {
+    return parkTask(task.id, draft.until || null, draft.reason || null, draft.personId).then(
+      (updated) => {
+        undoVM.pushUndo(t("undo.parked", { title: task.title }), async () => {
           await resumeTask(task.id);
-          return;
-        }
-        const day = task.followUpDate && task.followUpDate >= todayIso() ? task.followUpDate : null;
-        await waitTask(task.id, task.waitingOnId, day);
-      });
-      return updated;
-    });
+        });
+        return updated;
+      },
+    );
   }
 
-  /**
-   * Back from a park. The undo puts the task where it came from: a suspended task is
-   * parked again on the same day and reason, a waiting one keeps its person and day. A
-   * date already gone is dropped instead of refused.
-   */
+  /** Back from a park. The undo puts the task back on the same park. */
   function resume(task: Task): Promise<Task> {
     return resumeTask(task.id).then((updated) => {
       undoVM.pushUndo(t("undo.resumed", { title: task.title }), async () => {
-        if (task.waiting) {
-          const day =
-            task.followUpDate && task.followUpDate >= todayIso() ? task.followUpDate : null;
-          await waitTask(task.id, task.waitingOnId, day);
-          return;
-        }
-        const until =
-          task.suspendedUntil && task.suspendedUntil >= todayIso() ? task.suspendedUntil : null;
-        await suspendTask(task.id, until, task.suspendReason);
+        await repark(task);
       });
       return updated;
     });
@@ -75,16 +46,8 @@ export function createTaskRowVM() {
         async () => {
           await setTaskStatus(task.id, previous);
           // Completing clears the park; the undo puts the task back where it was.
-          if (task.waiting) {
-            const day =
-              task.followUpDate && task.followUpDate >= todayIso() ? task.followUpDate : null;
-            await waitTask(task.id, task.waitingOnId, day);
-            return;
-          }
-          if (task.suspended) {
-            const until =
-              task.suspendedUntil && task.suspendedUntil >= todayIso() ? task.suspendedUntil : null;
-            await suspendTask(task.id, until, task.suspendReason);
+          if (task.parked) {
+            await repark(task);
             return;
           }
           // Re-completing stamps "now"; the undo of a reopen hands the recorded pair back.
@@ -111,7 +74,7 @@ export function createTaskRowVM() {
     });
   }
 
-  return { start, suspend, wait, resume, toggleDone, toggleSubtask };
+  return { start, park, resume, toggleDone, toggleSubtask };
 }
 
 export const taskRowVM = createTaskRowVM();

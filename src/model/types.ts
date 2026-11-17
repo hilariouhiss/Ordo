@@ -298,17 +298,15 @@ export interface Task {
   status: Status;
   inWeek: boolean;
   carryCount: number;
-  suspendedUntil: string | null;
-  suspended: boolean;
-  suspendedAt: string | null;
-  suspendReason: string | null;
-  /** Parked on someone else's reply: out of the week until the reply arrives. */
-  waiting: boolean;
-  waitingOnId: string | null;
-  /** Local `YYYY-MM-DD` to chase them; null means no reminder. */
-  followUpDate: string | null;
-  /** Local `YYYY-MM-DD` the wait started. */
-  waitingSince: string | null;
+  /** Set aside: out of the week until a day, on a reply, or for a reason. */
+  parked: boolean;
+  /** Local `YYYY-MM-DD` the park started. */
+  parkedAt: string | null;
+  /** Local `YYYY-MM-DD` to look again; null means no reminder. */
+  parkUntil: string | null;
+  parkReason: string | null;
+  /** The person a parked task waits on, when it is someone else's reply. */
+  parkedOnId: string | null;
   note: string | null;
   archivedAt: string | null;
   canceledAt: string | null;
@@ -466,7 +464,7 @@ export interface Bootstrap {
   projects: ProjectSummary[];
 }
 
-export type PassAction = "keep" | "done" | "suspend" | "cancel";
+export type PassAction = "keep" | "done" | "park" | "cancel";
 /** An absent field keeps its value; an explicit `null` clears it. */
 export interface TaskPatch {
   title?: string;

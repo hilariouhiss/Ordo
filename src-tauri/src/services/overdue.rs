@@ -14,7 +14,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<OverdueTaskDto>, Strin
     let sql = format!(
         "SELECT id, title, expected_finish_date FROM tasks
          WHERE expected_finish_date IS NOT NULL AND expected_finish_date < ?1
-           AND status <> 'done' AND suspended = 0 AND waiting = 0
+           AND status <> 'done' AND parked = 0
            AND rule_id IS NULL AND expected_finish_time IS NULL
            AND (expected_start_date IS NULL OR expected_start_date <= ?1)
            AND {}
@@ -96,7 +96,7 @@ mod tests {
         let yesterday = day(today, -1);
 
         let done = capture(&c, "完成了", "done");
-        let suspended = capture(&c, "挂起", "suspended");
+        let parked = capture(&c, "挂起", "parked");
         let waiting = capture(&c, "等人", "waiting");
         let rule = capture(&c, "周期", "rule");
         let archived = capture(&c, "归档", "archived");
@@ -112,7 +112,7 @@ mod tests {
             .clone();
         for id in [
             &done,
-            &suspended,
+            &parked,
             &waiting,
             &rule,
             &archived,
@@ -132,12 +132,12 @@ mod tests {
         )
         .unwrap();
         c.execute(
-            "UPDATE tasks SET suspended = 1, in_week = 0 WHERE id = ?1",
-            [&suspended],
+            "UPDATE tasks SET parked = 1, in_week = 0 WHERE id = ?1",
+            [&parked],
         )
         .unwrap();
         c.execute(
-            "UPDATE tasks SET waiting = 1, in_week = 0 WHERE id = ?1",
+            "UPDATE tasks SET parked = 1, in_week = 0 WHERE id = ?1",
             [&waiting],
         )
         .unwrap();

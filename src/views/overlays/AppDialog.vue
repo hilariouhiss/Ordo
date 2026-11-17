@@ -18,7 +18,6 @@ const deferReason = ref("");
 const deferDates = reactive<Record<string, string>>({});
 const waitPerson = ref("");
 const optOutChecked = ref(true);
-const waitDate = ref("");
 const client = reactive({ name: "", contact: "", phone: "", note: "" });
 const person = reactive({ name: "", categoryIds: [] as string[] });
 const textInput = ref<HTMLInputElement | null>(null);
@@ -34,16 +33,12 @@ watch(dialogRequest, async (request) => {
     draft.value = request.value;
     await nextTick();
     textInput.value?.select();
-  } else if (request.kind === "suspend") {
-    reasonDraft.value = "";
-    untilDraft.value = "";
+  } else if (request.kind === "park") {
+    reasonDraft.value = request.reason;
+    untilDraft.value = request.until;
+    waitPerson.value = request.personId ?? "";
     await nextTick();
     reasonInput.value?.focus();
-  } else if (request.kind === "waiting") {
-    waitPerson.value = request.personId ?? "";
-    waitDate.value = request.followUpDate;
-    await nextTick();
-    confirmButton.value?.focus();
   } else if (request.kind === "defer") {
     deferDate.value = request.finish;
     deferReason.value = "";
@@ -90,12 +85,12 @@ function confirm(): void {
     closeDialog(optOutChecked.value);
     return;
   }
-  if (request.kind === "suspend") {
-    closeDialog({ reason: reasonDraft.value.trim(), until: untilDraft.value });
-    return;
-  }
-  if (request.kind === "waiting") {
-    closeDialog({ personId: waitPerson.value || null, followUpDate: waitDate.value });
+  if (request.kind === "park") {
+    closeDialog({
+      reason: reasonDraft.value.trim(),
+      until: untilDraft.value,
+      personId: waitPerson.value || null,
+    });
     return;
   }
   if (request.kind === "defer") {
@@ -166,7 +161,7 @@ function onEnter(event: KeyboardEvent): void {
       >
         <h2 class="shrink-0 px-5 pt-5 text-[15px] font-semibold">{{ dialogRequest.title }}</h2>
         <div class="min-h-0 overflow-y-auto px-5 pb-5">
-          <template v-if="dialogRequest.kind === 'suspend'">
+          <template v-if="dialogRequest.kind === 'park'">
             <label class="mt-3 block text-[12px] text-base-content/65">
               {{ t("task.suspendReasonLabel") }}
               <input
@@ -178,18 +173,16 @@ function onEnter(event: KeyboardEvent): void {
               />
             </label>
             <label class="mt-2 block text-[12px] text-base-content/65">
-              {{ t("task.suspendUntilLabel") }}
+              {{ t("task.parkUntilLabel") }}
               <DateField
                 v-model="untilDraft"
                 :min="todayIso()"
-                :aria-label="t('task.suspendUntilLabel')"
+                :aria-label="t('task.parkUntilLabel')"
                 class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
                 @enter="confirm"
               />
             </label>
-          </template>
-          <template v-else-if="dialogRequest.kind === 'waiting'">
-            <label class="mt-3 block text-[12px] text-base-content/65">
+            <label class="mt-2 block text-[12px] text-base-content/65">
               {{ t("task.waitingOnLabel") }}
               <select
                 v-model="waitPerson"
@@ -201,18 +194,8 @@ function onEnter(event: KeyboardEvent): void {
                 </option>
               </select>
             </label>
-            <label class="mt-2 block text-[12px] text-base-content/65">
-              {{ t("task.followUpLabel") }}
-              <DateField
-                v-model="waitDate"
-                :min="todayIso()"
-                :aria-label="t('task.followUpLabel')"
-                class="input input-sm mt-1 w-full rounded-lg border-base-300 text-[13px]"
-                @enter="confirm"
-              />
-            </label>
             <p class="mt-2 text-[12px] leading-relaxed text-base-content/65">
-              {{ t("task.waitingHint") }}
+              {{ t("task.parkHint") }}
             </p>
           </template>
           <template v-else-if="dialogRequest.kind === 'defer'">

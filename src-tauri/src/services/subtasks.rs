@@ -42,22 +42,18 @@ struct ParentRow {
     expected_start_date: Option<String>,
     expected_finish_date: Option<String>,
     effort_minutes: i64,
-    suspended: i64,
-    suspended_until: Option<String>,
-    suspended_at: Option<String>,
-    suspend_reason: Option<String>,
-    waiting: i64,
-    waiting_on_id: Option<String>,
-    follow_up_date: Option<String>,
-    waiting_since: Option<String>,
+    parked: i64,
+    park_until: Option<String>,
+    parked_at: Option<String>,
+    park_reason: Option<String>,
+    parked_on_id: Option<String>,
 }
 
 fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
     conn.query_row(
         "SELECT parent_id, project_id, category_id, owner_id, priority, time_exclusive,
                 scope, expected_start_date, expected_finish_date, effort_minutes,
-                suspended, suspended_until, suspended_at, suspend_reason,
-                waiting, waiting_on_id, follow_up_date, waiting_since
+                parked, park_until, parked_at, park_reason, parked_on_id
          FROM tasks
          WHERE id = ?1 AND deleted_at IS NULL AND archived_at IS NULL AND canceled_at IS NULL",
         [id],
@@ -73,14 +69,11 @@ fn parent_row(conn: &Connection, id: &str) -> Result<ParentRow, String> {
                 expected_start_date: r.get(7)?,
                 expected_finish_date: r.get(8)?,
                 effort_minutes: r.get(9)?,
-                suspended: r.get(10)?,
-                suspended_until: r.get(11)?,
-                suspended_at: r.get(12)?,
-                suspend_reason: r.get(13)?,
-                waiting: r.get(14)?,
-                waiting_on_id: r.get(15)?,
-                follow_up_date: r.get(16)?,
-                waiting_since: r.get(17)?,
+                parked: r.get(10)?,
+                park_until: r.get(11)?,
+                parked_at: r.get(12)?,
+                park_reason: r.get(13)?,
+                parked_on_id: r.get(14)?,
             })
         },
     )
@@ -234,18 +227,15 @@ pub(crate) fn insert_child(
     )
     .map_err(|e| e.to_string())?;
     // A parked umbrella parks its new child too, so the child cannot leak onto the week.
-    let park = match (parent.waiting, parent.suspended) {
-        (1, _) => tasks::Park::Waiting {
-            on: parent.waiting_on_id.as_deref(),
-            follow_up: parent.follow_up_date.as_deref(),
-            since: parent.waiting_since.as_deref(),
-        },
-        (0, 1) => tasks::Park::Suspended {
-            until: parent.suspended_until.as_deref(),
-            reason: parent.suspend_reason.as_deref(),
-            at: parent.suspended_at.as_deref(),
-        },
-        _ => tasks::Park::InWeek,
+    let park = if parent.parked == 1 {
+        tasks::Park::Parked {
+            until: parent.park_until.as_deref(),
+            reason: parent.park_reason.as_deref(),
+            on: parent.parked_on_id.as_deref(),
+            at: parent.parked_at.as_deref(),
+        }
+    } else {
+        tasks::Park::InWeek
     };
     tasks::write_park_in(conn, &id, park, now, false).map_err(|e| e.to_string())?;
     Ok(id)
@@ -369,7 +359,7 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
     if statuses.is_empty() {
         conn.execute(
             "UPDATE tasks SET status = 'todo',
-                    in_week = CASE WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
+                    in_week = CASE WHEN parked THEN 0 ELSE 1 END,
                     started_at = NULL, actual_finish_at = NULL,
                     actual_effort_minutes = NULL, updated_at = ?1
              WHERE id = ?2",
@@ -427,7 +417,7 @@ pub(crate) fn refresh(conn: &Connection, parent_id: &str, now: &str) -> Result<(
                 expected_finish_date = CASE WHEN ?11 THEN expected_finish_date ELSE ?3 END,
                 started_at = ?4,
                 status = ?5,
-                in_week = CASE WHEN ?6 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
+                in_week = CASE WHEN ?6 THEN 0 WHEN parked THEN 0 ELSE 1 END,
                 {},
                 actual_finish_at = CASE WHEN ?6 THEN COALESCE(?7, ?9) ELSE NULL END,
                 actual_effort_minutes = CASE WHEN ?6 THEN ?8 ELSE NULL END,
@@ -674,12 +664,15 @@ mod tests {
     }
 
     #[test]
-    fn a_new_subtask_of_a_parked_umbrella_stays_parked() {
+    fn a_new_subtask_of_a_parked_umbrella_keeps_the_park() {
         let c = with_task();
         let first = add(&c, "t1", "收集", NOW).unwrap();
         let child = first.children[0].id.clone();
         week::start(&c, &child, NOW).unwrap();
-        week::suspend(&c, "t1", Some("2026-11-02"), Some("等甲方"), NOW).unwrap();
+        let me: String = c
+            .query_row("SELECT id FROM people WHERE is_me = 1", [], |r| r.get(0))
+            .unwrap();
+        week::park(&c, "t1", Some("2026-11-02"), Some("等甲方"), Some(&me), NOW).unwrap();
 
         let parent = add(&c, "t1", "汇编", NOW).unwrap();
 
@@ -688,56 +681,32 @@ mod tests {
             .iter()
             .find(|one| one.title == "汇编")
             .unwrap();
-        assert!(child.suspended);
+        assert!(child.parked);
         assert!(!child.in_week);
+        assert_eq!(child.park_until.as_deref(), Some("2026-11-02"));
+        assert_eq!(child.park_reason.as_deref(), Some("等甲方"));
+        assert_eq!(child.parked_on_id.as_deref(), Some(me.as_str()));
         assert!(week::list(&c).unwrap().is_empty());
+        assert_eq!(week::list_parked(&c).unwrap().len(), 2);
     }
 
     #[test]
-    fn a_new_subtask_of_a_waiting_umbrella_waits_too() {
-        let c = with_task();
-        add(&c, "t1", "收集", NOW).unwrap();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
-
-        let parent = add(&c, "t1", "汇编", NOW).unwrap();
-
-        let child = parent
-            .children
-            .iter()
-            .find(|one| one.title == "汇编")
-            .unwrap();
-        assert!(child.waiting);
-        assert!(!child.in_week);
-        assert_eq!(child.follow_up_date.as_deref(), Some("2026-11-02"));
-        assert!(week::list(&c).unwrap().is_empty());
-    }
-
-    #[test]
-    fn a_rollup_keeps_a_waiting_parent_out_of_the_week() {
-        let c = with_task();
-        add(&c, "t1", "收集", NOW).unwrap();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
-
-        let parent = add(&c, "t1", "汇编", LATER).unwrap();
-
-        assert!(parent.waiting);
-        assert!(!parent.in_week);
-    }
-
-    #[test]
-    fn finishing_the_last_child_clears_the_waiting_parent() {
+    fn finishing_the_last_child_clears_the_parked_parent() {
         let c = with_task();
         let parent = add(&c, "t1", "收集", NOW).unwrap();
         let child = parent.children[0].id.clone();
-        week::wait(&c, "t1", None, Some("2026-11-02"), NOW).unwrap();
+        let me: String = c
+            .query_row("SELECT id FROM people WHERE is_me = 1", [], |r| r.get(0))
+            .unwrap();
+        week::park(&c, "t1", None, None, Some(&me), NOW).unwrap();
 
         tasks::set_status(&c, &child, "done", LATER).unwrap();
 
         let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert_eq!(parent.status, "done");
-        assert!(!parent.waiting);
-        assert!(parent.follow_up_date.is_none());
-        assert!(week::list_waiting(&c).unwrap().is_empty());
+        assert!(!parent.parked);
+        assert!(parent.park_until.is_none());
+        assert!(week::list_parked(&c).unwrap().is_empty());
     }
 
     #[test]
@@ -880,7 +849,7 @@ mod tests {
         let child = parent.children[0].id.clone();
         tasks::set_status(&c, &child, "doing", NOW).unwrap();
 
-        week::resolve(&c, &child, week::PassAction::Cancel, None, None, LATER).unwrap();
+        week::resolve(&c, &child, week::PassAction::Cancel, None, None, None, LATER).unwrap();
 
         let parent = crate::repo::tasks::dto(&c, "t1").unwrap();
         assert_eq!(parent.status, "todo");

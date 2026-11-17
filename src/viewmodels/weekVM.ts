@@ -12,8 +12,7 @@ import {
 } from "../lib/plan";
 import { LOAD_WARN_HOURS, planLoads, planSchedule } from "../lib/schedule";
 import {
-  listSuspended,
-  listWaiting,
+  listParked,
   listWeek,
   listWeekDone,
   markNotificationsSeen,
@@ -32,9 +31,8 @@ export function createWeekVM() {
     done: [] as Task[],
     draft: "",
     loading: false,
-    suspended: [] as Task[],
-    /** Waiting on someone's reply: out of the week, but still on the page. */
-    waiting: [] as Task[],
+    /** Set aside: out of the week, but still on the page where its plan would start. */
+    parked: [] as Task[],
     stats: { added: 0, done: 0, delayed: 0 } as WeekStats,
   });
 
@@ -61,12 +59,12 @@ export function createWeekVM() {
   );
   const planTasks = computed(() => weekTasks.value.map(toPlanTask));
   /**
-   * Where a parked or waiting task would start if it were still in the queue: its own card
-   * sits on that day, but these hours are not booked — the week's plan and numbers ignore them.
+   * Where a parked task would start if it were still in the queue: its own card sits on
+   * that day, but these hours are not booked — the week's plan and numbers ignore them.
    */
   const parkedPlan = computed(() =>
     planSchedule(
-      [...weekTasks.value, ...state.suspended, ...state.waiting]
+      [...weekTasks.value, ...state.parked]
         .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
         .map(toPlanTask),
       today.value,
@@ -106,14 +104,8 @@ export function createWeekVM() {
     const withDone = appVM.state.settings?.weekHideDone
       ? planned
       : addDoneRows(planned, state.done, dates, today.value);
-    // Parked and waiting cards sit on the day their plan would have started, side by side.
-    const withParked = addParkedRows(
-      withDone,
-      [...state.suspended, ...state.waiting],
-      parkedPlan.value,
-      dates,
-      today.value,
-    );
+    // Parked cards sit on the day their plan would have started, side by side.
+    const withParked = addParkedRows(withDone, state.parked, parkedPlan.value, dates, today.value);
     if (!appVM.state.settings?.weekShowEmptyDays) return withParked;
     return fillPlannedDays(withParked, dates, plan.value, today.value);
   });
@@ -138,17 +130,15 @@ export function createWeekVM() {
     try {
       today.value = todayIso();
       const todayNow = today.value;
-      const [tasks, suspended, waiting, stats, done] = await Promise.all([
+      const [tasks, parked, stats, done] = await Promise.all([
         listWeek(),
-        listSuspended(),
-        listWaiting(),
+        listParked(),
         weekStats(todayNow),
         listWeekDone(todayNow),
       ]);
       if (run !== loadRun) return;
       state.tasks = tasks;
-      state.suspended = suspended;
-      state.waiting = waiting;
+      state.parked = parked;
       state.stats = stats;
       state.done = done;
       loadedMode.value = requestedMode;

@@ -7,20 +7,19 @@ vi.mock("../../model/ipc", () => ({
   setSettings: vi.fn(),
   setTaskStatus: vi.fn(),
   startTask: vi.fn(),
-  suspendTask: vi.fn(),
+  parkTask: vi.fn(),
   resumeTask: vi.fn(),
   updateTaskPatch: vi.fn(),
-  waitTask: vi.fn(),
 }));
 vi.mock("../undoVM", () => ({ undoVM: { pushUndo: vi.fn() } }));
 
 import {
   getSettings,
   listWeek,
+  parkTask,
   setSettings,
   setTaskStatus,
   startTask,
-  suspendTask,
 } from "../../model/ipc";
 import type { DeskPin } from "../../model/types";
 import { appVM } from "../appVM";
@@ -95,7 +94,7 @@ describe("deskVM", () => {
   it("runs the quick status actions and reloads", async () => {
     vi.mocked(listWeek).mockResolvedValue([task({ id: "a" })]);
     vi.mocked(startTask).mockResolvedValue(task({ id: "a", status: "doing" }));
-    vi.mocked(suspendTask).mockResolvedValue(task({ id: "a", suspended: true }));
+    vi.mocked(parkTask).mockResolvedValue(task({ id: "a", parked: true }));
     vi.mocked(setTaskStatus).mockResolvedValue(task({ id: "a", status: "done" }));
 
     const vm = createDeskVM();
@@ -103,8 +102,8 @@ describe("deskVM", () => {
     expect(startTask).toHaveBeenCalledWith("a");
     expect(listWeek).toHaveBeenCalledTimes(1);
 
-    await vm.suspend(task({ id: "a" }));
-    expect(suspendTask).toHaveBeenCalledWith("a", null, null);
+    await vm.park(task({ id: "a" }));
+    expect(parkTask).toHaveBeenCalledWith("a", null, null, null);
 
     await vm.complete(task({ id: "a" }));
     expect(setTaskStatus).toHaveBeenCalledWith("a", "done");

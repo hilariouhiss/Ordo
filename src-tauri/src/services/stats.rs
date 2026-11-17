@@ -374,10 +374,10 @@ mod tests {
     }
 
     #[test]
-    fn canceled_tasks_leave_denominator_and_suspended_stay() {
+    fn canceled_tasks_leave_denominator_and_parked_stay() {
         let (c, id) = setup();
         c.execute(
-            "UPDATE tasks SET in_week=0, suspended=1, suspended_until='2026-11-01'
+            "UPDATE tasks SET in_week=0, parked=1, park_until='2026-11-01'
              WHERE id='t3'",
             [],
         )

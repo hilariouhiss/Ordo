@@ -2,14 +2,11 @@ import { ref } from "vue";
 import type { OverdueTask } from "../model/types";
 import { errorText, t } from "./i18n";
 
-export interface SuspendDraft {
+/** One park: why, when to look again, and the person it waits on. All optional. */
+export interface ParkDraft {
   reason: string;
   until: string;
-}
-
-export interface WaitingDraft {
   personId: string | null;
-  followUpDate: string;
 }
 
 /** A delay: the new finish day plus why it moved. */
@@ -40,8 +37,7 @@ export interface ClientDraft {
 
 export type DialogRequest =
   | { kind: "text"; title: string; value: string }
-  | { kind: "suspend"; title: string }
-  | { kind: "waiting"; title: string; personId: string | null; followUpDate: string }
+  | ({ kind: "park"; title: string } & ParkDraft)
   | {
       kind: "defer";
       title: string;
@@ -61,8 +57,7 @@ export const dialogRequest = ref<DialogRequest | null>(null);
 type DialogAnswer =
   | boolean
   | string
-  | SuspendDraft
-  | WaitingDraft
+  | ParkDraft
   | DeferDraft
   | OverdueDeferDraft
   | ClientDraft
@@ -90,12 +85,8 @@ export function askText(title: string, value: string): Promise<string | null> {
   return ask({ kind: "text", title, value }) as Promise<string | null>;
 }
 
-export function askSuspend(title: string): Promise<SuspendDraft | null> {
-  return ask({ kind: "suspend", title }) as Promise<SuspendDraft | null>;
-}
-
-export function askWaiting(title: string, defaults: WaitingDraft): Promise<WaitingDraft | null> {
-  return ask({ kind: "waiting", title, ...defaults }) as Promise<WaitingDraft | null>;
+export function askPark(title: string, defaults: ParkDraft): Promise<ParkDraft | null> {
+  return ask({ kind: "park", title, ...defaults }) as Promise<ParkDraft | null>;
 }
 
 export function askDefer(

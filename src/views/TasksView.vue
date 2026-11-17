@@ -202,10 +202,7 @@ const overdueCount = computed(
   () =>
     tasksVM.state.tasks.filter(
       (one) =>
-        one.status !== "done" &&
-        !one.suspended &&
-        !one.waiting &&
-        overdueDays(one.expectedFinishDate, todayIso()) > 0,
+        one.status !== "done" && !one.parked && overdueDays(one.expectedFinishDate, todayIso()) > 0,
     ).length,
 );
 

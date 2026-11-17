@@ -5,10 +5,8 @@ import { springSnappy } from "../../lib/motion";
 import { statusDisplay } from "../../lib/status";
 import type { Status } from "../../model/types";
 
-const props = defineProps<{ status: Status; suspended?: boolean; waiting?: boolean }>();
-const display = computed(() =>
-  statusDisplay(props.status, props.suspended ?? false, props.waiting ?? false),
-);
+const props = defineProps<{ status: Status; parked?: boolean }>();
+const display = computed(() => statusDisplay(props.status, props.parked ?? false));
 const dotClass = computed(() => {
   switch (display.value) {
     case "done":
@@ -16,10 +14,8 @@ const dotClass = computed(() => {
       return "border-base-content/45 bg-base-content/45";
     case "doing":
       return "border-primary";
-    case "suspended":
+    case "parked":
       return "border-warning bg-warning/10";
-    case "waiting":
-      return "border-base-content/40";
     default:
       return "border-base-content/30";
   }
@@ -44,15 +40,10 @@ const dotClass = computed(() => {
         class="absolute inset-y-0 right-0 left-1/2 bg-primary"
         aria-hidden="true"
       ></span>
-      <span v-if="display === 'suspended'" class="flex gap-[2px]" aria-hidden="true">
+      <span v-if="display === 'parked'" class="flex gap-[2px]" aria-hidden="true">
         <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
         <span class="h-[6px] w-[2px] rounded-full bg-warning"></span>
       </span>
-      <span
-        v-else-if="display === 'waiting'"
-        class="size-1 rounded-full bg-base-content/40"
-        aria-hidden="true"
-      ></span>
     </span>
   </motion.span>
 </template>

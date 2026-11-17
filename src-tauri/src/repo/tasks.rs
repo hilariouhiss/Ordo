@@ -31,31 +31,24 @@ pub(crate) fn visible_task_filter(alias: &str) -> String {
 pub(crate) enum Park<'a> {
     /// Back on the week, nothing parked.
     InWeek,
-    /// Out of the week until a day, for a reason, parked on a local date.
-    Suspended {
+    /// Out of the week until a day, on someone's reply, for a reason. `at` keeps the local
+    /// day the park started; a later edit of the park keeps the first day.
+    Parked {
         until: Option<&'a str>,
         reason: Option<&'a str>,
-        at: Option<&'a str>,
-    },
-    /// Out of the week until someone replies; since keeps the day the wait started.
-    Waiting {
         on: Option<&'a str>,
-        follow_up: Option<&'a str>,
-        since: Option<&'a str>,
+        at: Option<&'a str>,
     },
 }
 
 /// Every parked column and the value that means "not parked". One list, so a new
 /// parked field is picked up by the reset and the writer instead of silently missing one.
-const PARK_FIELDS: [(&str, &str); 8] = [
-    ("suspended", "0"),
-    ("suspended_until", "NULL"),
-    ("suspended_at", "NULL"),
-    ("suspend_reason", "NULL"),
-    ("waiting", "0"),
-    ("waiting_on_id", "NULL"),
-    ("follow_up_date", "NULL"),
-    ("waiting_since", "NULL"),
+const PARK_FIELDS: [(&str, &str); 5] = [
+    ("parked", "0"),
+    ("parked_at", "NULL"),
+    ("park_until", "NULL"),
+    ("park_reason", "NULL"),
+    ("parked_on_id", "NULL"),
 ];
 
 /// The parked columns, written back to "nothing parked" when flag (a SQL parameter) is
@@ -70,21 +63,22 @@ pub(crate) fn park_reset(flag: &str) -> String {
         .join(", ")
 }
 
-/// Everything but waiting_since, whose expression differs between a fresh park and one
-/// that keeps the day it started. ?2..?8 are the values; ?1 is in_week.
-const WRITE_PARK_COLUMNS: &str = "suspended = ?2, suspended_until = ?3, suspended_at = ?4,
-            suspend_reason = ?5, waiting = ?6, waiting_on_id = ?7, follow_up_date = ?8";
+/// The parked columns that take a value; the start day is its own CASE below. ?2..?5 are
+/// the values, ?1 is in_week, ?6 the start day and ?7 the write stamp.
+const WRITE_PARK_COLUMNS: &str = "parked = ?2, park_until = ?3, park_reason = ?4,
+            parked_on_id = ?5";
 
-fn write_park_sql(since_expr: &str, target: &str) -> String {
+fn write_park_sql(target: &str) -> String {
     format!(
         "UPDATE tasks SET in_week = ?1, {WRITE_PARK_COLUMNS},
-            waiting_since = {since_expr}, updated_at = ?10
+            parked_at = CASE WHEN ?2 = 1 THEN COALESCE(parked_at, ?6) ELSE NULL END,
+            updated_at = ?7
          WHERE {target}"
     )
 }
 
 /// Writes the parked columns for one task, or for every open child of it. The caller owns
-/// the transaction. A task already waiting keeps the day it started waiting.
+/// the transaction. Re-parking keeps the day the park started.
 pub(crate) fn write_park_in(
     conn: &Connection,
     task_id: &str,
@@ -92,29 +86,23 @@ pub(crate) fn write_park_in(
     now: &str,
     children: bool,
 ) -> rusqlite::Result<()> {
-    let since_expr = match park {
-        Park::Waiting { .. } => "COALESCE(waiting_since, ?9)",
-        _ => "?9",
-    };
     let target = if children {
-        "parent_id = ?11 AND deleted_at IS NULL AND status <> 'done'"
+        "parent_id = ?8 AND deleted_at IS NULL AND status <> 'done'"
     } else {
-        "id = ?11"
+        "id = ?8"
     };
-    let (in_week, suspended, until, at, reason, waiting, on, follow_up, since) = match park {
-        Park::InWeek => (1, 0, None, None, None, 0, None, None, None),
-        Park::Suspended { until, reason, at } => (0, 1, until, at, reason, 0, None, None, None),
-        Park::Waiting {
+    let (in_week, parked, until, reason, on, at) = match park {
+        Park::InWeek => (1, 0, None, None, None, None),
+        Park::Parked {
+            until,
+            reason,
             on,
-            follow_up,
-            since,
-        } => (0, 0, None, None, None, 1, on, follow_up, since),
+            at,
+        } => (0, 1, until, reason, on, at),
     };
     conn.execute(
-        &write_park_sql(since_expr, target),
-        params![
-            in_week, suspended, until, at, reason, waiting, on, follow_up, since, now, task_id
-        ],
+        &write_park_sql(target),
+        params![in_week, parked, until, reason, on, at, now, task_id],
     )?;
     Ok(())
 }
@@ -179,7 +167,7 @@ pub fn list_week(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
         conn,
         &format!(
             "SELECT id FROM tasks
-             WHERE in_week = 1 AND suspended = 0 AND waiting = 0 AND {} AND {}
+             WHERE in_week = 1 AND parked = 0 AND {} AND {}
              ORDER BY sort_order, id",
             visible_task_filter("tasks"),
             crate::repo::scope_eq("tasks", &mode)
@@ -207,13 +195,13 @@ pub fn list_all_active(conn: &Connection) -> rusqlite::Result<Vec<TaskDto>> {
 const TASK_COLUMNS: &str = "id, title, project_id, category_id, owner_id, expected_start_date,
             expected_finish_date, expected_finish_time, started_at, actual_finish_at,
             actual_effort_minutes, status,
-            in_week, carry_count, suspended_until, suspended, suspended_at, suspend_reason,
+            in_week, carry_count, park_until, parked, parked_at, park_reason,
             note, archived_at, canceled_at,
             created_at, updated_at, sort_order, effort_minutes, priority, time_exclusive,
             parent_id,
             (SELECT name FROM projects WHERE id = tasks.project_id AND deleted_at IS NULL),
             (SELECT title FROM tasks p WHERE p.id = tasks.parent_id),
-            waiting, waiting_on_id, follow_up_date, waiting_since,
+            parked_on_id,
             requirement_id, issue_id";
 
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
@@ -232,14 +220,11 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         status: row.get(11)?,
         in_week: row.get::<_, i64>(12)? == 1,
         carry_count: row.get(13)?,
-        suspended_until: row.get(14)?,
-        suspended: row.get::<_, i64>(15)? == 1,
-        suspended_at: row.get(16)?,
-        suspend_reason: row.get(17)?,
-        waiting: row.get::<_, i64>(30)? == 1,
-        waiting_on_id: row.get(31)?,
-        follow_up_date: row.get(32)?,
-        waiting_since: row.get(33)?,
+        park_until: row.get(14)?,
+        parked: row.get::<_, i64>(15)? == 1,
+        parked_at: row.get(16)?,
+        park_reason: row.get(17)?,
+        parked_on_id: row.get(30)?,
         note: row.get(18)?,
         archived_at: row.get(19)?,
         canceled_at: row.get(20)?,
@@ -255,8 +240,8 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskDto> {
         parent_id: row.get(27)?,
         parent_title: row.get(29)?,
         project_name: row.get(28)?,
-        requirement_id: row.get(34)?,
-        issue_id: row.get(35)?,
+        requirement_id: row.get(31)?,
+        issue_id: row.get(32)?,
     })
 }
 
@@ -450,7 +435,7 @@ pub fn stored_status(conn: &Connection, id: &str) -> rusqlite::Result<String> {
 fn status_set() -> String {
     format!(
         "status = ?1,
-            in_week = CASE WHEN ?2 THEN 0 WHEN suspended THEN 0 WHEN waiting THEN 0 ELSE 1 END,
+            in_week = CASE WHEN ?2 THEN 0 WHEN parked THEN 0 ELSE 1 END,
             {}",
         park_reset("?2")
     )
@@ -784,7 +769,7 @@ mod tests {
     #[test]
     fn every_parked_column_is_written_by_both_paths() {
         let reset = park_reset("?1");
-        let write = write_park_sql("?9", "id = ?11");
+        let write = write_park_sql("id = ?8");
         for (column, cleared) in PARK_FIELDS {
             assert!(
                 reset.contains(&format!(
@@ -792,10 +777,12 @@ mod tests {
                 )),
                 "{column} is missing from the park reset"
             );
-            assert!(
-                write.contains(&format!("{column} = ?")),
-                "{column} is missing from the park writer"
-            );
+            let written = if column == "parked_at" {
+                write.contains("COALESCE(parked_at, ?6)")
+            } else {
+                write.contains(&format!("{column} = ?"))
+            };
+            assert!(written, "{column} is missing from the park writer");
         }
     }
 

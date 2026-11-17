@@ -1,23 +1,17 @@
 import type { Status } from "../model/types";
 
-export type StatusDisplay = Status | "suspended" | "waiting";
+export type StatusDisplay = Status | "parked";
 
 /**
- * A parked task reads as paused even though its stored status stays doing, so resuming
- * brings it back to where it was. Waiting wins over a stale suspension: they are exclusive.
+ * The one state a task shows: a park hides its stored status (kept so resuming brings it
+ * back), and a finished task stays done even if a stale flag survived.
  */
-export function statusDisplay(status: Status, suspended: boolean, waiting = false): StatusDisplay {
+export function statusDisplay(status: Status, parked: boolean): StatusDisplay {
   if (status === "done") return "done";
-  if (waiting) return "waiting";
-  return suspended ? "suspended" : status;
+  return parked ? "parked" : status;
 }
 
-/** A task can be parked once it is in progress and not already suspended. */
-export function canSuspendTask(task: { status: Status; suspended: boolean }): boolean {
-  return task.status === "doing" && !task.suspended;
-}
-
-/** Any open task can wait on someone; a waiting one opens the dialog to move its day. */
-export function canWaitTask(task: { status: Status; waiting: boolean }): boolean {
+/** A task can be set aside until it is finished. */
+export function canParkTask(task: { status: Status }): boolean {
   return task.status !== "done";
 }

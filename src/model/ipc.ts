@@ -105,10 +105,11 @@ export function passQueue(): Promise<Task[]> {
 export function passResolve(
   taskId: string,
   action: PassAction,
-  suspendUntil: string | null,
-  suspendReason: string | null,
+  parkUntil: string | null,
+  parkReason: string | null,
+  parkedOnId: string | null,
 ): Promise<Task> {
-  return invoke<Task>("pass_resolve", { taskId, action, suspendUntil, suspendReason });
+  return invoke<Task>("pass_resolve", { taskId, action, parkUntil, parkReason, parkedOnId });
 }
 
 /** Clears the pass for the week the page shows and returns that week's Monday. */
@@ -130,21 +131,18 @@ export function statsOverview(from: string, to: string): Promise<StatsOverview> 
   return invoke<StatsOverview>("stats_overview", { from, to });
 }
 
-export function listSuspended(): Promise<Task[]> {
-  return invoke<Task[]>("list_suspended");
+export function listParked(): Promise<Task[]> {
+  return invoke<Task[]>("list_parked");
 }
 
-export function listWaiting(): Promise<Task[]> {
-  return invoke<Task[]>("list_waiting");
-}
-
-/** Parks a task on a reply: who it waits on, and the day to chase them (both optional). */
-export function waitTask(
+/** Sets a task aside: why, when to look again, and who it waits on (all optional). */
+export function parkTask(
   id: string,
-  waitingOnId: string | null,
-  followUpDate: string | null,
+  until: string | null,
+  reason: string | null,
+  personId: string | null,
 ): Promise<Task> {
-  return invoke<Task>("wait_task", { id, personId: waitingOnId, followUpDate });
+  return invoke<Task>("park_task", { id, until, reason, personId });
 }
 
 export function resumeTask(id: string): Promise<Task> {
@@ -152,13 +150,6 @@ export function resumeTask(id: string): Promise<Task> {
 }
 export function startTask(id: string): Promise<Task> {
   return invoke<Task>("start_task", { id });
-}
-export function suspendTask(
-  id: string,
-  until: string | null,
-  reason: string | null,
-): Promise<Task> {
-  return invoke<Task>("suspend_task", { id, until, reason });
 }
 
 export function addDelayNote(id: string, reason: string): Promise<Task> {

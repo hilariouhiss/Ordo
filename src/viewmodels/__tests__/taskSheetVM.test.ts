@@ -15,6 +15,8 @@ vi.mock("../../model/ipc", () => ({
   setDelayReason: vi.fn(),
   deferTask: vi.fn(),
   unarchiveTask: vi.fn(),
+  parkTask: vi.fn(),
+  resumeTask: vi.fn(),
 }));
 
 import {
@@ -23,7 +25,9 @@ import {
   addSubtask,
   deferTask,
   getTask,
+  parkTask,
   reorderSubtasks,
+  resumeTask,
   setTaskStatus,
   updateTaskPatch,
 } from "../../model/ipc";
@@ -262,6 +266,114 @@ describe("syncActualPreview", () => {
 
     expect(syncActualPreview(form, "start")).toBeNull();
     expect(form.actualEffortMinutes).toBe(60);
+  });
+});
+
+describe("the park draft", () => {
+  it("parks the open task when the draft says so", async () => {
+    const original = task({ id: "t1", status: "doing" });
+    vi.mocked(getTask).mockResolvedValue(original);
+    vi.mocked(parkTask).mockResolvedValue(task({ id: "t1", status: "doing", parked: true }));
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.setPark({ reason: "等甲方", until: "2026-11-02", personId: null });
+    expect(parkTask).not.toHaveBeenCalled();
+
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(true);
+    expect(parkTask).toHaveBeenCalledWith("t1", "2026-11-02", "等甲方", null);
+    expect(setTaskStatus).not.toHaveBeenCalled();
+    expect(vm.state.task?.parked).toBe(true);
+    expect(vm.state.form?.parked).toBe(true);
+  });
+
+  it("resumes a parked task only when the sheet is saved", async () => {
+    const parked = task({
+      id: "t1",
+      status: "doing",
+      parked: true,
+      parkedAt: "2026-10-18",
+      parkUntil: "2026-11-02",
+      parkReason: "等甲方",
+    });
+    vi.mocked(getTask).mockResolvedValue(parked);
+    vi.mocked(resumeTask).mockResolvedValue(task({ id: "t1", status: "doing" }));
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.selectStatus("doing");
+
+    expect(resumeTask).not.toHaveBeenCalled();
+
+    const saved = await vm.saveSheet();
+
+    expect(saved).toBe(true);
+    expect(resumeTask).toHaveBeenCalledWith("t1");
+    expect(parkTask).not.toHaveBeenCalled();
+    expect(setTaskStatus).not.toHaveBeenCalled();
+    expect(vm.state.form?.parked).toBe(false);
+  });
+
+  it("completing a parked draft lets the status clear the park", async () => {
+    const parked = task({
+      id: "t1",
+      status: "doing",
+      parked: true,
+      parkUntil: "2026-11-02",
+    });
+    vi.mocked(getTask).mockResolvedValue(parked);
+    vi.mocked(setTaskStatus).mockResolvedValue(task({ id: "t1", status: "done" }));
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.selectStatus("done");
+    await vm.saveSheet();
+
+    expect(setTaskStatus).toHaveBeenCalledWith("t1", "done");
+    expect(resumeTask).not.toHaveBeenCalled();
+  });
+
+  it("re-parks when the draft changes the park details", async () => {
+    const parked = task({
+      id: "t1",
+      status: "doing",
+      parked: true,
+      parkUntil: "2026-11-02",
+      parkReason: "等甲方",
+      parkedOnId: null,
+    });
+    vi.mocked(getTask).mockResolvedValue(parked);
+    vi.mocked(parkTask).mockResolvedValue(
+      task({ id: "t1", status: "doing", parked: true, parkUntil: "2026-11-05" }),
+    );
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    vm.setPark({ reason: "等甲方", until: "2026-11-05", personId: null });
+    await vm.saveSheet();
+
+    expect(parkTask).toHaveBeenCalledWith("t1", "2026-11-05", "等甲方", null);
+    expect(resumeTask).not.toHaveBeenCalled();
+  });
+
+  it("does not write a park the draft did not touch", async () => {
+    const parked = task({
+      id: "t1",
+      status: "doing",
+      parked: true,
+      parkUntil: "2026-11-02",
+      parkReason: "等甲方",
+    });
+    vi.mocked(getTask).mockResolvedValue(parked);
+
+    const vm = createTaskSheetVM();
+    await vm.open("t1");
+    await vm.saveSheet();
+
+    expect(parkTask).not.toHaveBeenCalled();
+    expect(resumeTask).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,7 @@
 import { reactive } from "vue";
 import { localDate, localTime, stampOfLocal, todayIso } from "../lib/dates";
 import { EFFORT_MAX_MINUTES } from "../lib/effort";
+import type { ParkDraft } from "../lib/dialog";
 import { t } from "../lib/i18n";
 import { orderSubtasks } from "../lib/subtasks";
 import { finishForEffort, timingAnchor } from "../lib/timing";
@@ -13,8 +14,10 @@ import {
   deleteSubtask,
   getTask,
   listRequirements,
-  reorderSubtasks,
   ownerCandidates,
+  parkTask,
+  reorderSubtasks,
+  resumeTask,
   setDelayReason,
   setTaskStatus,
   unarchiveTask,
@@ -29,7 +32,6 @@ import type {
   Task,
   TaskPatch,
 } from "../model/types";
-import { taskRowVM } from "./taskRowVM";
 import { undoVM } from "./undoVM";
 
 /** What the task sheet holds while it is open. Nothing here reaches the database before Save. */
@@ -49,6 +51,11 @@ export interface TaskForm {
   effortMinutes: number;
   priority: Priority;
   status: Status;
+  /** Whether the draft is set aside; the park fields below are what it is set aside on. */
+  parked: boolean;
+  parkUntil: string;
+  parkReason: string;
+  parkedOnId: string | null;
   actualStartDate: string;
   /** The stored time of day, kept so a date-only edit never rewrites the hour. */
   actualStartTime: string;
@@ -104,6 +111,10 @@ export function formOf(task: Task): TaskForm {
     note: task.note ?? "",
     tags: task.tags.map((tag) => tag.name),
     priority: task.priority,
+    parked: task.parked,
+    parkUntil: task.parkUntil ?? "",
+    parkReason: task.parkReason ?? "",
+    parkedOnId: task.parkedOnId,
   };
   return { ...editable, ...derivedFields(task) };
 }
@@ -417,6 +428,23 @@ export function createTaskSheetVM() {
       if (!task.children.length && form.status !== task.status) {
         state.task = await setTaskStatus(id, form.status);
       }
+      // A park is a state, not a field: land it after the status so a completion (which
+      // clears the park on the backend) and a resume cannot fight over the week.
+      const wasParked = task.parked;
+      const detailsChanged =
+        task.parkUntil !== (form.parkUntil || null) ||
+        task.parkReason !== (form.parkReason || null) ||
+        task.parkedOnId !== form.parkedOnId;
+      if (form.parked && (!wasParked || detailsChanged)) {
+        state.task = await parkTask(
+          id,
+          form.parkUntil || null,
+          form.parkReason || null,
+          form.parkedOnId,
+        );
+      } else if (!form.parked && wasParked && form.status !== "done") {
+        state.task = await resumeTask(id);
+      }
       if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
       // Written once: a retry after a later step failed must not post the note twice.
       if (state.note.trim()) {
@@ -523,30 +551,6 @@ export function createTaskSheetVM() {
     }
   }
 
-  /** Parks the open task; the caller already asked why and when to look again. */
-  async function suspend(until: string | null, reason: string | null): Promise<void> {
-    const current = state.task;
-    if (!current) return;
-    state.error = null;
-    try {
-      applyTask(await taskRowVM.suspend(current, until, reason));
-    } catch (e) {
-      state.error = String(e);
-    }
-  }
-
-  /** Back from a park, with the row action's undo. */
-  async function resume(): Promise<void> {
-    const current = state.task;
-    if (!current) return;
-    state.error = null;
-    try {
-      applyTask(await taskRowVM.resume(current));
-    } catch (e) {
-      state.error = String(e);
-    }
-  }
-
   /** Moves the finish later and records why; the draft's dates follow the fresh task. */
   async function defer(finish: string, reason: string): Promise<void> {
     const current = state.task;
@@ -559,31 +563,25 @@ export function createTaskSheetVM() {
     }
   }
 
-  /** Parks the open task on a reply; the caller already asked who and until when. */
-  async function waitFor(waitingOnId: string | null, followUpDate: string | null): Promise<void> {
-    const current = state.task;
-    if (!current) return;
-    state.error = null;
-    try {
-      applyTask(await taskRowVM.wait(current, waitingOnId, followUpDate));
-    } catch (e) {
-      state.error = String(e);
-    }
+  /** The state row is a draft: switching away from a park only lands on Save. */
+  function selectStatus(next: Status): void {
+    const form = state.form;
+    if (!form) return;
+    form.status = next;
+    form.parked = false;
   }
 
-  /** A reply arrived: the task rejoins the week, and the undo puts the wait back. */
-  async function markReplied(): Promise<void> {
-    const current = state.task;
-    if (!current) return;
-    state.error = null;
-    try {
-      applyTask(await taskRowVM.resume(current));
-    } catch (e) {
-      state.error = String(e);
-    }
+  /** The park dialog fills the draft; nothing reaches the database before Save. */
+  function setPark(draft: ParkDraft): void {
+    const form = state.form;
+    if (!form) return;
+    form.parked = true;
+    form.parkUntil = draft.until;
+    form.parkReason = draft.reason;
+    form.parkedOnId = draft.personId;
   }
 
-  /** A delay record is written already, so its reason lands at once, like the waiting strip. */
+  /** A delay record is written already, so its reason lands at once, like the park strip. */
   async function saveDelayReason(delayId: string, reason: string): Promise<void> {
     const current = state.task;
     if (!current) return;
@@ -638,11 +636,9 @@ export function createTaskSheetVM() {
     submitSubtask,
     toggleSubtask,
     removeSubtask,
-    suspend,
-    resume,
     defer,
-    waitFor,
-    markReplied,
+    selectStatus,
+    setPark,
     saveDelayReason,
   };
 }

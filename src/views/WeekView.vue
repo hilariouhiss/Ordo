@@ -98,7 +98,7 @@ const drag = usePointerDrag<{ day: string; beforeId: string | null }>({
   targetOf: ({ x, y }) => dropTargetAt(x, y),
   scroller: dragScroller,
   drop: (id, target) => {
-    // The anchor is read while the drag still counts as live: a suspended drag may have
+    // The anchor is read while the drag still counts as live: a parked drag may have
     // filled days that disappear again as soon as it ends.
     const beforeId = anchorFor(shownDays.value, target.day, target.beforeId);
     if (plannedDays.value.get(id)?.has(target.day)) void move(id, beforeId);
@@ -158,14 +158,13 @@ const poolDropLabel = computed(() => {
 });
 /** The title row's one number: how much of today is already booked. */
 const todayLoad = computed(() => loads.value.get(today.value) ?? 0);
-/** Work that already missed its day; suspended and waiting tasks are not chased. */
+/** Work that already missed its day; parked tasks are not chased. */
 const overdueCount = computed(
   () =>
     weekTasks.value.filter(
       (task) =>
         task.status !== "done" &&
-        !task.suspended &&
-        !task.waiting &&
+        !task.parked &&
         overdueDays(task.expectedFinishDate, today.value) > 0,
     ).length,
 );
@@ -193,13 +192,11 @@ const dropTarget = computed(() => drag.target.value ?? poolDrag.target.value);
 const dragMoved = computed(() => drag.moved.value || poolDrag.moved.value);
 
 const draggingSuspended = computed(
-  () =>
-    draggingId.value !== null &&
-    [...state.suspended, ...state.waiting].some((task) => task.id === draggingId.value),
+  () => draggingId.value !== null && state.parked.some((task) => task.id === draggingId.value),
 );
 /**
  * A parked task still needs somewhere to land. With the empty-day setting off the list
- * can be empty, so a suspended drag temporarily fills this week's workdays back in.
+ * can be empty, so a parked drag temporarily fills this week's workdays back in.
  */
 const shownDays = computed(() => {
   if (days.value.length || !(draggingSuspended.value || poolMoved.value)) return days.value;

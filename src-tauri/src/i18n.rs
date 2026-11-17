@@ -80,7 +80,7 @@ pub fn reminder_headline(lang: Lang, kind: &str, due_in_days: i64, title: &str) 
             days => format!("{days} 天后截止：{title}"),
         },
         (Lang::Zh, "overdue") => format!("已逾期：{title}"),
-        (Lang::Zh, "follow_up") => format!("该催一下：{title}"),
+        (Lang::Zh, "suspend_start") => format!("该看看：{title}"),
         (Lang::Zh, _) => format!("该开始了：{title}"),
         (Lang::En, "due_tomorrow") => match due_in_days {
             0 => format!("Due today: {title}"),
@@ -88,7 +88,7 @@ pub fn reminder_headline(lang: Lang, kind: &str, due_in_days: i64, title: &str) 
             days => format!("Due in {days} days: {title}"),
         },
         (Lang::En, "overdue") => format!("Overdue: {title}"),
-        (Lang::En, "follow_up") => format!("Follow up: {title}"),
+        (Lang::En, "suspend_start") => format!("Time to check: {title}"),
         (Lang::En, _) => format!("Time to start: {title}"),
     }
 }
@@ -296,11 +296,7 @@ mod tests {
         );
         assert_eq!(
             reminder_headline(Lang::Zh, "suspend_start", 0, "交底"),
-            "该开始了：交底"
-        );
-        assert_eq!(
-            reminder_headline(Lang::Zh, "follow_up", 0, "交底"),
-            "该催一下：交底"
+            "该看看：交底"
         );
         assert_eq!(
             reminder_headline(Lang::En, "due_tomorrow", 0, "Kickoff"),
@@ -320,11 +316,7 @@ mod tests {
         );
         assert_eq!(
             reminder_headline(Lang::En, "suspend_start", 0, "Kickoff"),
-            "Time to start: Kickoff"
-        );
-        assert_eq!(
-            reminder_headline(Lang::En, "follow_up", 0, "Kickoff"),
-            "Follow up: Kickoff"
+            "Time to check: Kickoff"
         );
         assert_eq!(milestone_headline(Lang::Zh, "方案评审"), "里程碑：方案评审");
         assert_eq!(

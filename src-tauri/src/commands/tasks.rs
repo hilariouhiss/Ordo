@@ -121,8 +121,9 @@ pub async fn pass_resolve(
     state: State<'_, AppState>,
     task_id: String,
     action: crate::services::week::PassAction,
-    suspend_until: Option<String>,
-    suspend_reason: Option<String>,
+    park_until: Option<String>,
+    park_reason: Option<String>,
+    parked_on_id: Option<String>,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
@@ -130,8 +131,9 @@ pub async fn pass_resolve(
             conn,
             &task_id,
             action,
-            suspend_until.as_deref(),
-            suspend_reason.as_deref(),
+            park_until.as_deref(),
+            park_reason.as_deref(),
+            parked_on_id.as_deref(),
             &now,
         )
     })
@@ -166,13 +168,8 @@ pub async fn list_week_done(
 }
 
 #[tauri::command]
-pub async fn list_suspended(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
-    with_db(&state, |conn| crate::services::week::list_suspended(conn)).await
-}
-
-#[tauri::command]
-pub async fn list_waiting(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
-    with_db(&state, |conn| crate::services::week::list_waiting(conn)).await
+pub async fn list_parked(state: State<'_, AppState>) -> Result<Vec<TaskDto>, String> {
+    with_db(&state, |conn| crate::services::week::list_parked(conn)).await
 }
 
 #[tauri::command]
@@ -193,36 +190,25 @@ pub async fn start_task(state: State<'_, AppState>, id: String) -> Result<TaskDt
     .await
 }
 
+/// Sets a task aside: why, when to look again, and who it waits on, all optional.
 #[tauri::command]
-pub async fn wait_task(
-    state: State<'_, AppState>,
-    id: String,
-    person_id: Option<String>,
-    follow_up_date: Option<String>,
-) -> Result<TaskDto, String> {
-    let now = now_iso();
-    with_db(&state, move |conn| {
-        crate::services::week::wait(
-            conn,
-            &id,
-            person_id.as_deref(),
-            follow_up_date.as_deref(),
-            &now,
-        )
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn suspend_task(
+pub async fn park_task(
     state: State<'_, AppState>,
     id: String,
     until: Option<String>,
     reason: Option<String>,
+    person_id: Option<String>,
 ) -> Result<TaskDto, String> {
     let now = now_iso();
     with_db(&state, move |conn| {
-        crate::services::week::suspend(conn, &id, until.as_deref(), reason.as_deref(), &now)
+        crate::services::week::park(
+            conn,
+            &id,
+            until.as_deref(),
+            reason.as_deref(),
+            person_id.as_deref(),
+            &now,
+        )
     })
     .await
 }

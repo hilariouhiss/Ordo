@@ -5,13 +5,9 @@ vi.mock("../../model/ipc", () => ({
   bootstrap: vi.fn(),
   capture: vi.fn(),
   listWeek: vi.fn(),
-  listSuspended: vi.fn(),
-  listWaiting: vi.fn().mockResolvedValue([]),
+  listParked: vi.fn().mockResolvedValue([]),
   listWeekDone: vi.fn().mockResolvedValue([]),
   weekStats: vi.fn(),
-  resumeTask: vi.fn(),
-  suspendTask: vi.fn(),
-  waitTask: vi.fn(),
   markNotificationsSeen: vi.fn(),
   moveTask: vi.fn(),
   placeTask: vi.fn(),
@@ -23,8 +19,7 @@ import { todayIso, weekWorkdays } from "../../lib/dates";
 import { closeDialog, dialogRequest } from "../../lib/dialog";
 import {
   capture,
-  listSuspended,
-  listWaiting,
+  listParked,
   listWeek,
   listWeekDone,
   markNotificationsSeen,
@@ -54,7 +49,7 @@ describe("weekVM", () => {
           resolveSecond = done;
         }),
       );
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
 
     const vm = createWeekVM();
@@ -72,7 +67,7 @@ describe("weekVM", () => {
     vi.mocked(listWeek)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([task({ id: "t1", title: "周五前把软件方案评审发老李" })]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 0, delayed: 0 });
     vi.mocked(capture).mockResolvedValue(task({ id: "t1", title: "周五前把软件方案评审发老李" }));
 
@@ -104,7 +99,7 @@ describe("weekVM", () => {
 
   it("loading the week leaves the reminder count alone", async () => {
     vi.mocked(listWeek).mockResolvedValue([]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     vi.mocked(markNotificationsSeen).mockResolvedValue(undefined);
     const vm = createWeekVM();
@@ -143,7 +138,7 @@ describe("weekVM", () => {
       }),
     );
     vi.mocked(listWeek).mockResolvedValue([]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
 
     const vm = createWeekVM();
@@ -181,7 +176,7 @@ describe("weekVM", () => {
       task({ id: "t2" }),
       task({ id: "t3" }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -214,7 +209,7 @@ describe("weekVM plan", () => {
 
   async function loadedWith(tasks: Task[]) {
     vi.mocked(listWeek).mockResolvedValue(tasks);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -287,8 +282,8 @@ describe("weekVM plan", () => {
       task({ id: "a", sortOrder: 0 }),
       task({ id: "b", sortOrder: 2 }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([
-      task({ id: "p", sortOrder: 1, inWeek: false, suspended: true }),
+    vi.mocked(listParked).mockResolvedValue([
+      task({ id: "p", sortOrder: 1, inWeek: false, parked: true }),
     ]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
 
@@ -342,7 +337,7 @@ describe("weekVM plan", () => {
         actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
       }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 1, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -371,7 +366,7 @@ describe("weekVM plan", () => {
         actualFinishAt: new Date(2026, 9, 21, 15).toISOString(),
       }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 1, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -415,7 +410,7 @@ describe("weekVM plan", () => {
   it("places a dropped task on the day and reloads", async () => {
     vi.mocked(placeTask).mockResolvedValue();
     vi.mocked(listWeek).mockResolvedValue([task({ id: "t1", expectedStartDate: "2026-10-22" })]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
 
@@ -425,28 +420,26 @@ describe("weekVM plan", () => {
     expect(vm.state.tasks[0].expectedStartDate).toBe("2026-10-22");
   });
 
-  it("loads the waiting list with the week", async () => {
+  it("loads the parked list with the week", async () => {
     vi.mocked(listWeek).mockResolvedValue([]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
-    vi.mocked(listWaiting).mockResolvedValueOnce([
-      task({ id: "w1", title: "等甲方", waiting: true, followUpDate: "2026-11-15" }),
+    vi.mocked(listParked).mockResolvedValueOnce([
+      task({ id: "w1", title: "等甲方", parked: true, parkUntil: "2026-11-15" }),
     ]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
 
     await vm.load();
 
-    expect(vm.state.waiting.map((one) => one.id)).toEqual(["w1"]);
+    expect(vm.state.parked.map((one) => one.id)).toEqual(["w1"]);
   });
 
-  it("shows a waiting task on the day it was planned for, without booking its hours", async () => {
+  it("shows a parked task on the day it was planned for, without booking its hours", async () => {
     vi.mocked(listWeek).mockResolvedValue([]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
-    vi.mocked(listWaiting).mockResolvedValueOnce([
+    vi.mocked(listParked).mockResolvedValueOnce([
       task({
         id: "w1",
         title: "等甲方",
-        waiting: true,
+        parked: true,
         expectedStartDate: "2026-10-21",
         effortMinutes: 480,
       }),
@@ -468,7 +461,7 @@ describe("weekVM plan", () => {
       task({ id: "later", expectedStartDate: "2026-10-26" }),
       task({ id: "t2" }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -498,7 +491,7 @@ describe("weekVM plan across a week boundary", () => {
       task({ id: "trip", expectedStartDate: "2026-11-10", effortMinutes: 1440, exclusive: true }),
       task({ id: "dcm205", expectedStartDate: "2026-11-06", effortMinutes: 180, exclusive: true }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -530,7 +523,7 @@ describe("weekVM plan across a week boundary", () => {
       task({ id: "second", expectedStartDate: "2026-11-12", sortOrder: 1 }),
       task({ id: "now", expectedStartDate: "2026-11-05" }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -548,7 +541,7 @@ describe("weekVM plan across a week boundary", () => {
     vi.mocked(listWeek).mockResolvedValue([
       task({ id: "a", expectedStartDate: "2026-11-05", effortMinutes: 1440 }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -575,7 +568,7 @@ describe("weekVM plan across a week boundary", () => {
         actualFinishAt: new Date(2026, 10, 2, 16, 37).toISOString(),
       }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 1, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -606,7 +599,7 @@ describe("weekVM plan across a week boundary", () => {
         actualFinishAt: new Date(2026, 10, 5, 16, 37).toISOString(),
       }),
     ]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 1, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -644,7 +637,7 @@ describe("weekVM across midnight", () => {
 
   async function loadedWith(tasks: Task[]) {
     vi.mocked(listWeek).mockResolvedValue(tasks);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     const vm = createWeekVM();
     await vm.load();
@@ -689,7 +682,7 @@ describe("weekVM pass entry", () => {
     vi.mocked(listWeek)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([task({ id: "t1" })]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 1, done: 0, delayed: 0 });
     vi.mocked(capture).mockResolvedValue(task({ id: "t1" }));
     appVM.state.settings = { ...defaultSettings, lastPassWeek: "" };
@@ -709,7 +702,7 @@ describe("weekVM pass entry", () => {
 
   it("keeps the pass entry hidden while the new mode's list is still loading", async () => {
     vi.mocked(listWeek).mockResolvedValue([task({ id: "t1" })]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     appVM.state.settings = {
       ...defaultSettings,
@@ -731,7 +724,7 @@ describe("weekVM pass entry", () => {
 
   it("hides the pass entry once this week's pass is recorded", async () => {
     vi.mocked(listWeek).mockResolvedValue([task({ id: "t1" })]);
-    vi.mocked(listSuspended).mockResolvedValue([]);
+    vi.mocked(listParked).mockResolvedValue([]);
     vi.mocked(weekStats).mockResolvedValue({ added: 0, done: 0, delayed: 0 });
     // The page shows the coming week on a weekend, so its Monday is the one to record.
     appVM.state.settings = { ...defaultSettings, lastPassWeek: weekWorkdays(todayIso())[0] };

@@ -69,9 +69,9 @@ export function createDeskVM() {
     await run(() => taskRowVM.start(task));
   }
 
-  /** The widget parks without a review date or reason; the main window keeps the full dialog. */
-  async function suspend(task: Task): Promise<void> {
-    await run(() => taskRowVM.suspend(task, null, null));
+  /** The widget parks without a review day, reason or person; the main window keeps the dialog. */
+  async function park(task: Task): Promise<void> {
+    await run(() => taskRowVM.park(task, { reason: "", until: "", personId: null }));
   }
 
   async function complete(task: Task): Promise<void> {
@@ -121,7 +121,7 @@ export function createDeskVM() {
     savePosition,
     setEnabled,
     start,
-    suspend,
+    park,
     complete,
   };
 }

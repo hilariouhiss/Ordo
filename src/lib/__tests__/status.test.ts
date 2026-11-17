@@ -1,52 +1,30 @@
 import { describe, expect, it } from "vite-plus/test";
-import { canSuspendTask, canWaitTask, statusDisplay } from "../status";
+import { canParkTask, statusDisplay } from "../status";
 
 describe("statusDisplay", () => {
-  it("shows a suspended task as paused even while its status is doing", () => {
-    expect(statusDisplay("doing", true)).toBe("suspended");
+  it("shows a parked task as parked even while its stored status is doing", () => {
+    expect(statusDisplay("doing", true)).toBe("parked");
+    expect(statusDisplay("todo", true)).toBe("parked");
   });
 
-  it("shows a suspended task as paused when it never started", () => {
-    expect(statusDisplay("todo", true)).toBe("suspended");
-  });
-
-  it("keeps the stored status when the task is not suspended", () => {
+  it("keeps the stored status when the task is not parked", () => {
     expect(statusDisplay("doing", false)).toBe("doing");
     expect(statusDisplay("todo", false)).toBe("todo");
   });
 
   it("keeps a done task done", () => {
     expect(statusDisplay("done", true)).toBe("done");
-  });
-
-  it("shows waiting before any stored status, and before a stale suspension", () => {
-    expect(statusDisplay("doing", false, true)).toBe("waiting");
-    expect(statusDisplay("todo", false, true)).toBe("waiting");
-    expect(statusDisplay("todo", true, true)).toBe("waiting");
-    expect(statusDisplay("done", false, true)).toBe("done");
+    expect(statusDisplay("done", false)).toBe("done");
   });
 });
 
-describe("canWaitTask", () => {
-  it("allows any open task, waiting or not suspended", () => {
-    expect(canWaitTask({ status: "todo", waiting: false })).toBe(true);
-    expect(canWaitTask({ status: "doing", waiting: false })).toBe(true);
-    expect(canWaitTask({ status: "doing", waiting: true })).toBe(true);
+describe("canParkTask", () => {
+  it("allows any open task, started or not", () => {
+    expect(canParkTask({ status: "todo" })).toBe(true);
+    expect(canParkTask({ status: "doing" })).toBe(true);
   });
 
-  it("refuses a finished task only", () => {
-    expect(canWaitTask({ status: "done", waiting: false })).toBe(false);
-  });
-});
-
-describe("canSuspendTask", () => {
-  it("allows a task that is in progress", () => {
-    expect(canSuspendTask({ status: "doing", suspended: false })).toBe(true);
-  });
-
-  it("refuses a task that has not started, is done, or already suspended", () => {
-    expect(canSuspendTask({ status: "todo", suspended: false })).toBe(false);
-    expect(canSuspendTask({ status: "done", suspended: false })).toBe(false);
-    expect(canSuspendTask({ status: "doing", suspended: true })).toBe(false);
+  it("refuses a finished task", () => {
+    expect(canParkTask({ status: "done" })).toBe(false);
   });
 });

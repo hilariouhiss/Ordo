@@ -12,7 +12,7 @@ export function createPassVM() {
     index: 0,
     open: false,
     busy: false,
-    counts: { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 },
+    counts: { keep: 0, done: 0, park: 0, cancel: 0 },
   });
 
   const current = computed(() => state.queue[state.index] ?? null);
@@ -24,7 +24,7 @@ export function createPassVM() {
       if (!queue.length) return;
       state.queue = queue;
       state.index = 0;
-      state.counts = { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 };
+      state.counts = { keep: 0, done: 0, park: 0, cancel: 0 };
       state.open = true;
     } catch (e) {
       void askNotice(t("common.actionFailed"), errorText(e));
@@ -33,14 +33,15 @@ export function createPassVM() {
 
   async function resolve(
     action: PassAction,
-    suspendUntil: string | null = null,
-    suspendReason: string | null = null,
+    parkUntil: string | null = null,
+    parkReason: string | null = null,
+    parkedOnId: string | null = null,
   ): Promise<void> {
     const task = current.value;
     if (!task || state.busy) return;
     state.busy = true;
     try {
-      await passResolve(task.id, action, suspendUntil, suspendReason);
+      await passResolve(task.id, action, parkUntil, parkReason, parkedOnId);
       state.counts[action] += 1;
       state.index += 1;
     } catch (e) {
@@ -49,15 +50,6 @@ export function createPassVM() {
     } finally {
       state.busy = false;
     }
-  }
-
-  /**
-   * The waiting dialog wrote the wait itself, so the card only needs to move on; the
-   * finish screen counts it like any other exit.
-   */
-  function markWaiting(): void {
-    state.counts.wait += 1;
-    state.index += 1;
   }
 
   async function finish(): Promise<void> {
@@ -72,7 +64,7 @@ export function createPassVM() {
     state.open = false;
     state.queue = [];
     state.index = 0;
-    state.counts = { keep: 0, done: 0, suspend: 0, wait: 0, cancel: 0 };
+    state.counts = { keep: 0, done: 0, park: 0, cancel: 0 };
   }
 
   // The card on screen, for opening the task sheet without leaving the pass.
@@ -84,7 +76,7 @@ export function createPassVM() {
     state.open = false;
   }
 
-  return { state, current, start, resolve, markWaiting, finish, close, splitCurrent };
+  return { state, current, start, resolve, finish, close, splitCurrent };
 }
 
 export const passVM = createPassVM();

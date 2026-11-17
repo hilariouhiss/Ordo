@@ -22,7 +22,7 @@ import {
 } from "../lib/deskWindow";
 import { applyDeskPin, readDeskMonitors, readWindowRect } from "../lib/deskMonitors";
 import { errorText, t } from "../lib/i18n";
-import { canSuspendTask } from "../lib/status";
+import { canParkTask } from "../lib/status";
 import { subtaskLabel, subtasksDone } from "../lib/subtasks";
 import { flatRect, prefersReducedMotion, tweenRect } from "../lib/windowMotion";
 import { overdueDays } from "../model/mappers";
@@ -367,8 +367,8 @@ function startRow(task: Task): void {
   void vm.start(task);
 }
 
-function suspendRow(task: Task): void {
-  void vm.suspend(task);
+function parkRow(task: Task): void {
+  void vm.park(task);
 }
 
 function completeRow(task: Task): void {
@@ -589,10 +589,10 @@ watch(
                 :disabled="state.busy"
                 @click="completeRow(row.task)"
               >
-                <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
+                <StatusDot :status="row.task.status" :parked="row.task.parked" />
               </button>
               <span v-else class="mt-0.5 shrink-0">
-                <StatusDot :status="row.task.status" :suspended="row.task.suspended" />
+                <StatusDot :status="row.task.status" :parked="row.task.parked" />
               </span>
               <button
                 type="button"
@@ -644,13 +644,13 @@ watch(
                   <Play :size="13" aria-hidden="true" />
                 </button>
                 <button
-                  v-if="canSuspendTask(row.task)"
+                  v-if="canParkTask(row.task) && !row.task.parked"
                   type="button"
                   class="grid size-5 place-items-center rounded-md text-base-content/30 hover:bg-base-200 hover:text-warning focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
                   :aria-label="t('task.suspendAria', { title: row.task.title })"
                   :title="t('task.suspendAria', { title: row.task.title })"
                   :disabled="state.busy"
-                  @click="suspendRow(row.task)"
+                  @click="parkRow(row.task)"
                 >
                   <Pause :size="13" aria-hidden="true" />
                 </button>
