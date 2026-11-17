@@ -2,12 +2,6 @@ use crate::dto::{IssueDto, LinkedTaskDto};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
-pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
-    conn.query_row("SELECT 1 FROM issues WHERE id = ?1", [id], |_| Ok(true))
-        .optional()
-        .map(|found| found.unwrap_or(false))
-}
-
 pub fn project_of(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
     conn.query_row("SELECT project_id FROM issues WHERE id = ?1", [id], |r| r.get(0))
         .optional()

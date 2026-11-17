@@ -310,7 +310,12 @@ mod tests {
             .unwrap()
             .iter()
             .any(|change| change.kind == "issue_unlinked"));
-        assert!(issues::exists(&c, &issue.id).unwrap() == false);
+        let left: i64 = c
+            .query_row("SELECT COUNT(*) FROM issues WHERE id = ?1", [&issue.id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     #[test]

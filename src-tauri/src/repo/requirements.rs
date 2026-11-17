@@ -367,18 +367,6 @@ pub fn link_section(
     Ok(())
 }
 
-pub fn unlink_section(
-    conn: &Connection,
-    requirement_id: &str,
-    section_id: &str,
-) -> rusqlite::Result<()> {
-    conn.execute(
-        "DELETE FROM requirement_sections WHERE requirement_id = ?1 AND section_id = ?2",
-        params![requirement_id, section_id],
-    )?;
-    Ok(())
-}
-
 /// The project and display names behind one chapter link, or None when it is gone.
 pub fn section_info(
     conn: &Connection,

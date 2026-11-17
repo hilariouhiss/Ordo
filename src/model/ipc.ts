@@ -371,14 +371,6 @@ export function setSettings(patch: Partial<Settings>): Promise<Settings> {
   return invoke<Settings>("set_settings", { patch });
 }
 
-/** Switches the new-task default and optionally rewrites every existing task. */
-export function setTaskDefaultExclusive(
-  value: boolean,
-  applyToExisting: boolean,
-): Promise<Settings> {
-  return invoke<Settings>("set_task_default_exclusive", { value, applyToExisting });
-}
-
 /** The overdue prompt's queue; empty when the setting is off. */
 export function listOverdueTasks(): Promise<OverdueTask[]> {
   return invoke<OverdueTask[]>("list_overdue_tasks");

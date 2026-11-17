@@ -3,17 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 vi.mock("../../model/ipc", () => ({
   setSettings: vi.fn(),
   setMode: vi.fn(),
-  setTaskDefaultExclusive: vi.fn(),
 }));
 
 vi.mock("../../lib/dialog", () => ({
   askNotice: vi.fn(),
   askNoticeOptOut: vi.fn(),
-  askTaskDefaultScope: vi.fn(),
 }));
 
 import { askNoticeOptOut } from "../../lib/dialog";
-import { setMode, setSettings, setTaskDefaultExclusive } from "../../model/ipc";
+import { setMode, setSettings } from "../../model/ipc";
 import { appVM } from "../appVM";
 import { createSettingsVM } from "../settingsVM";
 import { defaultSettings } from "./fixtures";
@@ -37,18 +35,6 @@ describe("settingsVM", () => {
       remindersLeadMinutes: 30,
       remindersDigest: false,
     });
-  });
-
-  it("switches the new-task default through its own command", async () => {
-    vi.mocked(setTaskDefaultExclusive).mockResolvedValue({
-      ...defaultSettings,
-      taskDefaultExclusive: false,
-    });
-    const vm = createSettingsVM();
-
-    await expect(vm.setTaskDefaultExclusive(false, true)).resolves.toBe(true);
-
-    expect(vi.mocked(setTaskDefaultExclusive)).toHaveBeenCalledWith(false, true);
   });
 
   it("switches the mode through the dedicated command", async () => {

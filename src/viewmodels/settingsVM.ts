@@ -64,22 +64,10 @@ export function createSettingsVM() {
     }
   }
 
-  /** The task default owns a transaction of its own: the setting and the bulk edit land together. */
-  async function setTaskDefaultExclusive(
-    value: boolean,
-    applyToExisting: boolean,
-  ): Promise<boolean> {
-    state.error = "";
-    try {
-      appVM.state.settings = await ipc.setTaskDefaultExclusive(value, applyToExisting);
-      return true;
-    } catch (e) {
-      state.error = String(e);
-      return false;
-    }
-  }
-
   async function backup(): Promise<void> {
+    // One at a time: two runs a second apart build the same file name and fight over it.
+    if (state.busy) return;
+    state.busy = true;
     state.error = "";
     try {
       state.backupPath = await ipc.backupNow();
@@ -87,19 +75,25 @@ export function createSettingsVM() {
     } catch (e) {
       state.error = String(e);
       if (appVM.state.settings) appVM.state.settings.backupError = String(e);
+    } finally {
+      state.busy = false;
     }
   }
 
   async function exportData(): Promise<void> {
+    if (state.busy) return;
+    state.busy = true;
     state.error = "";
     try {
       state.exportPath = await ipc.exportJson();
     } catch (e) {
       state.error = String(e);
+    } finally {
+      state.busy = false;
     }
   }
 
-  return { state, open, close, save, setTaskDefaultExclusive, switchMode, backup, exportData };
+  return { state, open, close, save, switchMode, backup, exportData };
 }
 
 export const settingsVM = createSettingsVM();

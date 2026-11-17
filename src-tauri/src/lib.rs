@@ -38,7 +38,7 @@ fn note_error_in(dir: &std::path::Path, message: &str) {
     }
 }
 
-fn note_error(app: &tauri::AppHandle, message: &str) {
+pub(crate) fn note_error(app: &tauri::AppHandle, message: &str) {
     if let Ok(dir) = app.path().app_data_dir() {
         note_error_in(&dir, message);
     }
@@ -593,7 +593,6 @@ pub fn run() {
       commands::meta::set_mode,
       commands::window::set_window_rect,
       commands::meta::set_settings,
-      commands::meta::set_task_default_exclusive,
       commands::tasks::list_overdue_tasks,
       commands::meta::export_json,
       commands::meta::backup_now,

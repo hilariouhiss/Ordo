@@ -105,6 +105,25 @@ pub fn prune(dir: &Path, keep_days: i64, today: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Full ledger dumps are heavy and only the last few matter, so the folder stays bounded.
+const EXPORTS_TO_KEEP: usize = 20;
+
+pub fn prune_exports(dir: &Path) -> std::io::Result<()> {
+    let mut files: Vec<(String, PathBuf)> = std::fs::read_dir(dir)?
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let name = path.file_name()?.to_str()?.to_string();
+            (name.starts_with("ordo-export-") && name.ends_with(".json")).then_some((name, path))
+        })
+        .collect();
+    // The stamp is fixed width, so the name sorts by age.
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in files.into_iter().skip(EXPORTS_TO_KEEP) {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 /// Writes `dir/ordo-<stamp>.db` unless a usable one is already there, and says whether
 /// it wrote it. A file left behind by a `VACUUM` cut short is replaced, not trusted.
 /// Pruning stays with the caller: the daily job only prunes after a write.
@@ -377,6 +396,31 @@ mod tests {
 
         let again = export::backup_snapshot(&c, &dir).unwrap();
         assert!(again.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn old_exports_are_pruned_but_other_files_are_left_alone() {
+        let dir = std::env::temp_dir().join(format!("ordo-exports-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for index in 0..super::EXPORTS_TO_KEEP + 3 {
+            std::fs::write(
+                dir.join(format!("ordo-export-20260101-0000{index:02}.json")),
+                b"{}",
+            )
+            .unwrap();
+        }
+        std::fs::write(dir.join("notes.json"), b"{}").unwrap();
+
+        export::prune_exports(&dir).unwrap();
+
+        let left = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| name.starts_with("ordo-export-"))
+            .count();
+        assert_eq!(left, super::EXPORTS_TO_KEEP);
+        assert!(dir.join("notes.json").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
