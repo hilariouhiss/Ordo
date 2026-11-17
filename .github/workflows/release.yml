@@ -33,6 +33,17 @@ jobs:
       # 先于构建：tag 与版本号不一致时，tauri-action 会安静地发布一个谁都更新不到的版本。
       - name: check tag matches the three version fields
         run: node scripts/check-release-version.mjs ${{ github.ref_name }}
+      # 发布说明取 CHANGELOG.md 对应版本的一节，而不是 GitHub 从 commit 生成的列表。
+      - name: read the changelog section for this release
+        id: changelog
+        shell: bash
+        run: |
+          node scripts/release-notes.mjs "${{ github.ref_name }}" > "$RUNNER_TEMP/release-notes.md"
+          {
+            echo "body<<CHANGELOG_EOF"
+            cat "$RUNNER_TEMP/release-notes.md"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -44,7 +55,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Ordo v__VERSION__"
-          generateReleaseNotes: true
+          releaseBody: ${{ steps.changelog.outputs.body }}
           # 非草稿、非预发布：releases/latest/download/latest.json 只认最新一个正式 release。
           releaseDraft: false
           prerelease: false

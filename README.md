@@ -34,7 +34,7 @@ pnpm tauri build
 
 1. 三处版本号一起改（`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`），在 `CHANGELOG.md` 加一节，提交。
 2. 推 tag：`git tag v0.2.0 && git push origin v0.2.0`。
-3. `.github/workflows/release.yml` 先校验 tag 与三处版本号一致，再在 windows-latest 上只出 NSIS 安装包，签名并发布 `Ordo_<版本>_x64-setup.exe`、`.sig` 和 `latest.json`。
+3. `.github/workflows/release.yml` 先校验 tag 与三处版本号一致，再把 `CHANGELOG.md` 里对应版本的一节作为 release 说明，在 windows-latest 上只出 NSIS 安装包，签名并发布 `Ordo_<版本>_x64-setup.exe`、`.sig` 和 `latest.json`。
 4. 装好的 Ordo 启动 3 秒后、之后每 6 小时检查 `latest.json`；发现新版本在主窗口左下角提示，点「更新」才下载、安装并重启。开发构建不检查；用 MSI 装的副本不会自动更新（只有 NSIS 带更新包）。
 
 签名私钥在 `%USERPROFILE%\.tauri\ordo.key`（仓库 secret `TAURI_SIGNING_PRIVATE_KEY` 是同一份）。别丢也别换：换了私钥，已安装的版本就再也不认新更新包，只能手动重装。
