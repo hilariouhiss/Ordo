@@ -33,8 +33,18 @@ pub async fn import_document(
     file_base64: String,
 ) -> Result<DocumentOutlineDto, String> {
     let now = now_iso();
+    let english = with_db(&state, |conn| {
+        Ok(crate::repo::settings::language(conn) == "en")
+    })
+    .await?;
+    // Big uploads are parsed off the ledger: a 200-page PDF must not freeze every command.
+    let parsed = tauri::async_runtime::spawn_blocking(move || {
+        crate::services::documents::parse(english, &file_name, &file_base64)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     with_db(&state, move |conn| {
-        crate::services::documents::import(conn, &project_id, &file_name, &file_base64, &now)
+        crate::services::documents::store(conn, &project_id, &parsed, &now)
     })
     .await
 }

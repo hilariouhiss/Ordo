@@ -4,11 +4,34 @@ use quick_xml::Reader;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
-fn entry(archive: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<String> {
-    let mut file = archive.by_name(name).ok()?;
+/// The most any part of a real document inflates to; Word XML is verbose but bounded.
+/// shortcut: 64 MB covers a text-heavy file at the upload cap, revisit if that cap grows.
+const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+
+fn entry(archive: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<String, String> {
+    entry_with_limit(archive, name, MAX_ENTRY_BYTES)
+}
+
+fn entry_with_limit(
+    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    name: &str,
+    limit: u64,
+) -> Result<String, String> {
+    let mut file = archive
+        .by_name(name)
+        .map_err(|_| "docx_invalid".to_string())?;
+    if file.size() > limit {
+        return Err("document_too_large".into());
+    }
+    // The header can lie about the size, so the read itself is capped too.
     let mut text = String::new();
-    file.read_to_string(&mut text).ok()?;
-    Some(text)
+    Read::take(&mut file, limit + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| "docx_invalid".to_string())?;
+    if text.len() as u64 > limit {
+        return Err("document_too_large".into());
+    }
+    Ok(text)
 }
 
 fn attribute(element: &BytesStart<'_>, name: &str) -> Option<String> {
@@ -132,10 +155,12 @@ fn parse_paragraphs(xml: &str) -> Result<Vec<(Option<String>, String)>, String> 
                 "br" | "cr" if in_paragraph => text.push('\n'),
                 _ => {}
             },
-            Ok(Event::Empty(element)) if in_paragraph => match element.local_name().as_ref() {
-                "pStyle" => style = attribute(&element, "val"),
-                "tab" => text.push('\t'),
-                "br" | "cr" => text.push('\n'),
+            // Word writes an empty paragraph as <w:p/>, which only ever reaches Empty.
+            Ok(Event::Empty(element)) => match element.local_name().as_ref() {
+                "p" => paragraphs.push((None, String::new())),
+                "pStyle" if in_paragraph => style = attribute(&element, "val"),
+                "tab" if in_paragraph => text.push('\t'),
+                "br" | "cr" if in_paragraph => text.push('\n'),
                 _ => {}
             },
             Ok(Event::Text(value)) if in_paragraph && in_text => {
@@ -169,8 +194,10 @@ fn trimmed(mut section: ParsedSection) -> ParsedSection {
 pub fn parse(title: &str, bytes: &[u8]) -> Result<Vec<ParsedSection>, String> {
     let mut archive =
         zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| "docx_invalid".to_string())?;
-    let document = entry(&mut archive, "word/document.xml").ok_or("docx_invalid")?;
+    let document = entry(&mut archive, "word/document.xml")?;
+    // Styles are a nicety: a missing or oversized one must not refuse the document.
     let styles = entry(&mut archive, "word/styles.xml")
+        .ok()
         .map(|xml| parse_styles(&xml))
         .unwrap_or_default();
     let paragraphs = parse_paragraphs(&document)?;
@@ -186,8 +213,11 @@ pub fn parse(title: &str, bytes: &[u8]) -> Result<Vec<ParsedSection>, String> {
         });
         let text = text.trim_end();
         if text.trim().is_empty() && level.is_none() {
+            // A blank paragraph is a blank line, in the intro as well as in a chapter.
             if let Some(section) = current.as_mut() {
                 section.body.push('\n');
+            } else if !preamble.is_empty() {
+                preamble.push('\n');
             }
             continue;
         }
@@ -302,5 +332,28 @@ mod tests {
     #[test]
     fn a_bad_archive_is_refused() {
         assert_eq!(parse("坏文件", b"not a zip").unwrap_err(), "docx_invalid");
+    }
+
+    #[test]
+    fn an_empty_word_paragraph_keeps_its_blank_line() {
+        // Word writes a blank paragraph as <w:p/>, not as an open/close pair.
+        let document = format!(
+            "<w:document><w:body>{}<w:p/>{}</w:body></w:document>",
+            paragraph(None, "第一段"),
+            paragraph(None, "第二段")
+        );
+        let sections = parse("记录", &build(&document, "<w:styles/>")).unwrap();
+        assert_eq!(sections[0].body, "第一段\n\n第二段");
+    }
+
+    #[test]
+    fn a_part_past_the_size_limit_is_refused() {
+        let bytes = build(&paragraph(None, "正文"), "<w:styles/>");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+        // The real limit is large; the guard itself is what this pins.
+        assert_eq!(
+            entry_with_limit(&mut archive, "word/document.xml", 4).unwrap_err(),
+            "document_too_large"
+        );
     }
 }

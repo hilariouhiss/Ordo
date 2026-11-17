@@ -3,7 +3,7 @@ mod markdown;
 mod pdf;
 
 use crate::dto::{DocumentDto, DocumentOutlineDto};
-use crate::repo::{documents, projects, settings};
+use crate::repo::{documents, projects};
 use base64::Engine;
 use rusqlite::Connection;
 use std::path::Path;
@@ -34,8 +34,8 @@ fn stem(name: &str) -> String {
         .to_string()
 }
 
-fn fallback_title(conn: &Connection) -> String {
-    if settings::language(conn) == "en" {
+fn fallback_title(english: bool) -> String {
+    if english {
         "Document".into()
     } else {
         "文档".into()
@@ -45,6 +45,8 @@ fn fallback_title(conn: &Connection) -> String {
 /// A plain-text file in UTF-8, or a legacy Chinese file in GB18030. Docx/PDF decode
 /// their own bytes; only the text formats land here.
 pub(crate) fn decode_text(bytes: &[u8]) -> Result<String, String> {
+    // A BOM is not whitespace, so "UTF-8 with BOM" would eat its own first heading.
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Ok(text.to_string());
     }
@@ -55,16 +57,16 @@ pub(crate) fn decode_text(bytes: &[u8]) -> Result<String, String> {
     Ok(text.into_owned())
 }
 
-pub fn import(
-    conn: &Connection,
-    project_id: &str,
-    file_name: &str,
-    file_base64: &str,
-    now: &str,
-) -> Result<DocumentOutlineDto, String> {
-    if !projects::exists(conn, project_id).map_err(|e| e.to_string())? {
-        return Err("invalid_project".into());
-    }
+/// A parsed upload: everything the write needs, and nothing from the ledger.
+pub struct Parsed {
+    pub title: String,
+    pub source_name: String,
+    pub sections: Vec<ParsedSection>,
+}
+
+/// Reads the upload into chapters. Pure on purpose: the caller runs it off the database
+/// lock, so parsing a big Word or PDF file cannot freeze the window.
+pub fn parse(english: bool, file_name: &str, file_base64: &str) -> Result<Parsed, String> {
     let source_name = file_name.trim();
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(file_base64)
@@ -74,7 +76,7 @@ pub fn import(
     }
     let extension = extension(source_name);
     let title = match stem(source_name) {
-        stem if stem.is_empty() => fallback_title(conn),
+        stem if stem.is_empty() => fallback_title(english),
         stem => stem,
     };
     let sections = match extension.as_str() {
@@ -83,7 +85,7 @@ pub fn import(
             markdown::parse(&title, &text)?
         }
         "docx" => docx::parse(&title, &bytes)?,
-        "pdf" => pdf::parse(&title, &bytes, settings::language(conn) == "en")?,
+        "pdf" => pdf::parse(&title, &bytes, english)?,
         _ => return Err("unsupported_document".into()),
     };
     if sections.is_empty() {
@@ -96,11 +98,35 @@ pub fn import(
     if stored > crate::limits::LIMITS.document_text_bytes {
         return Err("document_too_large".into());
     }
+    Ok(Parsed {
+        title,
+        source_name: source_name.to_string(),
+        sections,
+    })
+}
+
+/// Writes a parsed document and its chapters in one transaction.
+pub fn store(
+    conn: &Connection,
+    project_id: &str,
+    parsed: &Parsed,
+    now: &str,
+) -> Result<DocumentOutlineDto, String> {
+    if !projects::exists(conn, project_id).map_err(|e| e.to_string())? {
+        return Err("invalid_project".into());
+    }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let document_id = Uuid::new_v4().to_string();
-    documents::insert_document(&tx, &document_id, project_id, &title, source_name, now)
-        .map_err(|e| e.to_string())?;
-    for (index, section) in sections.iter().enumerate() {
+    documents::insert_document(
+        &tx,
+        &document_id,
+        project_id,
+        &parsed.title,
+        &parsed.source_name,
+        now,
+    )
+    .map_err(|e| e.to_string())?;
+    for (index, section) in parsed.sections.iter().enumerate() {
         documents::insert_section(
             &tx,
             &Uuid::new_v4().to_string(),
@@ -164,6 +190,18 @@ mod tests {
         base64::engine::general_purpose::STANDARD.encode(text)
     }
 
+    /// The read-then-write pair the import command runs, in one call.
+    fn import(
+        c: &Connection,
+        project_id: &str,
+        file_name: &str,
+        file: &str,
+        now: &str,
+    ) -> Result<DocumentOutlineDto, String> {
+        let parsed = parse(settings::language(c) == "en", file_name, file)?;
+        store(c, project_id, &parsed, now)
+    }
+
     #[test]
     fn importing_markdown_stores_the_chapters() {
         let c = setup();
@@ -209,6 +247,29 @@ mod tests {
         assert_eq!(document.sections[0].requirements.len(), 1);
         assert_eq!(document.sections[0].requirements[0].number, "REQ-001");
         assert_eq!(document.sections[0].requirements[0].title, "导出报表");
+    }
+
+    #[test]
+    fn a_utf8_bom_does_not_eat_the_first_heading() {
+        let c = setup();
+        let p = project(&c);
+        let mut with_bom = vec![0xEF, 0xBB, 0xBF];
+        with_bom.extend_from_slice("# 范围\n正文".as_bytes());
+        let outline = import(&c, &p, "带 bom.md", &base64(&with_bom), NOW).unwrap();
+
+        assert_eq!(outline.sections.len(), 1);
+        assert_eq!(outline.sections[0].title, "范围");
+    }
+
+    #[test]
+    fn text_past_the_stored_cap_is_refused() {
+        let c = setup();
+        let p = project(&c);
+        let huge = "字".repeat(crate::limits::LIMITS.document_text_bytes / 3 + 1);
+        assert_eq!(
+            import(&c, &p, "太大.md", &base64(huge.as_bytes()), NOW).unwrap_err(),
+            "document_too_large"
+        );
     }
 
     #[test]
