@@ -316,14 +316,17 @@ export function createTaskSheetVM() {
 
   /** Back to the task this one was opened from, with its draft and fresh derived fields. */
   async function back(): Promise<void> {
-    const parked = state.stack.pop();
+    const parked = state.stack.at(-1);
     if (!parked) return;
-    state.openId = parked.task.id;
     state.loading = true;
     state.error = null;
     try {
+      // Read first: a failed read must leave the sheet on the task it is showing, not
+      // point it at the parent while the child's draft is still in the fields.
       const fresh = await getTask(parked.task.id);
-      if (state.openId !== fresh.id) return;
+      if (state.stack.at(-1) !== parked) return;
+      state.stack.pop();
+      state.openId = fresh.id;
       state.task = fresh;
       applyDerived(parked.form, fresh);
       state.form = parked.form;
@@ -415,7 +418,11 @@ export function createTaskSheetVM() {
         state.task = await setTaskStatus(id, form.status);
       }
       if (Object.keys(patch).length) state.task = await updateTaskPatch(id, patch);
-      if (state.note.trim()) state.task = await addDelayNote(id, state.note.trim());
+      // Written once: a retry after a later step failed must not post the note twice.
+      if (state.note.trim()) {
+        state.task = await addDelayNote(id, state.note.trim());
+        state.note = "";
+      }
       // A dropped row only moved the draft; the order lands with the rest of the save.
       const current = state.task;
       if (

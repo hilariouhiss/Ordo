@@ -231,6 +231,8 @@ async function onProjectChange(): Promise<void> {
 
 async function save(): Promise<void> {
   if (!task.value) return;
+  // A typed tag that never saw Enter is still part of what the user meant to save.
+  addTag();
   // A focused field still owes the draft its value; leaving it commits first.
   (document.activeElement as HTMLElement | null)?.blur();
   await taskSheetVM.save();
@@ -458,6 +460,12 @@ function goBack(): void {
 function onTagKey(event: KeyboardEvent): void {
   if (isImeEnter(event)) return;
   addTag();
+}
+
+/** Enter saves the reason, but not while an IME is still picking the word. */
+function onDelayKey(event: KeyboardEvent): void {
+  if (isImeEnter(event)) return;
+  commitDelay();
 }
 
 function onKey(event: KeyboardEvent): void {
@@ -901,7 +909,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
                   :placeholder="t('task.delayReason')"
                   :aria-label="t('task.delayReason')"
                   @blur="commitDelay"
-                  @keydown.enter.prevent="commitDelay"
+                  @keydown.enter.prevent="onDelayKey"
                   @keydown.esc.stop="cancelDelay"
                 />
               </div>
