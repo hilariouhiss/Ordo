@@ -299,7 +299,7 @@ pub fn stats(conn: &Connection, today: &str) -> Result<WeekStatsDto, String> {
             "SELECT COUNT(*) FROM tasks WHERE status='done'
              AND actual_finish_at IS NOT NULL AND {} AND {scope}
              AND date(actual_finish_at,'localtime') BETWEEN ?1 AND ?2",
-            tasks::visible_task_filter("tasks")
+            tasks::done_week_filter("tasks")
         ))?,
         delayed: count(&format!(
             "SELECT COUNT(*) FROM delays d JOIN tasks t ON t.id = d.task_id
@@ -325,7 +325,7 @@ pub fn list_done(conn: &Connection, today: &str) -> Result<Vec<TaskDto>, String>
                     OR (expected_start_date BETWEEN ?1 AND ?2))
                AND {} AND {}
              ORDER BY actual_finish_at, sort_order, id",
-            tasks::visible_task_filter("tasks"),
+            tasks::done_week_filter("tasks"),
             crate::repo::scope_eq("tasks", &mode)
         ),
         &[&start, &today],
@@ -1479,6 +1479,48 @@ mod tests {
         let c = db::open_in_memory().unwrap();
         week::capture(&c, "还没做", NOW, "t1").unwrap();
         assert!(week::list_done(&c, "2026-10-20").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_finished_umbrella_stands_for_its_done_children() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "p").unwrap();
+        let first = crate::services::subtasks::add(&c, "p", "收集", NOW).unwrap();
+        let child = first.children[0].id.clone();
+        let second = crate::services::subtasks::add(&c, "p", "汇编", NOW).unwrap();
+        let other = second.children[1].id.clone();
+        let day = local_date(NOW);
+
+        crate::services::tasks::set_status(&c, &child, "done", NOW).unwrap();
+        let done = week::list_done(&c, &day).unwrap();
+        let ids: Vec<&str> = done.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec![child.as_str()], "one done child still shows alone");
+        assert_eq!(week::stats(&c, &day).unwrap().done, 1);
+
+        crate::services::tasks::set_status(&c, &other, "done", NOW).unwrap();
+        let done = week::list_done(&c, &day).unwrap();
+        let ids: Vec<&str> = done.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["p"], "the finished umbrella replaces its parts");
+        assert_eq!(done[0].status, "done");
+        assert!(done[0].actual_finish_at.is_some());
+        assert_eq!(week::stats(&c, &day).unwrap().done, 1);
+    }
+
+    #[test]
+    fn a_canceled_child_does_not_keep_the_umbrella_from_standing() {
+        let c = db::open_in_memory().unwrap();
+        week::capture(&c, "交付", NOW, "p").unwrap();
+        let first = crate::services::subtasks::add(&c, "p", "收集", NOW).unwrap();
+        let child = first.children[0].id.clone();
+        let second = crate::services::subtasks::add(&c, "p", "汇编", NOW).unwrap();
+        let other = second.children[1].id.clone();
+
+        crate::services::tasks::set_status(&c, &child, "done", NOW).unwrap();
+        week::resolve(&c, &other, PassAction::Cancel, None, None, None, NOW).unwrap();
+
+        let done = week::list_done(&c, &local_date(NOW)).unwrap();
+        let ids: Vec<&str> = done.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["p"], "the canceled part no longer splits the card");
     }
 
     #[test]

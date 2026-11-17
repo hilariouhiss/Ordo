@@ -25,6 +25,31 @@ pub(crate) fn visible_task_filter(alias: &str) -> String {
     )
 }
 
+/// The week's finished rows: a done leaf, or the done umbrella whose live children are
+/// all done. A done child under such an umbrella is left out, so one finished umbrella
+/// reads as one card instead of its parts.
+pub(crate) fn done_week_filter(alias: &str) -> String {
+    let live_child = format!(
+        "c.parent_id = {alias}.id AND c.deleted_at IS NULL AND c.archived_at IS NULL \
+         AND c.canceled_at IS NULL"
+    );
+    format!(
+        "{alias}.canceled_at IS NULL AND {alias}.archived_at IS NULL \
+         AND {alias}.deleted_at IS NULL \
+         AND ({alias}.project_id IS NULL OR EXISTS (SELECT 1 FROM projects p \
+              WHERE p.id = {alias}.project_id AND p.archived_at IS NULL)) \
+         AND (NOT EXISTS (SELECT 1 FROM tasks c WHERE {live_child}) \
+              OR ({alias}.parent_id IS NULL \
+                  AND NOT EXISTS (SELECT 1 FROM tasks c WHERE {live_child} AND c.status <> 'done'))) \
+         AND NOT ({alias}.parent_id IS NOT NULL \
+                  AND EXISTS (SELECT 1 FROM tasks p WHERE p.id = {alias}.parent_id \
+                              AND p.status = 'done' AND p.deleted_at IS NULL \
+                              AND p.archived_at IS NULL AND p.canceled_at IS NULL \
+                              AND (p.project_id IS NULL OR EXISTS (SELECT 1 FROM projects pp \
+                                   WHERE pp.id = p.project_id AND pp.archived_at IS NULL))))"
+    )
+}
+
 /// How a task is parked. Every write of the parked columns goes through
 /// [write_park_in], so the list below is the only place a new parked field is added.
 #[derive(Clone, Copy)]
