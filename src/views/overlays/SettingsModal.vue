@@ -828,12 +828,14 @@ onUnmounted(() => {
                     <div class="mt-3 flex items-center gap-2">
                       <button
                         class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+                        :disabled="vm.state.busy"
                         @click="vm.backup"
                       >
                         {{ t("settings.backupNow") }}
                       </button>
                       <button
                         class="btn btn-sm rounded-lg border-base-300 bg-base-100 font-normal"
+                        :disabled="vm.state.busy"
                         @click="vm.exportData"
                       >
                         {{ t("settings.exportJson") }}
