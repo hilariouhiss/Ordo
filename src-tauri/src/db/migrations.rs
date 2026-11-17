@@ -2510,6 +2510,93 @@ mod tests {
         assert!(has_table(&c, "person_categories").unwrap());
     }
 
+    /// A populated v28 ledger: the newest shape before projects owned requirements.
+    fn v28_ledger() -> Connection {
+        let c = db::open_in_memory().unwrap();
+        c.execute_batch(
+            "INSERT INTO people (id, name, is_me, created_at, updated_at)
+             VALUES ('me', '我', 1, '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z');
+             INSERT INTO projects (id, name, created_at, updated_at)
+             VALUES ('p1', '华东客户交付', '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z');
+             INSERT INTO tasks (id, title, project_id, effort_minutes, status, in_week,
+                                expected_start_date, expected_finish_date, created_at, updated_at)
+             VALUES ('t1', '交底', 'p1', 480, 'todo', 1, '2026-11-02', '2026-11-02',
+                     '2026-11-01T08:00:00Z', '2026-11-01T08:00:00Z');",
+        )
+        .unwrap();
+        // Rewind to the shape this step upgrades from: no requirement tables, no number
+        // format. The task columns cannot be dropped (they carry a foreign key), so they
+        // stay and the guards simply skip them.
+        c.execute_batch(
+            "DROP TABLE IF EXISTS requirement_sections;
+             DROP TABLE IF EXISTS requirement_changes;
+             DROP TABLE IF EXISTS issues;
+             DROP TABLE IF EXISTS requirements;
+             DROP TABLE IF EXISTS document_sections;
+             DROP TABLE IF EXISTS project_documents;
+             DROP TABLE IF EXISTS requirement_statuses;
+             ALTER TABLE projects DROP COLUMN requirement_prefix;
+             ALTER TABLE projects DROP COLUMN requirement_width;
+             ALTER TABLE projects DROP COLUMN issue_prefix;
+             ALTER TABLE projects DROP COLUMN issue_width;",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", 28).unwrap();
+        c
+    }
+
+    #[test]
+    fn requirements_come_up_over_a_populated_v28_ledger() {
+        let c = v28_ledger();
+        assert!(!has_table(&c, "requirements").unwrap());
+
+        migrate(&c).unwrap();
+
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, LATEST);
+        for table in [
+            "requirement_statuses",
+            "requirements",
+            "project_documents",
+            "document_sections",
+            "requirement_sections",
+            "requirement_changes",
+            "issues",
+        ] {
+            assert!(has_table(&c, table).unwrap(), "{table} is missing");
+        }
+        let (prefix, width): (String, i64) = c
+            .query_row(
+                "SELECT requirement_prefix, issue_width FROM projects WHERE id = 'p1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((prefix.as_str(), width), ("REQ-", 3));
+        // The ledger that was already there is untouched.
+        let (title, finish, linked): (String, String, Option<String>) = c
+            .query_row(
+                "SELECT title, expected_finish_date, requirement_id FROM tasks WHERE id = 't1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((title.as_str(), finish.as_str()), ("交底", "2026-11-02"));
+        assert!(linked.is_none());
+
+        // A crash before the version bump replays without duplicating or refusing.
+        c.pragma_update(None, "user_version", 28).unwrap();
+        migrate(&c).unwrap();
+        let tables: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'issues'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 1);
+    }
+
     #[test]
     fn the_step_children_share_the_effort() {
         use crate::services::subtasks::split_shares;
