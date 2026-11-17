@@ -18,6 +18,27 @@ pub fn fire(
     Ok(changed > 0)
 }
 
+/// A reminder the badge already counted (a snooze re-fire): written so the same slot
+/// cannot notify again today, marked seen at once so the unread count does not move.
+/// Its toast still shows, even when the row was already there.
+pub fn fire_seen(
+    conn: &Connection,
+    id: &str,
+    task_id: &str,
+    kind: &str,
+    due_key: &str,
+    scheduled_for: &str,
+    now: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO notifications
+           (id, task_id, kind, due_key, scheduled_for, fired_at, seen_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![id, task_id, kind, due_key, scheduled_for, now],
+    )?;
+    Ok(())
+}
+
 /// A milestone's reminder has no task; the unique index on its due day keeps it
 /// from firing again after a restart.
 pub fn fire_milestone(

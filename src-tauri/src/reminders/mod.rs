@@ -148,13 +148,10 @@ fn tick(app: &AppHandle) -> Result<(), String> {
 
         let mut toasts: Vec<(String, ReminderTarget)> = Vec::new();
         for candidate in candidates {
-            let title: String = conn
-                .query_row("SELECT title FROM tasks WHERE id = ?1", [&candidate.task_id], |r| {
-                    r.get(0)
-                })
-                .map_err(|e| e.to_string())?;
+            // One bad row must not cancel the reminders queued after it: a batch that
+            // stops halfway would leave rows recorded as sent and never shown.
             if candidate.record {
-                let fired = crate::repo::notifications::fire(
+                let fired = match crate::repo::notifications::fire(
                     &conn,
                     &uuid::Uuid::new_v4().to_string(),
                     &candidate.task_id,
@@ -162,28 +159,49 @@ fn tick(app: &AppHandle) -> Result<(), String> {
                     &candidate.due_key,
                     &candidate.scheduled_for.to_rfc3339(),
                     &now_utc,
-                )
-                .map_err(|e| e.to_string())?;
+                ) {
+                    Ok(fired) => fired,
+                    Err(e) => {
+                        crate::note_error(app, &format!("提醒记录失败：{e}"));
+                        continue;
+                    }
+                };
                 if !fired {
                     continue;
                 }
+            } else if let Err(e) = crate::repo::notifications::fire_seen(
+                &conn,
+                &uuid::Uuid::new_v4().to_string(),
+                &candidate.task_id,
+                candidate.kind,
+                &candidate.due_key,
+                &candidate.scheduled_for.to_rfc3339(),
+                &now_utc,
+            ) {
+                // The toast is the point of a snooze: a failed write must not hide it.
+                crate::note_error(app, &format!("提醒记录失败：{e}"));
             }
             let ahead = days_ahead(&candidate.due_key, &today);
-            let headline = crate::i18n::reminder_headline(lang, candidate.kind, ahead, &title);
+            let headline = crate::i18n::reminder_headline(lang, candidate.kind, ahead, &candidate.title);
             toasts.push((headline, ReminderTarget::Task(candidate.task_id)));
         }
         // Milestones remind at 09:00 on their own day; the notification row keeps a
-        // restart from repeating it.
-        for candidate in rules::milestone_candidates(&conn, now)? {
-            let fired = crate::repo::notifications::fire_milestone(
+        // restart from repeating it. A broken scan keeps the task toasts above.
+        for candidate in rules::milestone_candidates(&conn, now).unwrap_or_default() {
+            let fired = match crate::repo::notifications::fire_milestone(
                 &conn,
                 &uuid::Uuid::new_v4().to_string(),
                 &candidate.milestone_id,
                 &candidate.due_key,
                 &candidate.scheduled_for.to_rfc3339(),
                 &now_utc,
-            )
-            .map_err(|e| e.to_string())?;
+            ) {
+                Ok(fired) => fired,
+                Err(e) => {
+                    crate::note_error(app, &format!("提醒记录失败：{e}"));
+                    continue;
+                }
+            };
             if !fired {
                 continue;
             }
@@ -293,7 +311,17 @@ fn tick(app: &AppHandle) -> Result<(), String> {
 /// once the day is done.
 static BACKED_UP_DAY: Mutex<Option<String>> = Mutex::new(None);
 
-/// Writes today's copy and remembers the day it worked; a failure is retried next tick.
+/// The hour a failed daily copy waits for, and why it failed, so a broken backup
+/// directory is retried once an hour instead of copying the ledger on every tick.
+static BACKUP_FAILED: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+/// Whether this tick should try the daily copy: not after it worked today, and not twice
+/// in the hour a failure happened (the retry is a full copy of the ledger).
+fn backup_due(confirmed: Option<&str>, failed: Option<&str>, today: &str, hour: &str) -> bool {
+    confirmed != Some(today) && failed != Some(hour)
+}
+
+/// Writes today's copy and remembers the day it worked; a failure is retried later.
 fn backup_day(
     conn: &rusqlite::Connection,
     backups: &std::path::Path,
@@ -314,13 +342,19 @@ fn backup_day(
 /// file work at all. The two values say whether this tick wrote a copy (which is also
 /// when cleanup runs) and why it failed, if it did.
 fn backup_ledger(app: &AppHandle) -> (bool, Option<String>) {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    if BACKED_UP_DAY
-        .lock()
-        .map(|day| day.as_deref() == Some(today.as_str()))
-        .unwrap_or(false)
-    {
-        return (false, None);
+    let now = chrono::Local::now();
+    let today = now.format("%Y-%m-%d").to_string();
+    let hour = now.format("%Y-%m-%dT%H").to_string();
+    let confirmed = BACKED_UP_DAY.lock().ok().and_then(|day| day.clone());
+    let failed = BACKUP_FAILED.lock().ok().and_then(|entry| entry.clone());
+    if !backup_due(
+        confirmed.as_deref(),
+        failed.as_ref().map(|(when, _)| when.as_str()),
+        &today,
+        &hour,
+    ) {
+        // While an hour's failure is pending, keep reporting it instead of clearing it.
+        return (false, failed.map(|(_, message)| message));
     }
     let Ok(data_dir) = app.path().app_data_dir() else {
         return (false, Some("no_app_data_dir".into()));
@@ -334,7 +368,15 @@ fn backup_ledger(app: &AppHandle) -> (bool, Option<String>) {
         Err(e) => return (false, Some(e.to_string())),
     };
     let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
-    backup_day(&conn, &data_dir.join("backups"), &BACKED_UP_DAY, &today)
+    let (made, error) = backup_day(&conn, &data_dir.join("backups"), &BACKED_UP_DAY, &today);
+    if let Ok(mut entry) = BACKUP_FAILED.lock() {
+        // The hour is only spent while the failure stands; a success clears the wait.
+        *entry = match &error {
+            Some(message) => Some((hour, message.clone())),
+            None => None,
+        };
+    }
+    (made, error)
 }
 
 #[cfg(test)]
@@ -423,6 +465,19 @@ mod tests {
         assert_eq!(confirmed.lock().unwrap().as_deref(), Some(today.as_str()));
         assert!(dir.join(format!("ordo-{today}.db")).exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_copy_waits_for_the_next_hour() {
+        let today = "2026-11-17";
+        let hour = "2026-11-17T14";
+        assert!(!backup_due(Some(today), None, today, hour), "today is done");
+        assert!(backup_due(Some("2026-11-16"), None, today, hour));
+        assert!(
+            !backup_due(None, Some(hour), today, hour),
+            "one copy attempt per hour while it keeps failing"
+        );
+        assert!(backup_due(None, Some("2026-11-17T13"), today, hour));
     }
 
     #[test]

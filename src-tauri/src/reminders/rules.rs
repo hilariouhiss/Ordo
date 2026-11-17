@@ -4,10 +4,12 @@ use rusqlite::Connection;
 
 pub struct Candidate {
     pub task_id: String,
+    pub title: String,
     pub kind: &'static str,
     pub due_key: String,
     pub scheduled_for: DateTime<Local>,
-    /// Snoozes are not written to `notifications`: the first reminder already counted.
+    /// A first reminder is recorded and counts as unread; a snooze re-fire is recorded as
+    /// already seen (so its slot cannot fire again) but keeps the badge where it was.
     pub record: bool,
 }
 
@@ -42,8 +44,24 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     // A pending snooze owns the task's next reminder; other kinds would double up.
     let snoozed = crate::repo::snoozes::all(conn).map_err(|e| e.to_string())?;
 
+    // What already went out, read once: a task that stays overdue is a candidate on every
+    // tick, and a reminder that fired must neither be re-shown nor re-inserted.
+    let fired: std::collections::HashSet<(String, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT task_id, kind, due_key FROM notifications WHERE task_id IS NOT NULL")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<rusqlite::Result<_>>()
+            .map_err(|e| e.to_string())?
+    };
+    let fired_off = |task_id: &str, kind: &str, due_key: &str| {
+        fired.contains(&(task_id.to_string(), kind.to_string(), due_key.to_string()))
+    };
+
     let sql = format!(
-        "SELECT id, expected_finish_date, expected_finish_time, created_at FROM tasks
+        "SELECT id, title, expected_finish_date, expected_finish_time, created_at FROM tasks
          WHERE expected_finish_date IS NOT NULL AND status <> 'done' AND suspended = 0
            AND waiting = 0 AND {}",
         visible_task_filter("tasks")
@@ -54,13 +72,15 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
-                r.get::<_, Option<String>>(2)?,
-                r.get::<_, String>(3)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, String>(4)?,
             ))
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (task_id, due, expected_finish_time, created_at) = row.map_err(|e| e.to_string())?;
+        let (task_id, title, due, expected_finish_time, created_at) =
+            row.map_err(|e| e.to_string())?;
         let Ok(due_date) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
             continue;
         };
@@ -92,10 +112,14 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         // The advance reminder sits exactly the lead before that deadline; 0 turns it off.
         if lead > 0 && due_date >= today {
             let scheduled = deadline - Duration::minutes(lead);
-            if scheduled <= now && recent(scheduled, now) && created_before_slot(created, scheduled)
+            if scheduled <= now
+                && recent(scheduled, now)
+                && created_before_slot(created, scheduled)
+                && !fired_off(&task_id, "due_tomorrow", &due)
             {
                 out.push(Candidate {
                     task_id: task_id.clone(),
+                    title: title.clone(),
                     kind: "due_tomorrow",
                     due_key: due.clone(),
                     scheduled_for: scheduled,
@@ -109,9 +133,14 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
             Ok(at) => at,
             Err(_) => continue,
         };
-        if due_date < today && overdue_at <= now && recent(overdue_at, now) {
+        if due_date < today
+            && overdue_at <= now
+            && recent(overdue_at, now)
+            && !fired_off(&task_id, "overdue", &due)
+        {
             out.push(Candidate {
                 task_id,
+                title,
                 kind: "overdue",
                 due_key: due,
                 scheduled_for: overdue_at,
@@ -121,24 +150,32 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     }
 
     let sql = format!(
-        "SELECT id, suspended_until FROM tasks
+        "SELECT id, title, suspended_until FROM tasks
          WHERE suspended_until IS NOT NULL AND status <> 'done'
            AND {}",
         visible_task_filter("tasks")
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (task_id, until) = row.map_err(|e| e.to_string())?;
+        let (task_id, title, until) = row.map_err(|e| e.to_string())?;
         let Ok(date) = NaiveDate::parse_from_str(&until, "%Y-%m-%d") else {
             continue;
         };
         let scheduled = local_at(date, 9, 0)?;
-        if scheduled <= now && recent(scheduled, now) {
+        if scheduled <= now && recent(scheduled, now) && !fired_off(&task_id, "suspend_start", &until)
+        {
             out.push(Candidate {
                 task_id,
+                title,
                 kind: "suspend_start",
                 due_key: until,
                 scheduled_for: scheduled,
@@ -150,17 +187,23 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
     // Waiting on someone has its own moment: the day the user picked to chase them,
     // at the same 09:00 a park reviews at. An undated wait has no reminder at all.
     let sql = format!(
-        "SELECT id, follow_up_date FROM tasks
+        "SELECT id, title, follow_up_date FROM tasks
          WHERE waiting = 1 AND status <> 'done' AND follow_up_date IS NOT NULL
            AND {}",
         visible_task_filter("tasks")
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (task_id, follow_up) = row.map_err(|e| e.to_string())?;
+        let (task_id, title, follow_up) = row.map_err(|e| e.to_string())?;
         let Ok(date) = NaiveDate::parse_from_str(&follow_up, "%Y-%m-%d") else {
             continue;
         };
@@ -171,9 +214,13 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         if snoozed.iter().any(|(id, _)| id == &task_id) {
             continue;
         }
-        if scheduled <= now && recent(scheduled, now) {
+        if scheduled <= now
+            && recent(scheduled, now)
+            && !fired_off(&task_id, "follow_up", &follow_up)
+        {
             out.push(Candidate {
                 task_id,
+                title,
                 kind: "follow_up",
                 due_key: follow_up,
                 scheduled_for: scheduled,
@@ -237,8 +284,14 @@ pub fn candidates(conn: &Connection, now: DateTime<Local>) -> Result<Vec<Candida
         if !recent(fire_at, now) {
             continue;
         }
+        let title = conn
+            .query_row("SELECT title FROM tasks WHERE id = ?1", [&task_id], |r| {
+                r.get::<_, String>(0)
+            })
+            .map_err(|e| e.to_string())?;
         out.push(Candidate {
             task_id,
+            title,
             kind,
             due_key,
             scheduled_for: fire_at,
@@ -845,6 +898,41 @@ mod tests {
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].kind, "overdue");
         assert_eq!(cands[0].due_key, "2026-10-20");
+    }
+
+    #[test]
+    fn a_recorded_snooze_keeps_its_slot_quiet() {
+        let c = crate::db::open_in_memory().unwrap();
+        timed_task(&c, "t1", "2026-10-20", "17:30");
+        crate::repo::snoozes::set(
+            &c,
+            "t1",
+            &at(2026, 10, 21, 1, 0)
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339(),
+        )
+        .unwrap();
+        let cands = crate::reminders::rules::candidates(&c, at(2026, 10, 21, 9, 0)).unwrap();
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].kind, "overdue");
+
+        // The tick records the re-fire as seen; the 17:30 overdue slot must not repeat it.
+        crate::repo::notifications::fire_seen(
+            &c,
+            "n1",
+            "t1",
+            cands[0].kind,
+            &cands[0].due_key,
+            &cands[0].scheduled_for.to_rfc3339(),
+            NOW,
+        )
+        .unwrap();
+
+        assert!(
+            crate::reminders::rules::candidates(&c, at(2026, 10, 21, 17, 30))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
